@@ -62,3 +62,12 @@ the quality bar.
 ## Final report (keep it short)
 Page count, figure list, lab files referenced (existing or to-be-created, with a one-line spec
 for each new lab), any new commlib module, any style requests, known weaknesses.
+
+## Reference chapter
+`chapters/ch08.tex` is finished at the target quality/length (44 pp, 20 figures) — read it before
+writing. Box titles: `\begin{worked}[Title]` (the `[title=Title]` form also works now).
+Lab numbering already assigned: 13 line codes/eyes, 14 analog AM/FM, 15 superhet, 16 PCM,
+17 multirate DSP, 18 satellite link, 19 information theory. Ask the coordinator (in your report)
+for new numbers rather than inventing clashing ones; propose `labXX_topic.py` with a spec.
+**Temp files:** always keep drafts/temp files in a folder unique to your chapter
+(e.g. `<scratchpad>/chNN_work/`), never in the shared scratchpad root — parallel authors collided once.

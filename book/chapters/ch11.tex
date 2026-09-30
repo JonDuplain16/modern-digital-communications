@@ -1,0 +1,2022 @@
+\chapter{The Wireless Channel}
+\label{ch:channels}
+
+\begin{chapterintro}
+Everything in the first ten chapters assumed that the channel was kind: a wire, a filter,
+some white noise. The radio channel is not kind. Between a base-station antenna and a phone
+in a pocket, the signal is spread over the sphere, reflected by buildings, bent around
+rooftops, absorbed by walls, bodies, rain and oxygen, and split into dozens of echoes that
+arrive at slightly different times and with slightly different Doppler shifts, adding and
+cancelling as the user walks. This chapter builds the engineering model of that channel
+from the ground up: from Maxwell's equations to the antenna, from the Friis equation to a
+complete link budget, from reflection and diffraction to the ionosphere and the rain cell,
+from Okumura's Tokyo drive tests to the 3GPP models used to design 5G, and from the physics
+of multipath to the statistics---Rayleigh, Rice, Clarke, Bello---that every modem designer
+lives by. It closes by showing how the channel dictates the numbers inside the standards:
+why LTE subcarriers are 15\,kHz apart, why the cyclic prefix is 4.7\,$\mu$s, and why no
+serious wireless system works without diversity.
+\end{chapterintro}
+
+\section{What the channel does to a signal}
+\label{sec:ch11:overview}
+
+A radio link is a transmitter, a receiver, and everything in between. That ``everything''
+is the subject of this chapter, and it is the reason wireless communication is a distinct
+discipline from wireline. A copper pair or an optical fibre is a stable, well-characterised
+filter; you measure it once and design to it. The wireless channel changes when the user
+moves a few centimetres, when a bus drives past, when it rains, when the Sun rises over the
+ionosphere. It is also shared: every transmitter in the band is part of every receiver's
+channel.
+
+Engineers tame this complexity by separating effects that happen on different scales of
+distance and time. Figure~\ref{fig:ch11_scales} shows a simulated drive away from a 2\,GHz
+base station, and in it three distinct behaviours are visible.
+
+\begin{enumerate}
+\item \textbf{Path loss.} The mean received power falls steadily with distance---in free space
+as $d^{-2}$, in a city more like $d^{-3.5}$. This is the \emph{large-scale} trend, varying over
+hundreds of metres to kilometres. It sets the size of a cell.
+\item \textbf{Shadowing.} Around that trend the local mean wanders by several decibels as the
+receiver passes behind buildings, hills and trees. The fluctuation is correlated over tens of
+metres and, measured in decibels, is well described by a Gaussian distribution---hence the
+name \emph{log-normal shadowing}. It sets the \emph{margin} a cell must be designed with.
+\item \textbf{Small-scale (multipath) fading.} Superimposed on both are rapid fluctuations of
+20--40\,dB over distances of a fraction of a wavelength---7.5\,cm at 2\,GHz. These are caused by
+the interference of many echoes, and they are what makes the mobile channel hard: they set the
+error-rate behaviour of the modem, the design of its equalizer, its pilots and its codes.
+\end{enumerate}
+
+\mdcfig{ch11_scales}{The three scales of propagation, simulated at 2\,GHz. (a) Path loss (red)
+falls smoothly with distance; log-normal shadowing (navy, $\sigma=7$\,dB, correlated over
+about 50\,m) wanders around it; multipath fading (grey) adds rapid excursions of tens of
+decibels. (b) A 2\,m stretch at 400\,m: the local mean barely changes, but the received
+power drops by 20--35\,dB at nulls spaced roughly half a wavelength apart.}
+
+Mathematically, all three effects live inside one object. The received complex baseband
+signal is
+\begin{equation}
+y(t)=\int h(\tau,t)\,x(t-\tau)\,d\tau+n(t),
+\label{eq:ch11:ltv}
+\end{equation}
+a \emph{linear time-varying} filter $h(\tau,t)$---the response at time $t$ to an impulse sent
+$\tau$ seconds earlier---plus the noise of Chapter~\ref{ch:noise}. Path loss and shadowing fix
+the average energy of $h$; multipath fixes its structure in delay $\tau$; motion makes it change
+with $t$. The chapter works outward from the simplest case (one path in empty space) to the
+full statistical description of $h(\tau,t)$ in Section~\ref{sec:ch11:wssus}, and then to the
+models that standards bodies use to test real equipment.
+
+\begin{keyidea}[Three scales, three design problems]
+Path loss decides \emph{whether} a link can close and how big a cell can be; it is handled by
+the link budget, antenna gain and transmit power. Shadowing decides \emph{how reliably} it
+closes across a coverage area; it is handled by margin, cell overlap and handover.
+Multipath fading decides \emph{how the modem must be built}; it is handled by equalization,
+OFDM, diversity, interleaving and coding. Keep the three separate in your head and most
+wireless design questions sort themselves into the right box.
+\end{keyidea}
+
+\section{From Maxwell to the antenna}
+\label{sec:ch11:maxwell}
+
+Radio waves are solutions of Maxwell's equations. In a source-free, linear, homogeneous
+medium with permittivity $\epsilon$ and permeability $\mu$, the equations
+\begin{equation}
+\nabla\times\vect{E}=-\mu\frac{\partial\vect{H}}{\partial t},\qquad
+\nabla\times\vect{H}=\epsilon\frac{\partial\vect{E}}{\partial t},\qquad
+\nabla\cdot\vect{E}=0,\qquad\nabla\cdot\vect{H}=0
+\end{equation}
+combine (take the curl of the first and substitute the second) into the wave equation
+$\nabla^2\vect{E}=\mu\epsilon\,\partial^2\vect{E}/\partial t^2$, whose solutions travel at
+$c=1/\sqrt{\mu\epsilon}$. In vacuum this is $299\,792\,458$\,m/s. Maxwell computed it in 1865
+from the measured electric and magnetic constants, noticed that it equalled the speed of
+light, and concluded that light was an electromagnetic wave. Radio is the same wave at a
+lower frequency; the wavelength $\lambda=c/f$ is 300\,m at 1\,MHz, 1\,m at 300\,MHz, 10\,cm at
+3\,GHz and 1\,cm at 30\,GHz.
+
+Waves are launched by accelerating charge. The simplest radiator, a short current element of
+length $\ell\ll\lambda$ carrying current $I$, produces fields with three kinds of term: one
+falling as $1/r^3$ (the quasi-static dipole field), one as $1/r^2$ (the induction field) and
+one as $1/r$. Only the last carries power to infinity. At distances beyond about
+$\lambda/2\pi$ the $1/r$ term dominates, and far enough away---beyond the
+\term{Fraunhofer distance} $2D^2/\lambda$ for an antenna of largest dimension $D$---the field
+is locally a plane wave: $\vect{E}$ and $\vect{H}$ are perpendicular to each other and to the
+direction of travel, in phase, with ratio $|\vect{E}|/|\vect{H}|=\eta_0=\sqrt{\mu_0/\epsilon_0}
+\approx377\,\Omega$, the \emph{impedance of free space}. The power flux density is the
+Poynting vector $S=|\vect{E}|^2/\eta_0$ (RMS field) in W/m$^2$.
+
+That is almost all the electromagnetics a communication engineer needs day to day, plus one
+geometric fact: in the far field of \emph{any} antenna, energy conservation forces the power
+density to fall as $1/r^2$, because the same power crosses spheres of area $4\pi r^2$. The
+amplitude falls as $1/r$, which is why field strength in broadcasting is quoted in dB$\mu$V/m
+and falls 20\,dB per decade of distance in free space. Everything else---the antenna's
+pattern, reflection, diffraction, absorption---modifies this spherical spreading.
+
+\begin{history}[Maxwell, Hertz and the first antenna]
+James Clerk Maxwell published ``A Dynamical Theory of the Electromagnetic Field'' in 1865,
+predicting electromagnetic waves that nobody had seen. Heinrich Hertz generated and detected
+them in Karlsruhe between 1886 and 1888, using a spark gap across a pair of rods---a
+dipole---as the transmitter and a small loop with a microscopic gap as the receiver. He
+worked with wavelengths from tens of centimetres to several metres (frequencies of tens to hundreds of megahertz),
+demonstrated reflection from a zinc sheet, focusing by a parabolic reflector, refraction
+through a prism of pitch and polarisation by a wire grid. In other words, Hertz's laboratory
+already contained the dipole, the dish and the polariser of this chapter. He reportedly saw no
+practical use for his waves; within a decade Marconi, Popov and others were sending
+messages with them.
+\end{history}
+
+\section{Antennas for communication engineers}
+\label{sec:ch11:antennas}
+
+An antenna is a transducer between a guided wave on a transmission line and a free wave in
+space. A communication engineer rarely designs one, but must be fluent in the half-dozen
+numbers that describe it, because they enter the link budget directly.
+
+\subsection{Pattern, directivity and gain}
+
+The \term{radiation pattern} $U(\theta,\phi)$ is the power radiated per unit solid angle in
+each direction. An \emph{isotropic} antenna---a mathematical fiction that radiates equally
+in all directions---would produce $U_0=P_{\text{rad}}/4\pi$. The \term{directivity} is the ratio
+of the maximum radiation intensity to this isotropic average,
+\begin{equation}
+D=\frac{U_{\max}}{P_{\text{rad}}/4\pi}=\frac{4\pi}{\Omega_A},
+\qquad
+\Omega_A=\iint\frac{U(\theta,\phi)}{U_{\max}}\,d\Omega ,
+\end{equation}
+where $\Omega_A$ is the \emph{beam solid angle}: the solid angle into which all the power would
+go if the intensity were uniform at its peak value. A narrow beam means a small $\Omega_A$ and
+a large directivity. For a pencil beam with half-power beamwidths $\theta_E$ and $\theta_H$
+in degrees in the two principal planes, a useful approximation is
+$D\approx 41\,253/(\theta_E\theta_H)$ (the number is the solid angle of a sphere, $4\pi$
+steradians, in square degrees); practical antennas with sidelobes achieve closer to
+$30\,000/(\theta_E\theta_H)$.
+
+\term{Gain} includes losses: $G=e_{\text{rad}}D$, where the radiation efficiency $e_{\text{rad}}$
+accounts for ohmic loss in conductors and dielectrics. Gain is what the link budget uses,
+expressed in dBi (decibels relative to isotropic). A second reference, the half-wave dipole,
+gives dBd; since a dipole has 2.15\,dBi, $G_{\text{dBi}}=G_{\text{dBd}}+2.15$. Antenna gain
+does not create power---an antenna is passive---it redistributes it: what one direction
+gains, others lose.
+
+\subsection{Effective aperture}
+
+A receiving antenna presents an \term{effective aperture} $A_e$: the area which, multiplied by
+the incident power density, gives the power delivered to a matched load. The fundamental
+relation between the transmitting property (gain) and the receiving property (aperture) is
+\begin{equation}
+A_e=\frac{\lambda^2}{4\pi}\,G .
+\label{eq:ch11:aperture}
+\end{equation}
+It follows from reciprocity together with a thermodynamic argument: an antenna in a
+black-body enclosure at temperature $T$, connected to a resistor at the same temperature,
+must absorb from the radiation exactly as much power ($kTB$) as the resistor sends out
+through the antenna; otherwise heat would flow between two bodies at the same temperature.
+Working that through for any antenna gives $A_e/G=\lambda^2/4\pi$, the effective aperture of
+an isotropic antenna. For physical apertures---horns, dishes, flat panels---the effective
+aperture is a fraction $\eta$ (the \emph{aperture efficiency}, typically 0.5--0.75 for dishes)
+of the physical area, so a dish of diameter $D$ has
+\begin{equation}
+G=\eta\left(\frac{\pi D}{\lambda}\right)^2,\qquad
+\theta_{3\,\mathrm{dB}}\approx 70\,\frac{\lambda}{D}\ \text{degrees}.
+\label{eq:ch11:dish}
+\end{equation}
+Gain grows with the square of the diameter measured in wavelengths, and the beamwidth
+shrinks in proportion to $\lambda/D$ (Figure~\ref{fig:ch11_antennas}c).
+
+\begin{worked}[A satellite TV dish]
+A 60\,cm offset dish receives Ku-band broadcast at 12\,GHz ($\lambda=2.5$\,cm) with aperture
+efficiency 0.65. Its gain is $0.65\,(\pi\times0.6/0.025)^2=0.65\times5685\approx3700$, or
+35.7\,dBi, and its beamwidth is about $70\times0.025/0.6\approx2.9^\circ$. That is narrow enough
+to discriminate between geostationary satellites spaced $2^\circ$ apart only with the help of
+the sidelobe envelope, which is why regulators constrain both satellite spacing and small-dish
+patterns. The same dish at 1.2\,GHz would have 20\,dB less gain and a $29^\circ$ beam: useless
+for picking one satellite out of the arc.
+\end{worked}
+
+\subsection{Polarization}
+
+The direction of the electric field defines the \term{polarization}. A vertical dipole
+radiates vertical linear polarization; two orthogonal dipoles driven $90^\circ$ apart radiate
+circular polarization, in which the field vector rotates once per cycle. If the receive
+antenna's polarization is not matched to the incoming wave, only the projection is received:
+the \emph{polarization loss factor} for linear polarizations at angle $\psi$ is
+$\cos^2\psi$---3\,dB at $45^\circ$ and, in theory, infinite at $90^\circ$ (in practice 20--30\,dB,
+limited by imperfections and depolarising scatter). Linear-to-circular always costs 3\,dB.
+
+Engineers exploit polarization in three ways. First, orthogonal polarizations are two nearly
+independent channels: satellite systems reuse every frequency twice on H and V (or left- and
+right-hand circular), and microwave backhaul links carry two data streams on one frequency
+with cross-polarization interference cancellation. Second, circular polarization is immune to
+the Faraday rotation that the ionosphere imposes on linearly polarized waves, which is why GPS
+and most satellite links below 10\,GHz use it. Third, cellular base stations use
+\emph{$\pm45^\circ$ cross-polarized} antennas: in a cluttered environment the two polarizations
+fade nearly independently, giving diversity (Section~\ref{sec:ch11:ber}) without a second
+antenna location.
+
+\subsection{EIRP and ERP}
+
+Regulators care about what leaves the antenna in its strongest direction. The
+\term{effective isotropic radiated power} is
+\begin{equation}
+\mathrm{EIRP}=P_tG_t\quad\text{(in dB: }P_t\,[\mathrm{dBm}]+G_t\,[\mathrm{dBi}]-L_{\text{feed}}\text{)},
+\end{equation}
+the power an isotropic radiator would need to produce the same peak power density. Broadcast
+and land-mobile rules often use the \emph{effective radiated power} ERP relative to a dipole,
+so $\mathrm{ERP}=\mathrm{EIRP}-2.15$\,dB. Wi-Fi limits, satellite footprints and cellular licences
+are all written in EIRP or ERP, not in transmitter power, which is why a higher-gain antenna
+usually requires a lower transmitter power.
+
+\subsection{A field guide to antennas}
+
+\begin{description}[style=unboxed,leftmargin=0pt]
+\item[The half-wave dipole.] Two quarter-wave arms fed in the centre: 2.15\,dBi gain, a doughnut
+pattern with nulls along the axis (Figure~\ref{fig:ch11_antennas}a), input resistance about
+73\,$\Omega$. A \emph{monopole} over a ground plane is half a dipole, with 36\,$\Omega$ and
+twice the peak gain in its half-space. Broadcast towers, car roofs and handheld radios use it.
+\item[The Yagi--Uda array.] A driven dipole with a reflector behind and several directors in
+front, invented in Japan in 1926; 7--15\,dBi, the rooftop TV antenna.
+\item[The patch.] A rectangle of metal about $\lambda/2$ long over a ground plane on a circuit
+board: cheap, flat, 6--9\,dBi, narrow bandwidth. It is the building block of GPS antennas,
+Wi-Fi access points and phased arrays.
+\item[The horn.] A flared waveguide: 10--25\,dBi, very wide bandwidth, precisely calculable
+gain. Horns feed dishes and serve as gain standards in measurements.
+\item[The parabolic dish.] A reflector that turns a spherical wave from its focus into a plane
+wave: 30--75\,dBi. Satellite ground stations, microwave backhaul and deep space.
+\item[The phased array.] $N$ elements whose signals are combined with controlled phases. The
+pattern is the element pattern times the \emph{array factor}; for a uniform linear array with
+spacing $d$ and progressive phase shift chosen to steer to angle $\theta_0$,
+\begin{equation}
+\mathrm{AF}(\theta)=\frac{\sin(N\psi/2)}{N\sin(\psi/2)},\qquad
+\psi=\frac{2\pi d}{\lambda}(\sin\theta-\sin\theta_0).
+\end{equation}
+The peak gain grows as $N$ (10\,dB for 10 elements); the beam can be moved electronically in
+microseconds; and spacing must be at most $\lambda/2$ to avoid \emph{grating lobes}---copies
+of the main beam in unwanted directions (Figure~\ref{fig:ch11_antennas}b). Phased arrays are
+the heart of 5G millimetre-wave handsets and base stations, of Starlink user terminals and of
+modern radar. Chapter~\ref{ch:mimo} develops them fully.
+\end{description}
+
+\mdcfig{ch11_antennas}{(a) Elevation pattern of a short (Hertzian) dipole and a half-wave
+dipole: both radiate a doughnut with nulls along the wire; the half-wave dipole's beam is
+slightly narrower (2.15\,dBi versus 1.76\,dBi). (b) Array factor of an 8-element,
+half-wavelength-spaced linear array, at broadside and steered electronically to $30^\circ$;
+the beam broadens when steered. (c) Gain of a parabolic dish with 60\% efficiency versus
+frequency for three diameters: a 60\,cm satellite TV dish, Voyager's 3.7\,m antenna and a
+70\,m Deep Space Network dish.}
+
+\begin{inpractice}[The cellular sector antenna and the handset antenna]
+A typical macro-cell site has three sectors, each served by a panel about 1.3--2\,m tall
+containing a vertical column of cross-polarized patch or dipole elements. The column gives a
+narrow elevation beam (about $6$--$8^\circ$), the element width a horizontal half-power
+beamwidth of about $65^\circ$, and the combination a gain of roughly 15--18\,dBi. The beam is
+tilted a few degrees below the horizon---mechanically or, more usually now, by a remotely
+adjustable electrical downtilt---to put the strongest signal inside the cell and less into
+neighbours; tilt is one of the most powerful optimisation knobs an operator has. The handset
+is the opposite extreme: several antennas squeezed into the edges of a metal frame, each
+serving several bands, with total efficiencies often 3--6\,dB below ideal in free space and
+worse when held against a head or in a hand. Link budgets therefore carry a \emph{body loss}
+term of a few decibels, and 3GPP specifies over-the-air performance (total radiated power and
+total isotropic sensitivity) rather than conducted numbers for many device tests.
+\end{inpractice}
+
+\section{Free space and the Friis equation}
+\label{sec:ch11:friis}
+
+\subsection{Derivation}
+
+Put an isotropic transmitter radiating $P_t$ at the centre of a sphere of radius $d$. The power
+density on the sphere is $P_t/4\pi d^2$. A transmit antenna of gain $G_t$ multiplies it by
+$G_t$ in the direction of its peak, and a receive antenna of effective aperture $A_r$ collects
+\begin{equation}
+P_r=\frac{P_tG_t}{4\pi d^2}\,A_r=P_tG_tG_r\left(\frac{\lambda}{4\pi d}\right)^2,
+\label{eq:ch11:friis}
+\end{equation}
+where the second form used Equation~\eqref{eq:ch11:aperture}. This is the Friis transmission
+equation (Harald Friis, Bell Labs, 1946), already met as Equation~\eqref{eq:ch03:friistx}. The
+factor $(4\pi d/\lambda)^2$ is the \term{free-space path loss}; in engineering units,
+\begin{equation}
+L_{\text{fs}}\,[\mathrm{dB}]=32.45+20\log_{10}f_{\mathrm{MHz}}+20\log_{10}d_{\mathrm{km}}
+=92.45+20\log_{10}f_{\mathrm{GHz}}+20\log_{10}d_{\mathrm{km}} .
+\label{eq:ch11:fspl}
+\end{equation}
+At 2\,GHz and 1\,km it is 98.5\,dB; at 28\,GHz, 121.4\,dB. Every doubling of distance
+costs 6\,dB; every decade, 20\,dB. The equation is valid in the far field of both antennas, with
+matched polarizations and impedances and nothing in the way---conditions that point-to-point
+microwave and satellite links approach, and that a phone in a street almost never does.
+
+\subsection{Does path loss really grow with frequency?}
+
+The frequency term in Equation~\eqref{eq:ch11:fspl} is the source of one of the most
+persistent misconceptions in radio: ``high frequencies do not travel as far.'' In free space,
+the wave does not know its frequency; the power density at distance $d$ is $P_tG_t/4\pi d^2$
+at any frequency. What grows with frequency is the loss between \emph{fixed-gain} antennas,
+because a fixed-gain antenna has an effective aperture $\lambda^2G/4\pi$ that shrinks as
+$1/f^2$. An isotropic antenna at 900\,MHz has an effective area of 88\,cm$^2$, the size of a
+playing card; at 28\,GHz it is 0.09\,cm$^2$, smaller than a lentil
+(Figure~\ref{fig:ch11_aperture}b). The receiving antenna simply catches less of the wave.
+
+Now hold the \emph{area} fixed instead. A receive aperture of fixed size has a gain that grows
+as $f^2$ and exactly cancels the $1/f^2$; make \emph{both} apertures fixed and the received power
+\emph{rises} as $f^2$:
+\begin{equation}
+P_r=P_t\frac{A_tA_r}{\lambda^2d^2}.
+\end{equation}
+Figure~\ref{fig:ch11_aperture}a shows the three cases for a 10\,km link. The lesson is not that
+path loss is an illusion; it is that the high-frequency penalty is an \emph{antenna} penalty,
+and it can be paid back with directive antennas---which is precisely the design philosophy of
+millimetre-wave 5G: a 28\,GHz handset uses small phased arrays whose total aperture is similar
+to that of a single low-band antenna, at the price of having to point its beams. What directive
+antennas cannot fix are the propagation effects that genuinely do get worse with frequency:
+penetration losses through walls and bodies, diffraction around obstacles, foliage and rain,
+all of which we meet below.
+
+\mdcfig{ch11_aperture}{(a) Received power over a 10\,km free-space link with 1\,W transmitted:
+between isotropic antennas it falls 20\,dB per decade of frequency; with a fixed 0.5\,m$^2$
+aperture at one end it is independent of frequency; with fixed apertures at both ends it
+rises 20\,dB per decade. (b) The effective area of an isotropic antenna, $\lambda^2/4\pi$: this
+shrinking ``catching area'' is the whole origin of the frequency term in the Friis equation.}
+
+\begin{pitfall}[Friis in the near field]
+The Friis equation assumes the far field. Inside the Fraunhofer distance $2D^2/\lambda$ it can
+badly overestimate the received power---it even predicts $P_r>P_t$ for small enough $d$. For a
+1.2\,m dish at 30\,GHz the far field begins about 290\,m away; a 64-element 28\,GHz panel 15\,cm
+across has a far field beyond 4\,m. Short-range measurements, antenna calibration, and indoor
+massive-array systems must account for this; ``near-field beamforming'' for very large arrays is
+an active research topic for 6G.
+\end{pitfall}
+
+\section{The link budget}
+\label{sec:ch11:linkbudget}
+
+Chapter~\ref{ch:noise} introduced the link budget as a waterfall of gains and losses. Here we
+turn it into a design method and apply it to two systems. The method is the same whether the
+link is a smartwatch or a spacecraft.
+
+\subsection{Methodology}
+
+Start from the receiver and work out what it needs:
+\begin{equation}
+P_{\text{sens}}\,[\mathrm{dBm}]=-174+10\log_{10}B+\mathrm{NF}+\mathrm{SNR}_{\text{req}},
+\label{eq:ch11:sens}
+\end{equation}
+the \term{receiver sensitivity}: thermal noise density (Equation~\eqref{eq:ch03:ktb}) plus the
+noise bandwidth, the noise figure and the SNR at which the modem meets its error-rate target.
+Then work out what arrives: EIRP minus path loss plus receive gain minus miscellaneous
+losses. Finally, subtract \emph{margins} for everything that is statistical: shadowing,
+fading not already included in $\mathrm{SNR}_{\text{req}}$, interference (the rise of the noise
+floor due to other users), building and vehicle penetration, body loss. The quantity that
+balances the budget is the \term{maximum allowable path loss} (MAPL):
+\begin{equation}
+\mathrm{MAPL}=\mathrm{EIRP}+G_r-L_r-P_{\text{sens}}-M_{\text{shadow}}-M_{\text{interf}}
+-L_{\text{pen}}-L_{\text{body}}.
+\end{equation}
+Feed the MAPL into a propagation model (Section~\ref{sec:ch11:models}) and out comes the cell
+radius. Since cost scales with the number of sites, and the number of sites needed to cover
+an area scales as $1/R^2$, every decibel of MAPL is worth money: with a path-loss exponent of
+3.5, one decibel is about 7\% in range and about 14\% in the number of sites.
+
+\begin{pitfall}[Double counting and missing terms]
+The two classic link-budget errors are counting fading twice (once in a fade margin and once
+in an $\mathrm{SNR}_{\text{req}}$ taken from a fading-channel simulation) and forgetting the
+uplink. Base stations transmit tens of watts through high-gain antennas; phones transmit
+200\,mW through lossy ones. In nearly every cellular system the \emph{uplink} limits coverage,
+and it is the uplink budget that should be drawn first.
+\end{pitfall}
+
+\subsection{A cellular example}
+
+Table~\ref{tab:ch11:lte} works a representative LTE uplink budget at 1.8\,GHz for a low-rate
+data or voice service using two resource blocks (360\,kHz). The numbers are typical, not taken
+from any particular vendor, and the required SINR of $-4$\,dB assumes QPSK with a low code rate
+and two-branch receive diversity at the base station (the diversity gain is inside that
+figure, so no separate fast-fading margin is added). The shadowing margin comes from
+Section~\ref{sec:ch11:shadowing}: with $\sigma=8$\,dB and a path-loss exponent of 3.5, 95\%
+coverage of the cell \emph{area} requires 86\% coverage at the cell \emph{edge}, or an 8.7\,dB margin.
+
+\begin{table}[htbp]\centering\small
+\caption{Illustrative LTE uplink link budget at 1.8\,GHz (two resource blocks, indoor user).}
+\label{tab:ch11:lte}
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Item & Value & Note \\
+\midrule
+UE transmit power & 23.0\,dBm & power class 3 (200\,mW)\\
+UE antenna gain $-$ body loss & $-3.0$\,dB & 0\,dBi, 3\,dB body loss\\
+\textbf{EIRP} & \textbf{20.0\,dBm} & \\
+\addlinespace
+Thermal noise in 360\,kHz & $-118.4$\,dBm & $-174+10\log_{10}(360\times10^3)$\\
+Base station noise figure & 2.0\,dB & \\
+Required SINR & $-4.0$\,dB & QPSK, low rate, 2-branch Rx diversity\\
+\textbf{Receiver sensitivity} & $\mathbf{-120.4}$\,\textbf{dBm} & Equation~\eqref{eq:ch11:sens}\\
+\addlinespace
+Base station antenna gain & 18.0\,dBi & 3-sector panel\\
+Feeder and connector loss & 2.0\,dB & \\
+Interference margin & 2.0\,dB & noise rise from other cells\\
+Shadowing margin & 8.7\,dB & $\sigma=8$\,dB, 95\% area coverage\\
+Building penetration loss & 15.0\,dB & typical urban building\\
+\midrule
+\textbf{Maximum allowable path loss} & \textbf{130.7\,dB} & \\
+Cell radius (COST-231 Hata, $h_b=30$\,m) & 0.70\,km & medium city, Section~\ref{sec:ch11:models}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A 700\,m radius for indoor coverage is typical of urban macro-cells at 1.8\,GHz, and the budget
+tells us which knobs would enlarge it. Removing the 15\,dB building loss (outdoor users only)
+would allow a radius of $0.70\times10^{15/35.2}\approx1.9$\,km. A tower-mounted amplifier would
+recover most of the 2\,dB feeder loss. Four-branch receive diversity would lower the required
+SINR by roughly 2--3\,dB. Moving the same service to 3.5\,GHz would cost about 6\,dB of free-space
+aperture, several more decibels of penetration loss and roughly 3\,dB of propagation loss in
+clutter---which is why operators deploying 3.5\,GHz 5G use 32- and 64-element massive-MIMO panels
+to buy the difference back with beamforming gain (Chapter~\ref{ch:mimo}).
+
+\subsection{A Wi-Fi example}
+
+Indoor Wi-Fi is budgeted the same way, but the output is a map of \emph{data rate} rather than
+a single range, because the link adapts its modulation and coding (MCS) to the SNR. Take an
+802.11ac access point with 20\,dBm conducted power and a 3\,dBi antenna, a laptop with a 0\,dBi
+antenna and a 6\,dB noise figure, an 80\,MHz channel at 5.5\,GHz, and a 5\,dB margin. The noise floor
+is $-174+79+6=-89$\,dBm. Using the 3GPP indoor-office non-line-of-sight model from
+Table~\ref{tab:ch11:38901} as a stand-in for a typical office with interior walls, and approximate
+required SNRs for four MCS values, the budget gives:
+
+\begin{center}\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+MCS (single stream, 80\,MHz) & SNR req. (approx.) & Sensitivity & MAPL & Range (InH NLOS)\\
+\midrule
+0: BPSK, $R=1/2$ & 4\,dB & $-85$\,dBm & 103\,dB & 57\,m \\
+4: 16-QAM, $R=3/4$ & 17\,dB & $-72$\,dBm & 90\,dB & 26\,m \\
+7: 64-QAM, $R=5/6$ & 25\,dB & $-64$\,dBm & 82\,dB & 16\,m \\
+9: 256-QAM, $R=5/6$ & 31\,dB & $-58$\,dBm & 76\,dB & 11\,m \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The top rate needs the client within a room or two of the access point; the lowest rate reaches
+through most of a floor. In line of sight the ranges would be many times longer (the 3GPP
+indoor LOS exponent is only 1.73), which is why a single access point in an open-plan hall can
+serve the whole space at high rates while the same AP in a building of brick partitions cannot.
+This is also why enterprise Wi-Fi is designed for \emph{capacity}---many access points at low
+power, each covering a small area at high MCS---rather than for range.
+
+\begin{inpractice}[Measuring your own link budget]
+Most radios report their received power and SNR. A phone's engineering menu shows LTE RSRP
+(reference-signal received power per 15\,kHz subcarrier, typically $-70$\,dBm near a site to
+$-120$\,dBm at the edge) and SINR; a Wi-Fi driver reports RSSI; a GNSS receiver reports
+$C/N_0$. With the USRP B200 and the spectrum-capture flowgraph
+\texttt{gnuradio/gr01\_spectrum\_iq\_capture.py}, you can measure the power of a known
+broadcast transmitter, look up its licensed ERP and position, and compare the measured path
+loss with free space and with the Hata model. Expect differences of 10--30\,dB; they are the
+subject of the rest of this chapter.
+\end{inpractice}
+
+\section{Propagation mechanisms}
+\label{sec:ch11:mechanisms}
+
+Free space is the exception. In real environments the wave meets objects, and three
+mechanisms describe nearly everything that happens next (Figure~\ref{fig:ch11_mechanisms}).
+\emph{Reflection} occurs at surfaces large compared with the wavelength: the ground, walls,
+the sea. \emph{Diffraction} bends waves around edges---rooftops, hilltops, building
+corners---into regions that geometrical optics says should be dark. \emph{Scattering} redirects
+energy in many directions from objects comparable to or smaller than the wavelength, or from
+rough surfaces: lamp posts, foliage, street furniture, the facets of a stone wall. A signal
+received in a city street is almost always a sum of contributions that have been through
+several of these, often in sequence.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=1cm,y=1cm,>=Stealth,font=\sffamily\scriptsize]
+  % ground
+  \fill[navy!8] (-0.6,-0.25) rectangle (12.4,0);
+  \draw[navy!60,thick] (-0.6,0) -- (12.4,0);
+  % base station tower
+  \draw[navy,very thick] (0.4,0) -- (0.4,3.6);
+  \fill[navy] (0.28,3.4) rectangle (0.52,3.9);
+  \node[navy,above] at (0.4,3.9) {BS};
+  % buildings
+  \fill[navy!25] (3.2,0) rectangle (4.6,2.6);
+  \fill[navy!25] (7.4,0) rectangle (8.4,3.1);
+  \fill[navy!25] (5.4,0) rectangle (6.2,1.4);
+  \fill[navy!25] (11.0,0) rectangle (12.2,2.2);
+  % mobile
+  \fill[accent] (9.6,0.05) rectangle (10.1,0.35);
+  \node[accent,below] at (9.85,-0.25) {UE};
+  % diffraction over rooftop
+  \draw[->,practc,thick] (0.52,3.6) -- (4.6,2.6);
+  \draw[->,practc,thick,dashed] (4.6,2.6) .. controls (5.3,2.2) and (7.2,1.2) .. (9.6,0.3);
+  \node[practc,above right] at (4.6,2.6) {diffraction};
+  % reflection from far building
+  \draw[->,accent,thick] (0.52,3.55) -- (11.0,1.9);
+  \draw[->,accent,thick] (11.0,1.9) -- (10.1,0.3);
+  \node[accent,right,align=left] at (10.2,2.9) {reflection};
+  \draw[accent,thin] (11.0,1.9) -- (10.6,2.7);
+  % ground reflection
+  \draw[->,histc,thick] (0.52,3.45) -- (2.6,0.0);
+  \draw[->,histc,thick] (2.6,0.0) -- (3.2,0.9);
+  \node[histc,below] at (2.6,-0.02) {ground reflection};
+  % scattering from lamp post
+  \draw[gray,thick] (8.9,0) -- (8.9,1.2); \fill[gray] (8.9,1.2) circle (0.08);
+  \draw[->,keyc,thick] (0.52,3.5) -- (8.85,1.25);
+  \foreach \a in {200,230,260,300,330}{\draw[->,keyc] (8.9,1.2) -- ++(\a:0.55);}
+  \node[keyc,above] at (8.9,1.35) {scattering};
+  % penetration
+  \draw[->,purple!70!black,thick] (0.52,3.4) -- (5.4,1.2);
+  \draw[->,purple!70!black,thick,dotted] (5.4,1.2) -- (6.2,0.95);
+  \node[purple!70!black,below] at (5.8,0.9) {penetration};
+\end{tikzpicture}
+\caption{The propagation mechanisms of an urban cell. The base-station signal reaches the user by
+diffraction over rooftops, reflection from buildings and the ground, scattering from small
+objects and transmission through walls, each with its own delay, angle and attenuation. The sum
+of these paths is the multipath channel of Section~\ref{sec:ch11:multipath}.}
+\label{fig:ch11_mechanisms}
+\end{figure}
+
+\subsection{Reflection and transmission}
+
+When a plane wave hits a smooth boundary between two media, part is reflected at the mirror
+angle and part is transmitted (refracted, per Snell's law). The complex reflection coefficient
+depends on the angle, the polarization and the complex relative permittivity
+$\epsilon_r-j60\sigma\lambda$ of the second medium (where $\sigma$ is its conductivity in S/m).
+For a wave arriving at grazing angle $\psi$ from air, the \emph{Fresnel reflection coefficients}
+are
+\begin{equation}
+\Gamma_\parallel=\frac{\epsilon_r\sin\psi-\sqrt{\epsilon_r-\cos^2\psi}}{\epsilon_r\sin\psi+\sqrt{\epsilon_r-\cos^2\psi}},
+\qquad
+\Gamma_\perp=\frac{\sin\psi-\sqrt{\epsilon_r-\cos^2\psi}}{\sin\psi+\sqrt{\epsilon_r-\cos^2\psi}},
+\label{eq:ch11:fresnelrefl}
+\end{equation}
+for the electric field in and perpendicular to the plane of incidence (vertical and horizontal
+polarization over flat ground). Two facts matter most. At \emph{grazing} incidence
+($\psi\to0$) both coefficients approach $-1$ for any ground: the reflected wave has almost full
+strength and is inverted. That is the basis of the two-ray model below. And for vertical
+polarization there is an angle---the \emph{Brewster angle}---at which $|\Gamma_\parallel|$ has a
+deep minimum, so vertically polarized waves reflect more weakly from the ground at moderate
+angles than horizontally polarized ones.
+
+Typical building materials at a few gigahertz have $\epsilon_r$ between about 2 (wood) and 7
+(concrete); their conductivity grows with frequency, so the transmitted part is attenuated
+more strongly at higher frequencies. Modern energy-efficient windows carry a thin metallic
+coating that reflects infrared heat---and, unfortunately, radio waves: an infrared-reflecting
+(IRR) glass pane can attenuate a cellular signal by 25--40\,dB, which is one reason indoor
+coverage from outdoor cells has become harder (Section~\ref{sec:ch11:models}).
+
+\subsection{Diffraction and Fresnel zones}
+
+Why does a hill not cast a perfectly sharp radio shadow? Huygens' principle says that every
+point on a wavefront acts as a source of secondary wavelets. The field at a receiver is the sum
+of wavelets from the whole wavefront, and those that arrive in phase are concentrated in a set
+of nested ellipsoids around the direct ray: the \term{Fresnel zones}. The $n$th zone is the
+region where the path via a point exceeds the direct path by between $(n-1)\lambda/2$ and
+$n\lambda/2$. At distance $d_1$ from the transmitter and $d_2$ from the receiver, its radius is
+\begin{equation}
+r_n=\sqrt{\frac{n\lambda d_1d_2}{d_1+d_2}} .
+\label{eq:ch11:fresnel}
+\end{equation}
+Contributions from successive zones alternate in sign and roughly cancel in pairs, so most of the
+energy effectively flows through the \emph{first} Fresnel zone. If that zone is clear of
+obstacles, the link behaves as in free space; if an obstacle intrudes into it, the received
+power drops even though the direct line of sight is unbroken.
+
+The canonical model is the \term{knife-edge}: a single sharp, perfectly absorbing screen
+extending from infinity up to a height $h$ above the direct line (negative $h$ if it stays below).
+It is characterised by the dimensionless \emph{Fresnel--Kirchhoff parameter}
+\begin{equation}
+\nu=h\sqrt{\frac{2(d_1+d_2)}{\lambda d_1d_2}}=\sqrt2\,\frac{h}{r_1},
+\end{equation}
+and the diffracted field relative to free space is a Fresnel integral,
+\begin{equation}
+\frac{E}{E_0}=\frac{1+j}{2}\int_\nu^\infty e^{-j\pi t^2/2}\,dt .
+\end{equation}
+Figure~\ref{fig:ch11_knife_edge} plots the result. When the edge just grazes the line of sight
+($\nu=0$) exactly half the wavefront is blocked and the loss is 6\,dB. Deep in the shadow the
+loss grows as about $20\log_{10}\nu+13$\,dB. With the edge below the line ($\nu<0$) the field
+oscillates by about $\pm1$\,dB around free space as successive Fresnel zones are uncovered. ITU-R
+Recommendation P.526 gives the convenient approximation
+$J(\nu)=6.9+20\log_{10}\bigl(\sqrt{(\nu-0.1)^2+1}+\nu-0.1\bigr)$\,dB for $\nu>-0.78$, which is
+indistinguishable from the exact curve at the scale of the figure.
+
+\mdcfig{ch11_knife_edge}{(a) Knife-edge geometry: an obstacle protrudes a height $h$ into the
+first Fresnel zone of a link. (b) Diffraction gain relative to free space as a function of
+$\nu=\sqrt2\,h/r_1$, computed from the Fresnel integrals and from the ITU-R P.526
+approximation. Grazing incidence costs 6\,dB; one Fresnel-zone radius of obstruction
+($\nu\approx1.4$) costs about 16\,dB.}
+
+Because $\nu$ scales as $1/\sqrt\lambda$, the same obstacle produces more loss at higher
+frequencies: diffraction is how low frequencies ``bend around'' hills and buildings and why
+sub-GHz bands are prized for rural and indoor coverage. Real terrain has several edges; ITU-R
+P.526 gives methods (Bullington, Deygout, Epstein--Peterson) that combine them, and rounded
+obstacles cause more loss than sharp ones.
+
+\begin{worked}[Clearance for a microwave backhaul link]
+A 30\,km point-to-point link operates at 6\,GHz ($\lambda=5$\,cm). At mid-path the first Fresnel
+zone radius is $r_1=\sqrt{0.05\times15\,000\times15\,000/30\,000}=19.4$\,m. The Earth's curvature
+also raises the midpoint of the ground towards the beam by $d_1d_2/(2kR_e)$, where $R_e=6371$\,km
+and $k\approx4/3$ accounts for standard atmospheric refraction (Section~\ref{sec:ch11:beyond}):
+$15\,000^2/(2\times8.49\times10^6)\approx13.2$\,m. A common planning rule asks for at least 60\% of
+$r_1$ clearance (about 11.6\,m) above every obstacle for $k=4/3$, and grazing clearance under the
+sub-refractive conditions of a pessimistic $k$ (for example $k=2/3$, which doubles the bulge). If
+there is a 20\,m tree line at mid-path, the antennas must be at least $13.2+20+11.6\approx45$\,m
+high above local ground at each end on flat terrain---which is why microwave towers are tall, and
+why path profiles are drawn on paper with an exaggerated, $k$-dependent Earth curve. If the
+tree line instead reaches exactly to the direct ray ($\nu=0$), the link loses 6\,dB of its fade
+margin before any rain or multipath has occurred.
+\end{worked}
+
+\subsection{Scattering and rough surfaces}
+
+A surface counts as smooth if its height irregularities are small enough that rays reflected
+from its peaks and troughs stay roughly in phase. The \emph{Rayleigh criterion} puts the limit
+at a height variation of about $h_c=\lambda/(8\sin\psi)$ for grazing angle $\psi$. Rougher
+surfaces reflect less coherently and scatter more diffusely. At 900\,MHz a brick wall is smooth;
+at 60\,GHz ($\lambda=5$\,mm) its texture is rough, and the reflection becomes a diffuse glow.
+Scattering from small objects is weak individually, but a street full of lamp posts, signs,
+cars and foliage produces a large number of weak paths---exactly the ingredients of the
+Rayleigh fading model of Section~\ref{sec:ch11:distributions}.
+
+\section{The two-ray ground-reflection model}
+\label{sec:ch11:tworay}
+
+The simplest non-trivial channel has two paths: the direct ray and one reflection from flat
+ground. With antenna heights $h_t$ and $h_r$ and horizontal separation $d$, the path lengths are
+$d_{\text{los}}=\sqrt{d^2+(h_t-h_r)^2}$ and $d_{\text{ref}}=\sqrt{d^2+(h_t+h_r)^2}$, and the
+received field is
+\begin{equation}
+E\propto\frac{e^{-jkd_{\text{los}}}}{d_{\text{los}}}+\Gamma\,\frac{e^{-jkd_{\text{ref}}}}{d_{\text{ref}}},
+\qquad k=\frac{2\pi}{\lambda}.
+\end{equation}
+For $d\gg h_t,h_r$ the path difference is $\Delta\approx2h_th_r/d$, the grazing angle is small so
+$\Gamma\approx-1$, and the two amplitudes are nearly equal. Then
+$|E|\propto\frac{1}{d}\,|1-e^{-jk\Delta}|=\frac{2}{d}\,|\sin(k\Delta/2)|$, so
+\begin{equation}
+P_r=P_tG_tG_r\left(\frac{\lambda}{4\pi d}\right)^2 4\sin^2\!\left(\frac{2\pi h_th_r}{\lambda d}\right)
+\;\xrightarrow{\;d\gg4\pi h_th_r/\lambda\;}\;
+P_tG_tG_r\frac{h_t^2h_r^2}{d^4}.
+\label{eq:ch11:tworay}
+\end{equation}
+Three regimes appear in Figure~\ref{fig:ch11_two_ray}. Close in, the direct path dominates and
+the power follows free space with deep interference nulls wherever the path difference is a
+whole number of wavelengths. The last maximum occurs at $d=4h_th_r/\lambda$, where the two
+rays are exactly in phase. Beyond the \emph{crossover} distance $4\pi h_th_r/\lambda$ the
+received power falls as $d^{-4}$---40\,dB per decade---and, remarkably, becomes
+\emph{independent of frequency}: the $\lambda^2$ in the free-space factor is cancelled by the
+$1/\lambda^2$ of the small-angle sine.
+
+\mdcfig{ch11_two_ray}{Two-ray ground reflection at 900\,MHz with a 30\,m base-station antenna and
+a 1.5\,m mobile. Close in, the two rays interfere and produce deep nulls around the free-space
+line; beyond the last maximum at $4h_th_r/\lambda$ the rays cancel increasingly well and the power
+falls as $d^{-4}$, meeting the asymptote $h_th_r/d^2$ (in field) beyond the crossover
+$4\pi h_th_r/\lambda$. Horizontal and vertical polarization differ only at short range, where the
+grazing angle is not small.}
+
+The $d^{-4}$ law has two lasting consequences. The factor $h_t^2h_r^2$ says that doubling an
+antenna height buys 6\,dB---the \emph{height gain} that makes tall towers worthwhile. And the idea
+of a \emph{breakpoint}, a distance beyond which the path-loss exponent steepens, survives
+directly in the 3GPP models of Table~\ref{tab:ch11:38901}, whose line-of-sight formulas switch
+from about $d^{-2}$ to $d^{-4}$ at $d_{\text{BP}}=4h'_{\text{BS}}h'_{\text{UT}}f_c/c$ (heights
+measured above an effective environment height). Real ground is not perfectly flat, and real
+streets contain many more than two rays, so the $d^{-4}$ asymptote is an idealisation; but it
+explains why measured exponents between 3 and 4 are so common for antennas close to the ground.
+
+\begin{pitfall}[The frequency-independent fourth-power law]
+It is tempting to conclude from Equation~\eqref{eq:ch11:tworay} that at long range, frequency no
+longer matters. It does, for two reasons. First, the crossover distance $4\pi h_th_r/\lambda$ grows
+with frequency---at 28\,GHz with a 10\,m and a 1.5\,m antenna it is 18\,km, so a millimetre-wave
+cell never reaches the $d^{-4}$ regime. Second, the model assumes a perfect grazing reflection,
+while real ground, vehicles and people break the geometry in ways that are strongly
+frequency-dependent. Use the two-ray model for insight and for the breakpoint concept, not as
+a planning tool.
+\end{pitfall}
+
+\section{Beyond the horizon: ground wave, skywave and the troposphere}
+\label{sec:ch11:beyond}
+
+A line-of-sight link is limited by the curvature of the Earth. Yet Marconi talked across the
+Atlantic in 1901, AM broadcasters are heard hundreds of kilometres away, and radio amateurs
+contact the other side of the world with a few watts. Radio reaches beyond the horizon by three
+routes: guided along the ground, reflected from the ionosphere, and bent or scattered by the
+lower atmosphere (Figure~\ref{fig:ch11_modes}).
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth,font=\sffamily\scriptsize]
+  \def\R{14}
+  \coordinate (O) at (0,-\R);
+  % earth band
+  \fill[navy!10] ($(O)+(70:\R)$) arc (70:110:\R) -- ($(O)+(110:\R-1.1)$) arc (110:70:\R-1.1) -- cycle;
+  \draw[navy!70,thick] ($(O)+(70:\R)$) arc (70:110:\R);
+  % ionospheric layers
+  \draw[gray!45,line width=2pt] ($(O)+(71:\R+0.75)$) arc (71:109:\R+0.75);
+  \draw[orange!45,line width=3pt] ($(O)+(71:\R+1.35)$) arc (71:109:\R+1.35);
+  \draw[accent!30,line width=7pt] ($(O)+(71:\R+2.55)$) arc (71:109:\R+2.55);
+  \node[gray,anchor=west] at ($(O)+(71:\R+0.75)+(0.1,0)$) {D layer (60--90\,km, daytime; absorbs)};
+  \node[orange!80!black,anchor=west] at ($(O)+(71:\R+1.35)+(0.1,0)$) {E layer ($\sim$110\,km)};
+  \node[accent,anchor=west] at ($(O)+(71:\R+2.55)+(0.1,0)$) {F layer (200--400\,km)};
+  % terminals
+  \coordinate (T) at ($(O)+(104:\R)$);
+  \coordinate (Rx) at ($(O)+(77:\R)$);
+  \fill[navy] (T) circle (2pt); \node[navy,anchor=east] at (T) {Tx};
+  \fill[navy] (Rx) circle (2pt); \node[navy,anchor=north] at ($(Rx)+(0,-0.05)$) {Rx};
+  % skywave hop
+  \coordinate (A) at ($(O)+(90.5:\R+2.35)$);
+  \draw[->,accent,thick] (T) -- (A);
+  \draw[->,accent,thick] (A) -- (Rx);
+  \node[accent,anchor=west] at ($(A)!0.45!(Rx)+(0.1,0)$) {skywave (HF)};
+  % escaping ray
+  \draw[->,accent!55,thick,dashed] (T) -- ($(T)+(72:3.6)$);
+  \node[accent!70!black,anchor=south] at ($(T)+(72:3.6)$) {escapes ($f>$ MUF)};
+  % line of sight
+  \draw[->,keyc,thick] ($(T)+(0,0.05)$) -- ($(O)+(98.5:\R+0.02)$);
+  % ground wave
+  \draw[->,practc,very thick] ($(O)+(103.6:\R-0.08)$) arc (103.6:93:\R-0.08);
+  \node[practc,anchor=north] at ($(O)+(99:\R-0.25)$) {ground wave (LF/MF)};
+  \node[keyc,anchor=south] at ($(O)+(99.5:\R+0.02)$) {LOS};
+  % troposcatter
+  \coordinate (V) at ($(O)+(89:\R+0.42)$);
+  \fill[purple!70!black,opacity=0.25] (V) circle (0.2);
+  \draw[->,purple!70!black,thick] ($(O)+(96:\R)$) -- (V);
+  \draw[->,purple!70!black,thick] (V) -- ($(O)+(82:\R)$);
+  \node[purple!70!black,anchor=west] at ($(V)+(0.25,0.05)$) {troposcatter};
+  % skip zone
+  \draw[decorate,decoration={brace,amplitude=4pt,mirror},thick,gray] ($(O)+(92.5:\R-0.55)$) -- ($(O)+(77.5:\R-0.55)$);
+  \node[gray,anchor=north] at ($(O)+(85:\R-0.68)$) {skip zone (no HF signal)};
+\end{tikzpicture}
+\caption{Routes beyond the horizon (heights not to scale). Low and medium frequencies follow the
+curved Earth as a ground wave; high frequencies reflect from the ionosphere, landing beyond a skip
+zone; frequencies above the maximum usable frequency escape into space; microwaves can be
+scattered forward by turbulence in the troposphere.}
+\label{fig:ch11_modes}
+\end{figure}
+
+\subsection{Ground wave}
+
+Below a few megahertz, a vertically polarized wave launched along the ground induces currents
+in it and is guided along the curved surface: the \term{ground wave} (or surface wave). Its
+attenuation depends strongly on ground conductivity---sea water ($\sigma\approx5$\,S/m) is an
+excellent guide, dry ground ($\sim$0.001\,S/m) a poor one---and increases rapidly with frequency.
+ITU-R P.368 gives curves of field strength versus distance for different grounds; at 1\,MHz
+over sea water a useful signal travels several hundred kilometres, while over dry land the range
+is far less. This is why AM broadcasting (0.53--1.7\,MHz) has reliable daytime coverage of
+tens to a couple of hundred kilometres, why long-wave broadcasting and the eLoran and Loran-C
+navigation systems (100\,kHz) cover a continent, and why navies use very low frequencies
+(3--30\,kHz), which propagate in the waveguide between the Earth and the lower ionosphere
+around the whole planet and penetrate a few metres of sea water to reach submerged submarines.
+The price is bandwidth: a VLF channel carries tens of bits per second.
+
+\subsection{The ionosphere and HF skywave}
+
+Between about 60 and 1000\,km altitude, solar ultraviolet and X-rays ionise the thin upper
+atmosphere, leaving free electrons whose density peaks in several layers
+(Figure~\ref{fig:ch11_ionosphere}a). The D layer (60--90\,km) exists only in daylight and mainly
+\emph{absorbs}; the E layer (around 110\,km) and the F layer (200--400\,km, splitting by day into
+F1 and F2) \emph{refract}. A plasma with electron density $N$ (electrons/m$^3$) has a refractive
+index $n=\sqrt{1-(f_p/f)^2}$, where the \emph{plasma frequency} is
+\begin{equation}
+f_p\approx 9\sqrt{N}\ \text{Hz}.
+\end{equation}
+A wave sent vertically is reflected at the height where $f_p=f$; the highest frequency returned
+vertically is the \term{critical frequency} $f_o$ of the layer, set by its peak density---about
+9\,MHz for a daytime F2 layer with $N\approx10^{12}$\,m$^{-3}$. A wave arriving obliquely, at angle
+$\theta_i$ from the vertical at the layer, only needs to be bent, not stopped, and is returned
+up to the \term{maximum usable frequency}
+\begin{equation}
+\mathrm{MUF}=f_o\sec\theta_i .
+\end{equation}
+Long hops have large incidence angles, so the MUF for a 3000\,km path is about three times the
+critical frequency (Figure~\ref{fig:ch11_ionosphere}b). For a given frequency above $f_o$, rays
+steeper than a certain angle escape; the nearest point at which the skywave returns to Earth
+defines the \emph{skip distance}, and the region between the edge of ground-wave coverage and the
+skip distance hears nothing. At the other end, D-layer absorption rises roughly as $1/f^2$ and
+sets a \emph{lowest usable frequency}. HF operators work between the two, choosing lower
+frequencies at night (when the D layer vanishes and the F layer weakens) and higher ones by day,
+and higher ones again at the peak of the 11-year solar cycle. ITU-R P.533 is the standard
+prediction method.
+
+\mdcfig{ch11_ionosphere}{(a) Illustrative electron-density profiles of the ionosphere by day and
+by night, built from Chapman layers. The D and E layers largely disappear at night and the F
+layer weakens. (b) Maximum usable frequency for a single hop reflected at 300\,km, as a function of
+ground range, for daytime and night-time critical frequencies.}
+
+The HF channel is a classic hard channel: several hops and the two magneto-ionic modes arrive
+with delay spreads of a few milliseconds, the layers move to produce Doppler spreads of a
+fraction of a hertz to a few hertz, and the whole path fades with the time of day. Yet it needs no
+infrastructure at all, and it remains in use for maritime and aeronautical communications,
+military networks with automatic link establishment (ALE), amateur radio, and
+over-the-horizon radar.
+
+\begin{history}[Marconi, the Atlantic and the ionosphere]
+On 12 December 1901, Guglielmo Marconi, listening with a headphone and a kite-borne wire at
+Signal Hill, St John's, Newfoundland, reported hearing the three dots of the Morse letter S sent
+from his station at Poldhu in Cornwall, about 3500\,km away. Physicists had doubted it could be
+done: radio waves, like light, should travel in straight lines and leave the curved Earth behind.
+Some historians have since questioned whether the faint signal was really heard, but within a
+few months Marconi was receiving transatlantic signals on board ship, noticing---without
+explanation---that they carried much further at night than by day. In 1902 Oliver Heaviside in
+England and Arthur Kennelly in the United States independently proposed a conducting layer in
+the upper atmosphere that would guide the waves around the globe. The ``Kennelly--Heaviside layer''
+remained a hypothesis until 1924, when Edward Appleton and Miles Barnett varied the frequency of
+a BBC transmitter and observed the interference between ground and reflected waves at a receiver
+some distance away, deducing a reflection height of the order of 100\,km. Gregory Breit and Merle
+Tuve measured the height directly in 1925 with short pulses---a technique that is radar in all but
+name. Appleton went on to identify the higher F layer and received the 1947 Nobel Prize in
+Physics. The whole of long-distance radio until the satellite era depended on these layers.
+\end{history}
+
+\subsection{The troposphere: refraction, ducting and scatter}
+
+The lower atmosphere affects radio in a subtler way. Its refractive index is only slightly above
+unity, so engineers use the \emph{refractivity} $N=(n-1)\times10^6$, which ITU-R P.453 gives as
+\begin{equation}
+N=\frac{77.6}{T}\left(P+4810\,\frac{e}{T}\right)\ \text{N-units},
+\end{equation}
+with $T$ in kelvin, total pressure $P$ and water-vapour pressure $e$ in hPa. At sea level
+$N\approx315$, and in a standard atmosphere it decreases with height by about 40\,N-units per km.
+That gradient bends radio rays gently downward, following the Earth's curvature a little. The
+trick is to replace the real Earth by one with an effective radius $kR_e$ and then draw rays as
+straight lines; the standard gradient gives $k=4/3$, and the \emph{radio horizon} of an antenna at
+height $h$ metres is
+\begin{equation}
+d_{\text{hor}}\approx\sqrt{2kR_eh}\approx4.12\sqrt{h}\ \text{km}.
+\end{equation}
+A 30\,m mast sees 23\,km to a ground-level receiver; two 30\,m masts can see each other 45\,km apart.
+
+When the gradient is steeper than $-157$\,N-units/km---for example in a temperature inversion
+over a cool sea, or with warm dry air above a moist boundary layer---rays curve more sharply than
+the Earth and are trapped in a \term{duct}. Ducting carries VHF and UHF signals hundreds of
+kilometres, far beyond their planned coverage: it is the reason TV and FM stations are
+occasionally received across seas, and in cellular networks it causes ``atmospheric ducting''
+interference in which a distant TDD base station's downlink arrives during a nearby station's
+uplink slot. LTE and NR TDD networks include remote-interference management mechanisms to detect
+and mitigate it.
+
+Even in normal conditions, turbulent irregularities in the troposphere scatter a tiny fraction of
+a microwave beam forward. \term{Troposcatter} links use large dishes, kilowatt transmitters and
+diversity to reach 100--500\,km without repeaters; they carried military networks such as ACE High
+across Europe and the White Alice system in Alaska from the 1950s, and are still used for
+over-the-horizon links to offshore platforms and military sites. Meteor trails provide
+similar, intermittent paths at VHF (meteor-burst communications).
+
+\section{Atmospheric absorption and rain}
+\label{sec:ch11:atmos}
+
+Above a few gigahertz, the atmosphere itself starts to absorb. Molecules with resonant
+rotational transitions take energy from the wave at their line frequencies, and liquid water
+absorbs and scatters strongly once raindrops become comparable in size to the wavelength.
+
+\subsection{Gases}
+
+Two molecules dominate: water vapour, with lines at 22.235\,GHz, 183.31\,GHz and 325\,GHz, and
+oxygen, with a dense complex of lines around 60\,GHz and an isolated line at 118.75\,GHz. ITU-R
+Recommendation P.676 computes the specific attenuation (dB/km) line by line from spectroscopic
+data; Figure~\ref{fig:ch11_atmosphere}a uses the older simplified formulas of the same
+recommendation, which are accurate enough to show the landscape. Below 10\,GHz the clear
+atmosphere costs less than 0.01\,dB/km---negligible except over very long slant paths. The
+22\,GHz water line costs about 0.2\,dB/km in humid air. At 60\,GHz, oxygen absorbs about 15\,dB/km
+at sea level: a disaster for long links and a feature for short ones, since the unlicensed
+57--71\,GHz band used by IEEE 802.11ad/ay can be reused densely with little interference between
+rooms or buildings. Between the lines lie \emph{windows}---around 35, 94 and 140\,GHz---which
+millimetre-wave radars, imaging systems and future backhaul links use.
+
+\mdcfig{ch11_atmosphere}{(a) Approximate clear-air specific attenuation at sea level (1013\,hPa,
+15\,$^\circ$C, 7.5\,g/m$^3$ water vapour), after the simplified formulas of earlier editions of ITU-R
+P.676; the oxygen complex at 57--63\,GHz is interpolated. (b) Specific attenuation due to rain,
+$\gamma_R=kR^\alpha$, with the coefficients of ITU-R P.838-3 for horizontal polarization.}
+
+\subsection{Rain}
+
+Rain is the dominant impairment for terrestrial and satellite links above about 10\,GHz. ITU-R
+P.838 expresses the specific attenuation as a power law in the rain rate $R$ (mm/h),
+\begin{equation}
+\gamma_R=k\,R^{\alpha}\ \ \text{dB/km},
+\label{eq:ch11:rain}
+\end{equation}
+with frequency- and polarization-dependent coefficients tabulated in (and fitted by formulas in)
+the recommendation. At 12\,GHz, $k\approx0.024$ and $\alpha\approx1.18$ (horizontal
+polarization), so heavy rain of 50\,mm/h costs 2.4\,dB/km; at 30\,GHz, $k\approx0.24$ and
+$\alpha\approx0.95$, and the same rain costs about 10\,dB/km (Figure~\ref{fig:ch11_atmosphere}b).
+Horizontally polarized waves suffer slightly more than vertically polarized ones because falling
+raindrops are flattened into oblate spheroids.
+
+Rain is not uniform: intense rain falls in cells a few kilometres across. Planning methods
+therefore combine $\gamma_R$ with an \emph{effective path length} shorter than the physical path,
+and with local statistics of the rain rate exceeded for 0.01\% of an average year (about 53
+minutes)---typically 20--40\,mm/h in temperate climates and above 100\,mm/h in parts of the
+tropics (ITU-R P.837). ITU-R P.530 does this for terrestrial links and P.618 for Earth--space
+paths, where the slant path through the rain layer (up to the freezing height, 3--5\,km) matters.
+Rain also depolarises the wave, degrading the cross-polar isolation that frequency reuse relies
+on, and it raises the antenna noise temperature, because an absorbing medium also emits thermal
+noise (Chapter~\ref{ch:noise}). Clouds and fog add smaller attenuations (ITU-R P.840), and at low
+elevation angles tropospheric \emph{scintillation} causes rapid fluctuations of a few decibels.
+
+\begin{worked}[A 20\,GHz satellite downlink in a storm]
+A Ka-band satellite downlink at 20\,GHz reaches a ground station at $40^\circ$ elevation, with a
+rain height of 4\,km. The slant path through rain is about $4/\sin40^\circ\approx6.2$\,km. For
+$R=50$\,mm/h, P.838 gives $k=0.092$ and $\alpha=1.057$, so $\gamma_R=0.092\times50^{1.057}
+\approx5.7$\,dB/km. Rain cells being smaller than the path, P.618 applies a reduction factor;
+suppose it gives an effective length of 3\,km. The rain fade is then about 17\,dB, and the extra
+sky noise from the rain adds a further few decibels of degradation to $C/N_0$. At 12\,GHz the same
+storm would cost about 7\,dB. This is why Ka-band systems use adaptive coding and modulation
+(DVB-S2's ACM drops to a robust MCS during fades), site diversity for gateways, and uplink power
+control, topics developed in Chapter~\ref{ch:satellite}.
+\end{worked}
+
+\section{Empirical and statistical path-loss models}
+\label{sec:ch11:models}
+
+Physics gives us free space, two rays and knife edges. A real city has millions of edges. For
+planning, engineers use models fitted to measurements: they give up detail to gain generality,
+and they are honest about their uncertainty through a statistical term.
+
+\subsection{The log-distance model}
+
+The simplest and most useful empirical model says that the mean path loss grows as $d^n$ beyond a
+reference distance $d_0$ at which the loss is known (usually from free space):
+\begin{equation}
+\mathrm{PL}(d)=\mathrm{PL}(d_0)+10\,n\log_{10}\frac{d}{d_0}+X_\sigma ,
+\label{eq:ch11:logdist}
+\end{equation}
+where $X_\sigma$ is the zero-mean Gaussian shadowing term (in dB) of
+Section~\ref{sec:ch11:shadowing}. This is \texttt{commlib.log\_distance\_pl\_db}, used in the lab.
+The \emph{path-loss exponent} $n$ summarises the environment. Measurements over several decades
+give typical ranges: 2 in free space; about 1.6--1.8 along a corridor or in a factory in line of
+sight, where walls act as a waveguide; 2.7--3.5 in urban cells; 3--5 in shadowed urban areas; and
+4--6 through several walls and floors in buildings. A model this simple is surprisingly good if
+$n$ and $\sigma$ are fitted to local measurements, and it is the language in which engineers talk
+about environments: ``it's an $n=3.5$, eight-dB-sigma kind of area.''
+
+\subsection{Okumura and Hata}
+
+\begin{history}[Okumura's drive tests and Hata's formula]
+In the early 1960s, with Japan planning land-mobile radio services, Yoshihisa Okumura and his
+colleagues at the Electrical Communication Laboratory of NTT drove measurement vans through Tokyo
+and its surroundings, recording field strength at frequencies from about 200\,MHz to 1.9\,GHz,
+for many base-station heights and over distances from 1 to 100\,km. Their 1968 paper presented the
+results as families of curves: median attenuation relative to free space versus distance and
+frequency in an ``urban'' area, with correction factors for antenna heights, suburban and open
+areas, rolling hills, sea paths and street orientation. The curves became a basis of cellular
+planning worldwide, beginning with NTT's own first cellular system, launched in Tokyo in 1979.
+Using them required reading graphs, so in 1980 Masaharu Hata fitted closed-form expressions to
+them. The \emph{Okumura--Hata} model is one of the most-cited results in mobile communications,
+and it is a reminder that some of the most durable engineering knowledge comes from careful,
+patient measurement rather than from theory.
+\end{history}
+
+Hata's formula for the median path loss in an urban area is
+\begin{equation}
+L_{\text{urban}}=69.55+26.16\log_{10}f-13.82\log_{10}h_b-a(h_m)+(44.9-6.55\log_{10}h_b)\log_{10}d,
+\label{eq:ch11:hata}
+\end{equation}
+with $f$ in MHz (150--1500), base height $h_b$ in metres (30--200), mobile height $h_m$ (1--10\,m),
+distance $d$ in km (1--20). For a small or medium city, the mobile-antenna correction is
+$a(h_m)=(1.1\log_{10}f-0.7)h_m-(1.56\log_{10}f-0.8)$, which is close to zero for $h_m=1.5$\,m.
+Suburban areas subtract $2[\log_{10}(f/28)]^2+5.4$\,dB, and open rural areas subtract
+$4.78(\log_{10}f)^2-18.33\log_{10}f+40.94$\,dB. Three features deserve comment. The distance
+exponent $(44.9-6.55\log_{10}h_b)/10$ is 3.5 for a 30\,m mast and falls to about 3.0 for a 200\,m
+mast: higher base stations see over more clutter. Frequency enters as $26.16\log_{10}f$, i.e.\
+about $f^{2.6}$ rather than the $f^2$ of free space, reflecting the extra clutter loss at higher
+frequencies. And the model is only valid within its ranges; used below 1\,km or above 1.5\,GHz it
+can be badly wrong.
+
+The European COST-231 project extended Hata's fit to 1500--2000\,MHz for PCS and GSM-1800:
+\begin{equation}
+L=46.3+33.9\log_{10}f-13.82\log_{10}h_b-a(h_m)+(44.9-6.55\log_{10}h_b)\log_{10}d+C_m,
+\end{equation}
+with $C_m=0$\,dB for medium cities and suburbs and 3\,dB for metropolitan centres. COST-231 also
+produced the \emph{Walfisch--Ikegami} model, which adds explicit rooftop-to-street diffraction
+from building heights, street widths and orientation, and is better suited to small cells with
+antennas near rooftop level. Figure~\ref{fig:ch11_pathloss_models}a compares the Hata variants
+with free space: an urban mobile 5\,km from a 30\,m mast at 900\,MHz suffers about 45\,dB more loss
+than free space would predict.
+
+\begin{worked}[Cell radius from Hata]
+For the LTE budget of Table~\ref{tab:ch11:lte} (MAPL 130.7\,dB at 1800\,MHz, $h_b=30$\,m,
+$h_m=1.5$\,m, medium city), COST-231 gives $L=136.2+35.2\log_{10}d$. Setting $L=130.7$ gives
+$\log_{10}d=-0.155$, $d=0.70$\,km. The formula is being used slightly below its nominal 1\,km
+lower limit---a common and usually harmless extrapolation, but one to state in a planning report.
+With the 15\,dB penetration loss removed, $d=10^{(145.7-136.2)/35.2}=1.9$\,km. The ratio of
+covered areas is $(1.9/0.70)^2\approx7$: indoor coverage costs seven times as many sites as
+outdoor coverage in this example.
+\end{worked}
+
+\subsection{The 3GPP models: TR 38.901}
+
+For 5G, 3GPP needed models valid from 0.5 to 100\,GHz, for macro-cells, street-level small cells
+and indoor hotspots, in line of sight and out of it, for three-dimensional antenna arrays. The
+result, 3GPP TR 38.901 (building on the earlier WINNER projects and 3GPP TR 36.873, and aligned with
+ITU-R M.2412), is now the common reference for 5G simulation. Its path-loss part is summarised in
+Table~\ref{tab:ch11:38901} and plotted in Figure~\ref{fig:ch11_pathloss_models}b.
+
+\begin{table}[htbp]\centering\small
+\caption{Selected path-loss models from 3GPP TR 38.901 (Table 7.4.1-1). $f_c$ in GHz, distances in
+metres, $d_{3D}$ is the straight-line distance, $h_{\text{UT}}$ the user height. LOS formulas apply
+up to the breakpoint $d'_{\text{BP}}=4h'_{\text{BS}}h'_{\text{UT}}f_c/c$ (heights reduced by an
+effective environment height of 1\,m in these examples); NLOS path loss is the maximum of the LOS and
+NLOS expressions.}
+\label{tab:ch11:38901}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.25\linewidth}p{0.6\linewidth}c@{}}
+\toprule
+Scenario & Path loss (dB) & $\sigma_{\text{SF}}$ (dB)\\
+\midrule
+UMa LOS ($h_{\text{BS}}=25$\,m) & $28.0+22\log_{10}d_{3D}+20\log_{10}f_c$ & 4\\
+UMa LOS beyond $d'_{\text{BP}}$ & $28.0+40\log_{10}d_{3D}+20\log_{10}f_c-9\log_{10}\!\big(d'^2_{\text{BP}}+(h_{\text{BS}}-h_{\text{UT}})^2\big)$ & 4\\
+UMa NLOS & $13.54+39.08\log_{10}d_{3D}+20\log_{10}f_c-0.6(h_{\text{UT}}-1.5)$ & 6\\
+UMi LOS ($h_{\text{BS}}=10$\,m) & $32.4+21\log_{10}d_{3D}+20\log_{10}f_c$ & 4\\
+UMi NLOS & $22.4+35.3\log_{10}d_{3D}+21.3\log_{10}f_c-0.3(h_{\text{UT}}-1.5)$ & 7.82\\
+InH LOS (office) & $32.4+17.3\log_{10}d_{3D}+20\log_{10}f_c$ & 3\\
+InH NLOS (office) & $17.3+38.3\log_{10}d_{3D}+24.9\log_{10}f_c$ & 8.03\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\mdcfig{ch11_pathloss_models}{(a) Okumura--Hata median path loss at 900\,MHz for urban, suburban
+and open areas, and COST-231 Hata at 1800\,MHz in a metropolitan centre, compared with free space.
+(b) 3GPP TR 38.901 path loss at 3.5\,GHz for urban macro (UMa, 25\,m mast), urban micro (UMi, 10\,m
+mast) and indoor hotspot (InH) scenarios. Note the LOS breakpoints (about 210\,m for UMi and 560\,m for
+UMa) where the slope steepens toward $d^{-4}$.}
+
+Several ideas are built into these models that are worth absorbing.
+\begin{itemize}
+\item \textbf{Line of sight is itself random.} Whether a user at distance $d$ sees the base
+station is drawn from a LOS probability. For UMi, $\Pr_{\text{LOS}}=1$ up to 18\,m and
+$18/d+e^{-d/36}(1-18/d)$ beyond, so a user 100\,m from a street-level small cell is in line of sight
+only about a quarter of the time. At millimetre wave, where NLOS losses are much larger, the LOS
+state dominates the link.
+\item \textbf{Frequency dependence is close to free space} ($20\log_{10}f_c$) in most scenarios.
+Measurement campaigns spanning roughly 2 to 73\,GHz found that, once the antenna aperture effect is
+removed, the \emph{outdoor} excess loss grows only slowly with frequency. The large practical
+penalty of high frequencies comes from penetration, blockage and foliage, modelled separately.
+\item \textbf{Shadowing has a scenario-dependent standard deviation} of 3--8\,dB and a spatial
+correlation distance (37\,m for UMa LOS, 50\,m for UMa NLOS, 10--13\,m for UMi, a few metres to
+10\,m indoors).
+\item \textbf{Everything is three-dimensional}: heights, elevation angles and 3D distances enter
+explicitly, because 5G base stations steer beams in elevation as well as azimuth.
+\end{itemize}
+
+\subsection{Penetration and blockage}
+
+Most mobile traffic is generated indoors, and most base stations are outdoors, so building
+penetration is often the largest single term in a budget. TR 38.901 models the outdoor-to-indoor
+loss as a combination of material losses (Table~\ref{tab:ch11:o2i}), plus about 0.5\,dB per metre
+of indoor distance. Two building types are defined: \emph{low-loss} (30\% standard glass, 70\%
+concrete) and \emph{high-loss} (70\% infrared-reflecting glass, 30\% concrete). The difference
+between them at 28\,GHz is 20\,dB. Modern office buildings with metallised glass are close to
+Faraday cages at millimetre wave; the practical solution is to put the cell inside (indoor small
+cells, distributed antenna systems) rather than to shout through the wall.
+
+\begin{table}[htbp]\centering\small
+\caption{Outdoor-to-indoor penetration loss models of 3GPP TR 38.901 (Tables 7.4.3-1 and
+7.4.3-2), evaluated at three frequencies. Material losses in dB with $f$ in GHz; the building
+models include a 5\,dB constant term.}
+\label{tab:ch11:o2i}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Material / model & Formula & 0.9\,GHz & 3.5\,GHz & 28\,GHz\\
+\midrule
+Standard multi-pane glass & $2+0.2f$ & 2.2 & 2.7 & 7.6\\
+IRR (metal-coated) glass & $23+0.3f$ & 23.3 & 24.1 & 31.4\\
+Concrete & $5+4f$ & 8.6 & 19.0 & 117\\
+Wood & $4.85+0.12f$ & 5.0 & 5.3 & 8.2\\
+\midrule
+Low-loss building & 30\% glass, 70\% concrete & 10.6 & 12.7 & 17.8\\
+High-loss building & 70\% IRR glass, 30\% concrete & 18.5 & 26.8 & 37.9\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+At millimetre wave, \emph{blockage} by people, vehicles and even the user's own hand becomes a
+first-order effect. A human body is dozens of wavelengths across at 28\,GHz and absorbs strongly;
+measurements typically show 15--25\,dB of loss, sometimes more, when a person steps into the
+path, with the fade lasting hundreds of milliseconds. Foliage adds losses of roughly 1--2\,dB per
+metre of vegetation at millimetre wave (ITU-R P.833 gives models). These effects are why
+millimetre-wave 5G relies on dense deployments, fast beam switching between multiple paths and
+base stations, and fallback to lower bands.
+
+\begin{inpractice}[Ray tracing and planning tools]
+Operators no longer plan cells with Hata alone. Commercial planning tools combine empirical models
+calibrated by drive tests with \emph{ray tracing} through three-dimensional building databases:
+the tool launches rays from the antenna, follows reflections and diffractions (by the uniform
+theory of diffraction) through the city model, and sums their contributions at each pixel. Ray
+tracing is essential at millimetre wave, where a single street corner decides coverage, and it
+gives the delays and angles needed for beamforming studies. Its accuracy is limited by the
+database: trees, vehicles and building materials are hard to capture, which is why a calibration
+drive test is still part of every serious deployment. Increasingly, planning data are also
+learned from the network itself, using measurement reports from millions of handsets.
+\end{inpractice}
+
+\section{Shadowing and coverage}
+\label{sec:ch11:shadowing}
+
+\subsection{Why shadowing is log-normal}
+
+Two receivers at the same distance from a base station see different mean powers because the
+paths to them cross different obstacles. The signal reaching a receiver has been attenuated by a
+succession of factors---a building, a tree, a second building, a wall---each a random
+multiplicative loss. The logarithm of a product is a sum, and the central limit theorem turns a
+sum of many independent random terms into a Gaussian. So the loss in decibels is approximately
+Gaussian around the median predicted by the path-loss model:
+\begin{equation}
+P_r\,[\mathrm{dBm}]=\bar P_r(d)+X_\sigma,\qquad X_\sigma\sim\mathcal N(0,\sigma^2).
+\end{equation}
+Measurements confirm the model remarkably well, with $\sigma$ between about 4 and 12\,dB---around
+8\,dB is typical of urban macro-cells. Shadowing is spatially correlated: two points closer
+than the \emph{decorrelation distance} see mostly the same obstacles. Gudmundson's 1991
+measurements found that an exponential autocorrelation $e^{-\Delta x/d_{\text{corr}}}$ fits
+well, with $d_{\text{corr}}$ of tens of metres in cities and hundreds of metres in suburbs.
+Shadowing from two different base stations is also partly correlated (a coefficient of 0.5 is
+common in 3GPP system simulations), because some obstacles are near the user.
+
+\subsection{Edge coverage and fade margin}
+
+Suppose a receiver needs a power of at least $P_{\min}$. At the cell edge $R$, where the median
+received power is $\bar P_r(R)$, the probability of coverage is
+\begin{equation}
+P_{\text{edge}}=\Pr\{\bar P_r(R)+X_\sigma\ge P_{\min}\}=1-\Q\!\left(\frac{M}{\sigma}\right),\qquad
+M=\bar P_r(R)-P_{\min},
+\end{equation}
+where $M$ is the \term{fade margin} (here, the shadowing margin). With no margin, only half the
+locations at the edge are covered. A 90\% edge probability needs $M=1.28\sigma$ (10.3\,dB for
+$\sigma=8$\,dB) and 95\% needs $1.64\sigma$ (13.2\,dB)---expensive margins
+(Figure~\ref{fig:ch11_coverage}a).
+
+\subsection{Area coverage}
+
+Users are not all at the edge; most are closer, where the median power is higher. Jakes, building
+on work by D.~O.~Reudink at Bell Labs, derived the fraction of the \emph{area} of a circular cell in
+which the signal exceeds $P_{\min}$ for the log-distance model:
+\begin{equation}
+F_u=\frac12\left[1-\operatorname{erf}(a)+e^{\frac{1-2ab}{b^2}}\left(1-\operatorname{erf}\frac{1-ab}{b}\right)\right],
+\quad a=\frac{P_{\min}-\bar P_r(R)}{\sigma\sqrt2},\quad b=\frac{10n\log_{10}e}{\sigma\sqrt2}.
+\label{eq:ch11:areacov}
+\end{equation}
+Figure~\ref{fig:ch11_coverage}b shows that 75\% edge coverage gives about 90\% area coverage for
+$n=3.5$, $\sigma=8$\,dB, and that 95\% area coverage requires about 86\% edge coverage---an 8.7\,dB
+margin, the value used in Table~\ref{tab:ch11:lte}. Operators usually specify area coverage (90\%
+or 95\% for voice, sometimes higher for critical services), and margins derived this way appear in
+every cellular budget.
+
+\mdcfig{ch11_coverage}{(a) Probability that a location at the cell edge is covered, as a function of
+the shadowing margin, for four values of the shadowing standard deviation. (b) Fraction of the cell
+area covered versus edge coverage probability (Jakes--Reudink, Equation~\eqref{eq:ch11:areacov}):
+because interior users enjoy higher median power, area coverage always exceeds edge coverage.}
+
+\begin{inpractice}[Handover gain and the real margin]
+In a cellular network, a user at the edge of one cell is also near the edge of its neighbours,
+and their shadowing is only partly correlated. If the user can be served by whichever cell is
+strongest, the probability that \emph{all} are in a deep shadow is much smaller than that one
+is. This \emph{macrodiversity} or \emph{handover gain} reduces the required shadowing margin by
+several decibels compared with the single-cell calculation---a reduction usually applied as a
+separate line in operators' link budgets. It is one of the reasons dense networks with plenty of
+cell overlap are robust, and it is the conceptual ancestor of the coordinated multipoint and
+cell-free massive MIMO ideas of Chapter~\ref{ch:mimo}.
+\end{inpractice}
+
+\section{Small-scale fading: multipath in delay and Doppler}
+\label{sec:ch11:multipath}
+
+\subsection{The physical picture}
+
+Stand in a street with a phone. The base-station signal reaches you along perhaps dozens of
+paths, each reflected, diffracted or scattered, each with its own amplitude $a_i$, delay
+$\tau_i$ and angle of arrival $\theta_i$ relative to your direction of motion. Transmit an
+unmodulated carrier and the received complex baseband signal is
+\begin{equation}
+h(t)=\sum_i a_i\,e^{-j2\pi f_c\tau_i(t)}.
+\end{equation}
+The phases $2\pi f_c\tau_i$ change by $2\pi$ whenever a path length changes by one wavelength.
+Move by half a wavelength and the relative phases of the paths rearrange completely; the sum
+swings from constructive to destructive interference. This is why small-scale fading varies over
+centimetres at gigahertz frequencies (Figure~\ref{fig:ch11_scales}b), and why a phone's
+reception can change when it is shifted on a table.
+
+Now transmit a wideband signal. The paths no longer just add phasors: they deliver copies of the
+signal delayed by different amounts, and the channel is a filter,
+\begin{equation}
+h(\tau,t)=\sum_i a_i(t)\,e^{-j2\pi f_c\tau_i(t)}\,\delta(\tau-\tau_i(t)).
+\label{eq:ch11:multipath}
+\end{equation}
+Multipath therefore has two faces: a spread of \emph{delays}, which makes the channel
+frequency-selective, and a spread of \emph{Doppler shifts} (because the $\tau_i$ change at
+different rates), which makes it time-varying. The next two subsections quantify each.
+
+\subsection{Time dispersion: power delay profile and delay spread}
+
+Average $|h(\tau,t)|^2$ over a small area (a few tens of wavelengths, to remove fast fading but
+not path loss) and you get the \term{power delay profile} (PDP) $P(\tau)$: the average power
+arriving with each excess delay. Its first two moments define the \term{mean excess delay} and
+the \term{RMS delay spread},
+\begin{equation}
+\bar\tau=\frac{\int\tau P(\tau)\,d\tau}{\int P(\tau)\,d\tau},\qquad
+\tau_{\text{rms}}=\sqrt{\frac{\int(\tau-\bar\tau)^2P(\tau)\,d\tau}{\int P(\tau)\,d\tau}} ,
+\label{eq:ch11:taurms}
+\end{equation}
+with sums replacing integrals for discrete taps. The RMS delay spread is the single most useful
+number for a channel's time dispersion. Typical values are 10--100\,ns in homes and offices,
+100--300\,ns in urban microcells, 0.5--3\,$\mu$s in urban macro-cells and up to 10--20\,$\mu$s in
+hilly or mountainous terrain where distant slopes reflect strongly. Figure~\ref{fig:ch11_pdp}a
+shows the three LTE reference profiles, whose RMS delay spreads are 43, 357 and 991\,ns.
+
+The Fourier transform of the PDP is the \emph{frequency correlation function}: how similar the
+channel's response is at two frequencies $\Delta f$ apart. Its width is the \term{coherence
+bandwidth} $B_c$. The exact relation depends on the PDP shape and on the correlation level chosen,
+but two rules of thumb are standard:
+\begin{equation}
+B_c\approx\frac{1}{5\tau_{\text{rms}}}\ \ (\text{correlation}\approx0.5),\qquad
+B_c\approx\frac{1}{50\tau_{\text{rms}}}\ \ (\text{correlation}\approx0.9).
+\label{eq:ch11:bc}
+\end{equation}
+Signals narrower than $B_c$ see a flat channel: all frequency components fade together.
+Signals wider than $B_c$ see a frequency-selective channel with notches
+(Figure~\ref{fig:ch11_pdp}b). For EPA, $B_c\approx4.6$\,MHz; for ETU, about 200\,kHz. A 20\,MHz LTE
+carrier in ETU therefore sees dozens of independent fades across its band, and a 200\,kHz GSM
+carrier in a hilly area sees its own delay spread as severe intersymbol interference.
+
+\mdcfig{ch11_pdp}{(a) Power delay profiles of the LTE extended pedestrian A (EPA), vehicular A (EVA)
+and typical urban (ETU) models of 3GPP TS 36.101. (b) Magnitude of one random realisation of the EPA
+and ETU channels over a 20\,MHz band: the short EPA profile fades slowly across frequency, the long
+ETU profile produces notches every few hundred kilohertz.}
+
+\begin{worked}[Delay spread of EVA]
+The EVA profile has taps at 0, 30, 150, 310, 370, 710, 1090, 1730 and 2510\,ns with relative
+powers 0, $-1.5$, $-1.4$, $-3.6$, $-0.6$, $-9.1$, $-7.0$, $-12.0$ and $-16.9$\,dB. Converting to linear
+powers and normalising (they sum to 4.15), the mean excess delay is
+$\bar\tau=\sum p_i\tau_i/\sum p_i\approx254$\,ns, the second moment is about
+$1.92\times10^{-13}$\,s$^2$, and $\tau_{\text{rms}}=\sqrt{1.92\times10^{-13}-(2.54\times10^{-7})^2}
+\approx357$\,ns. The coherence bandwidth is about $1/(5\times357\,\text{ns})\approx560$\,kHz, some 37
+LTE subcarriers: adjacent subcarriers are almost perfectly correlated, while subcarriers a few
+megahertz apart fade independently. The pilot pattern and the frequency interleaving of the code
+are designed around exactly these two facts. Lab~5 prints $\tau_{\text{rms}}$ for each profile so
+that you can check the arithmetic.
+\end{worked}
+
+\subsection{Time variation: Doppler spectrum and coherence time}
+
+A receiver moving at speed $v$ sees a wave arriving at angle $\theta$ to its velocity with a Doppler
+shift
+\begin{equation}
+f=f_D\cos\theta,\qquad f_D=\frac{v}{\lambda}=\frac{vf_c}{c},
+\end{equation}
+where $f_D$ is the \term{maximum Doppler frequency}. At 2\,GHz and 100\,km/h, $f_D=185$\,Hz; at
+28\,GHz and the same speed, 2.6\,kHz (Figure~\ref{fig:ch11_doppler}c). With paths arriving from
+many directions, the received carrier is smeared into a \emph{Doppler spectrum} between $-f_D$
+and $+f_D$, and the channel's time variation has a correlation time inversely proportional to
+that spread.
+
+\paragraph{Clarke's model.} In 1968 R.~H.~Clarke of Bell Labs proposed the model that still
+anchors the subject: $N$ plane waves of equal average power, arriving from angles uniformly
+distributed around the receiver in the horizontal plane, with random phases. The power arriving
+in $d\theta$ is proportional to $d\theta/2\pi$, and it appears at frequency $f=f_D\cos\theta$. Since
+$|df|=f_D|\sin\theta|\,d\theta=\sqrt{f_D^2-f^2}\,d\theta$, and two angles ($\pm\theta$) map to each
+$f$, the Doppler power spectrum is
+\begin{equation}
+S(f)=\frac{1}{\pi f_D\sqrt{1-(f/f_D)^2}},\qquad |f|<f_D ,
+\label{eq:ch11:clarke}
+\end{equation}
+the famous ``bathtub'' with integrable singularities at $\pm f_D$ (Figure~\ref{fig:ch11_doppler}a).
+Its inverse Fourier transform is the time autocorrelation of the fading,
+\begin{equation}
+R_h(\Delta t)=\E[h(t)h^*(t+\Delta t)]=J_0(2\pi f_D\Delta t),
+\label{eq:ch11:j0}
+\end{equation}
+a Bessel function that first crosses zero at $\Delta t=0.383/f_D$---equivalently, at a displacement
+of $0.38\lambda$. The \term{coherence time}, the time over which the channel stays roughly constant,
+is defined by a correlation threshold; the common engineering definitions are
+\begin{equation}
+T_c\approx\frac{9}{16\pi f_D}\approx\frac{0.18}{f_D}\quad\text{or}\quad
+T_c\approx\frac{0.423}{f_D}=\sqrt{\frac{9}{16\pi}}\,\frac{1}{f_D},
+\end{equation}
+the second (a geometric mean) being the one most used in practice and in Lab~5. At 2\,GHz and
+100\,km/h, $T_c\approx2.3$\,ms; for a pedestrian at 3\,km/h, about 76\,ms.
+
+\mdcfig{ch11_doppler}{(a) Clarke's Doppler spectrum for $f_D=100$\,Hz compared with the averaged
+spectrum of the sum-of-sinusoids simulator \texttt{commlib.jakes\_process}. (b) The corresponding
+autocorrelation $J_0(2\pi f_D\tau)$; the coherence time $0.423/f_D$ is marked. (c) Maximum Doppler
+frequency versus speed at three carrier frequencies.}
+
+Clarke's isotropic assumption is a good first model for a mobile at street level surrounded by
+scatterers. It is poor for a base station on a mast, which sees energy arriving from a narrow
+cone of angles around the direction of the mobile; for a directional antenna, which filters the
+angles and therefore the Doppler; and in line of sight, where one path dominates and shows up as a
+spectral line. The 3GPP CDL models of Section~\ref{sec:ch11:standardmodels} specify angular
+spreads per cluster to handle these cases.
+
+\mdcfig{ch11_tf_response}{The channel as a time--frequency surface: $|H(f,t)|$ over 15\,MHz and 37\,ms.
+(a) EPA with $f_D=5$\,Hz: frequency-flat over megahertz and essentially frozen in time. (b) ETU with
+$f_D=300$\,Hz: deep notches every few hundred kilohertz that move within milliseconds. The pilots,
+subcarrier spacing and code of an OFDM system must be designed to track the right-hand picture.}
+
+\section{The four fading regimes}
+\label{sec:ch11:regimes}
+
+Whether a channel is ``frequency-selective'' or ``fast'' is not a property of the channel alone:
+it depends on the signal. Compare the signal bandwidth $W$ (roughly the symbol rate $1/T_s$) with
+the coherence bandwidth, and the symbol (or block, or frame) duration with the coherence time:
+
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+ & $T_s\ll T_c$ (\textbf{slow}) & $T_s\gtrsim T_c$ (\textbf{fast})\\
+\midrule
+$W\ll B_c$ (\textbf{flat}) & one complex gain, constant over & one complex gain, changing within\\
+ & many symbols: estimate and track it & a symbol: noncoherent or differential\\
+$W\gg B_c$ (\textbf{selective}) & a fixed filter with ISI: equalize & a time-varying filter: the hardest\\
+ & or use OFDM & case, rarely designed for\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Figure~\ref{fig:ch11_regimes} places some real systems on this map. Most practical systems are
+\emph{slow} with a large margin: even a train at 350\,km/h and 3.5\,GHz has a coherence time of about
+0.4\,ms, ten OFDM symbols at 30\,kHz spacing. The selective--fast corner is avoided by design:
+engineers choose the symbol duration so that $\tau_{\text{rms}}\ll T_s\ll T_c$ whenever they can.
+Narrowband systems like LoRa at its slowest spreading factor push the other way, with symbols of
+tens of milliseconds that begin to approach the coherence time of a walking user.
+
+\mdcfig[0.82]{ch11_regimes}{The four fading regimes, with approximate operating points for several
+systems (wideband signal bandwidth versus $B_c\approx1/5\tau_{\text{rms}}$; symbol duration versus
+$T_c\approx0.423/f_D$). Wideband OFDM systems (LTE, NR, Wi-Fi) are strongly frequency-selective as a
+whole, but each subcarrier sits in the flat, slow corner.}
+
+\begin{keyidea}[OFDM moves every signal into the flat, slow corner]
+A 20\,MHz LTE signal in an EVA channel is frequency-selective ($W/B_c\approx36$). Split it into
+1200 subcarriers of 15\,kHz each and every subcarrier is flat ($15\text{\,kHz}\ll560$\,kHz); make
+each OFDM symbol 71\,$\mu$s long and it is slow compared with a 6\,ms coherence time. The
+selective channel becomes 1200 parallel flat channels, each needing one complex multiply to
+equalize. That is the whole idea of Chapter~\ref{ch:ofdm}---and the reason nearly every
+broadband wireless standard since 2000 uses it. The price is sensitivity to Doppler (the
+subcarriers must stay orthogonal) and a cyclic prefix longer than the delay spread
+(Section~\ref{sec:ch11:standards}).
+\end{keyidea}
+
+\section{Fading distributions}
+\label{sec:ch11:distributions}
+
+\subsection{Rayleigh fading}
+
+In Equation~\eqref{eq:ch11:multipath}, consider one resolvable delay bin containing many
+unresolved paths of comparable strength with independent, uniformly distributed phases. By the
+central limit theorem the complex gain $h=h_I+jh_Q$ is circularly symmetric complex Gaussian,
+$h\sim\mathcal{CN}(0,\Omega)$, where $\Omega=\E|h|^2$ is the local mean power. We met this
+distribution in Chapter~\ref{ch:noise} (Figure~\ref{fig:ch03_envelopes}): its envelope $r=|h|$ is
+\term{Rayleigh} distributed and its power $|h|^2$ is \emph{exponential},
+\begin{equation}
+p_r(r)=\frac{2r}{\Omega}e^{-r^2/\Omega},\qquad
+\Pr\{|h|^2<x\Omega\}=1-e^{-x}\approx x\ \ (x\ll1).
+\label{eq:ch11:rayleigh}
+\end{equation}
+The last approximation is the most important formula in this section. The probability of a fade
+10\,dB below the mean is about 10\%; 20\,dB below, about 1\%; 30\,dB below, about 0.1\%. Every
+extra ten decibels of depth costs a factor of ten in probability---a slow, polynomial decay. The
+deep fades are not rare events to be engineered away; a Rayleigh channel spends 1\% of its time
+at least 20\,dB down, which for a link designed with a 10\,dB SNR margin means an outage every few
+hundred milliseconds for a moving user.
+
+\subsection{Rician fading}
+
+When one path is much stronger than the rest---a line-of-sight ray, or a strong specular
+reflection---the complex gain is Gaussian with a nonzero mean, $h\sim\mathcal{CN}(\mu,\sigma^2)$,
+and its envelope is \term{Rician}. The \term{Rice K-factor}
+\begin{equation}
+K=\frac{|\mu|^2}{\sigma^2}=\frac{\text{power in the dominant path}}{\text{power in the scattered paths}}
+\end{equation}
+interpolates between Rayleigh ($K=0$) and no fading ($K\to\infty$). Measured K-factors range from
+0--3\,dB in NLOS macro-cells to 10\,dB or more in line of sight, falling with distance from the base
+station; fixed wireless links with elevated directional antennas can see $K$ of 20\,dB. A Rician
+channel with large $K$ has far fewer deep fades (Figure~\ref{fig:ch11_distributions}b): at $K=10$,
+a 20\,dB fade is more than a thousand times less likely than in Rayleigh fading.
+
+\subsection{Nakagami-$m$ fading}
+
+Measured envelopes sometimes fit neither model well. Minoru Nakagami, studying HF and microwave
+fading in Japan in the 1940s and 1950s, proposed the two-parameter family
+\begin{equation}
+p_r(r)=\frac{2m^m r^{2m-1}}{\Gamma(m)\Omega^m}\,e^{-mr^2/\Omega},\qquad m\ge\tfrac12,
+\end{equation}
+whose power is Gamma distributed. The \emph{fading figure} $m=\Omega^2/\mathrm{Var}(|h|^2)$
+measures the severity: $m=\frac12$ is one-sided Gaussian (worse than Rayleigh), $m=1$ is Rayleigh,
+and $m\to\infty$ is no fading. A Rician channel is closely matched by
+$m=(K+1)^2/(2K+1)$. Nakagami-$m$ is mathematically convenient---error-rate integrals often have
+closed forms---and it has a neat interpretation: an $L$-branch maximal-ratio combiner of
+independent Rayleigh branches produces exactly a Gamma-distributed SNR with $m=L$. That makes
+$m$ a measure of ``how much diversity the channel already contains.''
+
+\mdcfig{ch11_distributions}{(a) Envelope probability densities at unit mean power: Rayleigh, Rice
+with $K=3$ and 10, and Nakagami with $m=0.5$ and 2. (b) Probability that the instantaneous power
+falls below a level $x$ relative to its mean. The Rayleigh curve has slope one decade per 10\,dB;
+Rician and Nakagami channels with less scattered power fall much more steeply.}
+
+\subsection{Composite fading}
+
+Shadowing and fast fading occur together: the local mean $\Omega$ of the Rayleigh or Rician
+distribution is itself log-normal. The resulting \emph{Suzuki} (Rayleigh--log-normal) distribution
+has no closed form, and a simpler Gamma approximation (the \emph{generalised-K} model) is often used
+in analysis. In practice, system engineers usually keep the two separate---a shadowing margin in
+the link budget, and fast fading inside the link-level performance curves---which is exactly the
+separation of scales that began this chapter.
+
+\section{Second-order statistics: level crossings and fade durations}
+\label{sec:ch11:clarke}
+
+First-order statistics say how \emph{often} the channel is in a fade. System design also needs to
+know \emph{how long} fades last and \emph{how frequently} they begin: a fade that lasts one bit is
+easily bridged by a code; a fade that lasts one second drops a call. These are second-order
+statistics, and they depend on the Doppler spectrum.
+
+\subsection{Level-crossing rate}
+
+For a threshold $R_{\text{th}}$, normalise $\rho=R_{\text{th}}/\sqrt\Omega$. The
+\term{level-crossing rate} $N_R$ is the expected number of times per second the envelope crosses
+$R_{\text{th}}$ in the downward direction. Rice's formula
+$N_R=\int_0^\infty\dot r\,p(R_{\text{th}},\dot r)\,d\dot r$, evaluated for Clarke's model (where the
+envelope and its derivative are independent and $\dot r$ is Gaussian with variance
+$\pi^2f_D^2\Omega$), gives
+\begin{equation}
+N_R=\sqrt{2\pi}\,f_D\,\rho\,e^{-\rho^2}.
+\label{eq:ch11:lcr}
+\end{equation}
+The maximum, $N_R\approx1.08f_D$, occurs at $\rho=-3$\,dB. Deep fades are rarer: at
+$\rho=-20$\,dB, $N_R\approx0.25f_D$.
+
+\subsection{Average fade duration}
+
+The fraction of time below the threshold is the Rayleigh CDF $1-e^{-\rho^2}$. Dividing it by the
+number of fades per second gives the \term{average fade duration}
+\begin{equation}
+\bar\tau=\frac{e^{\rho^2}-1}{\rho f_D\sqrt{2\pi}}\ \xrightarrow{\ \rho\ll1\ }\ \frac{\rho}{f_D\sqrt{2\pi}}.
+\label{eq:ch11:afd}
+\end{equation}
+Deep fades are not only rare but \emph{short}: their duration shrinks in proportion to the depth.
+Figure~\ref{fig:ch11_lcr_afd} confirms both formulas against a simulation of the Jakes process used
+throughout the labs, and Figure~\ref{fig:ch11_envelope} shows what the numbers look like in time.
+
+\mdcfig{ch11_envelope}{Simulated fading envelopes at $f_D=50$\,Hz (900\,MHz and 60\,km/h). The
+Rayleigh envelope (navy) plunges 20--30\,dB several times per second; shaded intervals mark fades
+below $-10$\,dB. A Rician envelope with $K=10$ (green) fluctuates by only a few decibels.}
+
+\mdcfig{ch11_lcr_afd}{(a) Level-crossing rate and (b) average fade duration of a Rayleigh envelope
+with the Clarke spectrum, normalised by $f_D$: theory (Equations~\eqref{eq:ch11:lcr}
+and~\eqref{eq:ch11:afd}) and a two-million-sample simulation with
+\texttt{commlib.jakes\_process}.}
+
+\begin{worked}[Fades seen by a car at 900\,MHz]
+At 900\,MHz and 60\,km/h, $f_D=v/\lambda=16.7/0.333=50$\,Hz. For a threshold 10\,dB below the RMS
+level, $\rho=0.316$ and
+$N_R=\sqrt{2\pi}\times50\times0.316\times e^{-0.1}\approx36$ fades per second, each lasting on average
+$\bar\tau=(e^{0.1}-1)/(0.316\times50\times2.507)\approx2.7$\,ms. A GSM burst lasts 0.577\,ms and a speech
+frame 20\,ms, so a typical fade wipes out part of a burst, and a 20\,ms frame contains on average
+less than one fade: interleaving each speech frame over eight bursts spreads its bits across
+roughly 37\,ms and several independent fades, so that the convolutional code sees scattered rather
+than bunched errors. At walking speed ($f_D\approx2.5$\,Hz) the same fade lasts about 50\,ms, longer
+than the interleaver span, and the code no longer helps---slow-moving users are, paradoxically, the
+hardest case for time diversity. GSM's optional frequency hopping was introduced to break exactly
+this dependence on speed.
+\end{worked}
+
+\subsection{Simulating fading: the Jakes simulator and its descendants}
+
+To test a modem we need random processes with Rayleigh statistics \emph{and} Clarke's spectrum.
+Two approaches are standard. The \emph{filtering method} passes complex white Gaussian noise
+through a filter whose power response approximates Equation~\eqref{eq:ch11:clarke}. The
+\emph{sum-of-sinusoids} method implements Clarke's physical model directly:
+\begin{equation}
+h(t)=\frac{1}{\sqrt{N}}\sum_{n=1}^{N}\left[\cos(2\pi f_Dt\cos\alpha_n+\phi_n)+j\cos(2\pi f_Dt\sin\alpha_n+\psi_n)\right].
+\end{equation}
+W.~C.~Jakes proposed a deterministic version in 1974, with fixed, symmetrically placed angles; it was
+cheap enough for the hardware simulators of the time but produced statistics that were not
+stationary and not quite right. Improved versions with randomised angles and phases (Pop and
+Beaulieu, 2001; Zheng and Xiao, 2003) fixed these defects, and \texttt{commlib.jakes\_process}
+implements the Zheng--Xiao model. With 16--32 sinusoids and random angles, a single realisation
+has the correct first-order statistics, and averages over realisations reproduce the
+autocorrelation of Equation~\eqref{eq:ch11:j0} (Figure~\ref{fig:ch11_doppler}).
+
+\section{The linear time-varying channel: WSSUS and the scattering function}
+\label{sec:ch11:wssus}
+
+We now have enough intuition to state the general model compactly. In 1963 Phillip Bello
+organised the description of random time-varying channels around four equivalent
+\emph{system functions}, linked by Fourier transforms:
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Function & Variables & Meaning\\
+\midrule
+$h(\tau,t)$ & delay, time & time-varying impulse response\\
+$H(f,t)=\int h(\tau,t)e^{-j2\pi f\tau}d\tau$ & frequency, time & time-varying transfer function (Figure~\ref{fig:ch11_tf_response})\\
+$S(\tau,\nu)=\int h(\tau,t)e^{-j2\pi\nu t}dt$ & delay, Doppler & delay--Doppler spreading function\\
+$B(f,\nu)$ & frequency, Doppler & Doppler-variant transfer function\\
+\bottomrule
+\end{tabular}
+\end{center}
+The spreading function has the most physical interpretation: the output is a superposition of
+delayed \emph{and} Doppler-shifted copies of the input,
+\begin{equation}
+y(t)=\iint S(\tau,\nu)\,x(t-\tau)\,e^{j2\pi\nu t}\,d\tau\,d\nu ,
+\end{equation}
+each scatterer contributing at its own $(\tau,\nu)$. In general all of these are random processes
+with complicated correlations. Bello's key simplification, which fits most measured channels, is
+\term{WSSUS}---\emph{wide-sense stationary, uncorrelated scattering}:
+\begin{itemize}
+\item \textbf{WSS in time}: the correlation of $h(\tau,t)$ depends only on the time difference, so
+the statistics do not change over the observation interval (true over tens of wavelengths of
+travel, which is why the distinction between small-scale and large-scale effects matters);
+\item \textbf{US in delay}: contributions at different delays are uncorrelated, because they come
+from different scatterers with independent phases.
+\end{itemize}
+Under WSSUS, contributions at different delays \emph{and} different Doppler shifts are uncorrelated,
+and the channel's entire second-order description collapses into one function, the
+\term{scattering function} $\mathcal{S}(\tau,\nu)=\E|S(\tau,\nu)|^2$: the average power
+received with delay $\tau$ and Doppler $\nu$. Its marginals are old friends:
+\begin{equation}
+P(\tau)=\int\mathcal S(\tau,\nu)\,d\nu\ \ \text{(power delay profile)},\qquad
+S_D(\nu)=\int\mathcal S(\tau,\nu)\,d\tau\ \ \text{(Doppler spectrum)}.
+\end{equation}
+The delay spread $T_m$ and Doppler spread $B_D$ are the widths of these marginals; their reciprocals
+are the coherence bandwidth and coherence time. Their product $T_mB_D$, the \emph{spread factor},
+separates \emph{underspread} channels ($T_mB_D\ll1$), whose response can be estimated from pilots
+because it changes slowly compared with its own duration, from \emph{overspread} ones, which cannot be
+tracked. Terrestrial radio channels are strongly underspread---for ETU at 300\,Hz,
+$T_mB_D\approx5\,\mu\text{s}\times600\,\text{Hz}=0.003$---while some underwater acoustic and
+ionospheric channels approach the boundary (Section~\ref{sec:ch11:other}).
+
+\begin{keyidea}[Delay and Doppler are the natural coordinates]
+In the $(\tau,\nu)$ domain, a mobile channel is sparse and nearly constant: a handful of scatterer
+clusters, each with a delay and a Doppler that change slowly as the geometry evolves. In the
+$(f,t)$ domain the same channel looks like a rapidly changing speckle pattern
+(Figure~\ref{fig:ch11_tf_response}b). OFDM works in $(f,t)$ and needs the channel to be nearly
+constant over each symbol; the new delay--Doppler waveforms proposed for high-mobility 6G, such as
+OTFS and AFDM, place data directly in the $(\tau,\nu)$ domain so that every symbol experiences the whole
+channel and the receiver can exploit its sparsity. The scattering function is where these ideas
+begin, and the final chapter returns to them.
+\end{keyidea}
+
+\section{Channel models for simulation and conformance}
+\label{sec:ch11:standardmodels}
+
+\subsection{The tapped-delay-line model}
+
+A receiver with bandwidth $W$ cannot distinguish paths whose delays differ by much less than
+$1/W$. Sampling Equation~\eqref{eq:ch11:ltv} at the rate $W$ therefore turns the continuum of paths
+into a finite-impulse-response filter whose taps are time-varying random processes, the
+\term{tapped-delay-line} (TDL) model of Figure~\ref{fig:ch11_tdl}:
+\begin{equation}
+y(t)=\sum_{l=0}^{L-1}g_l(t)\,x(t-\tau_l)+n(t).
+\end{equation}
+Each tap gain $g_l(t)$ aggregates many unresolved paths, so it is a complex Gaussian process with
+power $P_l$ from the PDP and a Doppler spectrum (usually Clarke's); under WSSUS the taps are
+independent. A line-of-sight tap has a Rician distribution instead. The number of taps needed grows
+with $W\tau_{\max}$: a narrowband channel is one tap (flat fading), a 100\,MHz channel in an urban
+macro-cell may need hundreds. This is exactly \texttt{commlib.tdl\_channel}: it takes a profile of
+delays and powers, rounds delays to the nearest sample, generates an independent
+\texttt{jakes\_process} for each tap and convolves.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth,font=\sffamily\small,
+    blk/.style={draw=navy,fill=navy!6,thick,minimum height=8mm,minimum width=12mm},
+    mul/.style={draw=navy,thick,circle,inner sep=1.2pt,fill=white},
+    gen/.style={draw=practc,fill=practbg,thick,rounded corners=2pt,minimum height=7mm,minimum width=14mm,font=\sffamily\scriptsize,align=center}]
+  \node (x) at (0,0) {$x(t)$};
+  \coordinate (b0) at (1.2,0);
+  \node[blk] (d1) at (2.7,0) {$\tau_1$};
+  \node[blk] (d2) at (5.2,0) {$\tau_2-\tau_1$};
+  \node (dots) at (7.2,0) {$\cdots$};
+  \node[blk] (d3) at (9.1,0) {$\tau_{L-1}-\cdots$};
+  \draw[->,thick] (x) -- (d1); \draw[->,thick] (d1) -- (d2); \draw[->,thick] (d2) -- (dots); \draw[->,thick] (dots) -- (d3);
+  \foreach \p/\n/\lab in {1.2/0/{g_0(t)},3.95/1/{g_1(t)},6.5/2/{g_2(t)},10.6/3/{g_{L-1}(t)}}{
+    \fill (\p,0) circle (1.5pt);
+    \node[mul] (m\n) at (\p,-1.3) {$\times$};
+    \draw[->,thick] (\p,0) -- (m\n);
+    \node[gen] (g\n) at (\p-1.05,-2.25) {$\lab$};
+    \draw[->,practc,thick] (g\n.north) |- (m\n.west);
+  }
+  \draw[thick] (d3.east) -- (10.6,0);
+  \node[mul,minimum size=6mm] (s) at (6.0,-3.4) {$+$};
+  \foreach \n in {0,1,2,3}{\draw[->,thick] (m\n.south) |- (s);}
+  \node[mul,minimum size=6mm] (nplus) at (8.2,-3.4) {$+$};
+  \draw[->,thick] (s) -- (nplus);
+  \node[above] at (8.2,-2.85) {$n(t)$}; \draw[->,thick] (8.2,-2.9) -- (nplus);
+  \draw[->,thick] (nplus) -- (9.6,-3.4) node[right] {$y(t)$};
+  \node[practc,font=\sffamily\scriptsize,align=left,anchor=west] at (0.1,-3.6)
+     {each $g_l(t)$: complex Gaussian (or Rician),\\ power $P_l$, Doppler spectrum $S(f)$};
+\end{tikzpicture}
+\caption{The tapped-delay-line channel model. The delay line holds the multipath structure (the power
+delay profile); each tap is multiplied by an independent fading process whose spectrum sets the
+Doppler behaviour. This is the structure of \texttt{commlib.tdl\_channel} and of the fading
+emulators used in conformance testing.}
+\label{fig:ch11_tdl}
+\end{figure}
+
+\subsection{A genealogy of standard models}
+
+Standards bodies publish TDL profiles so that every manufacturer tests against the same channels.
+Their history tracks the evolution of cellular systems:
+\begin{description}[style=unboxed,leftmargin=0pt]
+\item[COST 207 (1989).] Developed for GSM: typical urban (TU), bad urban (BU), rural area (RA)
+and hilly terrain (HT) profiles, with 6 or 12 taps. HT includes a second cluster of echoes 15--20\,$\mu$s
+after the first, from distant mountain slopes---the case that dictates the span of GSM's Viterbi
+equalizer.
+\item[ITU-R M.1225 (1997).] Developed for evaluating 3G (IMT-2000) proposals: Indoor A/B,
+Pedestrian A/B and Vehicular A/B, with RMS delay spreads from tens of nanoseconds (Pedestrian A,
+about 45\,ns) to about 4\,$\mu$s (Vehicular B).
+\item[3GPP TS 36.101 / 36.104 (2008).] For LTE conformance: the extended pedestrian A,
+vehicular A and typical urban models, EPA, EVA and ETU (Table~\ref{tab:ch11:lteprofiles}),
+combined with maximum Doppler frequencies of 5, 70 or 300\,Hz (``EVA70'', ``ETU300''), plus
+high-speed-train and MIMO correlation specifications.
+\item[3GPP TR 38.901 (2017 onwards).] For 5G: the TDL-A, B, C (NLOS) and TDL-D, E (LOS, with a
+Rician first tap) models, whose normalised delays are scaled by any desired RMS delay spread---for
+example 10\,ns (``very short''), 100\,ns (``nominal'') or 1000\,ns (``very long''). The companion
+\emph{clustered delay line} (CDL-A to E) models give each cluster of paths not only a delay and
+power but also angles of departure and arrival in azimuth and elevation, with angular spreads, so
+that multi-antenna beamforming and MIMO can be evaluated (Chapter~\ref{ch:mimo}).
+\end{description}
+
+\begin{table}[htbp]\centering\small
+\caption{LTE extended channel models (3GPP TS 36.101 Annex B.2), as stored in
+\texttt{commlib.channel.TDL\_PROFILES}. The last column is computed from Equation~\eqref{eq:ch11:taurms}.}
+\label{tab:ch11:lteprofiles}
+\begin{tabular}{@{}lp{0.52\linewidth}rr@{}}
+\toprule
+Model & Tap delays (ns) / relative powers (dB) & Max delay & $\tau_{\text{rms}}$\\
+\midrule
+EPA & 0, 30, 70, 90, 110, 190, 410 / 0, $-1$, $-2$, $-3$, $-8$, $-17.2$, $-20.8$ & 410\,ns & 43\,ns\\
+EVA & 0, 30, 150, 310, 370, 710, 1090, 1730, 2510 / 0, $-1.5$, $-1.4$, $-3.6$, $-0.6$, $-9.1$, $-7$, $-12$, $-16.9$ & 2.51\,$\mu$s & 357\,ns\\
+ETU & 0, 50, 120, 200, 230, 500, 1600, 2300, 5000 / $-1$, $-1$, $-1$, 0, 0, 0, $-3$, $-5$, $-7$ & 5.0\,$\mu$s & 991\,ns\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Beyond TDL and CDL lie \emph{geometry-based stochastic channel models} (GSCMs)---WINNER II,
+COST 2100, QuaDRiGa and the full 38.901 system-level procedure---which place clusters of scatterers
+in a random geometry around each link, derive delays, angles and Dopplers from it, and evolve
+them consistently as users move. They are the standard tool for system-level simulation of
+massive MIMO and beam management. At the other extreme, deterministic ray tracing (see the
+In-practice box in Section~\ref{sec:ch11:models}) produces site-specific channels, and hardware
+\emph{channel emulators} implement TDL and CDL models in real time between a base station and a
+device under test in the laboratory.
+
+\begin{labbox}[Lab 5: wireless channels]
+The notebook \lab{moderncomms-labs/labs/lab05\_channels.py} (executed as
+\lab{lab05\_channels.ipynb}) is the companion to this chapter. It (1) plots free-space and
+log-distance path loss with log-normal shadowing using \texttt{fspl\_db} and
+\texttt{log\_distance\_pl\_db}; (2) generates a Rayleigh process with \texttt{jakes\_process}, and
+checks its envelope histogram against the Rayleigh pdf and its autocorrelation against
+$J_0(2\pi f_D\tau)$; (3) provides an interactive time--frequency image of $|H(f,t)|$ for EPA, EVA and
+ETU with a Doppler slider, printing $\tau_{\text{rms}}$, $B_c$ and $T_c$ in the title (the source of
+Figure~\ref{fig:ch11_tf_response}); (4) simulates BPSK over Rayleigh and Rician channels against the
+AWGN and Rayleigh theory curves of Figure~\ref{fig:ch11_ber_fading}; and (5) estimates a channel
+impulse response by correlating with a Zadoff--Chu sequence, the same processing as the over-the-air
+sounder \lab{gnuradio/gr03\_channel\_sounder.py}. The figure script
+\lab{book/figscripts/ch11\_figs.py} contains the Hata, 38.901, knife-edge, two-ray, rain and
+coverage calculators used in this chapter; a planned companion lab,
+\lab{lab05b\_propagation\_link\_budget.py}, will turn them into an interactive link-budget and
+coverage planner.
+\end{labbox}
+
+\section{Error probability in fading, and why diversity is essential}
+\label{sec:ch11:ber}
+
+\subsection{From exponential to polynomial}
+
+In AWGN, coherent BPSK has $P_b=\Q(\sqrt{2\gamma_b})$, where $\gamma_b=E_b/N_0$: the error rate falls
+\emph{exponentially} with SNR (Chapter~\ref{ch:modulation}). In a flat, slow Rayleigh channel, the
+instantaneous SNR is $\gamma=|h|^2\bar\gamma_b$, exponentially distributed with mean $\bar\gamma_b$,
+and the receiver (with perfect channel knowledge) makes errors at the conditional rate
+$\Q(\sqrt{2\gamma})$. Averaging over the fading,
+\begin{equation}
+\bar P_b=\int_0^\infty\Q(\sqrt{2\gamma})\,\frac{1}{\bar\gamma_b}e^{-\gamma/\bar\gamma_b}\,d\gamma
+=\frac12\left(1-\sqrt{\frac{\bar\gamma_b}{1+\bar\gamma_b}}\right)\approx\frac{1}{4\bar\gamma_b}.
+\label{eq:ch11:berray}
+\end{equation}
+This is \texttt{commlib.ber\_bpsk\_rayleigh}. The error rate now falls only as $1/\text{SNR}$: ten
+times lower for every 10\,dB. To reach $10^{-5}$, AWGN needs 9.6\,dB; Rayleigh fading needs about
+44\,dB---a penalty of about 34\,dB, a factor of more than 2000 in power (Figure~\ref{fig:ch11_ber_fading}).
+
+Why so bad? Because almost all errors happen during deep fades. When the channel is at its average,
+44\,dB of SNR is enormous and the receiver makes no errors at all. The error rate is essentially the
+probability of being in a fade deep enough to push the instantaneous SNR below about 0\,dB, and by
+Equation~\eqref{eq:ch11:rayleigh} that probability is about $1/\bar\gamma$. No amount of clever
+modulation changes this: every scheme in a Rayleigh channel without diversity has an error rate
+proportional to $1/\text{SNR}$ at high SNR. Only the constant differs.
+
+\mdcfig{ch11_ber_fading}{Bit error probability of coherent BPSK in AWGN, in flat Rayleigh fading, and
+in Rayleigh fading with 2- and 4-branch maximal-ratio combining (the total received energy per bit is
+held fixed, so the curves show pure diversity gain, not extra array gain). Squares: simulated
+Rician fading with $K=10$. Without diversity the error rate falls one decade per 10\,dB; with $L$
+branches it falls $L$ decades per 10\,dB.}
+
+\subsection{Diversity}
+
+The cure is to give the receiver several \emph{independently} fading copies of the signal. If each of
+$L$ branches is in a deep fade with probability $p\approx1/\bar\gamma$, all of them are simultaneously
+in a deep fade with probability $p^L$. The error rate then falls as $\bar\gamma^{-L}$; $L$ is the
+\term{diversity order}. For $L$-branch maximal-ratio combining (MRC) of independent Rayleigh branches
+with per-branch mean SNR $\bar\gamma$, the exact result is
+\begin{equation}
+\bar P_b=\left(\frac{1-\mu}{2}\right)^L\sum_{k=0}^{L-1}\binom{L-1+k}{k}\left(\frac{1+\mu}{2}\right)^k,
+\qquad \mu=\sqrt{\frac{\bar\gamma}{1+\bar\gamma}}\ ,
+\end{equation}
+which behaves as $\binom{2L-1}{L}(4\bar\gamma)^{-L}$ at high SNR. Figure~\ref{fig:ch11_ber_fading}
+shows how dramatic the effect is: at $10^{-5}$, two branches gain about 20\,dB over no diversity, and
+four branches a further 8\,dB or so, even with the total energy held constant. Diversity is not a
+refinement of wireless design; it is the foundation.
+
+Diversity can be obtained along every dimension in which the channel fades independently:
+\begin{itemize}
+\item \textbf{Time diversity}: repeat or, better, code and interleave over a span longer than the
+coherence time. Free for fast users, useless for stationary ones (the worked example in
+Section~\ref{sec:ch11:clarke}).
+\item \textbf{Frequency diversity}: spread the information over a bandwidth larger than $B_c$. A
+spread-spectrum Rake receiver (Chapter~\ref{ch:spreadspectrum}) collects the energy of each
+resolvable path; coded OFDM (Chapter~\ref{ch:ofdm}) spreads each codeword over subcarriers more than
+$B_c$ apart; frequency hopping moves the carrier from burst to burst.
+\item \textbf{Space diversity}: several antennas. At a handset surrounded by scatterers, spacing of
+about $\lambda/2$ (where $J_0$ is small) gives nearly independent fading; at an elevated base station,
+which sees a narrow angular spread, 10--20 wavelengths may be needed. Receive MRC, transmit
+diversity (Alamouti's code) and their generalisation to MIMO are the subject of Chapter~\ref{ch:mimo}.
+\item \textbf{Polarization and pattern diversity}: the cross-polarized base-station antennas of
+Section~\ref{sec:ch11:antennas}, and handset antennas with different patterns.
+\item \textbf{Macro-diversity}: several base stations, protecting against shadowing as well as
+fading (soft handover in CDMA, coordinated multipoint in LTE and NR).
+\item \textbf{Coding across all of them}: a good channel code spreads each information bit over many
+coded bits, and an interleaver places those bits in different time--frequency--space resources. The
+\emph{code} is what converts the physical diversity into a lower error rate (Chapters~\ref{ch:classiccodes}
+and~\ref{ch:moderncodes}).
+\end{itemize}
+
+\begin{keyidea}[Fading turns an exponential into a polynomial; diversity turns it back]
+In AWGN the error rate falls exponentially with SNR. In Rayleigh fading it falls as $\text{SNR}^{-1}$,
+because errors are dominated by the probability of a deep fade. With $L$ independent branches it
+falls as $\text{SNR}^{-L}$. As $L$ grows, the channel ``hardens'' back toward AWGN---the principle
+behind massive MIMO, wideband OFDM with strong codes, and every other modern answer to fading.
+\end{keyidea}
+
+\begin{inpractice}[Diversity in the systems you use]
+GSM combines slow frequency hopping, interleaving over eight bursts and a convolutional code.
+IS-95 and WCDMA use Rake receivers that combine resolvable paths plus soft handover between cells.
+LTE and NR spread every transport block over time and frequency with an LDPC or turbo code and add
+two to eight receive antennas at the base station; the mandatory two receive antennas in phones
+(four in most 5G phones at mid-band) provide space diversity on the downlink. Wi-Fi access points
+advertise ``$4\times4$'' antenna configurations as much for diversity as for multiplexing. Even
+satellite digital radio uses time diversity---the same stream is sent over a second path delayed by
+several seconds---plus multiple satellites and terrestrial repeaters, so that a car passing under a bridge
+hears no interruption.
+\end{inpractice}
+
+\section{How the channel shapes the standards}
+\label{sec:ch11:standards}
+
+The parameters of every modern air interface are, to a large degree, read off the channel. OFDM
+makes the connection especially clean, because two numbers---the subcarrier spacing and the
+cyclic-prefix length---must be matched to the Doppler spread and the delay spread respectively
+(Chapter~\ref{ch:ofdm} develops the theory).
+
+\paragraph{Cyclic prefix versus delay spread.} The cyclic prefix (CP) must exceed the channel's
+maximum excess delay (in practice, the delay beyond which the remaining echo energy is negligible),
+or the tail of each symbol leaks into the next. LTE chose a normal CP of about 4.7\,$\mu$s, covering
+the 5\,$\mu$s of ETU with a little leakage accepted, and nearly all urban and suburban macro-cells;
+an extended CP of 16.7\,$\mu$s serves very large cells, hilly terrain and single-frequency broadcast
+(MBSFN), where signals from several base stations arrive with large relative delays.
+
+\paragraph{Subcarrier spacing versus Doppler.} Doppler spreading smears each subcarrier's energy into
+its neighbours, causing inter-carrier interference that grows with $f_DT_u$ (with $T_u=1/\Delta f$ the
+useful symbol duration). With 15\,kHz spacing, a user at 350\,km/h at 2.6\,GHz has $f_D\approx840$\,Hz,
+about 5.6\% of the spacing---at the edge of what is tolerable with good channel tracking, which is why
+350\,km/h was the design target. Wider spacing would tolerate more Doppler but, for a fixed CP overhead,
+would shorten the symbol and hence the CP.
+
+\paragraph{The compromise.} The overhead of the CP is $T_{\text{CP}}/(T_u+T_{\text{CP}})$. With
+$T_u=66.7\,\mu$s (the reciprocal of 15\,kHz) and $T_{\text{CP}}\approx4.7\,\mu$s, the overhead is about 6.6\%.
+A 15\,kHz spacing is therefore the point where a CP long enough for urban delay spreads costs
+under 7\%, while the subcarriers are wide enough for high-speed Doppler. It is a direct translation
+of ``urban macro-cell delay spread, high-speed-train Doppler, 2\,GHz carrier'' into a number.
+
+\paragraph{5G numerologies.} NR generalises the argument with spacings $15\times2^\mu$\,kHz and
+CPs that scale as $4.7/2^\mu\,\mu$s: 30\,kHz (2.3\,$\mu$s CP) for mid-band macro-cells, whose
+3.5\,GHz carrier doubles the Doppler; 120\,kHz (0.59\,$\mu$s CP) at 28\,GHz, where Doppler and oscillator
+phase noise are an order of magnitude larger but narrow beams and short range reduce the effective
+delay spread to tens or hundreds of nanoseconds.
+
+\paragraph{Wi-Fi and broadcasting.} Indoor Wi-Fi (802.11a/g/n/ac) uses 312.5\,kHz spacing and a
+0.8\,$\mu$s guard interval, sized for indoor delay spreads of tens to a couple of hundred nanoseconds;
+802.11ax reduced the spacing to 78.125\,kHz and offers 0.8, 1.6 and 3.2\,$\mu$s guard intervals for
+outdoor and large-venue deployments. Terrestrial digital TV (DVB-T) sits at the opposite corner: in
+its 8k mode with an 8\,MHz channel the useful symbol lasts 896\,$\mu$s, and a guard interval of 1/4
+gives 224\,$\mu$s, long enough for a single-frequency network in which transmitters tens of kilometres
+apart broadcast the same signal and look to the receiver like strong, long-delayed echoes.
+
+\paragraph{Pilots.} Pilot (reference-signal) spacing is a sampling problem on $H(f,t)$. Sampling in
+frequency every $\Delta f_p$ can represent delays up to $1/\Delta f_p$; sampling in time every
+$\Delta t_p$ can represent Doppler up to $1/(2\Delta t_p)$. LTE's cell-specific reference signals
+effectively sample every third subcarrier (45\,kHz, supporting delays of about 22\,$\mu$s, beyond the
+extended CP) and a few times per 0.5\,ms slot. NR makes pilots configurable, adding extra
+demodulation reference-signal symbols per slot for high-speed users---the standard adapting its
+sampling to the coherence time of the particular channel.
+
+\paragraph{Before OFDM.} The same logic drove older systems. GSM's 270.8\,kb/s symbol period of
+3.7\,$\mu$s is short compared with urban delay spreads, so every burst carries a 26-bit training
+sequence in its middle (where the channel estimate is valid for both halves of the burst) and the
+receiver runs a Viterbi equalizer able to handle echoes of about 15--20\,$\mu$s, the requirement set by
+the COST 207 hilly-terrain profile. The 577\,$\mu$s burst was chosen to be short compared with the
+coherence time at vehicle speeds, so that one channel estimate suffices per burst.
+
+\begin{pitfall}[Designing for the mean]
+It is tempting to size a CP from a typical RMS delay spread. But the CP must cover the \emph{tail} of
+the PDP, which can be five to ten times $\tau_{\text{rms}}$, and it must work at the unlucky locations,
+not the average one. Likewise pilot spacing must handle the maximum Doppler the system supports, not
+that of a typical user. Standards bodies test at the edges (ETU300, high-speed train) for this reason,
+and a design that works only in EPA5 is not finished.
+\end{pitfall}
+
+\section{Channel sounding and measurement}
+\label{sec:ch11:sounding}
+
+Every model in this chapter came from measurements, and every new band needs new ones.
+\emph{Channel sounders} measure $h(\tau,t)$ directly. The main techniques are:
+\begin{itemize}
+\item \textbf{Periodic pulse sounding}: send short pulses and record the received envelope. Simple,
+but the peak power needed for a good SNR is high.
+\item \textbf{Correlation sounding}: send a pseudo-noise sequence (an $m$-sequence or a
+Zadoff--Chu sequence, Chapter~\ref{ch:spreadspectrum}) whose autocorrelation is nearly an
+impulse, and correlate the received signal with it. The processing gain equals the sequence length.
+The classic \emph{sliding correlator} used a receiver PN generator clocked slightly slower than the
+transmitter's, so that the correlation peak slid past slowly and could be recorded with narrowband
+equipment; modern sounders digitise everything and correlate in software, as Lab~5 and
+\texttt{gr03\_channel\_sounder.py} do.
+\item \textbf{Frequency-domain sounding}: sweep or multitone signals, often with a vector network
+analyser for static indoor channels. The inverse Fourier transform of $H(f)$ gives $h(\tau)$ with
+resolution $1/W$.
+\item \textbf{Directional sounding}: rotating horn antennas or antenna arrays, combined with
+high-resolution parameter estimation (MUSIC, ESPRIT, SAGE), to measure angles of arrival and
+departure as well as delays. The CDL models of 38.901 come from such campaigns.
+\end{itemize}
+Channel sounding sets demanding requirements on the equipment: a stable timebase (often
+GPS-disciplined rubidium clocks at both ends, so that absolute delay and Doppler can be measured),
+wide bandwidth for delay resolution, high dynamic range to see weak late echoes, and fast
+acquisition to capture the channel within its coherence time.
+
+\begin{history}[Bell Labs, Clarke, Jakes and the science of mobile radio]
+When Bell Labs began planning a high-capacity cellular system in the 1960s, the statistics of the
+mobile channel were barely known. Engineers at the Holmdel laboratory set out to measure and model
+them. R.~H.~Clarke's 1968 paper derived the Rayleigh envelope, the Doppler spectrum and the
+correlation properties from the simple model of plane waves arriving from all directions; M.~J.~Gans
+(1972) measured and extended the spectral picture; and Donald Cox's sounding campaigns at 910\,MHz in
+suburban New Jersey and in New York City (1972--73) produced some of the first careful measurements of
+power delay profiles and delay spreads in cities, using a pseudo-noise correlation sounder carried
+in a van. William C.~Jakes edited the results of this programme into \emph{Microwave Mobile
+Communications} (1974), the book that defined the field for twenty years and gave its name to the
+Jakes fading simulator. The Bell Labs proposal for AMPS, and the analyses behind frequency reuse and
+cell splitting (Chapter~\ref{ch:multipleaccess}), rested on this foundation. Half a century later,
+the millimetre-wave measurement campaigns of the early 2010s at 28, 38 and 73\,GHz, notably by
+T.~S.~Rappaport's groups in Texas and New York, played the same role for 5G.
+\end{history}
+
+\section{Other channels}
+\label{sec:ch11:other}
+
+\subsection{Vehicular and high-speed channels}
+
+When both ends move---vehicle-to-vehicle (V2X) links---the Doppler spectrum is the convolution of
+two Clarke spectra and extends to $\pm2f_D$; the fading of the product of two independent complex
+Gaussian processes is ``double-Rayleigh,'' with even more deep fades; and because both antennas are
+low and the scatterers (other vehicles) also move, the channel is often not stationary over the time
+needed to estimate it. High-speed trains are the opposite: a strong line-of-sight component, a
+Rician channel with high K-factor, but Doppler shifts that swing from $+f_D$ to $-f_D$ within a second
+as the train passes a mast. Both have dedicated 3GPP test models.
+
+\subsection{Underwater acoustic channels}
+
+Radio waves barely penetrate sea water (the skin depth at 10\,kHz is a couple of metres), so
+underwater communication is acoustic. The channel is extraordinary by radio standards. Sound travels
+at about 1500\,m/s, $2\times10^5$ times slower than light, so multipath from the surface and seabed
+spreads over tens of milliseconds and a platform moving at 1.5\,m/s has $v/c=10^{-3}$---a Doppler
+\emph{compression} of the whole waveform that must be corrected by resampling, not by a frequency
+shift. Absorption rises steeply with frequency; Thorp's empirical formula gives the attenuation
+coefficient (with $f$ in kHz)
+\begin{equation}
+\alpha(f)\approx\frac{0.11f^2}{1+f^2}+\frac{44f^2}{4100+f^2}+2.75\times10^{-4}f^2+0.003\ \ \text{dB/km},
+\end{equation}
+about 1\,dB/km at 10\,kHz and 17\,dB/km at 50\,kHz, so the usable bandwidth shrinks with range: tens of
+kilohertz at a kilometre, a few kilohertz at tens of kilometres. The resulting links carry
+hundreds of bits to tens of kilobits per second, with delay--Doppler spreads that approach the
+overspread limit of Section~\ref{sec:ch11:wssus}. Underwater modems use adaptive equalization,
+OFDM with Doppler compensation, and strong codes; they are an excellent test of everything in this
+chapter.
+
+\subsection{Body-area channels}
+
+Wearable and implanted devices communicate through, along and around the human body. IEEE 802.15.6
+defines channel models for in-body, on-body and off-body links. Tissue is lossy and has high
+permittivity, so in-body links use low frequencies (the 402--405\,MHz band allocated for medical
+implants) and very short range; on-body links at 2.4\,GHz propagate largely by \emph{creeping waves}
+around the torso, with path losses far above free space when the two devices are on opposite sides
+of the body, and with large, slow fading as the wearer moves. Bluetooth Low Energy links between a
+phone in a back pocket and a watch on the opposite wrist live in exactly this channel.
+
+\section{Summary}
+\label{sec:ch11:summary}
+
+\begin{itemize}
+\item The wireless channel is a linear time-varying filter $h(\tau,t)$. Its effects separate into path
+loss (kilometres), shadowing (tens of metres, log-normal) and multipath fading (fractions of a
+wavelength).
+\item Antennas are characterised by gain, effective aperture $A_e=\lambda^2G/4\pi$, beamwidth and
+polarization. Free-space path loss rises with frequency only because fixed-gain antennas shrink;
+fixed apertures recover it, which is how millimetre-wave systems work.
+\item The link budget balances EIRP, receive gain and sensitivity against path loss and margins;
+the uplink usually limits cellular coverage.
+\item Reflection, diffraction (Fresnel zones, knife edges) and scattering shape real propagation. The
+two-ray model explains the $d^{-4}$ law and the breakpoint. The ionosphere, ground wave and
+troposphere carry signals beyond the horizon; gases and rain dominate above 10\,GHz.
+\item Empirical models (log-distance, Okumura--Hata, COST-231, 3GPP TR 38.901) predict median loss;
+shadowing requires margins derived from edge and area coverage probabilities.
+\item Delay spread sets the coherence bandwidth; Doppler spread sets the coherence time. Comparing them
+with the signal's bandwidth and symbol duration defines the four fading regimes.
+\item Rayleigh, Rician and Nakagami distributions describe fading envelopes; Clarke's model gives
+the Doppler spectrum, level-crossing rate and fade durations; WSSUS and the scattering function unify
+the description.
+\item Fading changes error rates from exponential to $1/\text{SNR}$; diversity of order $L$ restores
+$\text{SNR}^{-L}$. The channel's delay and Doppler spreads fix the CP, subcarrier spacing and pilot
+density of every modern standard.
+\end{itemize}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item A half-wave dipole and a 20\,dBi horn are used at 2.4\,GHz. Compute the effective aperture of
+each. How large a dish (60\% efficiency) would have the same gain as the horn?
+\item Derive Equation~\eqref{eq:ch11:friis} from the definitions of EIRP and effective aperture, and
+show that for fixed apertures the received power increases as $f^2$. A point-to-point link uses
+0.6\,m dishes at both ends. By how many decibels does the received power change between 6 and
+80\,GHz in clear air? What effects in this chapter reduce that advantage in practice?
+\item A 23\,dBm transmitter feeds a 2\,dBi antenna through 1\,dB of cable. A receiver 3\,km away with a
+6\,dBi antenna has a 5\,dB noise figure and a 10\,MHz bandwidth. Compute the free-space SNR at 900\,MHz
+and at 5.8\,GHz. Repeat with a log-distance exponent of 3.5 beyond 100\,m.
+\item For a 50\,km, 11\,GHz microwave link, compute the first Fresnel-zone radius at mid-path and the
+Earth bulge for $k=4/3$ and $k=2/3$. A ridge at 20\,km from one end rises to 5\,m \emph{above} the
+straight line between the antennas. Estimate the diffraction loss with the knife-edge model.
+\item Show that for $d\gg h_t,h_r$ the two-ray path difference is approximately $2h_th_r/d$, and derive
+the $d^{-4}$ asymptote of Equation~\eqref{eq:ch11:tworay}. For a Wi-Fi link between two laptops on a
+beach ($h_t=h_r=1$\,m, 2.4\,GHz), where is the last maximum and where is the crossover?
+\item The F2 critical frequency is 8\,MHz at a reflection height of 300\,km. Estimate the MUF for
+a 1000\,km and a 3000\,km single-hop path (use flat-Earth geometry for the first, and explain why it
+fails for the second). What is the skip distance at 14\,MHz?
+\item Using the P.838-3 coefficients of the figure script, compute the rain attenuation of a 5\,km, 38\,GHz
+backhaul link in 30\,mm/h rain, with an effective path-length reduction factor of 0.7. How much would
+vertical polarization help?
+\item Use COST-231 Hata to find the cell radius for a MAPL of 140\,dB at 1900\,MHz with $h_b=40$\,m and
+$h_m=1.5$\,m in a metropolitan centre. Repeat with 3GPP UMa NLOS at 1.9\,GHz. Comment on the
+difference.
+\item With $n=3.8$ and $\sigma=9$\,dB, what edge coverage probability gives 95\% area coverage? What
+shadowing margin is needed? Evaluate Equation~\eqref{eq:ch11:areacov} numerically.
+\item Compute $\bar\tau$, $\tau_{\text{rms}}$ and $B_c$ for the ETU profile of
+Table~\ref{tab:ch11:lteprofiles}. How many LTE subcarriers span one coherence bandwidth? For a
+20\,MHz carrier, roughly how many independent fades are there across the band?
+\item Show, starting from Clarke's model, that the Doppler spectrum is Equation~\eqref{eq:ch11:clarke}
+and its autocorrelation is $J_0(2\pi f_D\tau)$. Why does a directional receive antenna pointing
+forward change both?
+\item A user moves at 120\,km/h at 3.5\,GHz. Compute $f_D$, $T_c$, and the level-crossing rate and
+average fade duration at $-15$\,dB. An NR slot at 30\,kHz lasts 0.5\,ms. How many fades per slot, on
+average? Is one DMRS symbol per slot enough?
+\item Derive Equation~\eqref{eq:ch11:berray}. Then show that for $L$-branch MRC the high-SNR error
+rate is $\binom{2L-1}{L}(4\bar\gamma)^{-L}$, and compute the SNR needed for $10^{-4}$ with $L=1,2,4$.
+\item \emph{(Simulation)} Use the function \texttt{commlib.tdl\_channel} to generate EVA and
+ETU channels at 15.36\,MS/s. Estimate the power delay profile by averaging $|h|^2$ over many
+realisations, then measure $\tau_{\text{rms}}$ and the frequency correlation function. Compare
+your results with Table~\ref{tab:ch11:lteprofiles} and Equation~\eqref{eq:ch11:bc}.
+\item \emph{(Simulation)} Extend Lab~5's BER experiment to $L$-branch MRC, generating each branch
+with an independent call to \texttt{jakes\_process} at $f_D=10$\,Hz, and send uninterleaved packets
+of 1000 bits. Measure the
+\emph{packet} error rate versus SNR for $L=1,2,4$ and explain why packet error rate and bit error rate
+behave so differently in slow fading.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item T.~S.~Rappaport, \emph{Wireless Communications: Principles and Practice}, 2nd ed., Prentice
+Hall, 2002. The standard engineering introduction to propagation, link budgets and fading; its
+chapters on large- and small-scale propagation remain the best first read.
+\item A.~F.~Molisch, \emph{Wireless Communications}, 2nd ed., Wiley--IEEE, 2011. A more complete and
+modern treatment, excellent on channel modelling, sounding and GSCMs.
+\item W.~C.~Jakes (ed.), \emph{Microwave Mobile Communications}, Wiley, 1974; IEEE Press reissue, 1994.
+The Bell Labs classic: Clarke's model, level crossings, diversity, and the fading simulator.
+\item J.~D.~Parsons, \emph{The Mobile Radio Propagation Channel}, 2nd ed., Wiley, 2000. Thorough on
+empirical models, shadowing and sounding techniques.
+\item S.~R.~Saunders and A.~Arag\'on-Zavala, \emph{Antennas and Propagation for Wireless Communication
+Systems}, 2nd ed., Wiley, 2007. The best single book joining antennas and propagation for system
+engineers.
+\item C.~A.~Balanis, \emph{Antenna Theory: Analysis and Design}, 4th ed., Wiley, 2016. The reference
+for antenna fundamentals.
+\item D.~Tse and P.~Viswanath, \emph{Fundamentals of Wireless Communication}, Cambridge University
+Press, 2005. A beautifully clear account of the fading channel as seen by an information theorist:
+degrees of freedom, diversity and the delay--Doppler view.
+\item P.~A.~Bello, ``Characterization of randomly time-variant linear channels,'' \emph{IEEE Trans.
+Communications Systems}, CS-11, 1963. The origin of WSSUS and the scattering function.
+\item R.~H.~Clarke, ``A statistical theory of mobile-radio reception,'' \emph{Bell System Technical
+Journal}, 47, 1968; M.~Hata, ``Empirical formula for propagation loss in land mobile radio services,''
+\emph{IEEE Trans. Vehicular Technology}, VT-29, 1980; Y.~Okumura et al., ``Field strength and its
+variability in VHF and UHF land-mobile radio service,'' \emph{Review of the Electrical Communication
+Laboratory}, 16, 1968. Three founding papers, all still worth reading.
+\item 3GPP TR 38.901, \emph{Study on channel model for frequencies from 0.5 to 100 GHz}; 3GPP TS 36.101
+Annex B (LTE fading models). The models used to design and test 5G and LTE.
+\item ITU-R Recommendations P.525 (free space), P.526 (diffraction), P.530 (terrestrial links),
+P.618 (Earth--space), P.676 (gases), P.838 (rain), P.453 (refractivity), P.533 (HF), P.1238 and
+P.1411 (indoor and short-range outdoor). Free to download; the authoritative engineering methods.
+\item T.~S.~Rappaport et al., ``Millimeter wave mobile communications for 5G cellular: it will
+work!'', \emph{IEEE Access}, 1, 2013; M.~Stojanovic and J.~Preisig, ``Underwater acoustic
+communication channels: propagation models and statistical characterization,'' \emph{IEEE
+Communications Magazine}, 47(1), 2009. Two good entry points to the channels at the frontiers.
+\end{itemize}
