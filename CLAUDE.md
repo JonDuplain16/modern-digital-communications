@@ -67,12 +67,12 @@ comms-textbook/
 | 5 | ch:pcm | Sampling, Quantization and Digital Telephony (PCM, companding, T1, sigma-delta) | written (~14 pp) |
 | 6 | ch:dsp | Digital Filters and Multirate Processing (FIR/IIR, polyphase, CIC, NCO) | written (~12 pp) |
 | 7 | ch:sdr | The Radio Transceiver and the Software-Defined Radio | written (~10 pp) |
-| 8 | ch:baseband | Baseband Transmission and Pulse Shaping | **figures done (figs/ch08_*.pdf, 10 figs); text NOT written — do this first** |
-| 9 | ch:modulation | Digital Modulation and Optimal Detection (PSK/QAM/FSK/MSK/GMSK, noncoherent) | todo |
-| 10 | ch:sync | Synchronization (carrier, timing, frame; PLL theory) | todo |
-| 11 | ch:channels | The Wireless Channel (propagation, link budgets, fading, 3GPP models) | todo |
-| 12 | ch:equalization | Equalization (ZF/MMSE/LMS/RLS/CMA/DFE/MLSE, turbo equalization) | todo |
-| 13 | ch:infotheory | Information Theory | todo |
+| 8 | ch:baseband | Baseband Transmission and Pulse Shaping | written (44 pp) |
+| 9 | ch:modulation | Digital Modulation and Optimal Detection (PSK/QAM/FSK/MSK/GMSK, noncoherent) | written (40 pp) |
+| 10 | ch:sync | Synchronization (carrier, timing, frame; PLL theory) | written (43 pp) |
+| 11 | ch:channels | The Wireless Channel (propagation, link budgets, fading, 3GPP models) | written (47 pp) |
+| 12 | ch:equalization | Equalization (ZF/MMSE/LMS/RLS/CMA/DFE/MLSE, turbo equalization) | written (41 pp) |
+| 13 | ch:infotheory | Information Theory | written (47 pp) |
 | 14 | ch:classiccodes | Classical Codes (Hamming, cyclic/CRC, BCH, Reed-Solomon, convolutional, Viterbi) | todo |
 | 15 | ch:moderncodes | Turbo, LDPC and Polar Codes | todo |
 | 16 | ch:sourcecoding | Source Coding: voice, audio, image, video | todo |
@@ -82,7 +82,7 @@ comms-textbook/
 | 20 | ch:multipleaccess | Multiple Access and the Cellular Concept | todo |
 | 21 | ch:cellular | Cellular Generations: AMPS to 5G | todo |
 | 22 | ch:wifi | Wi-Fi, Bluetooth and IoT (LoRa, Zigbee, NB-IoT) | todo |
-| 23 | ch:satellite | Satellite Communications (orbits, link budgets, transponders, DVB-S2, Telstar to Starlink, NTN) | todo — Jon asked for this explicitly |
+| 23 | ch:satellite | Satellite Communications (orbits, link budgets, transponders, DVB-S2, Telstar to Starlink, NTN) | written (45 pp) |
 | 24 | ch:wireline | Wireline and Optical (telephone plant, DSL, cable/DOCSIS, Ethernet SerDes, fibre, coherent optics) | todo |
 | 25 | (add label) | The Road to 6G (ISAC, OTFS/AFDM, AI-native PHY, NTN) | todo |
 | A,B | appA, appB | Math reference; Using the labs and GNU Radio (preface promises Appendix B) | todo |
@@ -187,3 +187,7 @@ simulator); a lab index notebook; each chapter's `labbox` should name the exact 
 - 2026-09-30 (Claude Code, Windows): installed MiKTeX + PyMuPDF, made build Windows-friendly, created
   GitHub repo, added build_chapter.sh + WRITING_GUIDE.md. Wave 1 in parallel agents: Ch 8, 9, 10, 11,
   12, 23 + labs engineer (labkit.py, polish labs 01-12, fix chapter mapping, new labs 13-18, lab00 index).
+  Done+pushed: Ch 8-13, 23 (full book ~420 pp). Still in flight when usage limit hit: Ch 14, 15, 16, 17, 18
+  and the labs engineer -- check their files exist/build (build_chapter.sh) before re-launching.
+  Requested future labs are in moderncomms-labs/LAB_QUEUE.md. Remaining chapters: 19-22, 24, 25, App A/B, references;
+  then deepen Ch 1-7; then an accuracy-review pass (agents flagged numbers to verify in their reports).
