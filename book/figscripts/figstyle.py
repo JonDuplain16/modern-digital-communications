@@ -14,8 +14,12 @@ CYCLE = [NAVY, ACCENT, GREEN, ORANGE, PURPLE, "#2E86C1", GRAY]
 
 from matplotlib import font_manager as _fm
 import glob as _glob
-for _f in _glob.glob("/usr/share/texmf/fonts/opentype/public/tex-gyre/texgyrepagella*.otf"):
-    _fm.fontManager.addfont(_f)
+_FONT_GLOBS = ["/usr/share/texmf/fonts/opentype/public/tex-gyre/texgyrepagella*.otf",
+               "/usr/share/texlive/texmf-dist/fonts/opentype/public/tex-gyre/texgyrepagella*.otf",
+               os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs/MiKTeX/fonts/opentype/public/tex-gyre/texgyrepagella*.otf")]
+for _g in _FONT_GLOBS:
+    for _f in _glob.glob(_g):
+        _fm.fontManager.addfont(_f)
 
 plt.rcParams.update({
     "font.family": "serif", "font.serif": ["TeX Gyre Pagella", "Palatino", "DejaVu Serif"],
