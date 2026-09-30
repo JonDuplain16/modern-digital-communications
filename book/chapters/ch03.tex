@@ -1,0 +1,382 @@
+\chapter{Random Signals and Noise}
+\label{ch:noise}
+
+\begin{chapterintro}
+If there were no noise, a single sample of a voltage could carry an infinite number of
+bits, and communication engineering would be trivial. Noise is what makes the subject
+hard and interesting. This chapter gives the probability and random-process tools the rest
+of the book needs, explains where noise comes from physically, shows how engineers
+characterise receivers with noise figure and noise temperature, and ends with the link
+budget---the single calculation that decides whether a communication system will work at
+all, from a Wi-Fi access point to a spacecraft at the edge of the solar system.
+\end{chapterintro}
+
+\section{The floor under everything}
+
+In 1928 John B.~Johnson, measuring amplifiers at Bell Labs, found that every resistor
+produced a small fluctuating voltage whose power was proportional to its temperature and
+to the measurement bandwidth, and independent of what the resistor was made of. Harry
+Nyquist explained the result the same year from thermodynamics. Thermal noise is not a
+defect of any particular device; it is the random motion of charge carriers in any
+conductor above absolute zero, and it sets a floor below which no receiver can hear. Every
+other impairment---distortion, interference, fading---can in principle be designed away.
+Noise can only be outwitted: by using more power, more bandwidth, more antennas, longer
+observation, or cleverer codes. To reason about it we need probability.
+
+\section{Random variables in communication}
+
+\subsection{The Gaussian distribution and the central limit theorem}
+
+A random variable $X$ is described by its probability density function (pdf)
+$p_X(x)$, its mean $\mu=\E[X]$ and variance $\sigma^2=\E[(X-\mu)^2]$. The most important
+distribution in communications is the Gaussian (normal),
+\begin{equation}
+p_X(x)=\frac{1}{\sqrt{2\pi\sigma^2}}\,e^{-(x-\mu)^2/2\sigma^2}.
+\end{equation}
+Its importance comes from the \term{central limit theorem}: the sum of many independent
+random contributions of comparable size tends to a Gaussian, whatever the individual
+distributions. Thermal noise is the sum of the effects of an astronomical number of
+electrons; the interference from many distant transmitters, the error of a quantizer with
+many levels and the sum of many multipath components all tend to Gaussian for the same
+reason. Figure~\ref{fig:ch03_clt} shows how quickly the convergence happens: the sum of
+just four uniform random variables is already hard to tell from a Gaussian by eye, though
+the tails---which matter for error probability---converge more slowly.
+
+\mdcfig{ch03_clt}{The central limit theorem in action: normalised sums of $n$ independent
+uniform random variables (histograms) approach the Gaussian density (red curves).}
+
+\subsection{The Q function}
+
+Nearly every error probability in this book is a Gaussian tail probability. We define the
+\term{Q function} as the probability that a zero-mean, unit-variance Gaussian exceeds $x$,
+\begin{equation}
+\Q(x)=\frac{1}{\sqrt{2\pi}}\int_x^\infty e^{-u^2/2}\,du=\tfrac12\operatorname{erfc}\!\left(x/\sqrt2\right).
+\label{eq:ch03:q}
+\end{equation}
+If a receiver decides between $+A$ and $-A$ corrupted by Gaussian noise of standard
+deviation $\sigma$, the error probability is $\Q(A/\sigma)$. The function falls extremely fast
+(Figure~\ref{fig:ch03_q}): $\Q(3.09)=10^{-3}$, $\Q(4.75)=10^{-6}$, $\Q(6.0)=10^{-9}$.
+Increasing the argument by about 50\%---a 3.5\,dB increase in signal-to-noise
+ratio---reduces the error rate by a factor of a thousand. This steepness is why a working
+digital link has a ``cliff'': a few decibels separate perfect reception from none. The
+bounds $\Q(x)\le\frac12e^{-x^2/2}$ and $\Q(x)<e^{-x^2/2}/(x\sqrt{2\pi})$ are useful for quick
+estimates and for proofs.
+
+\mdcfig[0.8]{ch03_q}{The Q function (Gaussian tail probability) on a logarithmic scale, with
+two classical bounds. Values at three reference error rates are marked.}
+
+\subsection{Complex Gaussian noise and its envelope}
+
+Because receivers work with complex baseband signals (Section~\ref{sec:complexenvelope}),
+noise is complex: $n=n_I+jn_Q$ with independent zero-mean Gaussian parts of equal
+variance $\sigma^2=N_0/2$. Such noise is \emph{circularly symmetric}: its distribution does not
+change under rotation, so its phase is uniform on $[-\pi,\pi)$ and its total variance is
+$\E|n|^2=N_0$. The magnitude $R=|n|$ has the \term{Rayleigh distribution}
+\begin{equation}
+p_R(r)=\frac{r}{\sigma^2}\,e^{-r^2/2\sigma^2},\qquad r\ge0,
+\end{equation}
+and the power $|n|^2$ is exponentially distributed. If a constant component $s$ is added---a
+sinusoid plus noise, or a line-of-sight path plus scattered paths---the envelope follows the
+\term{Rice distribution},
+\begin{equation}
+p_R(r)=\frac{r}{\sigma^2}\exp\!\left(-\frac{r^2+s^2}{2\sigma^2}\right)I_0\!\left(\frac{rs}{\sigma^2}\right),
+\end{equation}
+characterised by the \emph{K-factor} $K=s^2/2\sigma^2$, the ratio of the steady power to the
+random power (Figure~\ref{fig:ch03_envelopes}). Stephen Rice derived these distributions in
+1944 to describe radio noise; they returned as the models of multipath fading in
+Chapter~\ref{ch:channels}.
+
+\mdcfig{ch03_envelopes}{Left: envelope distributions of a constant plus circular Gaussian
+noise, for three Rice K-factors (histograms from simulation, curves from theory).
+Right: the phase of circularly symmetric Gaussian noise is uniformly distributed.}
+
+\section{Random processes}
+
+\subsection{Stationarity, correlation and spectrum}
+
+A \term{random process} $x(t)$ is a random variable at every instant. We describe it by its
+mean and its autocorrelation function $R_x(t_1,t_2)=\E[x(t_1)x^*(t_2)]$. If the mean is constant
+and the autocorrelation depends only on the difference $\tau=t_1-t_2$, the process is
+\emph{wide-sense stationary} (WSS), and its power spectral density is the Fourier transform
+of the autocorrelation---the \term{Wiener--Khinchin theorem}:
+\begin{equation}
+S_x(f)=\int R_x(\tau)e^{-j2\pi f\tau}d\tau,\qquad \E|x(t)|^2=R_x(0)=\int S_x(f)\,df.
+\end{equation}
+The autocorrelation measures how quickly a process ``forgets'' its past; the PSD says how its
+power is spread over frequency. A process that changes quickly has a narrow
+autocorrelation and a wide spectrum, and vice versa---the same time--bandwidth reciprocity as
+for deterministic signals.
+
+Many communication signals are not quite stationary: a data stream sent at symbol rate
+$R_s$ has statistics that repeat with period $1/R_s$. Such \emph{cyclostationary} processes
+are handled by averaging the autocorrelation over one period, which yields the PSD
+formulas of Chapter~\ref{ch:baseband}. Cyclostationarity is also a resource: it lets a
+receiver detect and classify signals buried in noise, because noise has no such periodic
+structure.
+
+\subsection{Filtering random processes}
+
+When a WSS process passes through an LTI filter $H(f)$, the output is WSS with
+\begin{equation}
+S_y(f)=|H(f)|^2S_x(f).
+\label{eq:ch03:filtpsd}
+\end{equation}
+This single equation carries most of the noise analysis in this book. It says, for example,
+that noise power at a receiver output is the input noise PSD integrated over the
+receiver's \emph{power} response, which is why the noise-equivalent bandwidth of
+Section~\ref{sec:bandwidth} is the right bandwidth to use.
+
+\subsection{White noise}
+
+Thermal noise has a flat PSD from DC to far beyond any radio frequency (up to about
+6\,THz at room temperature, where quantum effects set in). We idealise it as \term{white
+noise} with two-sided PSD $N_0/2$ W/Hz, whose autocorrelation is an impulse:
+$R_n(\tau)=\frac{N_0}{2}\delta(\tau)$. White noise has infinite power and does not exist, but
+once filtered it becomes perfectly well behaved: through a filter of noise bandwidth $B$,
+the output power is $N_0B$ (counting both positive and negative frequencies of a real
+filter). Figure~\ref{fig:ch03_filtered_noise} shows white noise and low-pass filtered noise:
+filtering smooths the sample paths, narrows the spectrum and widens the autocorrelation.
+
+\mdcfig{ch03_filtered_noise}{White Gaussian noise before and after a 50\,Hz low-pass filter:
+sample paths, power spectral densities and autocorrelation functions.}
+
+\subsection{Bandpass noise}
+
+At the output of a radio's IF filter, noise occupies a band around the carrier. Its complex
+envelope, like any bandpass signal's, can be written $\tilde{n}(t)=n_I(t)+jn_Q(t)$. If the
+filter is symmetric about $f_c$, the in-phase and quadrature noise components are
+independent, each with PSD $N_0$ over the baseband bandwidth $B/2$, and the complex
+baseband noise has PSD $N_0$ across $|f|<B/2$. This is the noise model used in every
+simulation in the labs: independent Gaussian I and Q samples, each of variance $N_0/2$.
+
+\begin{pitfall}[Factors of two]
+Noise PSDs are quoted one-sided ($N_0$ W/Hz over $f>0$) or two-sided ($N_0/2$ over all
+$f$), and complex baseband noise has variance $N_0$ split equally between I and Q. Most
+errors of exactly 3\,dB in simulations come from mixing these conventions. The labs use
+one convention throughout: $\E|n|^2=N_0$ per complex sample and unit-energy symbols, so that
+$E_s/N_0$ is the ratio of symbol energy to per-sample noise variance at the matched-filter
+output.
+\end{pitfall}
+
+\section{Physical noise sources}
+
+\subsection{Thermal noise}
+
+A resistor $R$ at absolute temperature $T$ can deliver to a matched load an available noise
+power
+\begin{equation}
+P_n=kTB,\qquad k=1.380649\times10^{-23}\ \mathrm{J/K},
+\label{eq:ch03:ktb}
+\end{equation}
+independent of $R$. At the reference temperature $T_0=290$\,K, $kT_0=4.00\times10^{-21}$\,W/Hz,
+or $-174$\,dBm/Hz. This number deserves memorising, together with its common scalings:
+$-144$\,dBm in 1\,kHz, $-114$\,dBm in 1\,MHz, $-101$\,dBm in 20\,MHz. A GPS signal arrives at
+about $-130$\,dBm spread over 2\,MHz, some 16\,dB \emph{below} the thermal noise in that band---yet
+receivers track it routinely, by despreading (Chapter~\ref{ch:spreadspectrum}).
+
+\subsection{Other noise mechanisms}
+
+\emph{Shot noise} arises because current consists of discrete charges crossing a barrier at
+random times; its PSD is $2qI$ (one-sided, in A$^2$/Hz), and it dominates in photodiodes and
+therefore in optical receivers (Chapter~\ref{ch:wireline}). \emph{Flicker} or $1/f$ noise
+rises at low frequencies in all active devices; it is why zero-IF receivers, which move the
+signal to DC, must fight excess low-frequency noise, and why oscillators have close-in phase
+noise that rises steeply near the carrier. At very high frequencies and low temperatures
+the classical $kT$ gives way to the quantum limit $hf$; at 300\,GHz and 290\,K the two are
+still within a factor of 20, so quantum noise is relevant only in optical and deep-cryogenic
+systems.
+
+\section{Noise figure and noise temperature}
+
+\subsection{Definitions}
+
+Every real amplifier adds noise. We characterise a two-port device by its \term{noise
+factor} $F$, the ratio of the input SNR to the output SNR when the input noise is thermal at
+$T_0=290$\,K; its \term{noise figure} is $\mathrm{NF}=10\log_{10}F$ dB. Equivalently, the device
+can be modelled as noiseless with an extra noise source at its input of \term{equivalent
+noise temperature}
+\begin{equation}
+T_e=(F-1)\,T_0 .
+\end{equation}
+A 1\,dB noise figure corresponds to $T_e=75$\,K; 3\,dB to 290\,K; 0.5\,dB to 35\,K. Noise
+temperature is the natural unit when the input noise is not at 290\,K---for example, an
+antenna looking at the cold sky---and it is the unit satellite and radio-astronomy engineers
+prefer. A passive lossy component (cable, filter, attenuator) with loss $L$ at physical
+temperature $T_0$ has noise factor $F=L$: a 2\,dB cable in front of a receiver adds exactly
+2\,dB to the noise figure.
+
+\subsection{Cascades: the Friis formula}
+
+For a chain of stages with gains $G_i$ and noise factors $F_i$, Harald Friis showed in 1944
+that
+\begin{equation}
+F=F_1+\frac{F_2-1}{G_1}+\frac{F_3-1}{G_1G_2}+\cdots,\qquad
+T_e=T_{e1}+\frac{T_{e2}}{G_1}+\frac{T_{e3}}{G_1G_2}+\cdots
+\label{eq:ch03:friis}
+\end{equation}
+The noise of each stage is divided by the total gain before it. The first stage dominates,
+provided it has enough gain; this is the reason every sensitive receiver starts with a
+low-noise amplifier (LNA), and why the LNA should be as close to the antenna as possible.
+Figure~\ref{fig:ch03_friis} makes the point numerically: moving a 1\,dB LNA from after a 2\,dB
+cable and a 1.5\,dB filter to directly at the antenna lowers the system noise figure from
+about 5.1\,dB to 2.2\,dB, the equivalent of doubling the transmitter power.
+
+\mdcfig{ch03_friis}{Contribution of each stage to the cascade noise factor for two orderings of
+the same components. Losses in front of the LNA add directly; everything after a
+high-gain LNA barely matters.}
+
+\begin{inpractice}[Mast-head amplifiers and satellite LNBs]
+Cellular base stations often place a tower-mounted amplifier at the top of the mast, before
+tens of metres of lossy coaxial cable. A satellite TV dish goes further: its low-noise block
+downconverter (LNB) at the focus amplifies the 10.7--12.75\,GHz signal with a noise
+temperature under 100\,K and immediately converts it to 950--2150\,MHz, where cable losses
+are tolerable. On the Ettus B200, the AD9364's internal LNA gives a noise figure under
+8\,dB---fine for bench work, but an external LNA with 1\,dB NF will improve weak-signal
+reception by several decibels if placed at the antenna.
+\end{inpractice}
+
+\subsection{Antenna and system noise temperature}
+
+An antenna collects noise from whatever it sees. Pointed at the cold sky at microwave
+frequencies, it may see only 10--50\,K; pointed at the ground, about 290\,K; at HF, galactic
+and man-made noise can reach millions of kelvin (Figure~\ref{fig:ch03_skynoise}). The
+\emph{system noise temperature} referred to the antenna terminals is
+$T_{\text{sys}}=T_{\text{ant}}+T_e$, and the receiver's noise power is $kT_{\text{sys}}B$. The
+figure explains two facts of radio engineering. At HF (3--30\,MHz), external noise is so
+strong that receiver noise figure hardly matters: a 10\,dB NF receiver is as good as a
+perfect one. In the ``microwave window'' from about 1 to 10\,GHz, the sky is quiet and
+receiver noise dominates, which is why satellite, deep-space and radio-astronomy systems
+live there and use cryogenically cooled amplifiers.
+
+\mdcfig[0.88]{ch03_skynoise}{Illustrative external noise temperatures versus frequency.
+Below about 30\,MHz, galactic and man-made noise dwarf receiver noise; between roughly 1 and
+10\,GHz the sky is cold and receiver noise dominates; above 20\,GHz atmospheric absorption
+adds noise. (Trends after ITU-R P.372; values are order-of-magnitude.)}
+
+\section{SNR, $E_b/N_0$ and $C/N_0$}
+
+Three ratios describe how strong a signal is relative to noise, and translating between
+them is daily work.
+\begin{itemize}
+\item The \textbf{signal-to-noise ratio} $\mathrm{SNR}=P/(N_0B)$ depends on the bandwidth $B$
+in which it is measured.
+\item The \textbf{carrier-to-noise-density ratio} $C/N_0=P/N_0$, in dB-Hz, is independent of
+bandwidth. It is the natural figure of merit for a link budget, because it can be computed
+before the modulation is chosen. GPS receivers report it for each satellite; 45\,dB-Hz is a
+strong GPS signal.
+\item The \textbf{energy per bit to noise density} $E_b/N_0=P/(R_bN_0)$ normalises by the bit
+rate $R_b$. It is the fair basis for comparing modulation and coding schemes, because it
+charges each scheme for the energy it spends per bit of information.
+\end{itemize}
+They are related by
+\begin{equation}
+\frac{E_b}{N_0}=\frac{C}{N_0}\cdot\frac{1}{R_b}=\mathrm{SNR}\cdot\frac{B}{R_b},
+\qquad
+\frac{E_s}{N_0}=\frac{E_b}{N_0}\cdot\log_2M\cdot R_c ,
+\label{eq:ch03:ebno}
+\end{equation}
+where $E_s$ is the energy per symbol of an $M$-ary scheme with code rate $R_c$.
+
+\begin{worked}[From $C/N_0$ to bit rate]
+A receiver measures $C/N_0=60$\,dB-Hz. A QPSK link with a rate-1/2 code needs
+$E_b/N_0=2$\,dB at the target error rate. The maximum bit rate is
+$R_b=(C/N_0)/(E_b/N_0)=10^{(60-2)/10}\approx630$\,kb/s. With 3\,dB of implementation margin,
+plan for 315\,kb/s.
+\end{worked}
+
+\section{The link budget}
+
+\subsection{The Friis transmission equation}
+
+In free space, the power received by an antenna of gain $G_r$ at distance $d$ from a
+transmitter of power $P_t$ and antenna gain $G_t$ is
+\begin{equation}
+P_r=P_tG_tG_r\left(\frac{\lambda}{4\pi d}\right)^2,
+\qquad
+L_{\text{fs}}=\left(\frac{4\pi d}{\lambda}\right)^2 .
+\label{eq:ch03:friistx}
+\end{equation}
+The free-space path loss $L_{\text{fs}}$ appears to grow with frequency, but that is an artefact of
+using antennas of fixed gain: an antenna of fixed \emph{area} $A$ has gain $4\pi A/\lambda^2$, so
+between two dishes of fixed size the received power actually \emph{rises} with frequency. This
+is why point-to-point microwave links and satellites use high frequencies and large dishes.
+In decibels, the link budget is a sum:
+\begin{equation}
+P_r\,[\mathrm{dBm}]=P_t+G_t+G_r-L_{\text{fs}}-L_{\text{other}},\qquad
+L_{\text{fs}}\,[\mathrm{dB}]=32.45+20\log_{10}f_{\mathrm{MHz}}+20\log_{10}d_{\mathrm{km}}.
+\end{equation}
+
+\subsection{Margins}
+
+A real link budget adds losses for cables, polarisation mismatch, rain, walls, body
+blockage and, above all, \emph{fading}. Multipath fading can drop the received power 20--30\,dB
+below its average for a small fraction of the time (Chapter~\ref{ch:channels}), so the
+budget must include a \emph{fade margin} chosen for the required availability. The final
+comparison is between the received $E_b/N_0$ or SNR and the value the modem needs, plus
+margin. Figure~\ref{fig:ch03_linkbudget} draws an indoor Wi-Fi budget as a waterfall: 20\,dBm
+from the access point, antenna gains of 3\,dBi, about 102\,dB of path loss at 50\,m with a
+path-loss exponent of 3 at 5.5\,GHz, and a wall, leaves about $-84$\,dBm---14\,dB above the noise
+floor of a 20\,MHz receiver with 7\,dB noise figure. That supports 16-QAM with moderate
+coding (Chapter~\ref{ch:wifi}).
+
+\mdcfig{ch03_linkbudget}{A link budget drawn as a waterfall. Gains lift the level, losses lower it;
+the gap between the received power and the noise floor is the SNR available to the modem.}
+
+\begin{history}[Talking to Voyager]
+Voyager~1, launched in 1977, is now more than 160 times as far from the Sun as the Earth
+is. It transmits roughly 20\,W at 8.4\,GHz from a 3.7\,m dish, and its signal is received by
+the 70\,m antennas of NASA's Deep Space Network, whose cryogenic receivers have system noise
+temperatures of a few tens of kelvin. At more than $2.4\times10^{10}$\,km, the free-space
+path loss exceeds 300\,dB, and the received power is below $10^{-19}$\,W. The link still
+carries 160\,b/s of science data, thanks to high antenna gains, very low noise temperatures,
+a narrow bandwidth and powerful concatenated error-correcting codes---a convolutional code
+and a Reed--Solomon code, the same pair of codes that protected digital television for a
+generation (Chapter~\ref{ch:classiccodes}). Every term of Equation~\eqref{eq:ch03:friistx}
+has been pushed to its limit.
+\end{history}
+
+\begin{labbox}[Noise and link budgets]
+Lab~1 contains an interactive sensitivity calculator: vary bandwidth, noise figure and
+required SNR and watch the free-space range change. The figure script
+\texttt{figscripts/ch03\_figs.py} contains the cascade-noise-figure calculator used for
+Figure~\ref{fig:ch03_friis}; rearrange the stages of your own receiver and find the best
+placement for the filter. Chapter~\ref{ch:modulation}'s lab will convert these SNRs into
+bit error rates.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item Show that if $X$ and $Y$ are independent $\mathcal{N}(0,\sigma^2)$, then
+$R=\sqrt{X^2+Y^2}$ is Rayleigh distributed and $R^2$ is exponential. What fraction of the time
+is a Rayleigh-fading signal more than 10\,dB below its mean power? 20\,dB?
+\item Compute the thermal noise power in dBm for bandwidths of 12.5\,kHz (narrowband FM),
+200\,kHz (GSM), 20\,MHz (Wi-Fi) and 400\,MHz (5G mmWave), all at 290\,K.
+\item A receiver has an antenna with $T_{\text{ant}}=50$\,K, a feed line with 0.5\,dB loss at
+290\,K, an LNA with NF 0.8\,dB and 30\,dB gain, and a second stage with NF 10\,dB. Compute the
+system noise temperature. How much does moving the LNA before the feed line improve it?
+\item Derive the Friis formula~\eqref{eq:ch03:friis} for two stages from the definition of
+noise temperature.
+\item A geostationary satellite 36\,000\,km away transmits 50\,dBW EIRP at 12\,GHz. A 60\,cm
+dish with 65\% efficiency and a 60\,K system noise temperature receives it. Compute $C/N_0$.
+What bit rate can a DVB-S2 QPSK rate-3/4 carrier (needing about 4\,dB $E_s/N_0$) support?
+\item A Bluetooth Low Energy link transmits 0\,dBm at 2.4\,GHz with 0\,dBi antennas. The
+receiver sensitivity is $-95$\,dBm. What is the free-space range? Repeat with a path-loss
+exponent of 3 beyond 1\,m.
+\item \emph{(Simulation)} Generate complex Gaussian noise in Python and verify numerically that
+(a) its phase is uniform, (b) its magnitude is Rayleigh, and (c) after a filter $H(f)$ its
+PSD is $|H(f)|^2N_0$. Then measure how many samples are needed to estimate a $10^{-6}$ tail
+probability to within 10\%.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item A.~Papoulis and S.~U.~Pillai, \emph{Probability, Random Variables and Stochastic
+Processes}, 4th ed., McGraw-Hill, 2002.
+\item S.~O.~Rice, ``Mathematical analysis of random noise,'' \emph{Bell System Technical
+Journal}, 1944--45. The classic.
+\item H.~T.~Friis, ``Noise figures of radio receivers,'' \emph{Proc. IRE}, 32, 1944.
+\item Recommendation ITU-R P.372, \emph{Radio noise}. Measured and modelled external noise
+levels from 0.1\,Hz to 100\,GHz.
+\item J.~H.~Yuen (ed.), \emph{Deep Space Telecommunications Systems Engineering}, JPL,
+1982 (free online). The engineering of links like Voyager's.
+\end{itemize}

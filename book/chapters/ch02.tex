@@ -1,0 +1,455 @@
+\chapter{Signals, Spectra and Systems}
+\label{ch:signals}
+
+\begin{chapterintro}
+A communication engineer thinks in two domains at once: the time domain, where a signal
+is a waveform on an oscilloscope, and the frequency domain, where it is a distribution of
+energy across a spectrum analyzer screen. This chapter builds fluency in both. We start
+from phasors and Fourier series, develop the Fourier transform and its properties, study
+linear time-invariant systems and the distortion they introduce, define bandwidth in the
+several ways engineers actually use, move to discrete time with the DFT and FFT, and
+finish with the complex-envelope representation of bandpass signals that the rest of the
+book is written in.
+\end{chapterintro}
+
+\section{Signals as the language of communication}
+
+A \term{signal} is any quantity that varies with time (or space) and carries information:
+the voltage from a microphone, the current in a telegraph line, the electric field at an
+antenna, the light intensity in a fibre. Communication engineering is the art of shaping
+signals so that the information they carry survives a journey through a physical medium.
+The medium always does three things to a signal: it \emph{attenuates} it, it
+\emph{distorts} it (different frequencies are delayed and attenuated differently), and it
+\emph{adds noise}. The tools of this chapter describe the first two exactly; Chapter~\ref{ch:noise}
+describes the third.
+
+We use a handful of standard signal classes. \emph{Deterministic} signals are known
+functions of time, like a carrier $\cos(2\pi f_c t)$ or a pulse shape $p(t)$.
+\emph{Random} signals, like noise or a stream of data symbols, are described statistically.
+\emph{Energy signals} have finite energy $E=\int |x(t)|^2dt$ (a pulse); \emph{power
+signals} have finite average power $P=\lim_{T\to\infty}\frac{1}{T}\int_{-T/2}^{T/2}|x(t)|^2dt$
+(a sinusoid, or a data stream that goes on indefinitely). Real signals are measured by
+real instruments, but we will quickly find that complex-valued signals are the natural
+mathematical description of real radio waves.
+
+\section{Sinusoids, phasors and negative frequency}
+
+The sinusoid $x(t)=A\cos(2\pi f_0 t+\phi)$ is the atom of signal analysis, for a simple
+reason: linear time-invariant systems (Section~\ref{sec:lti}) map sinusoids to
+sinusoids of the same frequency, changing only amplitude and phase. Euler's formula,
+\begin{equation}
+e^{j\theta}=\cos\theta+j\sin\theta ,
+\end{equation}
+lets us write the sinusoid as the real part of a rotating complex number, the
+\term{phasor}:
+\begin{equation}
+A\cos(2\pi f_0 t+\phi)=\re\{A e^{j\phi}e^{j2\pi f_0 t}\}
+=\frac{A}{2}e^{j\phi}e^{j2\pi f_0 t}+\frac{A}{2}e^{-j\phi}e^{-j2\pi f_0 t}.
+\label{eq:ch02:euler}
+\end{equation}
+The second form, shown in Figure~\ref{fig:ch02_phasor}, is the source of the
+\emph{negative frequencies} that appear in every spectrum in this book. A real cosine is
+the sum of two counter-rotating phasors, one at $+f_0$ and one at $-f_0$; their imaginary
+parts cancel and their real parts add. Negative frequency is not a mathematical fiction:
+a complex signal $e^{-j2\pi f_0 t}$ is a phasor rotating clockwise, and a radio receiver with
+I and Q outputs can tell it apart from one rotating counter-clockwise. For a \emph{real}
+signal, however, the spectrum at $-f$ is always the complex conjugate of the spectrum at
+$+f$, so the negative-frequency half carries no new information.
+
+\mdcfig{ch02_phasor}{Left: a real cosine is the sum of two phasors of half amplitude
+rotating in opposite directions. Right: a phase offset $\phi$ rotates the phasor and shifts
+the waveform in time. Carrier phase recovery (Chapter~\ref{ch:sync}) is the problem of
+estimating $\phi$.}
+
+\begin{keyidea}[Think in phasors]
+Multiplying a signal by $e^{j2\pi\Delta f t}$ shifts its whole spectrum by $\Delta f$; multiplying by
+$e^{j\phi}$ rotates it by $\phi$. Almost every operation in a radio---mixing, tuning, carrier
+recovery, Doppler correction, OFDM---is one of these two multiplications.
+\end{keyidea}
+
+\section{Fourier series}
+
+In 1807 Joseph Fourier claimed, to the scepticism of Lagrange, that any periodic function
+could be written as a sum of sinusoids. For a signal with period $T_0$ and fundamental
+frequency $f_0=1/T_0$,
+\begin{equation}
+x(t)=\sum_{k=-\infty}^{\infty}c_k\,e^{j2\pi k f_0 t},
+\qquad c_k=\frac{1}{T_0}\int_{T_0}x(t)\,e^{-j2\pi k f_0 t}\,dt .
+\label{eq:ch02:fs}
+\end{equation}
+The coefficients $c_k$ are the amplitudes of the harmonics. For a square wave of unit
+amplitude, only odd harmonics appear and their amplitudes fall as $4/(\pi k)$, as
+Figure~\ref{fig:ch02_fourier_series} shows. Partial sums converge to the square wave
+everywhere except at the jumps, where they overshoot by about 9\% no matter how many
+terms are used: the \term{Gibbs phenomenon}. It reappears whenever a spectrum is truncated
+abruptly---in the ringing of a sharp filter's step response and in the sidelobes of a
+rectangular window (Section~\ref{sec:windows}).
+
+\mdcfig{ch02_fourier_series}{Fourier synthesis of a square wave. The overshoot at the
+discontinuity does not shrink as harmonics are added; it only narrows. The spectrum falls at
+only 6\,dB per octave because the waveform has jumps.}
+
+\begin{inpractice}[Harmonics are everywhere]
+A transmitter's power amplifier driven into saturation turns a sinusoid into something
+closer to a square wave, generating harmonics at $2f_c$, $3f_c$ and above. Regulators set
+strict limits on these \emph{spurious emissions}---the FCC's general limit for many
+licensed services is 43\,dB plus $10\log_{10}$ of the transmit power in watts below the
+carrier---so every transmitter ends with a harmonic filter. The rate at which harmonics
+decay is set by the smoothness of the waveform: a jump gives $1/k$ decay, a jump in slope
+gives $1/k^2$, and so on. This is the same smoothness--bandwidth trade that governs
+pulse shaping in Chapter~\ref{ch:baseband}.
+\end{inpractice}
+
+\section{The Fourier transform}
+
+Letting the period grow without bound turns the Fourier series into the Fourier transform,
+which describes non-periodic signals:
+\begin{equation}
+X(f)=\int_{-\infty}^{\infty}x(t)\,e^{-j2\pi f t}\,dt,
+\qquad x(t)=\int_{-\infty}^{\infty}X(f)\,e^{j2\pi f t}\,df.
+\label{eq:ch02:ft}
+\end{equation}
+We use ordinary frequency $f$ in hertz rather than angular frequency $\omega$ because it
+removes all the stray factors of $2\pi$ and because engineers read spectra in hertz. $X(f)$
+is complex: its magnitude says how much of each frequency is present, and its phase says
+how the components are aligned in time.
+
+\subsection{Properties worth knowing by heart}
+
+Table~\ref{tab:ch02:props} lists the properties used most often. Each has a physical
+meaning. \emph{Time shift} multiplies the spectrum by a linear phase: delay is phase slope.
+\emph{Frequency shift} (modulation) moves the spectrum: this is how every transmitter
+places a signal at its carrier. \emph{Scaling} says that compressing a signal in time
+stretches its spectrum: short pulses need wide bandwidth. \emph{Convolution} in time is
+multiplication in frequency: this is why filters are described by frequency responses.
+\emph{Parseval's theorem} says energy can be computed in either domain.
+
+\begin{table}[htbp]\centering\small
+\caption{Fourier transform properties ($x(t)\leftrightarrow X(f)$).}\label{tab:ch02:props}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Property & Time domain & Frequency domain\\
+\midrule
+Linearity & $a\,x(t)+b\,y(t)$ & $a\,X(f)+b\,Y(f)$\\
+Time shift & $x(t-\tau)$ & $e^{-j2\pi f\tau}X(f)$\\
+Frequency shift & $x(t)\,e^{j2\pi f_0 t}$ & $X(f-f_0)$\\
+Modulation & $x(t)\cos(2\pi f_0 t)$ & $\tfrac12[X(f-f_0)+X(f+f_0)]$\\
+Scaling & $x(at)$ & $\frac{1}{|a|}X(f/a)$\\
+Conjugation & $x^*(t)$ & $X^*(-f)$\\
+Convolution & $x(t)*y(t)$ & $X(f)\,Y(f)$\\
+Multiplication & $x(t)\,y(t)$ & $X(f)*Y(f)$\\
+Differentiation & $\frac{d}{dt}x(t)$ & $j2\pi f\,X(f)$\\
+Duality & $X(t)$ & $x(-f)$\\
+Parseval & $\int|x(t)|^2dt$ & $\int|X(f)|^2df$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Transform pairs}
+
+A few pairs appear over and over (Figure~\ref{fig:ch02_pairs}). The rectangular pulse of
+width $T$ transforms to a sinc function,
+\begin{equation}
+\operatorname{rect}(t/T)\ \leftrightarrow\ T\,\sinc(fT),\qquad \sinc(x)=\frac{\sin\pi x}{\pi x},
+\end{equation}
+whose first nulls are at $\pm1/T$ and whose sidelobes decay slowly, as $1/f$. By duality,
+an ideal ``brick-wall'' low-pass spectrum corresponds to a sinc pulse in time---the pulse
+Nyquist proposed for signalling without intersymbol interference. The triangle,
+the convolution of two rectangles, transforms to $\sinc^2$ with faster-decaying sidelobes.
+The Gaussian is its own transform, and among all pulses it minimises the product of
+time duration and bandwidth (measured as standard deviations): this is the
+time--bandwidth \emph{uncertainty principle}, $\sigma_t\sigma_f\ge 1/(4\pi)$. GSM's GMSK
+modulation uses Gaussian-filtered pulses for exactly this reason (Chapter~\ref{ch:modulation}).
+Two idealised pairs complete the toolkit: the impulse $\delta(t)\leftrightarrow1$, and the
+impulse train $\sum_n\delta(t-nT)\leftrightarrow\frac1T\sum_k\delta(f-k/T)$, which is the
+mathematics of sampling.
+
+\mdcfig{ch02_pairs}{Four Fourier transform pairs. Smoother time functions have spectra that
+decay faster; narrower time functions have wider spectra.}
+
+\subsection{Energy and power spectral density}
+
+For an energy signal, $|X(f)|^2$ is the \term{energy spectral density}: it tells how
+the energy is distributed in frequency. For power signals---which include every random
+data stream---we need the \term{power spectral density} (PSD) $S_x(f)$, defined through
+the autocorrelation function by the Wiener--Khinchin theorem (Chapter~\ref{ch:noise}):
+\begin{equation}
+S_x(f)=\int_{-\infty}^{\infty}R_x(\tau)\,e^{-j2\pi f\tau}\,d\tau,\qquad
+R_x(\tau)=\E[x(t+\tau)x^*(t)].
+\end{equation}
+The PSD is what a spectrum analyzer displays, what a regulator's emission mask
+constrains, and what we compute for every modulation format in this book.
+
+\section{Linear time-invariant systems}
+\label{sec:lti}
+
+A system is \emph{linear} if the response to a sum of inputs is the sum of the responses,
+and \emph{time-invariant} if delaying the input merely delays the output. Wires, cables,
+filters, amplifiers operated in their linear range, and radio channels over short
+enough intervals are all well modelled as LTI systems. An LTI system is completely
+described by its \term{impulse response} $h(t)$, and its output is the convolution
+\begin{equation}
+y(t)=\int_{-\infty}^{\infty}h(\tau)\,x(t-\tau)\,d\tau
+\quad\Longleftrightarrow\quad Y(f)=H(f)\,X(f).
+\label{eq:ch02:conv}
+\end{equation}
+The \term{frequency response} $H(f)$ is the transform of $h(t)$. A sinusoid at frequency
+$f$ passes through with its amplitude multiplied by $|H(f)|$ and its phase advanced by
+$\angle H(f)$. The two numbers that summarise an LTI channel are therefore the gain and the
+phase at every frequency---and a channel is ``good'' when both are well behaved across the
+signal's band.
+
+\subsection{Distortionless transmission}
+
+A channel that only scales and delays, $y(t)=a\,x(t-\tau)$, has
+$H(f)=a\,e^{-j2\pi f\tau}$: constant magnitude and \emph{linear} phase. Any departure from
+either causes distortion. Amplitude distortion changes the relative sizes of frequency
+components; phase distortion misaligns them in time. It is convenient to describe phase
+behaviour by the \term{group delay},
+\begin{equation}
+\tau_g(f)=-\frac{1}{2\pi}\frac{d\angle H(f)}{df},
+\end{equation}
+the delay experienced by a narrow packet of energy near frequency $f$. A distortionless
+channel has constant group delay; Heaviside's distortionless line of Chapter~\ref{ch:history}
+is a physical example.
+
+\subsection{Filters: the classic trade-offs}
+
+Figure~\ref{fig:ch02_filters} compares four classic fifth-order analog low-pass filter
+families, all designed for a 1\,kHz cutoff. The \emph{Butterworth} filter is maximally flat
+in the passband. The \emph{Chebyshev} filter allows passband ripple in exchange for a
+steeper transition. The \emph{elliptic} (Cauer) filter allows ripple in both bands and gives
+the steepest transition of all for a given order. The \emph{Bessel} filter gives up
+selectivity for nearly constant group delay. The time-domain panel reveals the price of
+selectivity: the sharp filters have large group-delay peaks near the band edge, and a
+rectangular pulse passing through them rings. For data signals, where the pulse shape is
+the information, this ringing is intersymbol interference; that is why data receivers
+often prefer linear-phase digital FIR filters (Chapter~\ref{ch:dsp}).
+
+\mdcfig{ch02_filters}{Four fifth-order low-pass filters with a 1\,kHz cutoff. Left: magnitude.
+Centre: group delay. Right: response to a 3\,ms rectangular pulse. Steeper magnitude
+responses bring larger group-delay variation and more ringing.}
+
+\begin{worked}[Filter selection for an audio channel]
+A voice channel must pass 300--3400\,Hz and reject a 4\,kHz pilot tone by 40\,dB. The
+transition band is only $4000/3400=1.18$ octaves wide. Standard design charts give the
+required orders as roughly 15 (Butterworth), 7 (Chebyshev, 0.5\,dB ripple) or 5 (elliptic).
+The elliptic design is the cheapest in components but has the worst group delay; for voice,
+where the ear is insensitive to moderate phase distortion, it is the usual choice. For a
+data modem using the same channel, the group-delay variation would have to be equalized
+(Chapter~\ref{ch:equalization}).
+\end{worked}
+
+\section{Bandwidth}
+\label{sec:bandwidth}
+
+``Bandwidth'' sounds like a single number, but there are several useful definitions, and
+confusing them causes real errors in system design. Figure~\ref{fig:ch02_bandwidth}
+illustrates them for the spectrum of a rectangular pulse of duration $T$.
+
+\begin{description}[leftmargin=0pt]
+\item[3\,dB bandwidth:] the width of the band where the PSD is within 3\,dB of its peak;
+for the rectangular pulse, about $0.89/T$.
+\item[Null-to-null bandwidth:] the width of the main lobe, $2/T$ here.
+\item[Occupied bandwidth:] the band containing a stated fraction, usually 99\%, of the
+power. This is the regulator's definition, and for the rectangular pulse it is over
+$20/T$ because the sidelobes decay so slowly.
+\item[Noise-equivalent bandwidth:] the width $B_N$ of an ideal rectangular filter that
+passes the same white-noise power as the actual filter, $B_N=\int|H(f)|^2df/|H(0)|^2$. It is
+the right number to use in noise calculations (Chapter~\ref{ch:noise}).
+\item[Nyquist bandwidth:] the minimum bandwidth, $R_s/2$ at baseband, in which symbols at
+rate $R_s$ can be sent without intersymbol interference (Chapter~\ref{ch:baseband}).
+\end{description}
+
+\mdcfig[0.85]{ch02_bandwidth}{Three bandwidth definitions applied to the spectrum of a
+rectangular pulse. Because the sidelobes decay slowly, the 99\% occupied bandwidth is
+more than ten times the null-to-null bandwidth.}
+
+\begin{pitfall}[Comparing bandwidths across definitions]
+A datasheet may quote a filter's 3\,dB bandwidth, a standard may specify an occupied
+bandwidth, and a noise calculation needs a noise-equivalent bandwidth. For a
+root-raised-cosine spectrum with roll-off 0.35 at 1\,Msymbol/s, the three are roughly
+1.0, 1.3 and 1.0\,MHz; for a Gaussian filter they differ more. Always state which
+definition you are using.
+\end{pitfall}
+
+\section{Discrete time: from DTFT to FFT}
+
+Modern radios process sampled signals. If $x[n]=x(nT_s)$ is sampled at rate
+$f_s=1/T_s$, its spectrum is the \emph{discrete-time Fourier transform}
+\begin{equation}
+X(e^{j2\pi f/f_s})=\sum_{n=-\infty}^{\infty}x[n]\,e^{-j2\pi fn/f_s},
+\end{equation}
+which is periodic in $f$ with period $f_s$. The periodicity is the frequency-domain face of
+sampling: a sampled signal cannot distinguish $f$ from $f+kf_s$. Chapter~\ref{ch:pcm} develops
+the sampling theorem and aliasing in full; for now it is enough to remember that all
+the information of a correctly sampled signal lies in one period, $-f_s/2\le f<f_s/2$.
+
+\subsection{The discrete Fourier transform}
+
+A computer can only handle a finite block of $N$ samples and a finite set of
+frequencies. The \term{discrete Fourier transform} (DFT) evaluates the spectrum at $N$
+equally spaced frequencies $f_k=kf_s/N$:
+\begin{equation}
+X[k]=\sum_{n=0}^{N-1}x[n]\,e^{-j2\pi kn/N},\qquad
+x[n]=\frac1N\sum_{k=0}^{N-1}X[k]\,e^{j2\pi kn/N}.
+\label{eq:ch02:dft}
+\end{equation}
+The DFT treats the block as one period of a periodic signal. That implicit periodicity has
+two consequences that dominate practical spectrum analysis: \emph{leakage} and
+\emph{resolution}.
+
+\subsection{Windows and leakage}
+\label{sec:windows}
+
+If a sinusoid does not complete an integer number of cycles in the block, the periodic
+extension has a jump at the block boundary, and energy ``leaks'' from the true frequency into
+all other bins, following the sidelobes of the sinc-shaped transform of the rectangular
+block. Multiplying the block by a smooth \term{window} that tapers to zero at both ends
+removes the jump. Figure~\ref{fig:ch02_windows} shows the trade: the rectangular window
+has the narrowest main lobe but sidelobes only 13\,dB down, so a weak tone 60\,dB below a
+strong one 30\,Hz away is completely hidden. The Hann window lowers sidelobes to $-31$\,dB
+with a faster roll-off, the Blackman--Harris window to $-92$\,dB, and the flat-top window
+sacrifices resolution for amplitude accuracy. Choosing a window is choosing between
+resolution, dynamic range and amplitude accuracy.
+
+\mdcfig{ch02_windows}{Left: DFT of a strong tone and a tone 60\,dB weaker, 30\,Hz away, with
+four windows. Only low-sidelobe windows reveal the weak tone. Right: the spectra of the
+windows themselves, in units of DFT bins.}
+
+\subsection{Resolution and zero padding}
+
+Two tones closer together than about $f_s/N$ Hz---the reciprocal of the observation time
+$NT_s$---cannot be resolved, no matter how the data are processed. Padding the block with
+zeros computes the spectrum at more closely spaced frequencies, which makes plots smoother
+and helps locate an isolated peak precisely, but it does not add resolution
+(Figure~\ref{fig:ch02_dft_resolution}). Resolution requires observation time.
+
+\mdcfig{ch02_dft_resolution}{Left: two tones 1.2\,Hz apart are merged with 64 samples at
+100\,Hz and resolved with 256. Right: zero padding a 32-point DFT interpolates the same
+underlying spectrum more finely.}
+
+\subsection{The fast Fourier transform}
+
+A direct DFT takes $N^2$ complex multiplications. In 1965 James Cooley and John Tukey
+published an algorithm that computes it in about $\frac{N}{2}\log_2N$ by recursively
+splitting the sum into even- and odd-indexed samples. (Carl Friedrich Gauss had used the
+same trick in 1805 to interpolate the orbits of asteroids, but the idea went unnoticed.)
+For $N=4096$, the FFT is about 700 times faster. The FFT made digital spectrum analysis
+routine, and forty years later it made OFDM practical: a Wi-Fi~7 receiver computes a
+4096-point FFT every 12.8\,$\mu$s (Chapter~\ref{ch:ofdm}).
+
+\begin{inpractice}[Swept and FFT spectrum analyzers]
+A classic swept spectrum analyzer is a superheterodyne receiver whose local oscillator
+sweeps across the band; its \emph{resolution bandwidth} (RBW) is the width of its IF filter,
+and the sweep must be slow enough for that filter to settle, roughly
+$\text{sweep time}\approx k\cdot\text{span}/\text{RBW}^2$. A real-time or FFT analyzer instead
+digitises a band and computes overlapping windowed FFTs, capturing every event in the band.
+The displayed noise floor rises by $10\log_{10}$ of the RBW: halving RBW lowers the noise floor
+by 3\,dB and reveals weaker signals, at the cost of time. GNU Radio's \texttt{QT GUI
+Frequency Sink} in the gr01 hardware example is an FFT analyzer, and its FFT size sets the
+RBW.
+\end{inpractice}
+
+\section{Bandpass signals and the complex envelope}
+\label{sec:complexenvelope}
+
+Radio signals occupy a narrow band around a carrier frequency $f_c$ that is much larger
+than their bandwidth: a 20\,MHz Wi-Fi channel at 5.5\,GHz, a 200\,kHz FM station at
+100\,MHz. Such \term{bandpass signals} can be described completely by a low-frequency
+complex signal, the \term{complex envelope} or \emph{baseband equivalent}.
+
+\subsection{The analytic signal and the Hilbert transform}
+
+Because a real signal's spectrum has Hermitian symmetry, its negative-frequency half is
+redundant. The \term{analytic signal} removes it and doubles the positive half:
+\begin{equation}
+x_+(t)=x(t)+j\hat{x}(t),\qquad X_+(f)=2X(f)u(f),
+\end{equation}
+where $u(f)$ is the unit step and $\hat{x}(t)$ is the \term{Hilbert transform} of $x(t)$,
+obtained by a filter with $H(f)=-j\,\mathrm{sgn}(f)$ that shifts every positive frequency by
+$-90^\circ$. The Hilbert transform of $\cos$ is $\sin$. Shifting the analytic signal down by
+$f_c$ gives the complex envelope,
+\begin{equation}
+\tilde{x}(t)=x_+(t)\,e^{-j2\pi f_c t}=x_I(t)+j\,x_Q(t),\qquad
+x(t)=\re\{\tilde{x}(t)\,e^{j2\pi f_c t}\}.
+\label{eq:ch02:envelope}
+\end{equation}
+Figure~\ref{fig:ch02_analytic} shows the three spectra. The complex envelope is centred on
+zero frequency and has the same bandwidth as the original signal's positive half, so it can
+be sampled at a rate set by the signal bandwidth rather than the carrier frequency.
+Expanding the real part in~\eqref{eq:ch02:envelope} gives the I/Q form every radio engineer
+knows,
+\begin{equation}
+x(t)=x_I(t)\cos(2\pi f_c t)-x_Q(t)\sin(2\pi f_c t).
+\end{equation}
+The in-phase component $x_I$ modulates a cosine carrier and the quadrature component $x_Q$
+modulates a sine carrier; because the two carriers are orthogonal, the receiver can
+separate them.
+
+\mdcfig{ch02_analytic}{From a real bandpass spectrum (left) to the analytic signal (centre)
+to the complex envelope (right). The complex envelope need not be symmetric about zero.}
+
+\subsection{Baseband-equivalent systems}
+
+If a bandpass signal passes through a bandpass system with impulse response
+$h(t)=\re\{2\tilde{h}(t)e^{j2\pi f_c t}\}$, the complex envelope of the output is simply
+$\tilde{y}(t)=\tilde{h}(t)*\tilde{x}(t)$. Every bandpass calculation can therefore be done at
+baseband, with complex numbers and a sample rate set by the bandwidth. One consequence
+deserves emphasis: a pure delay $\tau$ in the passband becomes, at baseband, a delay $\tau$
+\emph{and} a phase rotation $e^{-j2\pi f_c\tau}$. At a carrier of 2.4\,GHz, a path-length
+change of 12.5\,cm rotates the phase by a full cycle. That single fact explains carrier
+recovery, fading and beamforming, the subjects of Chapters~\ref{ch:sync},
+\ref{ch:channels} and~\ref{ch:mimo}.
+
+\begin{keyidea}[Why receivers produce I and Q]
+A quadrature downconverter multiplies the received signal by $\cos(2\pi f_c t)$ and by
+$-\sin(2\pi f_c t)$ and low-pass filters both products. The two outputs are exactly
+$x_I(t)$ and $x_Q(t)$. The B200's AD9364 transceiver does this in analog circuitry
+before its ADCs; Chapter~\ref{ch:sdr} examines what happens when the two paths are not
+perfectly matched.
+\end{keyidea}
+
+\begin{labbox}[Signals and spectra]
+Lab~1 (\lab{lab01\_baseband.ipynb}) performs up- and down-conversion of a two-tone signal
+with an asymmetric baseband spectrum and demonstrates the image created by IQ imbalance.
+The chapter's figure script, \texttt{figscripts/ch02\_figs.py}, contains the window,
+resolution and filter comparisons; modify the tone spacing and window length to find the
+point where each window fails to separate the tones.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item Show from~\eqref{eq:ch02:fs} that the Fourier coefficients of a real signal satisfy
+$c_{-k}=c_k^*$. What does this imply about the spectrum at negative frequencies?
+\item A rectangular pulse of duration 1\,$\mu$s is transmitted. Compute its null-to-null
+bandwidth and estimate its 99\% occupied bandwidth numerically. Repeat for a triangular
+pulse of the same energy.
+\item Prove Parseval's theorem using the convolution property. Use it to show that the
+energy of $\sinc(t)$ is 1.
+\item A channel has $H(f)=1+\alpha e^{-j2\pi f\tau}$ (a direct path plus one echo). Sketch
+$|H(f)|$ and the group delay for $\alpha=0.5$ and $\tau=1\,\mu$s. At which frequencies are the
+notches, and what is their depth?
+\item A 1024-point FFT is computed on data sampled at 1.024\,MHz with a Hann window. What
+is the bin spacing? What is the noise-equivalent bandwidth of each bin (the Hann window's
+equivalent noise bandwidth is 1.5 bins)? By how much does the noise floor per bin drop if
+the FFT length is doubled?
+\item Show that the Hilbert transform of $\cos(2\pi f_0 t)$ is $\sin(2\pi f_0 t)$, and find
+the analytic signal and complex envelope (with respect to $f_c$) of
+$x(t)=\cos(2\pi f_0 t)$ when $f_0=f_c+\Delta$.
+\item \emph{(Simulation)} Using the figure script, find the minimum tone separation that
+each of the four windows can resolve when the tones are equal in amplitude, and when one
+is 40\,dB weaker. Explain the results in terms of main-lobe width and sidelobe level.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item A.~V.~Oppenheim and A.~S.~Willsky, \emph{Signals and Systems}, 2nd ed., Prentice Hall,
+1997. The standard text.
+\item R.~N.~Bracewell, \emph{The Fourier Transform and Its Applications}, 3rd ed.,
+McGraw-Hill, 2000. Physical intuition for every transform pair.
+\item F.~J.~Harris, ``On the use of windows for harmonic analysis with the discrete Fourier
+transform,'' \emph{Proceedings of the IEEE}, 66(1), 1978. The definitive window reference.
+\item R.~G.~Lyons, \emph{Understanding Digital Signal Processing}, 3rd ed., Prentice Hall,
+2010. Exceptionally clear on the DFT, windows and complex signals.
+\end{itemize}

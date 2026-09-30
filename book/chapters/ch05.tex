@@ -1,0 +1,471 @@
+\chapter{Sampling, Quantization and Digital Telephony}
+\label{ch:pcm}
+
+\begin{chapterintro}
+Every digital communication system begins where the analog world ends: at a sampler and a
+quantizer. This chapter explains what is lost and what is kept when a continuous waveform
+becomes a sequence of numbers. It develops the sampling theorem and its practical cousins
+(bandpass sampling, oversampling, reconstruction), the mathematics of quantization and
+companding, the clever one-bit converters that live in every phone and audio chip, and the
+performance limits of real data converters. It then tells the story of the first great
+digital network---the pulse-code-modulated telephone system of 64\,kb/s channels, T1 and E1
+frames and multiplexing hierarchies---whose design choices still shape the Internet's
+backbone.
+\end{chapterintro}
+
+\section{From waveforms to numbers}
+
+In 1937 Alec Reeves, an engineer at International Telephone and Telegraph's Paris laboratory,
+filed a patent on a strange idea: instead of transmitting a voice waveform, transmit a
+sequence of numbers describing it. Each number would be sent as a short train of on--off
+pulses, and because a receiver only had to decide whether a pulse was present, noise could
+be removed completely at every repeater. The idea was called \term{pulse-code modulation}
+(PCM). It needed thousands of vacuum tubes per channel and was far ahead of its time; the
+first commercial PCM system, Bell's T1 carrier, did not enter service until 1962, once
+transistors made it cheap. Today PCM, in one form or another, is how every sound, image and
+radio waveform enters a computer.
+
+PCM has three steps: \emph{sampling} (discretising time), \emph{quantization} (discretising
+amplitude) and \emph{coding} (writing each quantized value as bits). Sampling, done correctly,
+loses nothing. Quantization always loses something, and the art is to lose only what does
+not matter.
+
+\section{The sampling theorem}
+
+\subsection{Statement and proof sketch}
+
+\begin{keyidea}[title=The sampling theorem]
+A signal $x(t)$ with no energy at frequencies $|f|\ge W$ is completely determined by its
+samples $x(nT_s)$ taken at rate $f_s=1/T_s>2W$, and can be reconstructed exactly by
+\begin{equation}
+x(t)=\sum_{n=-\infty}^{\infty}x(nT_s)\,\sinc\big(f_s(t-nT_s)\big).
+\label{eq:ch05:interp}
+\end{equation}
+\end{keyidea}
+
+The rate $2W$ is the \term{Nyquist rate}. The theorem has many fathers: E.~T.~Whittaker
+published the interpolation series in 1915, Harry Nyquist identified $2W$ as the maximum
+pulse rate of a telegraph channel in 1928, Vladimir Kotelnikov proved the theorem for
+communications in 1933, and Claude Shannon stated it in its modern form in 1949.
+
+The proof is a picture. Multiplying $x(t)$ by an impulse train of period $T_s$ in time
+convolves its spectrum with an impulse train of spacing $f_s$ in frequency:
+\begin{equation}
+X_s(f)=f_s\sum_{k=-\infty}^{\infty}X(f-kf_s).
+\label{eq:ch05:replicas}
+\end{equation}
+The sampled spectrum is the original spectrum plus copies---\emph{images} or
+\emph{replicas}---centred on every multiple of $f_s$ (Figure~\ref{fig:ch05_sampling_spectra}).
+If $f_s>2W$ the replicas do not overlap, and an ideal low-pass filter with cutoff $f_s/2$
+recovers $X(f)$ exactly; its impulse response is the sinc of~\eqref{eq:ch05:interp}. If
+$f_s<2W$ the replicas overlap and the sum cannot be separated: information has been
+destroyed, not merely hidden.
+
+\mdcfig{ch05_sampling_spectra}{Sampling in the frequency domain. Sampling replicates the
+spectrum at multiples of $f_s$. Above the Nyquist rate the replicas separate and the
+original can be recovered by low-pass filtering (green band); below it they overlap and the
+sum is permanently corrupted.}
+
+\subsection{Aliasing}
+
+The overlap has a name, \term{aliasing}, because a frequency component masquerades as a
+different one. A sinusoid at $f_0$ sampled at $f_s$ produces exactly the same samples as one
+at $f_0+kf_s$ for any integer $k$, and (for real signals) as one at $kf_s-f_0$. In
+Figure~\ref{fig:ch05_aliasing_time} a 9\,Hz cosine sampled at 10 samples per second is
+indistinguishable from a 1\,Hz cosine. The wagon wheels that turn backwards in Western films,
+the strobe light that freezes a spinning fan, and the moir\'e patterns on a striped shirt on
+television are all aliasing.
+
+\mdcfig{ch05_aliasing_time}{Aliasing in time: a 9\,Hz cosine (blue) and a 1\,Hz cosine
+(dashed) pass through exactly the same samples at 10 samples per second.}
+
+Once aliasing has happened, no processing can undo it. A converter must therefore be
+preceded by an \term{anti-aliasing filter} that removes everything above $f_s/2$ before
+sampling. No real filter has a brick-wall response, so practical systems sample faster than
+the Nyquist rate and leave a transition band. Telephone speech, band-limited to 300--3400\,Hz,
+is sampled at 8\,kHz rather than 6.8\,kHz; CD audio, band-limited to 20\,kHz, is sampled at
+44.1\,kHz. The ratio of the sample rate to the Nyquist rate, the \term{oversampling ratio},
+is the designer's lever: more oversampling means an easier analog filter and more work for
+the digital hardware that follows.
+
+\subsection{Sampling real and complex signals}
+
+A real signal with bandwidth $W$ needs $f_s>2W$ real samples per second. A complex baseband
+signal occupying $-W/2<f<W/2$ needs $f_s>W$ complex samples per second: its two real
+components, I and Q, each need $f_s>W$, so the total real sample rate is the same $2W$. There
+is no free lunch, but there is a practical advantage: with complex sampling the spectrum
+need not be symmetric about zero, so a receiver can see a signal and its mirror image as
+different things (Chapter~\ref{ch:sdr}).
+
+\subsection{Bandpass sampling}
+
+The theorem as stated is for low-pass signals, but a signal that occupies only a band from
+$f_L$ to $f_H=f_L+B$ carries information at a rate governed by $B$, not $f_H$. If $f_s$ is
+chosen so that the replicas of the band interleave without overlapping, the band aliases
+cleanly down to a lower frequency. The condition is
+\begin{equation}
+\frac{2f_H}{k}\le f_s\le\frac{2f_L}{k-1},\qquad k=1,2,\dots,\lfloor f_H/B\rfloor.
+\end{equation}
+This \term{bandpass sampling} (or \emph{undersampling}) lets an ADC digitise an IF directly:
+a 70\,MHz IF with 20\,MHz bandwidth can be sampled at about 61\,MS/s. The ADC's track-and-hold
+must still have analog bandwidth above $f_H$, its aperture jitter must suit the high input
+frequency (Section~\ref{sec:ch05:adc}), and the anti-aliasing filter becomes a bandpass
+filter that must reject all the other bands that would alias onto the same place.
+
+\subsection{Reconstruction and the zero-order hold}
+
+The sinc interpolator of~\eqref{eq:ch05:interp} is not causal. Real digital-to-analog
+converters hold each sample constant for one period, a \term{zero-order hold} (ZOH), and
+follow it with an analog \term{reconstruction filter} that removes the images. The hold is a
+convolution with a rectangle of width $T_s$, so the output spectrum is multiplied by
+$\sinc(f/f_s)$: a gentle roll-off of 3.9\,dB at $f_s/2$ (Figure~\ref{fig:ch05_reconstruction}).
+Designs compensate with a digital pre-emphasis filter, oversample so that the band of
+interest sits where the droop is small, or both. Every transmitter in this book---including
+the AD9364 in the B200---has a ZOH DAC and interpolating digital filters in front of it.
+
+\mdcfig{ch05_reconstruction}{Left: ideal sinc interpolation passes smoothly through the
+samples, while a zero-order hold produces a staircase. Right: the staircase's frequency
+response $\sinc(f/f_s)$ droops by 3.9\,dB at the Nyquist frequency.}
+
+\section{Quantization}
+
+\subsection{The uniform quantizer}
+
+A $b$-bit quantizer maps each input sample to one of $L=2^b$ levels. The uniform quantizer
+spaces the levels by a step $\Delta=2X_{\max}/L$ over a full-scale range $\pm X_{\max}$. The
+difference between the output and the input is the \term{quantization error}
+$e=Q(x)-x$, bounded by $\pm\Delta/2$ as long as the input does not exceed full scale
+(Figure~\ref{fig:ch05_quantizer}). Outside that range the quantizer \term{clips} and the error
+grows without bound.
+
+\mdcfig{ch05_quantizer}{A 3-bit mid-rise quantizer, its error sawtooth, and the SQNR of a
+full-scale sine versus word length. The simulated values match the $6.02b+1.76$\,dB rule to a
+fraction of a decibel.}
+
+When the input is busy---it spans many levels and is not synchronised to the sampling---the
+error behaves like a random variable uniformly distributed on $[-\Delta/2,\Delta/2]$,
+uncorrelated with the signal and white across $[0,f_s/2]$. Its power is
+\begin{equation}
+\sigma_e^2=\frac{\Delta^2}{12}.
+\end{equation}
+For a full-scale sine of amplitude $X_{\max}=2^{b-1}\Delta$ the \term{signal-to-quantization-noise
+ratio} is then
+\begin{equation}
+\text{SQNR}=\frac{X_{\max}^2/2}{\Delta^2/12}=\frac32\,2^{2b}
+\quad\Longrightarrow\quad \text{SQNR}_{\text{dB}}=6.02\,b+1.76.
+\label{eq:ch05:sqnr}
+\end{equation}
+This is the most frequently quoted formula in data conversion: \emph{each bit is worth 6\,dB}.
+A 12-bit converter, such as the B200's, offers 74\,dB; a 16-bit audio converter 98\,dB; a
+24-bit audio converter a theoretical 146\,dB, far below its analog noise floor.
+
+Two refinements matter in practice. First, real signals do not sit at full scale. Speech,
+music and OFDM all have large peak-to-average ratios, so the designer must \emph{back off} the
+average level to avoid clipping, and every decibel of back-off costs a decibel of SQNR. For a
+Gaussian-like signal clipped at four standard deviations, the SQNR is about $6.02b-7.3$\,dB.
+Second, if the signal is narrowband compared with $f_s/2$, digital filtering after the ADC
+removes the out-of-band quantization noise, giving a \term{processing gain} of
+$10\log_{10}(f_s/2B)$\,dB. An SDR that samples at 56\,MS/s and filters to 200\,kHz gains
+21.5\,dB, which is why a 12-bit radio can receive a signal 90\,dB below full scale.
+
+\subsection{Dither}
+
+When the input is small or slowly varying, the error is no longer noise-like; it is a
+deterministic function of the signal, heard as harmonic distortion or seen as contour bands
+in images. Adding a small random \term{dither} signal before quantization---typically noise of
+about one LSB---decorrelates the error from the signal. Paradoxically, adding noise improves
+quality: the distortion becomes a benign noise floor, and sub-LSB signals remain detectable
+in the averaged output. High-resolution measurement ADCs add dither internally.
+
+\section{Non-uniform quantization and companding}
+
+\subsection{The problem with speech}
+
+Speech has a dynamic range of about 40\,dB between loud and soft talkers, and its amplitude
+distribution is sharply peaked near zero (approximately Laplacian). A uniform quantizer
+wastes its fine levels on large amplitudes that rarely occur and gives quiet talkers a poor
+SQNR. The ideal is a quantizer whose step grows in proportion to the signal
+amplitude, giving a roughly constant SQNR regardless of level. A logarithmic
+characteristic does exactly that.
+
+\subsection{The \texorpdfstring{$\mu$}{mu}-law and A-law}
+
+\term{Companding} (compressing then expanding) implements the logarithmic quantizer as a
+nonlinear compressor followed by a uniform quantizer, with the inverse expander at the
+receiver. North America and Japan standardised the \term{$\mu$-law}
+\begin{equation}
+F(x)=\operatorname{sgn}(x)\,\frac{\ln(1+\mu|x|)}{\ln(1+\mu)},\qquad |x|\le1,\ \mu=255,
+\end{equation}
+and the rest of the world the \term{A-law} with $A=87.6$, which is linear near zero and
+logarithmic above $1/A$. Both are specified in ITU-T Recommendation G.711 (1972) as
+piecewise-linear approximations with eight segments per polarity, which made them easy to
+implement in the digital logic of the time.
+
+Figure~\ref{fig:ch05_companding} shows the result. With a speech-like input, 8-bit $\mu$-law
+holds an SQNR of 35 to 38\,dB over a 40\,dB range of input levels, while an 8-bit uniform
+quantizer degrades 1\,dB per decibel of level. Matching $\mu$-law across that range with a
+uniform quantizer would need about 12 to 13 bits. Eight bits at 8000 samples per second gives
+the fundamental rate of digital telephony: \textbf{64\,kb/s}, the \term{DS0} channel.
+
+\mdcfig{ch05_companding}{Left: the $\mu$-law compressor. Right: SQNR against input level for a
+speech-like (Laplacian) signal. Eight-bit $\mu$-law keeps the SQNR nearly constant over a 40\,dB
+range, performing like a 12-bit uniform quantizer for quiet talkers.}
+
+\subsection{Optimal quantizers}
+
+For a known input distribution, the quantizer that minimises mean-square error satisfies two
+conditions found by Stuart Lloyd (1957, published 1982) and Joel Max (1960): each decision
+threshold lies midway between adjacent output levels, and each output level is the centroid
+(conditional mean) of its decision interval. Iterating the two conditions is the
+\term{Lloyd--Max algorithm}. Its multidimensional generalisation, the $k$-means algorithm of
+machine learning, designs vector quantizers for speech and image codecs
+(Chapter~\ref{ch:sourcecoding}). An important asymptotic result: at high resolution, the
+entropy of a uniform quantizer's output is within 0.25\,bit per sample of the best possible
+rate for the same distortion, so uniform quantization followed by entropy coding is nearly
+optimal---the design behind almost every modern codec.
+
+\section{Differential and predictive coding}
+
+Adjacent speech samples at 8\,kHz are strongly correlated. Rather than quantize each
+sample, \term{differential PCM} (DPCM) predicts the next sample from past reconstructed samples
+and quantizes only the prediction error, which has much smaller variance. The gain equals the
+ratio of signal variance to prediction-error variance, typically 6 to 10\,dB for speech with
+a short linear predictor---worth one to two bits per sample. \term{Adaptive DPCM} (ADPCM) also
+adapts the quantizer step and predictor to the local statistics. ITU-T G.726 ADPCM at
+32\,kb/s delivers quality close to 64\,kb/s PCM and was used to double the capacity of
+international circuits and in DECT cordless phones.
+
+Note the structure: the predictor at the encoder uses \emph{reconstructed} samples, exactly what
+the decoder will have, so that quantization errors do not accumulate. This ``closed-loop''
+prediction is the same principle that makes video codecs and decision-feedback equalizers
+(Chapter~\ref{ch:equalization}) stable.
+
+\subsection{Delta modulation}
+
+Take DPCM to the extreme: sample much faster than Nyquist, predict each sample as the
+previous reconstructed value, and quantize the error with a single bit. A \term{delta
+modulator} transmits 1 if the input is above the staircase approximation and 0 if below,
+and the staircase steps by $\pm\delta$ accordingly (Figure~\ref{fig:ch05_delta_mod}). It is
+trivially simple and robust to bit errors, but it suffers two impairments. \emph{Granular
+noise} appears when the input is flat and the staircase hunts around it. \emph{Slope
+overload} appears when the input changes faster than $\delta f_s$ per second and the staircase
+cannot keep up. Adaptive delta modulation (CVSD, continuously variable slope delta), which
+grows the step during runs of identical bits, found long service in military voice and in
+early Bluetooth headsets.
+
+\mdcfig{ch05_delta_mod}{Delta modulation: the staircase follows a slow input closely (with
+granular noise) but cannot follow the steep segment on the right (slope overload).}
+
+\section{Oversampling and sigma-delta conversion}
+
+Oversampling spreads the fixed quantization noise power $\Delta^2/12$ over a wider band,
+so a digital filter that keeps only the signal band gains 3\,dB per doubling of the
+oversampling ratio (OSR)---half a bit per octave. That is too slow to be useful by itself. The
+\term{sigma-delta} ($\Sigma\Delta$) modulator changes the game by placing the quantizer inside
+a feedback loop with an integrator. The loop forces the \emph{average} of the coarse
+quantizer's output to track the input, and it filters the quantization error through a
+high-pass \term{noise transfer function}:
+\begin{equation}
+Y(z)=z^{-1}X(z)+(1-z^{-1})^L E(z)
+\end{equation}
+for an $L$th-order modulator. The noise is pushed out of the signal band to high frequencies
+(Figure~\ref{fig:ch05_sigma_delta}), where a digital decimation filter removes it. The in-band
+SQNR now improves by $(6L+3)$\,dB per octave of OSR: a second-order modulator with an OSR of
+64 and a one-bit quantizer achieves about 85\,dB. Because a one-bit quantizer is perfectly
+linear (two points always define a line), $\Sigma\Delta$ converters avoid the component matching
+that limits other architectures. They are in every audio codec, most precision measurement
+ADCs, and---as continuous-time bandpass $\Sigma\Delta$ converters---in many cellular receivers.
+
+\mdcfig{ch05_sigma_delta}{Spectra of first- and second-order one-bit sigma-delta modulators
+with a tone input. Quantization noise is shaped away from low frequencies; the second-order
+loop leaves far less noise in the signal band.}
+
+\section{Real data converters}
+\label{sec:ch05:adc}
+
+\subsection{Architectures}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+Architecture & Typical resolution & Typical rate & Where it is used \\
+\midrule
+Flash & 4--8 bits & up to tens of GS/s & Optical links, oscilloscopes, sub-ranging cores \\
+Pipeline & 10--16 bits & 50\,MS/s--1\,GS/s & Base stations, SDRs, instrumentation \\
+SAR & 8--18 bits & 1\,kS/s--2\,GS/s & Low power sensors, time-interleaved RF-ADCs \\
+Sigma-delta & 16--32 bits & audio to $\approx$100\,MHz bandwidth & Audio, precision, cellular RX \\
+Time-interleaved & 8--14 bits & up to 100+\,GS/s & Direct RF sampling, 5G, radar, 800G optics \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A \emph{flash} converter compares the input with $2^b-1$ thresholds at once; it is the fastest
+architecture but its size doubles with every bit. A \emph{successive-approximation} (SAR)
+converter performs a binary search with one comparator and a capacitor DAC, and has become
+the most power-efficient design at moderate rates. \emph{Pipeline} converters resolve a few
+bits per stage and pass the amplified residue on. \emph{Time interleaving} runs $M$ slower
+converters in rotation, which multiplies the rate but introduces spurs from mismatched gains,
+offsets and timing that must be calibrated digitally. Modern RF-sampling converters, such as
+those in AMD's RFSoC devices, sample directly at several gigasamples per second and perform the
+mixing and decimation in on-chip digital logic, eliminating the analog mixer altogether.
+
+\subsection{Specifications that matter}
+
+The \term{effective number of bits} (ENOB) inverts equation~\eqref{eq:ch05:sqnr}: measure the
+signal-to-noise-and-distortion ratio (SINAD) with a full-scale sine and compute
+$\text{ENOB}=(\text{SINAD}_{\text{dB}}-1.76)/6.02$. A 14-bit RF ADC might deliver 11 effective
+bits. The \term{spurious-free dynamic range} (SFDR) is the ratio of the signal to the largest
+spur, and in a receiver with a strong blocker it often matters more than noise, because a spur
+can land on a weak wanted signal.
+
+At high input frequencies, \term{aperture jitter}---random variation of the sampling
+instant---dominates. A sinusoid of frequency $f$ has maximum slope $2\pi fA$, so a timing error
+$\sigma_t$ produces an amplitude error that limits the SNR to
+\begin{equation}
+\text{SNR}_{\text{jitter}}=-20\log_{10}(2\pi f\sigma_t)\ \text{dB}.
+\end{equation}
+With 100\,fs of jitter, the limit at 1\,GHz is 64\,dB, barely 10 bits, whatever the converter's
+resolution (Figure~\ref{fig:ch05_jitter}). This is why clock generation is a serious design
+discipline in every RF-sampling system, and why the B200 and every base station specify the
+phase noise of their reference oscillators.
+
+\mdcfig[0.7]{ch05_jitter}{The SNR ceiling set by sampling-clock jitter. At gigahertz input
+frequencies even 50\,fs of jitter limits a converter to about 10 to 11 effective bits.}
+
+\section{Digital telephony}
+
+\subsection{The 64 kb/s channel}
+
+By the late 1950s, the Bell System faced a crisis in its local networks: the cable ducts
+between exchanges in big cities were full. Replacing copper pairs was expensive; making each
+pair carry more calls was not. The answer was T1 carrier, which put 24 PCM voice channels on
+two twisted pairs, with regenerative repeaters every 6000 feet (the spacing of the existing
+loading coils, whose manholes were already there). Each repeater received a noisy stream of
+pulses, decided what each bit was, and retransmitted a clean pulse. For the first time in
+history, a long-distance voice circuit had the same quality as a short one.
+
+\subsection{Time-division multiplexing and the T1 and E1 frames}
+
+The channels share the line by \term{time-division multiplexing} (TDM): each channel gets
+a time slot of eight bits in a repeating frame. The T1 (DS1) frame (Figure~\ref{fig:ch05_t1_frame})
+contains 24 slots plus one framing bit, 193 bits every 125\,$\mu$s, giving
+$193\times8000=1.544$\,Mb/s. The framing bits follow a fixed pattern over 12 frames (the
+superframe) or 24 frames (the extended superframe, which also carries a CRC-6 and a
+4\,kb/s data link). Signalling (on-hook, off-hook, dial pulses) was originally carried by
+stealing the least significant bit of each channel in every sixth frame---``robbed-bit''
+signalling---which is why modem data over digital trunks was limited to 56\,kb/s instead of
+64. The European E1 frame, standardised by CEPT, uses 32 slots of eight bits: slot 0 for
+framing and alarms, slot 16 for signalling, and 30 for voice, for 2.048\,Mb/s. Its cleaner
+design carries 64\,kb/s ``clear channels'' without robbed bits.
+
+\mdcfig{ch05_t1_frame}{The T1 (DS1) frame: one framing bit and 24 eight-bit $\mu$-law samples
+every 125\,$\mu$s, for 1.544\,Mb/s.}
+
+\subsection{The multiplexing hierarchy}
+
+Frames are multiplexed again into higher rates. The North American \term{plesiochronous digital
+hierarchy} (PDH) combined four DS1s into a DS2 (6.312\,Mb/s) and seven DS2s into a DS3
+(44.736\,Mb/s, 672 voice channels); the European hierarchy went 2.048, 8.448, 34.368 and
+139.264\,Mb/s. ``Plesiochronous'' means \emph{nearly} synchronous: each tributary has its own
+clock, so the multiplexer inserts \emph{justification} (stuffing) bits to absorb small rate
+differences. Extracting one DS1 from a DS3 required demultiplexing everything.
+
+The \term{synchronous optical network} (SONET, 1988) and synchronous digital hierarchy (SDH)
+replaced this with byte-synchronous frames of 125\,$\mu$s at 51.84\,Mb/s (STS-1) and multiples
+(OC-3 at 155.52\,Mb/s, OC-48 at 2.488\,Gb/s, OC-192 at 9.953\,Gb/s), with pointers that locate
+each tributary directly. SONET's 125\,$\mu$s frame---the sampling period of an 8\,kHz voice
+channel---carried the Internet's backbone traffic through the 1990s and 2000s, and the timing
+distribution networks built for it still synchronise cellular base stations today. The story
+continues in Chapter~\ref{ch:wireline}.
+
+\subsection{Line coding on the wire}
+
+A copper pair cannot carry DC through its transformers, and the receiver must recover the
+bit clock from the data. T1 therefore uses \term{alternate mark inversion} (AMI): zeros are
+sent as no pulse and ones as pulses of alternating polarity, which gives a spectrum with no DC
+and a built-in error check (two consecutive pulses of the same polarity are a
+\emph{bipolar violation}). Long runs of zeros would starve the clock recovery, so T1 requires
+a minimum ones density, later replaced by \emph{B8ZS} substitution, which replaces eight zeros
+with a pattern containing deliberate violations that the receiver recognises. E1 uses the
+similar HDB3. Line codes are treated fully in Chapter~\ref{ch:baseband}.
+
+\subsection{Echo, delay and the end of the circuit}
+
+Digital telephony exposed problems analog networks had hidden. The \term{hybrid} that converts
+the two-wire subscriber loop to the four-wire transmission network leaks some of the
+far-end's voice back as echo. On short circuits the echo arrives so quickly that it merges
+with sidetone, but on satellite circuits (500\,ms round trip, Chapter~\ref{ch:satellite}) or
+packet networks it is intolerable. \term{Adaptive echo cancellers}, LMS filters that learn the
+echo path and subtract a replica (Chapter~\ref{ch:equalization}), were among the first mass
+applications of adaptive signal processing and are in every telephone network and speakerphone
+today.
+
+From the 2000s, voice moved from circuits to packets. Voice over IP (VoIP) and voice over LTE
+(VoLTE) still sample at 8 or 16\,kHz, but compress the samples with codecs such as AMR-WB, EVS
+and Opus at 6 to 64\,kb/s (Chapter~\ref{ch:sourcecoding}). The 125\,$\mu$s frame survives only
+in legacy interfaces; the 64\,kb/s G.711 codec survives as the universal fallback that every
+VoIP system still supports.
+
+\begin{history}[title=The 8 kHz heartbeat]
+The number 8000 appears everywhere in communications because telephone speech was
+band-limited to 3.4\,kHz and the designers of T1 chose a comfortable margin above the
+6.8\,kHz Nyquist rate. From that choice follow the 125\,$\mu$s frame, the 64\,kb/s DS0, the
+1.544 and 2.048\,Mb/s primary rates, SONET's 51.84\,Mb/s, the 8\,kHz frame clock of
+ISDN and GSM's 20\,ms speech frames. A sampling-rate decision made for a vacuum-tube
+filter in the 1950s still sets the timing of the global network.
+\end{history}
+
+\begin{pitfall}[title=Clipping is worse than noise]
+Quantization noise degrades gracefully; clipping does not. A signal that clips even
+occasionally generates broadband distortion and, in a transmitter, spectral regrowth into
+adjacent channels. For OFDM signals with 10\,dB or more of peak-to-average ratio, the rule of
+thumb is to keep the RMS level 10 to 12\,dB below full scale in the ADC and DAC, and to budget
+the lost SQNR accordingly. In the B200, setting the digital TX amplitude above about 0.7 is a
+common way to generate a very clean spectral splatter.
+\end{pitfall}
+
+\begin{labbox}[title=Lab: sampling and quantization]
+The notebook \lab{labs/ch05\_sampling\_quantization.ipynb} lets you sweep an input frequency
+through the Nyquist zones and watch it alias; compares sinc, linear and zero-order-hold
+reconstruction; measures SQNR against bits, back-off and dither; implements $\mu$-law and A-law
+companding and reproduces Figure~\ref{fig:ch05_companding}; and builds first- and second-order
+sigma-delta modulators whose output spectra update as you change the OSR.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item A signal contains components at 3, 7 and 12\,kHz and is sampled at 16\,kHz without an
+anti-aliasing filter. At what frequencies do the components appear after ideal reconstruction?
+\item Find all valid bandpass sampling rates for a signal occupying 70--80\,MHz. Which is the
+lowest? What practical margin would you add?
+\item Derive the ZOH frequency response $\sinc(f/f_s)$ and design a three-tap FIR
+compensation filter that flattens it to within 0.2\,dB up to $0.4f_s$.
+\item A 14-bit ADC samples at 125\,MS/s. What is the ideal SQNR? If the signal of interest is a
+1\,MHz channel after digital filtering, what is the in-band SQNR? What jitter would limit it at
+an input frequency of 200\,MHz?
+\item Show that for a uniform quantizer with a Gaussian input of standard deviation $\sigma$
+clipped at $\pm4\sigma$, SQNR $\approx 6.02b-7.3$\,dB (neglect the clipping noise).
+\item Implement the Lloyd--Max algorithm for a 3-bit quantizer and a Laplacian input. Compare the
+MSE with that of the best uniform quantizer.
+\item Compute the bit rates of a T1 superframe's framing pattern, a DS3 and an OC-12. How many
+64\,kb/s channels does an OC-192 carry?
+\item Explain why a first-order sigma-delta modulator with a DC input produces periodic
+patterns (idle tones), and how dither or higher order removes them.
+\item \emph{(Simulation)} Record your voice at 48\,kHz (or use any speech file), decimate to
+8\,kHz, and encode it with 8-bit uniform PCM, 8-bit $\mu$-law and 4-bit ADPCM. Compare SQNR
+and listen to the results.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item N.~S.~Jayant and P.~Noll, \emph{Digital Coding of Waveforms}, Prentice Hall, 1984. The
+classic on PCM, DPCM, ADPCM and delta modulation.
+\item R.~Schreier and G.~C.~Temes, \emph{Understanding Delta-Sigma Data Converters}, 2nd ed.,
+Wiley-IEEE, 2017.
+\item W.~Kester (ed.), \emph{Data Conversion Handbook}, Analog Devices / Newnes, 2005 (free online).
+\item B.~M.~Oliver, J.~R.~Pierce and C.~E.~Shannon, ``The philosophy of PCM,''
+\emph{Proc. IRE}, 36, 1948. A remarkably modern paper.
+\item J.~Bellamy, \emph{Digital Telephony}, 3rd ed., Wiley, 2000. T1, E1, SONET and the
+engineering of the digital network.
+\item ITU-T Recommendations G.711 (PCM), G.726 (ADPCM), G.704 (frame structures).
+\end{itemize}
