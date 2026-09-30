@@ -1,0 +1,1847 @@
+\chapter{Synchronization}
+\label{ch:sync}
+
+\begin{chapterintro}
+Every detector in the previous two chapters assumed that the receiver knew exactly when each
+symbol began, exactly what the carrier phase was, and exactly where the frame started. No real
+receiver knows any of these things. Its oscillator runs at a slightly different frequency from the
+transmitter's, its sample clock drifts, the propagation delay is unknown and changing, and the
+signal may arrive as a burst out of silence. Synchronization is the art of estimating these
+nuisance parameters from the signal itself, quickly and accurately enough that the detector never
+notices they were unknown. This chapter treats the receiver as a chain of estimators---frequency,
+timing, phase and frame---and develops each from estimation theory and the phase-locked loop. We
+derive the Cram\'er--Rao bounds that no synchronizer can beat, design loops that come close to them,
+and study the algorithms that real modems use: Costas loops and $M$th-power estimators, the Kay,
+Fitz and Luise--Reggiannini frequency estimators, Gardner and Mueller--M\"uller timing detectors with
+Farrow interpolators, Schmidl--Cox and the 802.11 preamble, the 5G synchronization signal block,
+clock and data recovery in SerDes links, and finally the time and frequency distribution that holds
+an entire cellular network to within a microsecond and a half.
+\end{chapterintro}
+
+\section{The synchronization problem}
+\label{sec:ch10:problem}
+
+\subsection{What the receiver does not know}
+
+Write the complex envelope of a linearly modulated signal as it arrives at the receiver's
+matched filter:
+\begin{equation}
+r(t)=e^{j(2\pi\Delta f\,t+\theta)}\sum_k a_k\,g(t-kT-\tau)+w(t),
+\label{eq:ch10:model}
+\end{equation}
+where $a_k$ are the data symbols, $g(t)$ is the transmit pulse, $T$ the symbol period and $w(t)$
+complex white Gaussian noise with power spectral density $N_0$. Four parameters stand between this
+waveform and the detector of Chapter~\ref{ch:modulation}:
+\begin{description}
+\item[Carrier frequency offset (CFO) $\Delta f$.] The transmitter's and receiver's local
+oscillators are derived from different crystals, and the channel may add a Doppler shift. A
+relative error of $\epsilon$ at carrier frequency $f_c$ produces $\Delta f=\epsilon f_c$.
+\item[Carrier phase $\theta$.] Even with the frequencies matched, the phase depends on the
+path length to within a fraction of a wavelength---a few centimetres at gigahertz frequencies---and
+is therefore effectively random.
+\item[Symbol timing $\tau$.] The propagation delay is unknown, and the receiver's sample clock
+runs at a slightly different rate from the transmitter's symbol clock, so $\tau$ is not even
+constant: it drifts as $\tau(t)=\tau_0+\epsilon_s t$ for a sample clock offset $\epsilon_s$.
+\item[Frame timing.] The receiver must also find where the packet, frame or codeword begins in the
+stream of symbols, so that bits are handed to the decoder in the right order and the right
+bits are interpreted as headers.
+\end{description}
+The amplitude (the channel gain) is a fifth unknown, handled by automatic gain control and channel
+estimation, and in multipath channels the ``phase'' becomes a whole channel impulse response; those
+are the subjects of Chapters~\ref{ch:channels} and~\ref{ch:equalization}. Here we assume a flat
+channel and concentrate on time and frequency.
+
+Figure~\ref{fig:ch10_impairments} shows what each impairment does to a QPSK constellation sampled
+at the output of the matched filter. A static phase offset rotates the constellation; a frequency
+offset makes it spin, smearing the points into a ring; a timing offset leaves the points in their
+quadrants but spreads each one into a cloud of intersymbol interference (Chapter~\ref{ch:baseband});
+and a clock offset makes the timing error sweep slowly through the symbol, so the cloud breathes
+open and closed. The detector sees all four at once.
+
+\mdcfig{ch10_impairments}{A QPSK constellation (2000 symbols, $E_s/N_0=22$\,dB, RRC $\beta=0.35$)
+under each synchronization impairment. A frequency offset of only $4\times10^{-4}$ of the symbol
+rate turns the constellation into a ring within 2000 symbols.}
+
+\subsection{How large are the offsets?}
+
+It is worth knowing the numbers, because they determine which algorithms are feasible.
+Table~\ref{tab:ch10:offsets} collects typical values. Two lessons stand out. First, frequency
+offsets are often a large fraction of the symbol rate, especially for narrowband signals at high
+carrier frequencies: a 2\,ppm crystal at 3.5\,GHz is 7\,kHz, which would rotate a 10\,ksym/s signal by
+$250^\circ$ per symbol. Second, the ratio of the offset to the symbol rate is what matters to the
+algorithms, so the same crystal is harmless for a 30\,Msym/s satellite carrier and crippling for a
+narrowband IoT link.
+
+\begin{table}[htbp]\centering\small
+\caption{Representative synchronization offsets. Values are approximate and are meant to show orders
+of magnitude; consult the relevant standard for requirements.}
+\label{tab:ch10:offsets}
+\begin{tabular}{>{\raggedright\arraybackslash}p{4.1cm}>{\raggedright\arraybackslash}p{4.3cm}>{\raggedright\arraybackslash}p{4.9cm}}
+\toprule
+System & Source of offset & Typical magnitude \\
+\midrule
+5G NR phone at 3.5\,GHz, before lock & TCXO, $\approx\pm2$\,ppm & $\approx\pm7$\,kHz ($\approx$ 23\% of a 30\,kHz subcarrier)\\
+5G NR base station & TS 38.104 requirement, $\pm0.05$\,ppm & $\pm175$\,Hz at 3.5\,GHz \\
+Wi-Fi (802.11a/g/n/ac) & $\pm20$\,ppm per device & up to $\pm232$\,kHz at 5.8\,GHz \\
+DVB-S2 home terminal & LNB oscillator drift & up to a few MHz \\
+LEO satellite, Ku band & Doppler, 7.5\,km/s orbital speed & several hundred kHz \\
+GPS L1 receiver, stationary & satellite Doppler & about $\pm5$\,kHz \\
+USRP B200 pair & two TCXOs, $\pm2$\,ppm each & up to 4\,ppm: 3.6\,kHz at 900\,MHz \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The synchronizer chain}
+
+A practical receiver does not estimate all parameters jointly---that would be optimal but
+prohibitively complex. It estimates them in a sequence, each stage cleaning up the signal enough
+for the next to work. Figure~\ref{fig:ch10_chain} shows the typical order for a single-carrier modem.
+\begin{enumerate}
+\item \textbf{Automatic gain control} brings the signal into the linear range of the ADC and gives
+the later stages a known amplitude.
+\item \textbf{Coarse frequency correction} comes first, because a large CFO smears the signal
+across the matched filter's passband and destroys the operation of everything downstream. Coarse
+estimators must have a wide acquisition range and need not be very accurate: a
+frequency-locked loop or a non-data-aided estimator is typical.
+\item \textbf{Matched filtering and symbol timing recovery} follow. The best timing detectors are
+insensitive to carrier phase, so timing can be recovered before the phase is known.
+\item \textbf{Frame synchronization} locates a known preamble or unique word, which also provides
+data-aided estimates of fine frequency and phase and resolves the phase ambiguity of blind
+carrier loops.
+\item \textbf{Fine frequency and phase tracking}, usually a decision-directed or pilot-aided
+phase-locked loop, removes the residual offset and follows oscillator phase noise for the rest of
+the frame.
+\end{enumerate}
+The ordering is a design choice, not a law. OFDM receivers (Chapter~\ref{ch:ofdm}) find the frame
+first, with a preamble designed to tolerate large frequency offsets, and then estimate the CFO from
+the same preamble. Burst modems that store a whole packet in memory can iterate, running the chain
+twice. But the principle is universal: \emph{each estimator must tolerate the residual errors of
+the ones before it.}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.35cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=1.05cm,minimum width=1.45cm,align=center,font=\sffamily\scriptsize},
+  est/.style={draw=accent,fill=accent!6,thick,minimum height=0.8cm,minimum width=1.45cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[blk] (adc) {ADC\\+ AGC};
+\node[blk,right=of adc] (cfo) {coarse\\CFO\\correction};
+\node[blk,right=of cfo] (mf) {matched\\filter};
+\node[blk,right=of mf] (int) {timing\\interpolator};
+\node[blk,right=of int] (rot) {phase\\rotator};
+\node[blk,right=of rot] (det) {detector\\+ decoder};
+\node[est,below=0.55cm of cfo] (fll) {FLL or\\feedforward};
+\node[est,below=0.55cm of int] (ted) {TED + loop\\filter + NCO};
+\node[est,below=0.55cm of rot] (pll) {PLL / pilots};
+\node[est,above=0.45cm of rot] (fs) {frame sync\\(preamble)};
+\draw[arr] (adc)--(cfo); \draw[arr] (cfo)--(mf); \draw[arr] (mf)--(int); \draw[arr] (int)--(rot); \draw[arr] (rot)--(det);
+\draw[arr,accent] (cfo.south)++(0.25,0) -- ++(0,-0.55);
+\draw[arr,accent] (fll.north)++(-0.25,0) -- ++(0,0.55);
+\draw[arr,accent] (int.south)++(0.25,0) -- ++(0,-0.55);
+\draw[arr,accent] (ted.north)++(-0.25,0) -- ++(0,0.55);
+\draw[arr,accent] (rot.south)++(0.25,0) -- ++(0,-0.55);
+\draw[arr,accent] (pll.north)++(-0.25,0) -- ++(0,0.55);
+\draw[arr,accent] ($(int.east)!0.5!(rot.west)$) |- (fs.west);
+\draw[arr,accent] (fs.east) -| ($(det.north)+(-0.3,0)$);
+\draw[arr,accent] (fs.south) -- (rot.north);
+\end{tikzpicture}
+\caption{The synchronizer chain of a single-carrier receiver. Signal path in navy; estimators in red.
+Each estimator operates on a signal already partly corrected by the stages before it. The frame
+synchronizer supplies the data-aided phase reference that resolves the carrier loop's ambiguity and
+tells the decoder where the codewords start.}
+\label{fig:ch10_chain}
+\end{figure}
+
+\subsection{A vocabulary of synchronizers}
+
+Three distinctions recur throughout the chapter.
+
+\paragraph{Feedback or feedforward.} A \term{feedback} synchronizer (a loop) measures the residual
+error \emph{after} correction and nudges its estimate to reduce it; the phase-locked loop is the
+archetype. A \term{feedforward} synchronizer computes the estimate directly from a block of received
+samples and applies it. Loops are cheap, track slow variations naturally and are ideal for
+continuous transmission, but they take time to acquire and can hang or slip. Feedforward estimators
+acquire in one block, which suits bursts, but must be re-run to track drift.
+
+\paragraph{Data-aided, decision-directed or blind.} A \term{data-aided} (DA) estimator knows the
+transmitted symbols---a preamble or pilots---and so can strip the modulation exactly. A
+\term{decision-directed} (DD) estimator substitutes the detector's decisions for the true symbols;
+it performs like a DA estimator when decisions are reliable and fails catastrophically when they are
+not. A \term{non-data-aided} (NDA), or blind, estimator removes the modulation by a nonlinearity that
+is insensitive to the data, such as raising PSK symbols to the $M$th power. It needs no overhead,
+but pays with worse accuracy at low SNR and with ambiguities.
+
+\paragraph{Acquisition and tracking.} Getting from total ignorance to a small error is
+\emph{acquisition}; keeping the error small as parameters drift is \emph{tracking}. They pull in
+opposite directions: acquisition wants wide bandwidth and wide range, tracking wants narrow bandwidth
+to suppress noise. Most good designs therefore use two modes or two estimators: a coarse,
+wide-range one and a fine, narrow-band one, or a loop whose bandwidth is reduced after lock
+(\emph{gear shifting}).
+
+\begin{history}[De Bellescize and the synchronous receiver, 1932]
+The phase-locked loop is older than most of the electronics it now lives in. In 1932 the French
+engineer Henri de Bellescize published ``La r\'eception synchrone'' in \emph{L'Onde \'Electrique},
+describing a receiver whose local oscillator was locked in phase to the incoming carrier by
+feedback, so that AM could be demodulated coherently---a homodyne receiver made practical. The idea
+was ahead of its components: vacuum-tube oscillators drifted, and the superheterodyne with its
+envelope detector was cheaper and forgiving. The PLL spent the next two decades in niches such as
+the horizontal-sync ``flywheel'' circuits of television receivers, which kept the scanning beam
+steady through noise bursts. It came of age in the 1950s, when colour television and the space
+programme gave it two jobs that nothing else could do, which we shall meet shortly.
+\end{history}
+
+\section{Estimation theory for synchronizers}
+\label{sec:ch10:estimation}
+
+Synchronization is parameter estimation. Before designing any algorithm it pays to ask two
+questions: what is the best possible estimator, and how good can any estimator be? Maximum
+likelihood answers the first, the Cram\'er--Rao bound the second.
+
+\subsection{The likelihood function}
+
+Sample the output of the matched filter at candidate timing $\tau$ after de-rotating by a candidate
+frequency $\nu$, giving $z_k(\tau,\nu)$. For a known block of $N$ symbols $\vect{a}$ in complex AWGN,
+the log-likelihood of the parameters $(\theta,\nu,\tau)$ reduces---after dropping terms that do not
+depend on them---to a correlation between the received samples and the known symbols:
+\begin{equation}
+\Lambda(\theta,\nu,\tau)=\frac{2}{N_0}\,\re\Bigl\{e^{-j\theta}\sum_{k=0}^{N-1}a_k^*\,z_k(\tau,\nu)\Bigr\}.
+\label{eq:ch10:llf}
+\end{equation}
+Everything in this chapter is an approximation to maximising~\eqref{eq:ch10:llf}. Maximising over
+$\theta$ alone is easy: the real part of $e^{-j\theta}X$ is largest when $\theta=\arg X$, so the
+\term{maximum-likelihood phase estimate} is
+\begin{equation}
+\hat\theta=\arg\sum_{k=0}^{N-1}a_k^*\,z_k .
+\label{eq:ch10:mlphase}
+\end{equation}
+Substituting it back, the likelihood for frequency and timing becomes
+$\bigl|\sum_k a_k^*z_k(\tau,\nu)\bigr|$, the magnitude of a correlation. Maximising over $\nu$ is a
+search for the peak of a Fourier transform of $a_k^*z_k$; maximising over $\tau$ is a search for
+the peak of a correlation in time. Frame synchronization, frequency estimation, timing estimation
+and phase estimation are, at bottom, the same operation: \emph{correlate with what you know and find
+the peak.}
+
+When the data are unknown, the likelihood must be averaged over all possible symbol sequences. For
+BPSK the average of $e^{\re\{x\}}$ and $e^{-\re\{x\}}$ is $\cosh(\re\{x\})$, and for low SNR
+$\ln\cosh x\approx x^2/2$: the blind likelihood becomes a sum of \emph{squares} of the samples, which
+is why squaring and $M$th-power nonlinearities appear in every NDA synchronizer. At high SNR,
+$\ln\cosh x\approx|x|$, which is decision-direction in disguise.
+
+\subsection{The Cram\'er--Rao bound}
+
+For any unbiased estimator $\hat\lambda$ of a parameter $\lambda$ from observations $\vect{r}$, the
+\term{Cram\'er--Rao bound} (CRB) states
+\begin{equation}
+\operatorname{var}(\hat\lambda)\ \ge\ \frac{1}{J(\lambda)},\qquad
+J(\lambda)=-\E\Bigl[\frac{\partial^2\ln p(\vect r;\lambda)}{\partial\lambda^2}\Bigr],
+\end{equation}
+where $J$ is the \emph{Fisher information}: the expected curvature of the log-likelihood. A sharply
+peaked likelihood carries a lot of information about where its peak is. For the model
+\eqref{eq:ch10:model} with known data, the calculation is a few lines of calculus, and the results
+are the three bounds every synchronizer designer carries in their head
+(Table~\ref{tab:ch10:crb}).
+
+\begin{table}[htbp]\centering\small
+\caption{Cram\'er--Rao bounds for data-aided synchronization with $N$ (or $L_0$) symbols at
+symbol-energy-to-noise ratio $\esno$. The frequency $\nu=\Delta fT$ is in cycles per symbol and
+$\xi$ is the normalised mean-square bandwidth of the pulse.}
+\label{tab:ch10:crb}
+\begin{tabular}{lll}
+\toprule
+Parameter & Bound & Scaling \\
+\midrule
+Phase (frequency known) & $\operatorname{var}(\hat\theta)\ge\dfrac{1}{2N\,\esno}$ & $1/N$ \\[2ex]
+Frequency (phase unknown) & $\operatorname{var}(\hat\nu)\ge\dfrac{3}{2\pi^2N(N^2-1)\,\esno}$ & $1/N^3$ \\[2ex]
+Timing & $\operatorname{var}(\hat\tau/T)\ge\dfrac{1}{8\pi^2\xi\,L_0\,\esno}$ & $1/L_0$ \\[1.5ex]
+\bottomrule
+\end{tabular}
+\end{table}
+
+The phase bound is intuitive: averaging $N$ samples, each with phase noise variance
+$1/(2\esno)$, reduces the variance by $N$. The frequency bound is more interesting: it improves as
+$N^3$, not $N$. Frequency is the slope of phase against time, and fitting a slope to a longer
+record improves in two ways at once: there are more points, and they are spread further apart. The
+lever arm matters. Doubling the preamble length improves frequency accuracy by a factor of
+$2^{3/2}\approx2.8$ in standard deviation.
+
+For timing, the parameter
+\begin{equation}
+\xi=T^2\,\frac{\int f^2|G(f)|^2\,df}{\int|G(f)|^2\,df}
+\end{equation}
+measures how much high-frequency content the pulse has. A pulse with sharp edges locates itself
+precisely in time; a smooth one does not. For a root-raised-cosine pulse of roll-off $\beta$,
+$\xi=\tfrac1{12}+\beta^2\bigl(\tfrac14-\tfrac{2}{\pi^2}\bigr)$, which grows only from $0.083$ to $0.13$
+as $\beta$ goes from 0 to 1. This is the timing-recovery analogue of the uncertainty principle:
+bandwidth buys timing accuracy, and it is the same principle that makes wideband GNSS signals and
+radar chirps precise.
+
+\subsection{The modified Cram\'er--Rao bound}
+
+When the data are random and unknown the true CRB is hard to compute, because the likelihood is
+an average over all sequences. D'Andrea, Mengali and Reggiannini (1994) introduced the
+\term{modified Cram\'er--Rao bound} (MCRB), in which the expectation over data is taken
+\emph{outside} the Fisher information. The result is simple: the MCRB has exactly the formulas of
+Table~\ref{tab:ch10:crb}, as if the data were known. The MCRB is looser than (below) the true CRB,
+so it is always a valid lower bound; it equals the CRB for data-aided estimation, and blind or
+decision-directed estimators approach it only at high SNR. In practice the MCRB is the yardstick
+against which almost every synchronizer in the literature is plotted, including those in this
+chapter.
+
+\begin{worked}[How long must a preamble be?]
+A burst modem sends QPSK at $R_s=1$\,Msym/s and must estimate its CFO from a 64-symbol preamble at
+$\esno=10$\,dB. The frequency CRB is
+\[
+\sigma_\nu\ge\sqrt{\frac{3}{2\pi^2\cdot64\cdot(64^2-1)\cdot10}}\approx2.4\times10^{-4}\ \text{cycles/symbol},
+\]
+or 240\,Hz. That seems tiny, but the phase error it causes grows linearly: after 1000 data symbols
+the phase has drifted by $2\pi\times2.4\times10^{-4}\times1000\approx1.5$\,rad (one standard
+deviation), far beyond what QPSK tolerates. Even a perfect preamble estimator must therefore be
+followed by a phase tracker, or by pilots inserted through the payload, or by a longer preamble.
+Doubling the preamble to 128 symbols cuts $\sigma_\nu$ by $2.8$, still not enough without tracking
+for long packets. This is the fundamental reason that almost every burst modem combines a
+feedforward preamble estimate with a tracking loop or pilot-aided phase correction.
+\end{worked}
+
+\subsection{Thresholds and outliers}
+
+The CRB describes small errors. At low SNR every nonlinear estimator exhibits a \term{threshold}:
+below some SNR, noise occasionally produces a correlation peak larger than the true one, and the
+estimate jumps to a completely wrong value---an \emph{outlier}. Outliers are rare but enormous, so
+the mean-square error rises abruptly above the bound. The threshold, not the bound, usually decides
+whether a design works. Figure~\ref{fig:ch10_freq_est} later in the chapter shows thresholds for four
+frequency estimators with the same asymptotic accuracy but wildly different thresholds. The design
+rule is: \emph{choose an algorithm whose threshold lies comfortably below the operating SNR of the
+code}. With modern LDPC and turbo codes operating at $\esno$ near or below 0\,dB, this is often the
+hardest constraint in the whole receiver.
+
+\begin{pitfall}[Synchronizing below the code's threshold]
+A rate-1/4 LDPC code in DVB-S2 decodes QPSK at $\esno\approx-2.4$\,dB. The coding gain is
+worthless if the synchronizers fail at 0\,dB. Decision-directed loops are useless there, because
+two symbols in ten are wrong before decoding, and blind $M$th-power estimators lose heavily to noise.
+This is exactly why DVB-S2 inserts known pilot blocks and a $\pi/2$-BPSK frame header: the
+synchronizers need known symbols to work at SNRs where the data symbols are mostly noise. Always
+check that synchronization works at the lowest SNR your code does, and plot its performance with
+real coded BER, not against an ideal-sync curve.
+\end{pitfall}
+
+\section{The phase-locked loop}
+\label{sec:ch10:pll}
+
+The phase-locked loop is the single most important circuit in synchronization. It recovers
+carriers, recovers clocks, synthesises every local oscillator in every radio, demodulates FM,
+and appears, in digital disguise, in the timing and carrier loops of every modem. Its theory
+repays careful study, because the same equations describe every feedback synchronizer in this
+chapter.
+
+\subsection{Anatomy and the nonlinear model}
+
+A PLL has three parts (Figure~\ref{fig:ch10_pll_model}). A \term{phase detector} (PD) compares the
+phase $\theta(t)$ of the input with the phase $\hat\theta(t)$ of a local oscillator and produces an
+error signal $e(t)=K_d\,S(\theta-\hat\theta)$, where $S(\cdot)$ is the detector's characteristic or
+\term{S-curve}. A \term{loop filter} $F(s)$ smooths the error. A \term{voltage-controlled
+oscillator} (VCO), or in digital form a numerically controlled oscillator, changes its frequency in
+proportion to the filtered error, so its phase is the integral: $d\hat\theta/dt=K_0\,v(t)$.
+
+The simplest phase detector is a multiplier. Multiplying $\cos(\omega t+\theta)$ by
+$-\sin(\omega t+\hat\theta)$ and low-pass filtering leaves $\tfrac12\sin(\theta-\hat\theta)$. In
+complex baseband the equivalent operation is $\im\{z\,e^{-j\hat\theta}\}$ for $z=e^{j\theta}$, and the
+S-curve is $S(\phi)=\sin\phi$ with phase error $\phi=\theta-\hat\theta$. The loop is therefore
+described by the nonlinear differential equation
+\begin{equation}
+\frac{d\hat\theta}{dt}=K_0K_d\,\bigl[f*\sin(\theta-\hat\theta)\bigr](t),
+\end{equation}
+where $f(t)$ is the impulse response of the loop filter. It has no closed-form solution in general but
+is easy to simulate. Near lock, $\sin\phi\approx\phi$ and the loop becomes linear.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.9cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.95cm,minimum width=1.6cm,align=center,font=\sffamily\small},
+  sum/.style={draw=navy,thick,circle,inner sep=1.5pt,font=\small},
+  arr/.style={-{Stealth[length=2.2mm]},thick,navy}]
+\node (in) {$\theta(t)$};
+\node[sum,right=0.7cm of in] (s) {$\Sigma$};
+\node[blk,right=of s] (pd) {$K_d$\\[-1pt]\scriptsize phase detector};
+\node[blk,right=of pd] (lf) {$F(s)$\\[-1pt]\scriptsize loop filter};
+\node[blk,right=of lf] (vco) {$K_0/s$\\[-1pt]\scriptsize VCO / NCO};
+\node[right=0.8cm of vco] (out) {$\hat\theta(t)$};
+\draw[arr] (in)--node[above,pos=0.8,font=\scriptsize]{$+$}(s);
+\draw[arr] (s)--node[above,font=\scriptsize]{$\phi$}(pd);
+\draw[arr] (pd)--node[above,font=\scriptsize]{$e$}(lf);
+\draw[arr] (lf)--node[above,font=\scriptsize]{$v$}(vco);
+\draw[arr] (vco)--(out);
+\draw[arr] ($(vco.east)+(0.4,0)$) -- ++(0,-1.1) -| node[left,pos=0.9,font=\scriptsize]{$-$} (s.south);
+\end{tikzpicture}
+\caption{Linearised model of a phase-locked loop. The phase detector is replaced by its slope
+$K_d$ at the lock point; the oscillator integrates its control signal.}
+\label{fig:ch10_pll_model}
+\end{figure}
+
+\subsection{The linear model}
+
+With $\sin\phi\approx\phi$, the loop in Figure~\ref{fig:ch10_pll_model} is an ordinary linear feedback
+system. Its open-loop gain is $G(s)=K_0K_dF(s)/s$, and the transfer functions from input phase to
+output phase and to phase error are
+\begin{equation}
+H(s)=\frac{\hat\Theta(s)}{\Theta(s)}=\frac{G(s)}{1+G(s)},\qquad
+\frac{\Phi(s)}{\Theta(s)}=1-H(s)=\frac{1}{1+G(s)}.
+\label{eq:ch10:H}
+\end{equation}
+$H(s)$ is low-pass: the loop follows slow changes in the input phase and ignores fast ones. The
+error transfer function $1-H(s)$ is high-pass: it passes fast input phase fluctuations straight
+into the error. These two facts summarise the loop's two jobs and their conflict. Noise on the input
+is fast, and we want the loop to ignore it (narrow $H$); oscillator phase noise and Doppler are
+slow, and we want the loop to follow them (wide $H$).
+
+\subsection{Order and type}
+
+The \term{order} of the loop is the order of the denominator of $H(s)$; its \term{type} is the number
+of perfect integrators in $G(s)$. The VCO always contributes one. With $F(s)=1$ (no filter) the
+loop is first order and type 1; with a proportional-plus-integral filter,
+\begin{equation}
+F(s)=\frac{1+s\tau_2}{s\tau_1},
+\end{equation}
+it is second order and type 2, the workhorse of carrier recovery. Writing $K=K_0K_d$,
+\begin{equation}
+H(s)=\frac{2\zeta\omega_ns+\omega_n^2}{s^2+2\zeta\omega_ns+\omega_n^2},\qquad
+\omega_n=\sqrt{K/\tau_1},\quad \zeta=\tfrac12\,\omega_n\tau_2,
+\label{eq:ch10:H2}
+\end{equation}
+with \term{natural frequency} $\omega_n$ and \term{damping factor} $\zeta$. Type matters because it
+determines which inputs the loop can track with zero steady-state error. The final-value theorem
+applied to $\Phi(s)=[1-H(s)]\Theta(s)$ gives Table~\ref{tab:ch10:steady}.
+
+\begin{table}[htbp]\centering\small
+\caption{Steady-state phase error of linear PLLs. A frequency step $\Delta\omega$ is a phase ramp; a
+frequency ramp $\dot\omega$ (for example the Doppler rate of a satellite pass) is a parabola in phase.}
+\label{tab:ch10:steady}
+\begin{tabular}{llll}
+\toprule
+Input & Type 1 (first order) & Type 2 (PI filter) & Type 3 \\
+\midrule
+Phase step $\Delta\theta$ & 0 & 0 & 0 \\
+Frequency step $\Delta\omega$ & $\Delta\omega/K$ & 0 & 0 \\
+Frequency ramp $\dot\omega$ & grows without bound & $\dot\omega/\omega_n^2$ & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A type-1 loop tracks a frequency offset only with a standing phase error $\Delta\omega/K$; for a
+coherent demodulator that error is a permanent rotation of the constellation. A type-2 loop's
+integrator absorbs the frequency offset completely: the integrator's value \emph{is} the frequency
+estimate. A type-2 loop still lags a frequency ramp, and receivers for low-orbit satellites or
+high-dynamics GNSS, where the Doppler rate is large, use type-3 loops or aid the loop with a
+predicted Doppler.
+
+Figure~\ref{fig:ch10_pll_response} shows the transient response of the type-2 loop. For a phase step
+the error decays with an overshoot that depends on $\zeta$; for a frequency step the error rises and
+then returns to zero as the integrator charges up. The value $\zeta=1/\sqrt2\approx0.707$ is the
+customary compromise between speed and overshoot, and it also gives a loop with a gently peaked
+$|H|$ that passes noise without much amplification. Lightly damped loops ($\zeta=0.3$) ring and
+amplify noise near $\omega_n$ (the peak in panel (c)); heavily damped ones approach first-order
+behaviour and are slow to remove frequency errors.
+
+\mdcfig{ch10_pll_response}{The second-order type-2 PLL. (a) Phase error after a unit phase step.
+(b) Phase error after a frequency step, normalised by $\Delta\omega/\omega_n$: the type-2 loop returns
+to zero, while a type-1 loop with gain $K=\omega_n$ settles at a standing error. (c) Closed-loop
+$|H(j\omega)|$ and error response $|1-H(j\omega)|$.}
+
+\subsection{Noise bandwidth and phase jitter}
+
+Suppose the input is a carrier of power $C$ in white noise of density $N_0$. The noise at the phase
+detector output is equivalent to a phase noise of two-sided density $N_0/(2C)$\,rad$^2$/Hz, and the
+loop passes it through $H$. The variance of the output phase is therefore
+\begin{equation}
+\sigma_\phi^2=\frac{N_0}{2C}\int_{-\infty}^{\infty}|H(j2\pi f)|^2\,df=\frac{N_0B_L}{C}=\frac{1}{\rho},
+\qquad B_L=\int_0^\infty|H(j2\pi f)|^2\,df,
+\label{eq:ch10:jitter}
+\end{equation}
+where $B_L$ is the one-sided \term{loop noise bandwidth} and $\rho=C/(N_0B_L)$ is the \term{loop SNR}:
+the SNR of the carrier measured in the loop bandwidth. For the second-order loop,
+\begin{equation}
+B_L=\frac{\omega_n}{2}\Bigl(\zeta+\frac{1}{4\zeta}\Bigr),
+\label{eq:ch10:BL}
+\end{equation}
+which is $0.53\,\omega_n$ at $\zeta=0.707$. In a digital loop that updates once per symbol, with a
+data-aided phase detector, the same result reads
+\begin{equation}
+\sigma_\phi^2=\frac{B_LT}{\esno},
+\label{eq:ch10:jitter_digital}
+\end{equation}
+where $B_LT$ is the noise bandwidth normalised to the symbol rate. Typical carrier loops use
+$B_LT$ between $10^{-3}$ and $10^{-2}$: at $\esno=10$\,dB and $B_LT=0.005$, $\sigma_\phi=0.022$\,rad,
+or $1.3^\circ$. Figure~\ref{fig:ch10_jitter}(a) confirms~\eqref{eq:ch10:jitter_digital} by simulation
+with the \texttt{commlib} loop. The decision-directed loop matches the data-aided one at high SNR
+and departs from it below about 8\,dB, where decision errors inject additional noise.
+
+Equation~\eqref{eq:ch10:jitter_digital} also says something about optimality: a loop of noise
+bandwidth $B_L$ behaves like an averager over roughly $1/(2B_LT)$ symbols, and the phase CRB for that
+many symbols is $B_LT/\esno$. A well-designed loop is an efficient estimator; the only freedom is
+how long a memory to give it.
+
+\mdcfig{ch10_jitter}{(a) Phase-error variance of a second-order QPSK loop against $\esno$ for three
+loop bandwidths: lines are $B_LT/(\esno)$, circles a data-aided simulation, crosses the
+decision-directed \texttt{commlib.pll\_dd}. (b) At $\esno=3$\,dB the decision-directed loop
+cycle-slips: its phase estimate wanders by whole multiples of $\pi/2$.}
+
+\begin{worked}[Designing a carrier loop]
+A telemetry receiver must track a residual carrier with $C/N_0=40$\,dB-Hz. Choose
+$B_L=50$\,Hz and $\zeta=0.707$. From~\eqref{eq:ch10:BL}, $\omega_n=2B_L/(\zeta+1/4\zeta)=94.3$\,rad/s
+($f_n=15$\,Hz). The loop SNR is $\rho=10^4/50=200$ (23\,dB), so $\sigma_\phi=1/\sqrt{200}=0.071$\,rad,
+or $4^\circ$---comfortable for BPSK telemetry. A Doppler rate of $\dot f=20$\,Hz/s gives a
+steady-state error $\dot\omega/\omega_n^2=2\pi\cdot20/94.3^2=0.014$\,rad, negligible. But if the
+initial frequency uncertainty is $\pm1$\,kHz, the loop will take a very long time to pull in, as we
+now see; the receiver needs a frequency acquisition aid.
+\end{worked}
+
+\subsection{Acquisition: lock-in, pull-in and hang-up}
+
+The linear model says nothing about how the loop gets into lock. For that we need the nonlinear
+model, and the classical results (Gardner's \emph{Phaselock Techniques} is the standard source) are
+these:
+\begin{itemize}
+\item The \term{lock-in range} is the frequency offset from which the loop locks within about one
+beat cycle, without slipping. For a second-order loop it is approximately $\Delta\omega_L\approx2\zeta\omega_n$.
+\item Beyond lock-in, a type-2 loop with a perfect integrator still \emph{pulls in} from any offset
+within the VCO's range, because the beat note's slight asymmetry slowly charges the integrator. But
+pull-in is slow: the time grows as the square of the offset and the inverse cube of the natural
+frequency, approximately
+\begin{equation}
+T_p\approx\frac{\Delta\omega^2}{2\zeta\omega_n^3}
+\label{eq:ch10:pullin}
+\end{equation}
+for a sinusoidal phase detector. During pull-in the loop slips cycles repeatedly.
+\item The \term{hold range} is the offset beyond which a locked loop loses lock when the input
+frequency changes slowly. For the ideal type-2 loop it is limited only by the VCO and the
+integrator's dynamic range.
+\item A \term{hang-up} occurs when the loop starts near the unstable equilibrium of the S-curve
+($\phi=\pi$ for a sinusoidal detector), where the restoring force is nearly zero. The loop can
+linger there for a long time before noise pushes it off; a sawtooth (arctangent) detector, whose
+restoring force is largest near $\pm\pi$, largely cures it.
+\end{itemize}
+For the loop of the last worked example, a 1\,kHz offset gives
+$T_p\approx(2\pi\cdot1000)^2/(2\cdot0.707\cdot94.3^3)\approx33$\,s, which is useless. Practical receivers
+therefore acquire frequency by other means---a frequency sweep of the NCO, a frequency-locked loop,
+or a feedforward FFT estimate (Section~\ref{sec:ch10:freq})---and hand the PLL an offset well inside its
+lock-in range. Figure~\ref{fig:ch10_acquisition} shows pull-in of a QPSK decision-directed loop with
+an offset of 0.008 cycles/symbol: the wider loops lock almost at once, while the narrow loop slips
+fifteen quarter-cycles over several hundred symbols before its integrator reaches the right
+frequency.
+
+\mdcfig{ch10_acquisition}{Pull-in of a second-order decision-directed QPSK loop ($\esno=20$\,dB,
+offset $\nu=0.008$ cycles/symbol). (a) Phase error in units of the $\pi/2$ ambiguity: the narrowest
+loop slips fifteen times before locking. (b) The loop's frequency estimate (NCO increment per symbol)
+converging to the true offset.}
+
+\subsection{Cycle slips}
+
+Even in lock, noise occasionally pushes the phase error over the top of the S-curve, and the loop
+settles one full cycle (or, for an $M$-fold ambiguous detector, $2\pi/M$) away. The result is a
+\term{cycle slip}: in a coherent receiver every subsequent symbol is rotated, and without
+differential encoding or a fresh reference every bit is wrong until the slip is detected. Viterbi
+solved the first-order loop exactly in 1963 using the Fokker--Planck equation; the mean time between
+slips is
+\begin{equation}
+\bar T_{\text{slip}}=\frac{\pi^2\rho\,I_0^2(\rho)}{2B_L},
+\label{eq:ch10:slip}
+\end{equation}
+where $I_0$ is the modified Bessel function. Because $I_0(\rho)$ grows like $e^\rho/\sqrt{2\pi\rho}$,
+the slip rate falls exponentially with loop SNR. The consequence is a sharp threshold.
+
+\begin{worked}[The cliff edge of cycle slipping]
+A loop with $B_L=100$\,Hz operates at a loop SNR of $\rho=10$ (10\,dB). Then
+$I_0(10)\approx2816$ and $\bar T_{\text{slip}}\approx\pi^2\cdot10\cdot2816^2/200\approx3.9\times10^6$\,s:
+about one slip every 45 days. At $\rho=5$ (7\,dB), $I_0(5)\approx27.2$ and
+$\bar T_{\text{slip}}\approx180$\,s: one slip every three minutes. A 3\,dB loss of carrier power turns a
+loop that almost never slips into one that slips constantly. For an $M$-PSK carrier loop the relevant
+SNR is roughly that of the $M$-fold phase, $\rho/M^2$, reduced further by the squaring loss discussed
+below, which is why QPSK and 8PSK loops slip at much higher SNR than a pure-carrier loop of the same
+bandwidth.
+\end{worked}
+
+\subsection{The digital PLL}
+
+In a software or FPGA receiver the PLL runs once per sample or once per symbol, and each analog
+component has a digital twin (Figure~\ref{fig:ch10_dpll}). The phase detector is an arithmetic
+function of the de-rotated sample---$\im\{z\,a^*\}$ or $\arg(z\,a^*)$. The loop filter is a
+proportional-plus-integral update,
+\begin{equation}
+I[n]=I[n-1]+k_i\,e[n],\qquad v[n]=k_p\,e[n]+I[n],
+\end{equation}
+and the oscillator is the NCO of Chapter~\ref{ch:dsp}: a phase accumulator
+$\hat\theta[n+1]=\hat\theta[n]+v[n]$ addressing a sine table or a CORDIC that rotates the next
+sample by $e^{-j\hat\theta}$. The integrator $I[n]$ holds the frequency estimate in radians per
+update.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.85cm,minimum width=1.35cm,align=center,font=\sffamily\scriptsize},
+  mul/.style={draw=navy,thick,circle,inner sep=0.5pt,font=\small},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node (in) at (0,0) {\small $y[n]$};
+\node[mul] (m) at (1.2,0) {$\times$};
+\node[blk] (pd) at (3.0,0) {phase\\detector};
+\node[blk] (kp) at (5.4,0) {$k_p$};
+\node[blk] (ki) at (5.4,-1.2) {$k_i/(1-z^{-1})$};
+\node[mul] (s) at (7.1,0) {$+$};
+\node[blk] (acc) at (8.9,0) {NCO\\$z^{-1}/(1-z^{-1})$};
+\node[blk] (exp) at (1.2,-2.3) {$e^{-j\hat\theta}$\\(LUT/CORDIC)};
+\node[font=\scriptsize,anchor=west] (out) at (2.3,1.0) {$z[n]$ to detector};
+\draw[arr] (in)--(m); \draw[arr] (m)--(pd);
+\draw[arr] (pd)--node[above,font=\scriptsize]{$e[n]$}(kp);
+\draw[arr] (4.3,0) |- (ki.west);
+\draw[arr] (kp)--(s); \draw[arr] (ki.east) -| (s.south);
+\draw[arr] (s)--node[above,font=\scriptsize]{$v$}(acc);
+\draw[arr] (acc.south) |- node[pos=0.75,below,font=\scriptsize]{$\hat\theta[n]$} (exp.east);
+\draw[arr] (exp.north)--(m.south);
+\draw[arr] (1.9,0) |- (out.west);
+\end{tikzpicture}
+\caption{A digital PLL. The loop filter's integrator holds the frequency estimate; the NCO
+accumulates phase and rotates the next input sample.}
+\label{fig:ch10_dpll}
+\end{figure}
+
+For small $B_LT$ the digital gains relate to the analog parameters simply:
+$k_p\approx2\zeta\omega_nT$ and $k_i\approx(\omega_nT)^2$, divided by the detector gain $K_d$. The
+exact mapping, used by \texttt{commlib} and by Rice's textbook, is
+\begin{lstlisting}
+def loop_gains(bn, zeta=0.7071, kd=1.0, k0=1.0):
+    theta = bn / (zeta + 1 / (4 * zeta))     # = omega_n T / 2
+    d = 1 + 2 * zeta * theta + theta ** 2
+    kp = 4 * zeta * theta / d / (kd * k0)
+    ki = 4 * theta ** 2 / d / (kd * k0)
+    return kp, ki
+\end{lstlisting}
+With $B_LT=0.01$ this gives $k_p=0.0263$ and $k_i=3.5\times10^{-4}$. Two digital effects deserve
+attention. First, \emph{loop delay}: pipelined FPGA implementations often apply the correction
+several samples after the error is measured, which adds phase lag and erodes the stability margin.
+The rule of thumb is to keep the loop bandwidth small compared with $1/(2\pi D)$ for a delay of $D$
+updates. Second, the detector gain $K_d$ depends on signal amplitude unless the input is
+normalised, so a loop designed for one AGC setting has a different bandwidth at another.
+
+\begin{history}[From the colour burst to the Deep Space Network]
+The PLL's breakthrough came from two very different customers in the 1950s. When the US adopted the
+NTSC colour television standard in 1953, the chrominance information rode on a suppressed
+3.579545\,MHz subcarrier whose phase encoded hue. Each receiver had to regenerate that subcarrier
+from a short \emph{colour burst}, about nine cycles transmitted on the back porch of every scan
+line, and hold its phase steady for the rest of the line; any phase error showed up on the screen as
+a change of colour. The solution was a crystal oscillator phase-locked to the burst, and it put a
+PLL in tens of millions of living rooms.
+
+At the same time the Jet Propulsion Laboratory was building tracking receivers for the first
+satellites. Jaffe and Rechtin's 1955 paper on phase-lock circuits that perform near-optimally over a
+wide range of signal and noise levels laid out the theory, and JPL's ``Microlock'' phase-locked
+tracking system followed Explorer~1 in 1958. Their descendants in the Deep Space Network lock onto
+spacecraft carriers with loop bandwidths of a few hertz or less. In the Apollo Unified S-Band system
+the spacecraft transponder phase-locked to the uplink and retransmitted at exactly 240/221 times its
+frequency, so the ground station could measure the two-way Doppler shift coherently and determine
+the spacecraft's range rate with great precision.
+\end{history}
+
+\subsection{PLL frequency synthesizers}
+
+Chapter~\ref{ch:sdr} introduced the PLL frequency synthesizer, which locks a VCO to $N$ times a
+crystal reference. Its modern form, the \term{charge-pump PLL} (Figure~\ref{fig:ch10_cppll}), uses
+a \emph{phase-frequency detector} (PFD): two flip-flops clocked by the reference and by the divided
+VCO output, whose outputs switch current sources into the loop filter. Unlike a multiplier, the PFD
+responds to frequency as well as phase---when the two inputs differ in frequency its average output
+has the right sign to pull them together---so a charge-pump PLL acquires from any offset within the
+VCO's tuning range without sweeping. The loop filter is usually a series resistor and capacitor
+with a small shunt capacitor, giving a type-2 loop with an extra pole for ripple suppression.
+
+The synthesizer's loop bandwidth shapes its phase noise. Inside the loop bandwidth the output follows
+the reference, whose phase noise is multiplied by $N$ (raised by $20\log_{10}N$\,dB), together with
+the noise of the PFD, charge pump and divider. Outside the bandwidth the loop cannot correct the VCO,
+and the VCO's own noise dominates. The optimum bandwidth is roughly where the multiplied reference
+noise and the free-running VCO noise cross; fractional-$N$ synthesizers push the loop bandwidth up
+by using a higher reference frequency, and must then suppress the sigma-delta modulator's shaped
+quantization noise (Chapter~\ref{ch:pcm}) with the same loop filter. The residual phase noise is
+what the receiver's carrier recovery loop must then track, and the two loops must be designed
+together: a carrier loop narrower than the synthesizer's noise pedestal cannot follow it.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.95cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.9cm,minimum width=1.35cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node (ref) {\scriptsize $f_{\text{ref}}$};
+\node[blk,right=0.5cm of ref] (pfd) {phase-freq.\\detector};
+\node[blk,right=of pfd] (cp) {charge\\pump};
+\node[blk,right=of cp] (lf) {loop filter\\$R$, $C_1$, $C_2$};
+\node[blk,right=of lf] (vco) {VCO};
+\node[right=0.5cm of vco,font=\scriptsize,align=left] (out) {$f_{\text{out}}$\\$=Nf_{\text{ref}}$};
+\node[blk,below=0.55cm of cp,minimum width=3.5cm] (div) {$\div N$ (or $N+\text{frac}$, driven by $\Sigma\Delta$)};
+\draw[arr] (ref)--(pfd); \draw[arr] (pfd)--node[above,font=\scriptsize]{up/dn}(cp);
+\draw[arr] (cp)--node[above,font=\scriptsize]{$I_{cp}$}(lf); \draw[arr] (lf)--node[above,font=\scriptsize]{$v$}(vco);
+\draw[arr] (vco)--(out);
+\draw[arr] ($(vco.east)+(0.25,0)$) |- (div.east);
+\draw[arr] (div.west) -| (pfd.south);
+\end{tikzpicture}
+\caption{A charge-pump PLL frequency synthesizer. The phase-frequency detector makes the loop
+self-acquiring; a sigma-delta modulator dithering the divide ratio gives fractional-$N$ resolution.}
+\label{fig:ch10_cppll}
+\end{figure}
+
+\section{Carrier phase recovery}
+\label{sec:ch10:carrier}
+
+With the PLL in hand, carrier recovery becomes a question of which phase detector to use. The
+answer depends on what the receiver knows about the symbols and on whether the signal has a carrier
+component at all. Modern digital modulations do not: a balanced PSK or QAM constellation has zero
+mean, so its spectrum contains no line at the carrier frequency for a PLL to lock onto. The
+carrier must be \emph{regenerated} by removing the modulation.
+
+\subsection{Data-aided and decision-directed detectors}
+
+If the symbols are known, the modulation is removed by multiplying by their conjugates, and the
+maximum-likelihood phase estimate~\eqref{eq:ch10:mlphase} over a block is
+$\hat\theta=\arg\sum a_k^*z_k$. Its per-symbol version, $e_k=\im\{z_ka_k^*\}$ (or $\arg(z_ka_k^*)$),
+is the \term{data-aided phase detector}, with S-curve $\sin\phi$ (or $\phi$ itself). It is the ideal
+detector during a preamble or on pilot symbols.
+
+Replacing $a_k$ by the decision $\hat a_k$ gives the \term{decision-directed} detector
+$e_k=\im\{z_k\hat a_k^*\}$, which works for any constellation, PSK or QAM, and is what
+\texttt{commlib.pll\_dd} implements. When the phase error is small and the SNR high, decisions are
+correct and the detector is as good as a data-aided one. But the decision regions of an $M$-PSK
+constellation are symmetric under rotation by $2\pi/M$, so the detector's S-curve repeats with period
+$2\pi/M$: at a phase error of $\pi/4$ a QPSK decision flips to the neighbouring point and the error
+signal changes sign. Figure~\ref{fig:ch10_pd_scurves}(b) shows the result. At high SNR the S-curve is a
+sawtooth with period $\pi/2$; as the SNR falls, decision errors near the boundaries flatten it,
+reducing the slope (and hence the loop bandwidth) and adding noise.
+
+\mdcfig{ch10_pd_scurves}{Phase-detector S-curves (mean output against phase error), measured by
+simulation. (a) The data-aided detector has period $2\pi$; the BPSK Costas detector $2IQ=\sin2\phi$ has
+period $\pi$. (b) QPSK decision-directed and hard-limited Costas detectors have period $\pi/2$; noise
+flattens the sawtooth, and at 3\,dB the decision-directed detector's slope has almost vanished.}
+
+For QAM the situation is worse: the inner points of 16-QAM or 64-QAM lie closer to their neighbours
+in angle than the corners do, so decisions become unreliable at smaller phase errors. A 64-QAM
+decision-directed loop is reliable only once the phase error is below a few degrees. Practical QAM
+receivers therefore acquire phase with a pilot-aided or \emph{reduced-constellation} detector that
+uses only the corner points (whose phases are those of QPSK) and switch to full decision direction
+once locked.
+
+\subsection{The Costas loop}
+
+John Costas's loop (1956) is the classic carrier recovery circuit for suppressed-carrier BPSK
+(Figure~\ref{fig:ch10_costas}). The received signal is mixed with in-phase and quadrature outputs of
+the VCO, each arm is low-pass filtered (in a digital receiver, matched filtered), and the product
+of the arms drives the loop. With a BPSK symbol $d=\pm1$ and phase error $\phi$, the arms carry
+$I=d\cos\phi$ and $Q=d\sin\phi$, and the product is
+\begin{equation}
+e=I\cdot Q=d^2\cos\phi\sin\phi=\tfrac12\sin2\phi,
+\end{equation}
+independent of the data because $d^2=1$. The loop locks at $\phi=0$ or $\phi=\pi$: a two-fold
+ambiguity, the price of blindness. For QPSK the equivalent loop combines the arms as
+$e=\operatorname{sgn}(I)\,Q-\operatorname{sgn}(Q)\,I$, which is the hard-limited Costas detector in
+\texttt{commlib.costas\_qpsk} and in GNU Radio's \texttt{Costas Loop} block; it has a four-fold
+ambiguity and, as Figure~\ref{fig:ch10_pd_scurves}(b) shows, is essentially a decision-directed
+detector. Costas loops demodulate a great deal of military and space telemetry to this day.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.75cm,minimum width=1.3cm,align=center,font=\sffamily\scriptsize},
+  sblk/.style={draw=navy,fill=navy!6,thick,minimum height=0.5cm,minimum width=1.0cm,align=center,font=\sffamily\scriptsize},
+  mul/.style={draw=navy,thick,circle,inner sep=0.5pt,font=\small},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node (in) at (0,0) {\small $r(t)$};
+\node[mul] (mi) at (2.2,1.5) {$\times$};
+\node[mul] (mq) at (2.2,-1.5) {$\times$};
+\node[sblk] (vco) at (2.2,0.5) {VCO};
+\node[sblk] (ph) at (2.2,-0.5) {$-90^\circ$};
+\node[blk] (lpi) at (4.2,1.5) {LPF /\\matched};
+\node[blk] (lpq) at (4.2,-1.5) {LPF /\\matched};
+\node[mul] (pr) at (6.6,0.5) {$\times$};
+\node[blk] (lf) at (4.6,0.5) {loop\\filter};
+\node[font=\scriptsize,anchor=west] (dout) at (6.0,2.2) {data out};
+\draw[thick,navy] (in) -- (0.9,0);
+\draw[arr] (0.9,0) |- (mi.west); \draw[arr] (0.9,0) |- (mq.west);
+\draw[arr] (mi)--(lpi); \draw[arr] (mq)--(lpq);
+\draw[arr] (lpi.east) -| node[pos=0.25,above,font=\scriptsize]{$I$} (pr.north);
+\draw[arr] (lpq.east) -| node[pos=0.25,below,font=\scriptsize]{$Q$} (pr.south);
+\draw[arr] (pr)--node[above,font=\scriptsize]{$IQ$}(lf);
+\draw[arr] (lf)--(vco.east);
+\draw[arr] (vco.north)--node[right,font=\scriptsize]{$\cos$}(mi.south);
+\draw[arr] (vco.south)--(ph.north);
+\draw[arr] (ph.south)--node[right,font=\scriptsize]{$-\sin$}(mq.north);
+\draw[arr] (5.4,1.5) |- (dout.west);
+\end{tikzpicture}
+\caption{The Costas loop for BPSK. The product of the in-phase and quadrature arms, $\tfrac12\sin2\phi$,
+does not depend on the data, so the loop can lock to a suppressed carrier; the in-phase arm is the
+demodulated data.}
+\label{fig:ch10_costas}
+\end{figure}
+
+\subsection{Squaring loss and \texorpdfstring{$M$}{M}th-power loops}
+
+An equivalent way to see the Costas loop is that it squares the signal. Squaring BPSK,
+$(d\,e^{j\theta})^2=e^{j2\theta}$, removes the data and leaves a pure carrier at twice the phase; a PLL
+tracking it and dividing by two recovers $\theta$ modulo $\pi$. For $M$-PSK the \term{$M$th-power
+loop} raises the signal to the $M$th power. The nonlinearity is not free. Squaring the noisy signal
+multiplies noise by noise as well as signal by noise, and the extra noise-by-noise term costs
+performance at low SNR. The penalty is the \term{squaring loss} $S_L$: the phase variance of the
+Costas or squaring loop is the data-aided value divided by $S_L$, and for BPSK with matched-filter arms
+\begin{equation}
+S_L=\frac{1}{1+1/(2\esno)}.
+\end{equation}
+At $\esno=10$\,dB the loss is only 0.2\,dB, but at 0\,dB it is 1.8\,dB, and for QPSK and higher-order
+PSK the losses are larger. This is the quantitative reason that blind carrier recovery struggles
+at the low SNRs of heavily coded systems.
+
+\subsection{Feedforward phase estimation}
+
+For bursts, a loop's acquisition transient wastes symbols. The feedforward alternative estimates
+the phase over a block. The \term{Viterbi--Viterbi} estimator (1983) generalises the $M$th-power
+idea to a block of $N$ symbols:
+\begin{equation}
+\hat\theta=\frac1M\arg\sum_{k=0}^{N-1}F(|z_k|)\,e^{jM\arg z_k},
+\end{equation}
+where the nonlinearity $F(\cdot)$ can be chosen to optimise performance at a given SNR ($F(x)=x^M$
+recovers the plain $M$th power; $F(x)=x^2$ or $F(x)=1$ is often better for $M=4$ at low SNR). For
+QPSK with points at odd multiples of $\pi/4$, $z^4=-|z|^4e^{j4\theta}$, so the estimate is
+$\tfrac14\arg(-\sum z_k^4)$. Because each block's estimate lies in $(-\pi/M,\pi/M]$, successive blocks
+must be \emph{unwrapped}---whenever the estimate jumps by more than $\pi/M$, add or subtract $2\pi/M$---to
+follow a phase that drifts through the ambiguity boundaries. Feedforward estimators are popular in
+coherent optical receivers, where the symbol rates of tens of gigabaud make a feedback loop's
+latency intolerable and the phase noise of the lasers demands rapid tracking; the blind phase search
+algorithm used for 16- and 64-QAM there is a brute-force feedforward ML estimator that tests dozens of
+candidate phases in parallel.
+
+\subsection{Phase ambiguity}
+
+Every blind or decision-directed carrier recovery scheme for a symmetric constellation has an
+$M$-fold (for square QAM, four-fold) \term{phase ambiguity}: rotating the whole constellation by a
+symmetry angle produces an equally valid lock point. Three remedies are in use.
+\begin{description}
+\item[Differential encoding.] Encode information in the \emph{change} of phase from symbol to
+symbol, so a constant rotation cancels. The cost is error multiplication: one wrong phase decision
+corrupts two differences, roughly doubling the bit error rate at high SNR (about 0.5\,dB or less in
+required SNR, depending on the scheme). DQPSK in TETRA and the differential encoding in many satellite
+modems use this approach.
+\item[Unique words and preambles.] A known sequence tells the receiver which of the $M$ rotations it
+has locked to: correlate against all $M$ rotated versions (or simply take the phase of the complex
+correlation peak, as in \texttt{commlib.frame\_sync}) and rotate accordingly.
+\item[Rotationally invariant codes.] Trellis-coded modulation and some modern coded schemes are
+designed so that rotated codewords are also codewords of a related code, allowing the decoder to
+work through the ambiguity with differential encoding of only a subset of bits.
+\end{description}
+Cycle slips re-open the ambiguity at a random time, which is why continuous-mode systems insert unique
+words or pilots periodically rather than only once at the start.
+
+\subsection{Pilot symbols}
+
+The cleanest solution to low SNR, ambiguity and cycle slips alike is to transmit known pilot
+symbols in the data stream. In \term{pilot-symbol-assisted modulation} (Cavers, 1991) the transmitter inserts one known
+symbol every $P$ data symbols; the receiver estimates the phase (and, in fading channels, the complex
+gain) at each pilot and interpolates between them. The overhead is $1/P$, typically 2--5\%, and the
+interpolation filter plays the role of the loop filter. The pilots must be dense enough to sample the
+fastest phase variation (from residual CFO, phase noise or Doppler) above the Nyquist rate. DVB-S2
+inserts optional 36-symbol pilot blocks every 1440 symbols; 5G NR adds phase-tracking reference
+signals (PT-RS) at millimetre-wave frequencies, where oscillator phase noise is severe
+(Chapter~\ref{ch:ofdm}); and every OFDM system from 802.11a onward reserves a few pilot subcarriers in
+every symbol for exactly this purpose.
+
+\begin{history}[Costas and the suppressed carrier, 1956]
+John P. Costas of General Electric published ``Synchronous communications'' in the
+\emph{Proceedings of the IRE} in December 1956. His argument was economic as much as technical: an
+AM transmitter spends at least two-thirds of its power on the carrier, which carries no information,
+and a double-sideband suppressed-carrier (DSB-SC) system could put all that power into the
+sidebands---if only the receiver could regenerate the carrier. The loop that now bears his name did
+exactly that, and Costas showed that synchronous DSB-SC could outperform SSB in some conditions
+while being simpler to receive. The loop did not displace SSB for voice radio, but it found its true
+home a few years later, when digital phase modulation arrived: every BPSK and QPSK receiver is, in
+one form or another, a Costas loop.
+\end{history}
+
+\section{Frequency offset estimation}
+\label{sec:ch10:freq}
+
+Frequency is the synchronization parameter that most often defeats a receiver. A phase error is
+bounded; a frequency error makes the phase grow without limit, and once the accumulated rotation
+over the matched filter's span or a correlation window becomes large, every other estimator in the
+chain fails. The design problem is a trade-off between \emph{range} and \emph{accuracy}, and it is
+almost always solved in two steps: coarse then fine.
+
+\subsection{The range--accuracy trade-off}
+
+Most frequency estimators measure the phase advance between samples separated by a lag $D$:
+\begin{equation}
+\hat\nu=\frac{1}{2\pi D}\arg\sum_k z_k\,z_{k-D}^*,
+\label{eq:ch10:delaymult}
+\end{equation}
+where $z_k$ is the signal after the modulation has been removed (by known symbols or a nonlinearity)
+and $\nu$ is in cycles per sample. The phase advance $2\pi\nu D$ can only be measured modulo $2\pi$, so
+the unambiguous range is $|\nu|<1/(2D)$. But the accuracy improves with $D$, because the same phase
+noise is divided by a larger lever arm. A short lag gives a wide range and poor accuracy; a long lag
+the reverse. The 802.11 preamble (Section~\ref{sec:ch10:frame}) is built around exactly this
+trade-off: a short training field with lag 16 samples for coarse estimation, then a long training
+field with lag 64 samples for fine estimation.
+
+\subsection{Non-data-aided: the \texorpdfstring{$M$}{M}th-power spectrum}
+
+Without known symbols, the modulation of $M$-PSK is removed by the $M$th power: raising
+$a_ke^{j(2\pi\nu k+\theta)}$ to the power $M$ leaves a pure tone at $M\nu$ plus noise. An FFT of $z_k^M$ therefore shows a spectral line at $M\nu$
+(Figure~\ref{fig:ch10_mpower}(a)), and the peak location divided by $M$ is the estimate. This is the
+function \texttt{cfo\_power\_estimate} in \texttt{commlib.sync}, and it is a popular coarse estimator for satellite burst
+modems. Its unambiguous range is $|\nu|<1/(2M)$ cycles/symbol---for QPSK, one eighth of the symbol
+rate---beyond which the estimate aliases (Figure~\ref{fig:ch10_mpower}(b)). The $M$th power also
+multiplies the noise, so the estimator's threshold is high: at 3\,dB the $N=256$ estimate in the
+figure already produces outliers.
+
+\mdcfig{ch10_mpower}{The fourth-power frequency estimator for QPSK. (a) The spectrum of the received
+signal shows no line, but its fourth power has a strong line at $4\nu$. (b) Estimates against true
+offset: the range is limited to $\pm1/8$ cycle per symbol, and at low SNR outliers appear even inside
+it.}
+
+\subsection{Data-aided estimators}
+
+When the symbols are known (a preamble or pilots), multiplying by $a_k^*$ leaves
+$z_k=e^{j(2\pi\nu k+\theta)}+\text{noise}$: a single complex tone in white noise, the most studied
+estimation problem in signal processing. Its maximum-likelihood solution, shown by Rife and Boorstyn
+in 1974, is the location of the peak of the periodogram $|\sum_kz_ke^{-j2\pi\nu k}|^2$, found by a
+zero-padded FFT followed by interpolation or a fine search. It meets the CRB above threshold and has a
+range of $\pm1/2$. Its cost is an FFT and a search; several cheaper estimators based on
+the autocorrelation $R(m)=\frac{1}{N-m}\sum_{k=m}^{N-1}z_kz_{k-m}^*$ come close:
+\begin{description}
+\item[Kay (1989)] averages the phase differences of adjacent samples with a parabolic window,
+\[
+\hat\nu=\frac{1}{2\pi}\sum_{k=1}^{N-1}w_k\arg(z_kz_{k-1}^*),\qquad
+w_k=\frac{3N/2}{N^2-1}\Bigl[1-\Bigl(\frac{2k-N}{N}\Bigr)^2\Bigr].
+\]
+It has full range $\pm1/2$ and meets the
+CRB at high SNR, but its threshold is high, because each phase difference is computed from only two
+noisy samples.
+\item[Fitz (1994)] uses the phases of $R(m)$ for $m=1,\dots,L$:
+\[
+\hat\nu=\frac{1}{\pi L(L+1)}\sum_{m=1}^{L}\arg R(m).
+\]
+Averaging before taking the phase lowers the
+threshold dramatically, at the cost of range $|\nu|<1/(2L)$.
+\item[Luise--Reggiannini (1995)] sums the correlations first and takes one phase:
+\[
+\hat\nu=\frac{1}{\pi(L+1)}\arg\sum_{m=1}^{L}R(m),
+\]
+with range $|\nu|<1/(L+1)$. With $L=N/2$ it is
+within a fraction of a decibel of the CRB and has a low threshold; it is the default choice for
+burst-mode preambles.
+\end{description}
+Figure~\ref{fig:ch10_freq_est} compares all four on a 64-symbol preamble. All approach the CRB at high
+SNR; the differences are in the threshold, which spans more than 12\,dB, and in the range. The
+autocorrelation estimators, notice, are all instances of the delay-and-multiply
+estimator~\eqref{eq:ch10:delaymult} with different lags averaged in different ways.
+
+\mdcfig[0.7]{ch10_freq_est}{Mean-square error of data-aided frequency estimators on a 64-symbol
+preamble ($\nu$ uniform in $\pm0.01$). All reach the Cram\'er--Rao bound at high SNR, but Kay's
+estimator breaks down below about 10\,dB, the periodogram below $-2$\,dB, while Fitz and
+Luise--Reggiannini (with $L=N/2$, and a correspondingly reduced range) remain on the bound
+throughout.}
+
+\begin{table}[!htb]\centering\small
+\caption{Data-aided frequency estimators on $N$ symbols. Ranges in cycles/symbol.}
+\label{tab:ch10:freqest}
+\begin{tabular}{llll}
+\toprule
+Estimator & Range & Threshold & Complexity \\
+\midrule
+Periodogram (Rife--Boorstyn, ML) & $\pm1/2$ & low & FFT + search \\
+Kay & $\pm1/2$ & high & $N$ phase computations \\
+Fitz, lags $1\dots L$ & $\pm1/(2L)$ & low & $L$ correlations, $L$ phases \\
+Luise--Reggiannini, lags $1\dots L$ & $\pm1/(L+1)$ & low & $L$ correlations, one phase \\
+Delay-and-multiply, lag $D$ & $\pm1/(2D)$ & moderate & one correlation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Frequency-locked loops}
+
+A \term{frequency-locked loop} (FLL) is a feedback loop whose detector measures frequency error
+rather than phase error. The classic \emph{cross-product} discriminator computes
+$e_k=\im\{z_kz_{k-1}^*\}$, proportional to $\sin(2\pi\Delta f T)$, which is insensitive to the absolute
+phase. An FLL has no phase ambiguity, no hang-up and a wide pull-in range; it is less accurate than a
+PLL and leaves a random phase, so it is used for acquisition and then hands over to a PLL, or runs
+alongside it as an \emph{FLL-assisted PLL}, the standard architecture in GNSS receivers, where
+Doppler dynamics can be severe. For PSK signals the modulation can be removed before the
+discriminator (a $4$th-power or decision-directed FLL), or the \emph{band-edge} FLL of fred harris
+can be used: it compares the energy in two filters matched to the upper and lower band edges of the
+RRC spectrum, which are equal only when the signal is centred. GNU Radio's \texttt{FLL Band-Edge}
+block implements it, and it is the usual first stage of a GNU Radio PSK receiver.
+
+\begin{inpractice}[Doppler in low Earth orbit]
+A satellite in a 550\,km orbit moves at about 7.6\,km/s. At a Ku-band downlink of 12\,GHz the maximum
+Doppler shift approaches $v/c\cdot f\approx300$\,kHz, and it sweeps through zero in the few minutes of a pass, with
+a peak rate of a few kilohertz per second overhead. A terminal must therefore acquire over several
+hundred kilohertz and track a large Doppler rate, which a type-2 loop can follow only with a phase lag
+$\dot\omega/\omega_n^2$ (Table~\ref{tab:ch10:steady}). Real terminals predict the Doppler from the
+satellite ephemeris and their own position and pre-compensate, leaving only a small residual for the
+loops. 5G non-terrestrial networks (3GPP Release 17) take the same approach: the phone uses
+broadcast ephemeris and its GNSS position to pre-compensate uplink frequency and timing before
+transmitting (Chapter~\ref{ch:satellite}).
+\end{inpractice}
+
+\subsection{Frequency synchronization in OFDM}
+
+OFDM (Chapter~\ref{ch:ofdm}) is far more sensitive to frequency offset than single-carrier
+modulation, because its subcarriers are closely spaced and orthogonal only when the receiver's
+FFT bins line up exactly with them. A CFO of a fraction $\epsilon$ of the subcarrier spacing rotates
+every subcarrier by a common phase and also causes \emph{inter-carrier interference} (ICI) whose power
+is roughly $(\pi\epsilon)^2/3$ of the signal power for small $\epsilon$. Pollet, Van Bladel and
+Moeneclaey showed that the resulting SNR degradation is approximately
+\begin{equation}
+D\approx\frac{10}{3\ln10}\,(\pi\epsilon)^2\,\esno\ \text{dB},
+\end{equation}
+so at $\esno=20$\,dB an offset of only 1\% of the subcarrier spacing costs about 0.15\,dB, and 2\%
+about 0.6\,dB. OFDM
+receivers split the offset into a \emph{fractional} part (less than half a subcarrier), estimated from
+the phase of a correlation between repeated time-domain segments, and an \emph{integer} part (a whole
+number of subcarriers), estimated by finding the shift of a known frequency-domain sequence.
+Moose (1994) derived the ML estimator for two identical OFDM symbols; Schmidl and Cox (1997)
+designed a preamble whose first symbol has two identical halves, so that the same correlation that
+finds the frame gives the fractional offset (Section~\ref{sec:ch10:frame}). The CP itself is a
+repeated segment, which is exploited by the blind estimator of van de Beek, Sandell and B\"orjesson
+(1997).
+
+\begin{worked}[Frequency acquisition in Wi-Fi]
+IEEE 802.11 allows each device a carrier frequency tolerance of $\pm20$\,ppm, so two devices at
+5.8\,GHz can differ by up to 40\,ppm, or 232\,kHz. The short training field repeats every
+$0.8\,\mu$s (16 samples at 20\,MS/s); by~\eqref{eq:ch10:delaymult} its delay-and-correlate estimate is
+unambiguous for $|\Delta f|<1/(2\times0.8\,\mu\text{s})=625$\,kHz, comfortably covering the worst case. The
+long training field repeats every $3.2\,\mu$s, with range $\pm156$\,kHz: not enough on its own, but
+after coarse correction the residual is a few kilohertz, and the long lag gives four times the
+accuracy per unit of noise. A receiver that used only the long training field would mistake a
+200\,kHz offset for $-112.5$\,kHz and fail to decode, which is precisely why the preamble has two
+parts.
+\end{worked}
+
+\section{Symbol timing recovery}
+\label{sec:ch10:timing}
+
+The matched filter of Chapter~\ref{ch:baseband} maximises the SNR only at one instant per symbol,
+and a Nyquist pulse is free of ISI only at those instants. Sampling a quarter of a symbol late costs
+several decibels (Figure~\ref{fig:ch10_timing_ber}). Symbol timing recovery---also called clock
+recovery or symbol synchronization---finds those instants and follows them as the transmitter's clock
+and the receiver's drift apart.
+
+\subsection{Two architectures}
+
+There are two ways to make the samples land in the right place. In a \emph{synchronous} receiver the
+timing loop steers the ADC's sampling clock itself, through a voltage-controlled crystal oscillator,
+so that the samples arrive at the right instants. This was the norm in early digital modems and
+survives in some SerDes and in CDR circuits (Section~\ref{sec:ch10:cdr}). In an
+\emph{asynchronous} (or \emph{free-running}) receiver the ADC samples at a fixed rate unrelated to the
+symbol rate, typically two to eight samples per symbol, and the timing correction is done entirely in
+DSP by \term{interpolation}: computing the value the signal \emph{would have had} at the desired
+instant from the samples around it. Every software-defined radio works this way, because the sample
+clock is shared by all the signals in the band and cannot be steered for any one of them.
+
+Gardner's framework (Figure~\ref{fig:ch10_timing_loop}) organises the asynchronous timing loop into
+four blocks: an \emph{interpolator} that computes $y(kT+\hat\tau)$ from samples $x[n]$; a
+\term{timing error detector} (TED) that produces an error signal from the interpolants; a loop filter;
+and an \emph{interpolation controller}---an NCO that decides which input sample $m_k$ and which
+fractional delay $\mu_k\in[0,1)$ each output symbol needs.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.9cm,minimum width=1.55cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node (in) at (0,0) {\scriptsize $x[n]$ at $T_s$};
+\node[blk] (mf) at (2.0,0) {matched\\filter};
+\node[blk] (ip) at (4.4,0) {interpolator\\(Farrow)};
+\node[blk] (ted) at (7.0,0) {timing error\\detector};
+\node[blk] (lf) at (7.0,-1.6) {loop\\filter};
+\node[blk] (nco) at (4.4,-1.6) {interpolation\\control (NCO)};
+\node[font=\scriptsize,anchor=west] (out) at (8.3,0.9) {symbols $y(kT+\hat\tau)$};
+\draw[arr] (in)--(mf); \draw[arr] (mf)--(ip); \draw[arr] (ip)--(ted);
+\draw[arr] (ted)--node[right,font=\scriptsize]{$e_k$}(lf); \draw[arr] (lf)--node[above,font=\scriptsize]{$v_k$}(nco);
+\draw[arr] (nco)--node[right,font=\scriptsize,align=left]{$m_k$, $\mu_k$\\strobe}(ip);
+\draw[arr] (5.7,0) |- (out.west);
+\end{tikzpicture}
+\caption{Gardner's asynchronous timing loop. The ADC runs at a fixed rate; the NCO decides when a
+symbol strobe occurs and with what fractional delay $\mu_k$ the interpolator must compute it.}
+\label{fig:ch10_timing_loop}
+\end{figure}
+
+The controller is a modulo-1 counter decremented by $W\approx T_s/T$ (the nominal ratio of sample to
+symbol period, corrected by the loop filter output $v_k$) at each input sample. When it underflows, a
+symbol strobe is due between the current and the next sample, and the fractional position, computed
+from the counter's residue, is $\mu_k$. The loop is a PLL in which the ``phase'' is the timing
+offset, and all the loop design of Section~\ref{sec:ch10:pll} carries over: a type-2 loop tracks a
+constant clock offset (a timing ramp) with zero steady-state error, and its noise bandwidth $B_LT$
+trades acquisition speed against timing jitter.
+
+\subsection{Timing error detectors}
+
+Maximising the likelihood~\eqref{eq:ch10:llf} over $\tau$ leads to the \emph{ML timing error
+detector}, which correlates the matched-filter output with its derivative:
+$e_k=\re\{\hat a_k^*\,\dot y(kT+\hat\tau)\}$, or blindly $\re\{y^*(kT+\hat\tau)\,\dot y(kT+\hat\tau)\}$.
+The derivative is zero at the peak of each pulse, so the detector drives the sampling instant to the
+peak. Practical TEDs approximate the derivative with differences between samples.
+
+\paragraph{Early--late gate.} Take samples a little before and after the current estimate, at
+$\pm\Delta$ (typically $\Delta=T/4$ or $T/2$), and compare their energies:
+$e_k=|y(kT+\hat\tau-\Delta)|^2-|y(kT+\hat\tau+\Delta)|^2$ (the sign chosen so the loop moves toward the
+larger). The early--late detector is the oldest and most intuitive; it needs at least two or three
+samples per symbol and is used in spread-spectrum code tracking (Chapter~\ref{ch:spreadspectrum}),
+where the ``symbol'' is a chip of a pseudo-noise code and the early--late delay-locked loop tracks the
+correlation peak.
+
+\paragraph{Mueller and M\"uller.} Mueller and M\"uller (1976) derived a family of detectors that
+need only \emph{one sample per symbol}, which mattered greatly when every ADC sample was expensive.
+The most widely used member is
+\begin{equation}
+e_k=\re\{\hat a_{k-1}^*\,y_k-\hat a_k^*\,y_{k-1}\},
+\end{equation}
+where $y_k$ are the symbol-rate samples and $\hat a_k$ the decisions. Its S-curve
+(Figure~\ref{fig:ch10_ted_scurves}(a)) is nearly linear over $\pm T/2$, but it is decision-directed and
+therefore needs the carrier phase to be approximately correct, and its performance depends on the
+pulse shape and on ISI. It was the standard in voiceband modems and survives in SerDes receivers
+(where \emph{baud-rate} CDR saves power at 50 to 100\,GBd) and in GNU Radio's \texttt{Symbol Sync}
+block.
+
+\paragraph{Gardner.} Gardner's detector (1986) uses two samples per symbol---the symbol-centre
+samples $y_k$, $y_{k-1}$ and the midpoint sample $y_{k-1/2}$ between them:
+\begin{equation}
+e_k=\re\bigl\{y_{k-1/2}^*\,\bigl(y_k-y_{k-1}\bigr)\bigr\}.
+\label{eq:ch10:gardner}
+\end{equation}
+The intuition is transparent for BPSK. If a transition occurs between symbols $k-1$ and $k$, the
+midpoint sample should be zero when timing is correct. If sampling is late, the midpoint has already
+moved toward the new symbol, and its sign times the direction of the transition $y_k-y_{k-1}$ gives a
+positive error. When no transition occurs, $y_k-y_{k-1}\approx0$ and the detector is silent. Gardner's
+detector does not need decisions and is \emph{independent of the carrier phase}: rotating all samples
+by $e^{j\phi}$ leaves~\eqref{eq:ch10:gardner} unchanged. That is why timing recovery can run before
+carrier recovery in the chain of Figure~\ref{fig:ch10_chain}. It is \texttt{commlib.gardner\_sync} and
+the default TED in most software radio receivers.
+
+Its weakness appears in Figure~\ref{fig:ch10_ted_scurves}(b). The detector relies on the zero crossings
+between symbols, and with a small roll-off the pulse tails are long and the zero crossings are
+poorly defined. The S-curve slope---and hence the loop's signal-to-self-noise ratio---falls roughly in
+proportion to $\beta$. For $\beta=0.1$ the Gardner detector is nearly useless, and systems with very
+sharp spectra (DVB-S2X uses roll-offs down to 0.05) use data-aided or ML-based timing detectors
+instead.
+
+\mdcfig{ch10_ted_scurves}{Timing error detector S-curves. (a) Early--late, Gardner and
+Mueller--M\"uller detectors for RRC $\beta=0.35$, normalised to their peak (early--late and Gardner
+coincide in shape). (b) The Gardner detector's slope at the lock point shrinks with the roll-off
+factor, because the zero crossings it exploits become ill defined.}
+
+\begin{table}[!htb]\centering\small
+\caption{Properties of common timing error detectors.}
+\label{tab:ch10:ted}
+\begin{tabular}{lcccl}
+\toprule
+Detector & Samples/symbol & Decisions & Carrier phase & Typical use \\
+\midrule
+Early--late gate & $\ge2$ & no & no & spread spectrum, GNSS \\
+Mueller--M\"uller & 1 & yes & yes & SerDes, voiceband, cable \\
+Gardner & 2 & no & no & SDR, satellite modems \\
+Zero-crossing & 2 & yes & yes & low-cost modems \\
+ML (derivative filter) & $\ge2$ & optional & optional & polyphase clock sync \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Interpolation}
+
+The interpolator must compute $y(t)$ at an arbitrary fractional delay $\mu$ between samples. The ideal
+interpolator is a sinc, which is infinitely long, so practical interpolators are short FIR filters
+whose coefficients depend on $\mu$. Recomputing the coefficients for every symbol would be expensive,
+but if they are polynomials in $\mu$ the filter can be written as a \term{Farrow structure}: a small
+bank of fixed FIR filters whose outputs are combined by Horner's rule,
+\begin{equation}
+y(\mu)=\bigl((c_3\mu+c_2)\mu+c_1\bigr)\mu+c_0,
+\end{equation}
+where each $c_i$ is a fixed four-tap filter applied to the samples $x[m_k-1],\dots,x[m_k+2]$. The cubic
+Lagrange interpolator in \texttt{commlib.interp\_cubic} is exactly this, and Erup, Gardner and Harris
+(1993) showed that a cheaper \emph{piecewise-parabolic} interpolator with one free parameter performs
+almost as well, which made it a favourite in FPGA modems.
+
+Figure~\ref{fig:ch10_interp} shows why oversampling matters. A four-tap interpolator is nearly
+perfect at low frequencies but droops and delays unevenly near half the sample rate, and the error is
+largest at $\mu=0.5$. With four samples per symbol, the signal occupies only the lower quarter of the
+band and a cubic interpolator introduces negligible error; at two samples per symbol the signal
+reaches $0.34$ cycles/sample (for $\beta=0.35$) and the interpolation error becomes a measurable
+source of self-noise. Linear interpolation (dotted) is adequate only at high oversampling.
+
+\mdcfig{ch10_interp}{Interpolation for timing recovery. (a) The interpolator computes strobes
+(diamonds) between the available samples at fractional positions $\mu_k$. (b) Magnitude response of
+the cubic Lagrange (Farrow) interpolator for three values of $\mu$, with linear interpolation dotted.
+(c) Its group delay, which should equal $\mu$ at all frequencies.}
+
+\subsection{Polyphase filter-bank clock recovery}
+
+An elegant alternative, due to harris and Rice (2001), merges the matched filter and the interpolator.
+The matched filter is designed at a high oversampling rate---say 32 times the input rate---and split
+into 32 polyphase subfilters (Chapter~\ref{ch:dsp}), each of which is a matched filter with a different
+fractional delay. The timing loop simply selects which subfilter to use for each symbol. A second
+bank, built from the derivative of the matched filter, supplies $\dot y$ for the ML timing
+detector $\re\{y^*\dot y\}$. No separate interpolator is needed, and the fractional-delay resolution
+is $1/32$ of a sample. This is the algorithm in GNU Radio's \texttt{Polyphase Clock Sync} block,
+the timing recovery in most GNU Radio PSK receivers.
+
+\subsection{Feedforward timing: Oerder and Meyr}
+
+For bursts, a feedforward timing estimator avoids the loop transient. Oerder and Meyr (1988) observed
+that the squared magnitude of a linearly modulated signal, $|x(t)|^2$, is cyclostationary with period
+$T$: its mean varies periodically, peaking at the symbol instants. Its Fourier series at $1/T$
+therefore has a phase that reveals the timing. With $N_s$ samples per symbol (at least 3, typically 4)
+and $L_0$ symbols,
+\begin{equation}
+\hat\tau=-\frac{T}{2\pi}\arg\sum_{n=0}^{L_0N_s-1}|x[n]|^2\,e^{-j2\pi n/N_s}.
+\end{equation}
+The estimator is blind, independent of carrier phase and frequency offset, and costs a handful of
+operations per sample. Figure~\ref{fig:ch10_timing_loops}(b) shows its accuracy against the MCRB. At
+low SNR it is within a few decibels of the bound, but at high SNR it reaches a floor set by
+\emph{self-noise}: the random data make $|x(t)|^2$ fluctuate even without noise, and the fluctuation is
+worse for small roll-off, where the spectral line at $1/T$ is weak.
+
+\mdcfig{ch10_timing_loops}{(a) The Gardner loop (\texttt{commlib.gardner\_sync}) acquiring a
+1.7-sample delay, and tracking a 200\,ppm clock offset as a steady ramp of the strobe phase (unwrapped).
+(b) Oerder--Meyr feedforward timing estimation over 100 symbols: mean-square error against the MCRB
+(dashed). Self-noise from the random data sets an error floor that is worst for small roll-off.}
+
+\begin{worked}[How fast does the clock drift?]
+Two USRP B200 radios, each with a $\pm2$\,ppm TCXO, may differ by 4\,ppm. At 1\,Msym/s the timing error
+grows by $4\times10^{-6}\times10^6=4$ symbol periods per second, or one symbol every 250\,ms. A 1\,ms burst
+drifts by only $0.004T$ and a one-shot timing estimate from the preamble suffices. A 100\,ms capture
+drifts by $0.4T$---enough to destroy the eye---and needs a tracking loop. For the loop to track a clock
+offset $\epsilon_s$ with zero steady-state error it must be type 2; its integrator converges to
+$\epsilon_s$, which is also an excellent estimate of the carrier frequency offset if both oscillators
+are derived from the same reference, as they are in the B200. Many receivers exploit this to aid the
+carrier loop with the timing loop's frequency estimate, or vice versa.
+\end{worked}
+
+\subsection{Timing jitter and its cost}
+
+The timing loop's residual error---a static offset from detector bias plus random jitter from
+noise and self-noise---degrades detection. Figure~\ref{fig:ch10_timing_ber} quantifies it for a raised
+cosine channel: with $\beta=0.35$, a static offset of $0.05T$ costs QPSK about 0.4\,dB at a BER of
+$10^{-5}$ and $0.1T$ costs about 1.4\,dB, while 16-QAM, with its smaller decision distances, loses about
+1.7\,dB at $0.05T$. Smaller roll-offs are more sensitive, because their pulses' tails are larger and the
+ISI at a given offset greater. A useful design target for high-order QAM is an RMS timing jitter of
+1--2\% of the symbol period, which, from the loop-noise relation, dictates a timing loop bandwidth
+$B_LT$ of the order of $10^{-3}$ at typical SNRs.
+
+\mdcfig{ch10_timing_ber}{The cost of timing error with raised-cosine pulses, computed by averaging
+exact conditional error probabilities over random ISI patterns. (a) QPSK bit error rate with static
+offsets. (b) The $\ebno$ penalty at BER $10^{-5}$: 16-QAM (dashed) is several times more sensitive than
+QPSK, and small roll-offs are more sensitive than large ones.}
+
+\begin{inpractice}[Timing recovery in GNU Radio]
+GNU Radio provides three generations of symbol synchronizers, and knowing which to use saves hours.
+The \texttt{Clock Recovery MM} block (Mueller--M\"uller with a simple interpolator) is the oldest,
+and the two newer blocks supersede it for most purposes. The \texttt{Polyphase Clock Sync} block implements harris and Rice's filter-bank
+method with an ML detector; it combines matched filtering and timing and is the usual choice for PSK.
+The \texttt{Symbol Sync} block is the most general: it offers Gardner, Mueller--M\"uller, early--late,
+zero-crossing and ML detectors, several interpolators, and a loop parameterised directly by $B_LT$ and
+$\zeta$, exactly as in this chapter. A typical QPSK receiver chain is \texttt{FLL Band-Edge}
+$\rightarrow$ \texttt{Symbol Sync} (or \texttt{Polyphase Clock Sync}) $\rightarrow$ \texttt{Costas Loop}
+$\rightarrow$ decision. The companion lab reproduces this chain with \texttt{commlib}.
+\end{inpractice}
+
+\section{Frame synchronization}
+\label{sec:ch10:frame}
+
+Carrier and timing recovery deliver a stream of correct symbols; frame synchronization tells the
+receiver what they mean. It must find the beginning of each packet, frame or codeword, and in burst
+systems it must also detect that a packet is present at all. It is the last synchronizer in the chain
+and, because it usually rests on a known sequence, it often supplies the data-aided references that
+the earlier loops lack.
+
+\subsection{Correlating with a known sequence}
+
+The transmitter inserts a known sequence $s_0,\dots,s_{N-1}$---a \term{preamble} at the start of a burst,
+or a periodically repeated \term{unique word} or \emph{sync word} in a continuous stream. The receiver
+correlates:
+\begin{equation}
+c(\mu)=\sum_{i=0}^{N-1}s_i^*\,y_{i+\mu},
+\end{equation}
+and declares the frame start at the lag $\mu$ where $|c(\mu)|$ exceeds a threshold or is largest. Using
+the magnitude makes the correlation \emph{non-coherent}: it works before the carrier phase is known,
+and the phase of $c(\hat\mu)$ is then the data-aided phase estimate that resolves the carrier loop's
+ambiguity. \texttt{commlib.frame\_sync} does precisely this, normalising $|c|$ by the energy in the
+window so that the threshold does not depend on the signal level.
+
+A residual frequency offset $\nu$ rotates the sequence during the correlation and reduces the peak
+by the factor $|\sin(\pi\nu N)/(N\sin\pi\nu)|$; the peak falls by 4\,dB when $\nu N=0.5$. Long sequences
+in the presence of large offsets therefore use \emph{segmented} correlation---correlate coherently over
+$N/P$ symbols, then add the $P$ segment magnitudes non-coherently---or \emph{differential} correlation,
+which correlates $y_{i}y_{i-1}^*$ against $s_is_{i-1}^*$ and is nearly immune to frequency offset at the
+cost of some noise enhancement, since each product contains two noisy samples.
+
+\subsection{Sequences with good correlation}
+
+The ideal sync sequence has a sharp autocorrelation peak and low sidelobes, so that no shifted
+version of it, and no data, looks like the real thing. Three families dominate
+(Figure~\ref{fig:ch10_sequences}).
+\begin{description}
+\item[Barker sequences] are binary sequences whose \emph{aperiodic} autocorrelation sidelobes are at
+most 1 in magnitude. They exist only for lengths 2, 3, 4, 5, 7, 11 and 13, and none longer is known;
+Barker described them in 1953. The length-11 Barker code spreads each bit of 1 and 2\,Mb/s 802.11b
+Wi-Fi, and the length-13 code is a classic radar pulse compression code.
+\item[Maximal-length sequences] (m-sequences), generated by a linear feedback shift register with a
+primitive polynomial, have length $2^m-1$ and a two-valued \emph{periodic} autocorrelation: $N$ at zero
+lag and $-1$ everywhere else. Their aperiodic sidelobes are larger, of order $\sqrt N$, which matters
+for one-shot preambles. Gold and Kasami sets, built from pairs of m-sequences, trade a little
+autocorrelation for low cross-correlation between members, which is what GPS and CDMA need
+(Chapter~\ref{ch:spreadspectrum}).
+\item[Zadoff--Chu sequences], $s_n=e^{-j\pi un(n+1)/N}$ for odd length $N$ and root $u$ coprime to $N$,
+are complex with constant amplitude and \emph{zero} periodic autocorrelation sidelobes (a
+\emph{CAZAC} sequence). Different roots have constant cross-correlation magnitude $\sqrt N$. Their
+constant envelope keeps the power amplifier happy, and their DFT is also a Zadoff--Chu sequence, so
+they are equally good in time and frequency. LTE uses them for its primary synchronization signal, its
+random-access preambles and its uplink reference signals, and NR for random access and reference
+signals.
+\end{description}
+
+\mdcfig{ch10_sequences}{Correlation properties of synchronization sequences. (a) Barker-13: aperiodic
+sidelobes of at most 1. (b) An $N=63$ m-sequence: periodic autocorrelation $-1$ off-peak (dark), but
+larger aperiodic sidelobes (grey). (c) Zadoff--Chu: zero periodic sidelobes, and a flat
+cross-correlation of $\sqrt{63}\approx7.9$ between roots.}
+
+\subsection{Threshold design}
+
+In a burst receiver, the frame synchronizer is also the packet detector, and its threshold sets two
+error probabilities: \emph{false alarm} (declaring a packet in noise or data) and \emph{miss} (failing
+to see a real one). Normalise the correlation as $\Lambda(\mu)=|c(\mu)|^2/(N\sigma^2)$, where $\sigma^2$
+is the power of the signal-plus-noise at a lag where the sequence is absent. Off the peak, $c$ is a sum
+of many random terms and approximately complex Gaussian, so $\Lambda$ is exponentially distributed and
+the per-lag false-alarm probability is
+\begin{equation}
+P_{FA}=e^{-\Lambda_t}
+\end{equation}
+for threshold $\Lambda_t$. On the peak, $c$ has a deterministic component $N\sqrt{E_s}$ plus noise, and
+$\Lambda$ follows a non-central chi-square distribution; the miss probability is a Marcum $Q$-function
+that depends on the \emph{total} preamble energy $NE_s/N_0$. Figure~\ref{fig:ch10_frame_detect} plots
+both. The false-alarm curve does not depend on $N$ or SNR at all; the miss curves move right as $N$
+grows. Choosing $N$ and $\Lambda_t$ is a matter of finding a threshold that sits between them.
+
+\mdcfig{ch10_frame_detect}{Frame detection with a correlation threshold. (a) The normalised correlation
+of a 32-symbol QPSK preamble embedded in random data at $\esno=0$\,dB, with the threshold for a
+$10^{-3}$ false-alarm probability over a 600-lag search. Note the data-induced peak near lag 165.
+(b) Per-lag false-alarm probability and miss probability against threshold for $N=16$, 32 and 64
+(solid 0\,dB, dashed $-3$\,dB); circles are a Monte Carlo check.}
+
+\begin{worked}[Sizing a preamble]
+A burst receiver searches a window of 600 lags for a QPSK preamble at $\esno=0$\,dB and must keep
+the overall false-alarm probability per window below $10^{-3}$. With a union bound, the per-lag
+$P_{FA}$ must be $10^{-3}/600$, so $\Lambda_t=\ln(6\times10^5)=13.3$. From the non-central chi-square
+distribution, a 32-symbol preamble then misses 22\% of packets---unacceptable. Doubling to 64 symbols
+reduces the miss probability to about $2\times10^{-5}$, a thousandfold improvement for 3\,dB more
+preamble energy. If the SNR can drop to $-3$\,dB, even 64 symbols miss 4\% of packets. This steep
+dependence on total preamble energy $NE_s/N_0$ is why low-SNR systems (satellite return links, LoRa,
+NB-IoT) use very long preambles, and why the preamble is sized at the lowest operating SNR, not the
+typical one.
+\end{worked}
+
+\subsection{Optimum frame synchronization}
+
+Correlation is optimal when the sequence is surrounded by nothing, but a unique word embedded in a
+stream of random data is a different problem: the data around it also contribute to the correlation
+and occasionally mimic the sync word. Massey (1972) derived the optimal rule for binary antipodal
+signalling in AWGN. For received samples $r_i$, sync bits $s_i\in\{\pm1\}$ and amplitude $\sqrt{E_s}$,
+the ML frame position maximises
+\begin{equation}
+L(\mu)=\sum_{i=0}^{N-1}\Bigl[\frac{2\sqrt{E_s}}{N_0}\,s_i\,r_{i+\mu}-\ln\cosh\Bigl(\frac{2\sqrt{E_s}}{N_0}\,r_{i+\mu}\Bigr)\Bigr],
+\end{equation}
+which at high SNR becomes $\sum_i\bigl(s_ir_{i+\mu}-|r_{i+\mu}|\bigr)$: the correlation \emph{minus a
+correction} for the energy of the samples. The correction penalises lags where the received samples
+are large but merely happen to agree with the sync word. Massey's rule gives a useful improvement
+over plain correlation, especially for short sync words, and costs almost nothing.
+
+\subsection{Frame synchronization in continuous streams}
+
+A continuous stream such as a T1 line, a SONET link or a satellite broadcast carries a sync word
+at a fixed period. The receiver need not detect it perfectly every time, because it knows where the
+next one should be. Frame synchronizers are therefore \emph{state machines}: in the \emph{search}
+state the receiver looks for the sync word everywhere; after a detection it enters a \emph{verify}
+state and checks for the word at the expected position in the next few frames; after enough
+confirmations it declares \emph{lock} and thereafter tolerates several consecutive misses (a
+\emph{flywheel}) before declaring loss of frame. The numbers of confirmations and tolerated misses
+trade acquisition time against robustness. SONET and SDH frame on the bytes A1\,A2 (hexadecimal F6
+and 28) at the start of every 125\,$\mu$s frame; T1 frames on a 12-bit pattern spread across a
+superframe (Chapter~\ref{ch:pcm}); and every codeword-based system also has the option of using the
+decoder itself as a sync detector, since a correctly aligned codeword passes its parity checks and a
+misaligned one does not.
+
+\begin{inpractice}[The DVB-S2 physical-layer header]
+DVB-S2 (ETSI EN 302 307-1) is a continuous broadcast but is built from self-synchronizing frames. Each
+physical-layer frame begins with a 90-symbol PLHEADER modulated in $\pi/2$-BPSK: a 26-symbol
+\emph{start-of-frame} (SOF) field, the fixed pattern 18D2E82 in hexadecimal, followed by a 64-symbol
+PLS code that carries the modulation, code rate, frame length and pilot flag, protected by a
+first-order Reed--Muller code. The payload is divided into slots of 90 symbols, and when pilots are
+enabled a block of 36 known symbols is inserted after every 16 slots. A receiver typically runs a
+differential correlator for the SOF, which tolerates the large residual frequency offsets of a
+satellite downlink, then estimates the frequency from the header and pilots with a data-aided
+estimator such as Luise--Reggiannini, tracks the phase from pilot to pilot, and uses the PLS code to
+learn how to demodulate the frame that follows. The $\pi/2$-BPSK header can be received at SNRs well
+below those needed by the payload, so the receiver can always find the frames, even when it cannot
+yet decode them.
+\end{inpractice}
+
+\subsection{OFDM preambles: Schmidl--Cox and 802.11}
+
+OFDM receivers usually find the frame and the fractional CFO together with a \emph{delay-and-correlate}
+metric that exploits a repeated segment. Schmidl and Cox (1997) proposed a training symbol whose two
+halves, of length $L=N/2$, are identical (made by loading only the even subcarriers). Their timing
+metric is
+\begin{equation}
+M(d)=\frac{|P(d)|^2}{R(d)^2},\qquad P(d)=\sum_{m=0}^{L-1}y_{d+m}^*\,y_{d+m+L},\quad R(d)=\sum_{m=0}^{L-1}|y_{d+m+L}|^2.
+\end{equation}
+$M(d)$ approaches one when the window straddles the two identical halves and is small elsewhere,
+regardless of the channel, because a multipath channel affects both halves in the same way. The
+phase of $P(\hat d)$ is $\pi\epsilon$ for a CFO of $\epsilon$ subcarrier spacings, so the same computation
+gives the fractional frequency offset with range $\pm1$ subcarrier. Because the cyclic prefix is also a
+copy, the metric has a \emph{plateau} the length of the CP (Figure~\ref{fig:ch10_ofdm_timing}(a)), which
+blurs the timing estimate; Schmidl and Cox take the midpoint of the 90\% points, and later refinements
+use a cross-correlation with the known preamble for fine timing.
+
+The legacy IEEE 802.11a/g preamble (Figure~\ref{fig:ch10_ofdm_timing}(b)) is the canonical practical
+design. Its \emph{short training field} (STF) is ten repetitions of a 0.8\,$\mu$s pattern, made by
+loading only every fourth subcarrier; a delay-and-correlate detector with a 16-sample lag produces a
+long plateau that serves for packet detection, automatic gain control settling, coarse CFO and
+coarse timing. The \emph{long training field} (LTF) follows: a 1.6\,$\mu$s guard interval and two
+repetitions of a 3.2\,$\mu$s OFDM symbol with all 52 subcarriers loaded with known BPSK values.
+Cross-correlation with the LTF gives sharp peaks for fine timing, the 64-sample repetition gives fine
+CFO, and the known values give the channel estimate for equalisation. The entire synchronization and
+channel estimation budget of a Wi-Fi packet is 16\,$\mu$s, and it has survived, for backward
+compatibility, into 802.11n, ac, ax and be.
+
+\mdcfig{ch10_ofdm_timing}{OFDM timing metrics. (a) The Schmidl--Cox metric for a 64-point OFDM frame
+with a 16-sample cyclic prefix and a CFO of 0.37 subcarrier spacings, at two SNRs: the plateau is the
+length of the CP. (b) The 802.11a/g legacy preamble at 20\,MS/s with a 100\,kHz CFO and 10\,dB SNR:
+the STF's delay-and-correlate metric forms an 8\,$\mu$s plateau, and cross-correlation with the LTF
+produces two sharp peaks for fine timing.}
+
+\subsection{Cell search in LTE and 5G NR}
+
+A phone switched on in an unknown place must find a cell, align its time and frequency to it and
+learn its identity---\term{cell search}---before it can do anything else. It knows neither the carrier
+frequency exactly (its crystal may be several ppm off), nor the frame timing, nor which of hundreds of
+cell identities are nearby. The 5G NR solution is the \term{synchronization signal block} (SSB),
+defined in 3GPP TS 38.211: four OFDM symbols by 240 subcarriers (20 resource blocks) containing
+\begin{itemize}
+\item the \emph{primary synchronization signal} (PSS): a length-127 BPSK m-sequence, one of three
+cyclic shifts, identifying $N_{ID}^{(2)}\in\{0,1,2\}$;
+\item the \emph{secondary synchronization signal} (SSS): a length-127 sequence built from two
+m-sequences, one of 336 values, identifying $N_{ID}^{(1)}$; together they give the physical cell identity
+$3N_{ID}^{(1)}+N_{ID}^{(2)}$, one of 1008;
+\item the \emph{physical broadcast channel} (PBCH) with its demodulation reference signal, carrying
+the master information block and, implicitly, the SSB index and frame timing.
+\end{itemize}
+Several SSBs are sent in a burst within a 5\,ms half-frame, each on a different beam (up to 4, 8 or 64
+depending on frequency range), and a phone doing initial search may assume the burst repeats every
+20\,ms. The search proceeds in exactly the order of this chapter: correlate against the three PSS
+candidates (in time, non-coherently, over a range of frequency hypotheses) to find symbol timing,
+$N_{ID}^{(2)}$ and coarse CFO; detect the SSS, now coherently, using the PSS as a phase reference, to get
+the cell identity; decode the PBCH to learn the SSB index and hence the frame boundary. SSBs are placed
+on a coarse \emph{synchronization raster} rather than the fine channel raster, so the phone has fewer
+frequencies to try.
+
+LTE's PSS used length-63 Zadoff--Chu sequences (roots 25, 29 and 34) and its SSS 168 interleaved
+m-sequence pairs, for 504 cell identities; both are sent every 5\,ms around the centre of the carrier.
+The change of PSS family in NR has a nice synchronization explanation, shown in
+Figure~\ref{fig:ch10_pss_cfo}. A frequency offset of one subcarrier shifts a frequency-domain
+Zadoff--Chu sequence by one position, and a shifted Zadoff--Chu sequence is the original multiplied by a
+linear phase---which in the time domain is a delay. The correlation peak therefore \emph{moves} with
+frequency offset: a CFO of one subcarrier spacing produces an almost full-height peak at the wrong
+timing. The BPSK m-sequence of NR has no such coupling; an integer CFO simply destroys the correlation,
+so a peak at the right timing can be found only at the right frequency hypothesis. With the larger
+initial frequency errors expected at higher carrier frequencies, avoiding that timing--frequency
+ambiguity is valuable.
+
+\mdcfig{ch10_pss_cfo}{Time-domain correlation of the primary synchronization signal under frequency
+offset (in subcarrier spacings, SCS). (a) LTE's Zadoff--Chu PSS: an offset of one subcarrier moves the
+peak by about 100 samples with almost no loss in height, a false timing. (b) NR's m-sequence PSS: the
+peak falls but never moves.}
+
+\begin{table}[htbp]\centering\small
+\caption{Synchronization signals of LTE and 5G NR (3GPP TS 36.211 and TS 38.211).}
+\label{tab:ch10:ssb}
+\begin{tabular}{lll}
+\toprule
+ & LTE & 5G NR \\
+\midrule
+PSS & Zadoff--Chu, length 63, 3 roots & BPSK m-sequence, length 127, 3 shifts \\
+SSS & interleaved m-sequences, 168 values & two m-sequences, 336 values \\
+Cell identities & 504 & 1008 \\
+Location & 6 central RBs, every 5\,ms & SSB of 20 RBs on a sync raster \\
+Beams & none & up to 4, 8 or 64 SSBs per burst \\
+Frame timing from & SSS (subframe 0 or 5) & PBCH and its DMRS (SSB index) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Burst and continuous modems}
+\label{sec:ch10:burst}
+
+The difference between burst and continuous transmission runs through every choice in this chapter,
+and it is worth stating directly.
+
+A \emph{continuous} receiver---a DVB-S2 set-top box, a microwave backhaul link, a cable modem's
+downstream---acquires once and then tracks for hours. Acquisition time is almost irrelevant; what
+matters is tracking accuracy, cycle-slip rate and recovery from fades. Loops with narrow bandwidth,
+long averaging and periodic unique words are the natural tools, and pilots can be sparse.
+
+A \emph{burst} receiver---a Wi-Fi access point, an LTE base station receiving random access, a
+satellite return-link hub serving thousands of terminals in time-division multiple access---must
+acquire every packet from scratch, often in a few tens of symbols, and each packet may come from a
+different transmitter with its own frequency, timing and power. Here overhead is the enemy: every
+preamble symbol is capacity lost. Burst modems therefore favour:
+\begin{itemize}
+\item \emph{Feedforward, data-aided estimators} (Luise--Reggiannini frequency, ML phase,
+Oerder--Meyr or data-aided timing) that converge in one pass over the preamble.
+\item \emph{Store and process}: buffer the whole burst, estimate from the preamble \emph{and} the
+postamble or mid-amble, and even iterate with decoder decisions (turbo synchronization). A
+mid-amble, as in GSM's 26-bit training sequence in the middle of each burst, halves the maximum
+extrapolation distance of the phase estimate.
+\item \emph{Pre-compensation} at the transmitter, as in LTE and NR, where the base station tells each
+phone how much to advance its timing (the timing advance command) and the phones lock their
+oscillators to the downlink, so that uplink bursts arrive already nearly synchronized.
+\end{itemize}
+A software radio can do what hardware modems of the past could not: capture the entire burst,
+process it as many times as needed, and pick the algorithm per packet. This is a good way to build a
+first receiver with the USRP---capture, then synchronize offline---before moving to streaming.
+
+\section{Clock and data recovery in serial links}
+\label{sec:ch10:cdr}
+
+Every high-speed wireline link---PCI Express, USB, SATA, Ethernet from 1 to 800\,Gb/s, the links
+inside every data centre---sends data without a separate clock. The receiver's \term{clock and data
+recovery} (CDR) circuit extracts the timing from the data transitions, a baseband version of symbol
+timing recovery at speeds of 10 to 200\,GBd, where every gate delay matters.
+
+\subsection{Bang-bang CDRs}
+
+At these rates a linear timing error detector is hard to build, so most CDRs use a \term{bang-bang}
+phase detector, often called an Alexander detector after J.\,D.\,H.~Alexander's 1975 paper. It samples
+the data twice per bit: once at the centre (the data sample) and once at the expected transition (the
+edge sample). Comparing the edge sample with the data samples on either side reveals, whenever a
+transition occurs, whether the clock is early or late---but only the sign, not the magnitude. The
+detector's output is $\pm1$ or 0, and the loop is a nonlinear, slew-rate-limited feedback system that
+dithers around the lock point in steps set by the phase interpolator's resolution. Its effective gain
+depends on the input jitter, which makes analysis subtle, but it is simple, fast and robust. In
+modern DSP-based SerDes for PAM-4 at 50 to 100\,GBd (Chapter~\ref{ch:baseband}), the receiver samples
+with an ADC at one sample per symbol, and the CDR uses a baud-rate Mueller--M\"uller detector operating
+on equalised samples.
+
+\subsection{Jitter transfer and jitter tolerance}
+
+Serial-link standards specify the CDR through its response to sinusoidal jitter---timing modulation of
+the incoming data---which is exactly the PLL's $H$ and $1-H$ (Figure~\ref{fig:ch10_cdr}(a)).
+\begin{description}
+\item[Jitter transfer] is $|H(f)|$: how much input jitter appears on the recovered clock. In a
+repeater or retimer it must be limited, with little peaking, so that jitter does not accumulate
+along a chain of regenerators---the historic SONET concern.
+\item[Jitter tolerance] is the largest sinusoidal jitter at which the receiver still achieves its
+target BER. Low-frequency jitter, even of many unit intervals (UI), is tracked by the CDR and does no
+harm; high-frequency jitter passes through $1-H$ and consumes the eye opening directly. If the
+eye's timing margin is $A$ UI, the tolerance is approximately $A/|1-H(f)|$ (Figure~\ref{fig:ch10_cdr}(b)),
+rising at 20 or 40\,dB/decade below the loop bandwidth. Compliance masks are drawn on the same axes,
+and the receiver passes if its tolerance curve lies above the mask.
+\end{description}
+The loop bandwidth is chosen to track the low-frequency wander of the transmitter's clock---including
+the deliberate \emph{spread-spectrum clocking} used in PCIe and SATA to reduce electromagnetic
+interference, which sweeps the clock by up to 5000\,ppm at about 30\,kHz---while filtering high-frequency
+jitter. For measurement purposes, a common convention (originating in Fibre Channel) defines a
+reference ``golden PLL'' with a corner frequency of the baud rate divided by 1667.
+
+\mdcfig{ch10_cdr}{A second-order CDR loop at 10.3125\,GBd with its corner at $f_{\text{baud}}/1667$.
+(a) Jitter transfer $|H|$ and error transfer $|1-H|$. (b) Jitter tolerance for a 0.3\,UI eye margin,
+$0.3/|1-H(f)|$, against an illustrative compliance mask: low-frequency jitter of many UI is tracked;
+high-frequency jitter must fit within the eye.}
+
+\section{Network time and frequency}
+\label{sec:ch10:network}
+
+The synchronizers so far align one receiver with one transmitter. Modern networks also need the
+\emph{transmitters} to agree with each other---on frequency, on phase and on absolute time---and that
+requires distributing time and frequency across a continent.
+
+\subsection{Why networks need synchronization}
+
+Three requirements drive network synchronization.
+\begin{itemize}
+\item \textbf{Frequency.} Base stations must transmit on frequency so that phones, which lock to
+them, meet their own emission limits and can hand over between cells without re-acquiring. NR
+requires a base-station frequency error within $\pm0.05$\,ppm (TS 38.104). Circuit-switched networks
+(T1/E1, SONET/SDH) additionally need all nodes to run at the same rate on average, or buffers overflow
+and frames are slipped.
+\item \textbf{Phase and time.} In time-division duplex (TDD) networks, all base stations in an area
+must switch between transmit and receive at the same instant, or a transmitting base station will
+blast its neighbour's receiver. TS 38.133 specifies a cell phase synchronization accuracy of 3\,$\mu$s
+between base stations with overlapping coverage, which network operators budget as $\pm1.5\,\mu$s from
+a common time reference---the figure in ITU-T G.8271. Positioning, carrier aggregation across sites and
+coordinated multipoint transmission can require tighter alignment still.
+\item \textbf{Holdover.} When the reference is lost---a GNSS antenna fault, jamming, a network
+outage---the local oscillator must keep time on its own until service is restored.
+\end{itemize}
+
+\subsection{Sources: oscillators and GNSS}
+
+The quality of an oscillator is described by its fractional frequency error and how that error
+drifts, usually characterised by the Allan deviation, the standard deviation of frequency
+differences between adjacent averaging intervals. Crystal oscillators range from simple XOs through
+temperature-compensated (TCXO) and oven-controlled (OCXO) units; atomic references include rubidium
+vapour cells, caesium beam standards (the primary references of national laboratories and the basis
+of the SI second) and hydrogen masers. What matters for holdover is the accumulated time error. An
+oscillator with initial fractional frequency error $y_0$ and linear drift (ageing) $D$ accumulates
+\begin{equation}
+x(t)=y_0\,t+\tfrac12Dt^2,
+\end{equation}
+plus random-walk terms. Figure~\ref{fig:ch10_holdover} shows how quickly the $\pm1.5\,\mu$s TDD budget
+is consumed for a range of illustrative oscillator grades: minutes for a TCXO, hours for an OCXO, and days
+for the best OCXOs and rubidium standards.
+
+\mdcfig[0.7]{ch10_holdover}{Accumulated time error during holdover for oscillators with the stated
+initial fractional frequency error $y_0$ and daily ageing $D$ (illustrative values chosen to span the
+range of typical grades; real holdover also depends on temperature). The dashed line is the
+$\pm1.5\,\mu$s TDD budget.}
+
+The most common time source is a GNSS receiver. A \term{GPS-disciplined oscillator} (GPSDO) steers a
+local OCXO or rubidium oscillator with a very narrow loop---time constants of minutes to hours---to the
+GNSS pulse-per-second output, combining the long-term accuracy of the satellites' caesium and rubidium
+clocks with the short-term stability of the local oscillator. A good GPSDO holds time to within tens of
+nanoseconds of UTC. It is a PLL like every other in this chapter: the loop bandwidth is set at the
+crossover between the GNSS time-transfer noise (large at short averaging times) and the oscillator's
+wander (large at long times). The USRP B200 can be fitted with such a module. GNSS is, however,
+vulnerable to jamming and spoofing and unavailable indoors, so networks also distribute timing over
+their own links.
+
+\subsection{Synchronous Ethernet and the Precision Time Protocol}
+
+\term{Synchronous Ethernet} (SyncE, ITU-T G.8261/G.8262) distributes \emph{frequency} through the
+physical layer: each node recovers the line clock from its upstream link with a CDR, cleans it with a
+narrow PLL, and uses it to clock its downstream transmitters, exactly as SONET did. The Ethernet
+equipment clock of G.8262 must hold $\pm4.6$\,ppm when free-running, and a messaging channel carries a
+quality level so that nodes select the best available source.
+
+The \term{Precision Time Protocol} (PTP, IEEE 1588) distributes \emph{time} with timestamped packets
+(Figure~\ref{fig:ch10_ptp}). The master sends a Sync message at time $t_1$ (by its clock), which the
+slave receives at $t_2$ (by its clock); the slave sends a Delay\_Req at $t_3$, which the master receives
+at $t_4$. If the path delay $d$ is the same in both directions and the slave's clock is ahead by an
+offset $o$,
+\begin{gather}
+t_2-t_1=d+o,\qquad t_4-t_3=d-o, \notag\\
+o=\frac{(t_2-t_1)-(t_4-t_3)}{2},\qquad d=\frac{(t_2-t_1)+(t_4-t_3)}{2}.
+\label{eq:ch10:ptp}
+\end{gather}
+The weak point is the symmetry assumption: any \emph{asymmetry} $\Delta=d_{ms}-d_{sm}$ between the two
+directions causes an undetectable time error of $\Delta/2$. Packet queuing in switches produces
+variable, asymmetric delay, so telecom-grade PTP uses \emph{hardware timestamping} at the physical
+layer and requires every switch to participate: a \emph{boundary clock} terminates PTP and acts as a
+new master, and a \emph{transparent clock} measures each packet's residence time and adds it to a
+correction field. The ITU-T G.8275.1 telecom profile, with full on-path support and SyncE for
+frequency, is designed to deliver the $\pm1.5\,\mu$s budget over chains of many boundary clocks; CERN's
+White Rabbit extension of PTP reaches sub-nanosecond accuracy by also measuring the fibre asymmetry.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[arr/.style={-{Stealth[length=2.2mm]},thick,navy},font=\small]
+\draw[thick,navy] (0,0) -- (0,-4.2) node[below] {\sffamily\scriptsize master};
+\draw[thick,accent] (5.2,0) -- (5.2,-4.2) node[below] {\sffamily\scriptsize slave};
+\node[above,font=\sffamily\scriptsize] at (0,0) {time};
+\draw[arr] (0,-0.5) node[left]{$t_1$} -- node[above,sloped,font=\scriptsize]{Sync} (5.2,-1.3) node[right]{$t_2$};
+\draw[arr,densely dashed] (0,-1.0) -- node[below,sloped,font=\scriptsize]{Follow\_Up ($t_1$)} (5.2,-1.8);
+\draw[arr,accent] (5.2,-2.6) node[right]{$t_3$} -- node[above,sloped,font=\scriptsize]{Delay\_Req} (0,-3.4) node[left]{$t_4$};
+\draw[arr,densely dashed] (0,-3.6) -- node[below,sloped,font=\scriptsize]{Delay\_Resp ($t_4$)} (5.2,-4.1);
+\end{tikzpicture}
+\caption{The IEEE 1588 two-way time transfer. Four timestamps give the clock offset and the mean
+path delay, provided the path is symmetric.}
+\label{fig:ch10_ptp}
+\end{figure}
+
+\begin{worked}[The cost of asymmetry]
+A PTP path runs over a fibre pair in which the two directions differ in length by 200\,m, perhaps because
+of patching at an intermediate site. Light in fibre travels at about 5\,$\mu$s/km, so the asymmetry is
+$\Delta=1\,\mu$s and the slave's time is wrong by $\Delta/2=500$\,ns, a third of the whole TDD budget,
+with no way for the protocol to detect it. Asymmetry of this kind is why operators calibrate links,
+prefer bidirectional single-fibre optics (where both directions share one fibre on two wavelengths), and
+keep GNSS at the base station as a cross-check.
+\end{worked}
+
+\begin{inpractice}[Timing a 5G TDD network]
+A typical 5G TDD network combines everything in this section. A primary reference time clock (PRTC)
+at a core site, disciplined by multi-constellation GNSS and backed by a caesium or rubidium standard
+for holdover, feeds PTP (G.8275.1) with SyncE over the transport network. Every router along the way is
+a boundary clock with hardware timestamping. At each cell site the radio unit locks its synthesizers
+to the recovered frequency and aligns its frame boundary to the recovered time, often with a local
+GNSS receiver as a backup. Inside the radio, a jitter-cleaning PLL removes the packet-network wander,
+the RF synthesizers of Chapter~\ref{ch:sdr} multiply the clean reference up to the carrier, and the
+phones, finally, lock their own oscillators to the base station with the carrier and timing loops of
+this chapter. From the caesium atom to the phone's constellation diagram, it is phase-locked loops
+all the way down.
+\end{inpractice}
+
+\section{Putting it together}
+\label{sec:ch10:together}
+
+A complete single-carrier burst receiver built from the pieces of this chapter---and implemented in
+the companion lab---runs the following chain on a buffer of samples at four samples per symbol:
+\begin{enumerate}
+\item matched filter (RRC);
+\item Gardner timing recovery with a cubic Farrow interpolator, $B_LT\approx0.01$, producing one sample
+per symbol;
+\item coarse CFO by the fourth-power FFT estimator over the first 1024 symbols, and correction;
+\item a decision-directed second-order PLL, $B_LT\approx0.01$, removing the residual frequency and
+tracking phase;
+\item correlation with the known preamble to find the frame start, and use of the complex correlation
+peak to rotate away the loop's $\pi/2$ ambiguity;
+\item detection and BER measurement.
+\end{enumerate}
+It works over a wide range of offsets and SNRs, and it fails in instructive ways: beyond $\pm1/8$ cycle
+per symbol of CFO the fourth-power estimator aliases; below about 5\,dB the decision-directed loop
+slips; and if the preamble is too short the frame synchronizer finds data instead.
+
+\begin{keyidea}[Designing a synchronizer]
+\begin{itemize}
+\item List the offsets and their dynamics (Table~\ref{tab:ch10:offsets}) as fractions of the symbol
+rate. They determine the architecture.
+\item Order the estimators so that each tolerates the residual errors of those before it:
+coarse frequency, timing, frame, fine frequency and phase.
+\item Compute the CRB for your preamble and pilot budget, and check the estimators' thresholds
+against the lowest SNR at which the code must work.
+\item Choose loop bandwidths from $\sigma_\phi^2=B_LT/\esno$ and the dynamics to be tracked, use
+type-2 loops for frequency offsets, and aid acquisition with FLLs or feedforward estimates.
+\item Resolve ambiguities with known symbols, and plan for cycle slips.
+\item Test with real impairments together---CFO, clock offset, phase noise, fading---not one at a
+time.
+\end{itemize}
+\end{keyidea}
+
+\begin{pitfall}[Testing synchronizers one impairment at a time]
+A timing loop that works perfectly with no frequency offset, and a carrier loop that works perfectly
+with perfect timing, may fail together, because a real receiver's loops interact: a decision-directed
+timing detector makes bad decisions when the carrier loop has not converged, the carrier loop's
+bandwidth changes with the timing loop's residual ISI, and both are disturbed by AGC transients at the
+start of a burst. Always test the full chain with all impairments at once, with random initial
+offsets, and measure acquisition failures and slip rates over many thousands of trials, not only the
+steady-state jitter of a single run.
+\end{pitfall}
+
+\begin{labbox}[Synchronization from scratch]
+{\raggedright Lab file: \lab{moderncomms-labs/labs/lab04\_synchronization.py}\\
+Notebook: \lab{moderncomms-labs/labs/lab04\_synchronization.ipynb}\par}
+\smallskip
+\noindent The lab builds every synchronizer in this chapter from the \texttt{commlib.sync} module. It shows the four
+impairments of Figure~\ref{fig:ch10_impairments} on a QPSK constellation; estimates CFO with the
+fourth-power FFT estimator and exposes its $\pm1/8$ range; lets you vary $B_LT$, CFO, SNR and
+modulation for the decision-directed PLL with interactive sliders and watch acquisition, jitter and the
+$\pi/2$ ambiguity; measures the Gardner S-curve and the timing loop's convergence to a fractional
+delay; detects a Zadoff--Chu preamble at 5\,dB and uses its phase to resolve the ambiguity; and finally
+chains everything into the complete burst receiver of Section~\ref{sec:ch10:together}, with sliders for
+CFO, delay and SNR. Its exercises ask you to implement the Luise--Reggiannini and Fitz estimators and
+compare them with the MCRB (Figure~\ref{fig:ch10_freq_est}), measure acquisition time against $B_LT$,
+and implement polyphase filter-bank clock recovery. With hardware, the same chain runs on samples
+captured by a USRP B200 from a second radio: the two TCXOs supply real CFO and clock offset.
+\end{labbox}
+
+\section*{Summary}
+
+\begin{itemize}
+\item A coherent receiver must estimate carrier frequency, carrier phase, symbol timing and frame
+position before it can detect anything. It does so with a chain of estimators, ordered so that each
+tolerates the residual errors of the previous ones.
+\item Maximum likelihood reduces every synchronization problem to correlating with what is known and
+finding the peak. The Cram\'er--Rao bounds scale as $1/N$ for phase and timing and as $1/N^3$ for
+frequency; the modified CRB is the practical yardstick. Thresholds, not bounds, usually decide what
+works.
+\item The phase-locked loop is the universal feedback synchronizer. Its linear model gives the noise
+bandwidth $B_L$, the jitter $\sigma_\phi^2=N_0B_L/C$, and the steady-state errors by loop type; its
+nonlinear behaviour gives lock-in, slow pull-in, hang-up and exponentially rare cycle slips.
+\item Suppressed-carrier modulations require the carrier to be regenerated: data-aided,
+decision-directed, Costas and $M$th-power detectors, at the price of squaring loss and an $M$-fold
+ambiguity resolved by differential encoding, unique words or pilots.
+\item Frequency estimation trades range against accuracy; coarse (FLL, $M$th power, short lag) and
+fine (Luise--Reggiannini, Fitz, long lag) estimators are combined. OFDM is especially sensitive and
+uses repeated preambles.
+\item Timing recovery in software radios interpolates a free-running sample stream under control of a
+loop driven by a Gardner, Mueller--M\"uller, early--late or ML timing error detector, or selects among
+polyphase matched filters.
+\item Frame synchronization correlates with sequences of good correlation---Barker, m-sequences,
+Zadoff--Chu---with thresholds set by false-alarm and miss probabilities; LTE and NR cell search and the
+802.11 preamble are complete synchronization systems in miniature.
+\item The same loops recover clocks in SerDes links, specified by jitter transfer and tolerance, and
+distribute time and frequency through networks with GNSS, SyncE and PTP to meet the $\pm1.5\,\mu$s
+budget of TDD cellular systems.
+\end{itemize}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item A 5G NR phone at 28\,GHz uses a TCXO with $\pm1$\,ppm accuracy before it locks to the network.
+What is the worst-case CFO, and what fraction of the 120\,kHz subcarrier spacing is it? Can the
+Schmidl--Cox half-symbol correlation resolve it unambiguously?
+\item Derive the ML phase estimator~\eqref{eq:ch10:mlphase} from the likelihood~\eqref{eq:ch10:llf}
+and show that its variance at high SNR is $1/(2N\esno)$, the CRB.
+\item Derive the frequency CRB of Table~\ref{tab:ch10:crb} for $z_k=e^{j(2\pi\nu k+\theta)}+w_k$,
+$k=0,\dots,N-1$, with $\theta$ unknown. (Hint: compute the $2\times2$ Fisher information matrix for
+$(\nu,\theta)$ and invert it.) Why does the bound fall as $N^3$?
+\item For the second-order loop~\eqref{eq:ch10:H2}, derive the noise bandwidth~\eqref{eq:ch10:BL} and
+find the damping factor that minimises $B_L$ for a given $\omega_n$.
+\item A type-2 carrier loop with $\zeta=0.707$ must track a LEO satellite downlink whose Doppler rate
+reaches 3\,kHz/s while keeping the steady-state phase error below $5^\circ$. Find the minimum natural
+frequency and the resulting $B_L$. What loop SNR does this imply at $C/N_0=55$\,dB-Hz, and what is the
+mean time between cycle slips from~\eqref{eq:ch10:slip}?
+\item Using \texttt{commlib.loop\_gains}, design a digital PLL with $B_LT=0.002$ for a 250\,ksym/s QPSK
+signal. Compute $k_p$ and $k_i$, the lock-in range in hertz, and the approximate pull-in time from an
+offset of 500\,Hz.
+\item Show that the BPSK Costas loop's error signal is $\tfrac12\sin2\phi$ in the absence of noise, and
+that the QPSK hard-limited detector $\operatorname{sgn}(I)Q-\operatorname{sgn}(Q)I$ has period $\pi/2$.
+Sketch both S-curves and mark the stable and unstable lock points.
+\item Show that the Luise--Reggiannini estimator is unbiased at high SNR and has range $|\nu|<1/(L+1)$.
+For a 64-symbol preamble, compare its range with $L=32$ to the range of the fourth-power estimator.
+Propose a two-stage estimator that covers $\pm0.1$ cycles/symbol and approaches the CRB.
+\item Derive the Gardner detector's S-curve for BPSK with a raised-cosine overall pulse, and show that
+its slope at $\tau=0$ is proportional to the roll-off for small $\beta$ (compare with
+Figure~\ref{fig:ch10_ted_scurves}(b)).
+\item A burst of 2000 symbols is received with a sample clock offset of 50\,ppm. How far does the
+timing drift over the burst? Is a one-shot Oerder--Meyr estimate from the first 100 symbols sufficient
+for 16-QAM with $\beta=0.35$? Use Figure~\ref{fig:ch10_timing_ber}.
+\item A continuous stream uses a 24-bit sync word every 1000 bits. Design a search/verify/lock state
+machine and compute (approximately) the probability of false lock and the mean time to lose lock
+falsely at a channel BER of $10^{-3}$.
+\item Explain, with the help of the Zadoff--Chu shift property, why an integer CFO moves the LTE PSS
+correlation peak. By how many samples does it move for root $u=25$, $N=63$ and a 128-point FFT?
+Compare with Figure~\ref{fig:ch10_pss_cfo}.
+\item A PTP slave records $t_1=100.000\,000\,000$, $t_2=100.000\,012\,300$, $t_3=100.000\,150\,000$,
+$t_4=100.000\,159\,700$ (seconds). Compute the offset and mean path delay. If the forward path is
+actually 1\,$\mu$s longer than the reverse, what is the true offset?
+\item \emph{(Simulation)} Extend the burst receiver of lab~4 with a Luise--Reggiannini estimator on the
+preamble ahead of the PLL. Measure the probability of successful acquisition (BER below $10^{-3}$ over
+the payload) against CFO and $\esno$, with and without the fourth-power estimator, and explain the
+difference.
+\item \emph{(Simulation)} Implement a Schmidl--Cox detector for an OFDM system with 256 subcarriers and a
+CP of 18 samples in a two-path channel. Plot the timing metric, and measure the RMS timing and
+frequency errors against SNR. Compare with the CRB for frequency estimation from $N/2$ repeated
+samples.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item U.~Mengali and A.~N.~D'Andrea, \emph{Synchronization Techniques for Digital Receivers}, Plenum,
+1997. The definitive treatment of ML synchronization, the MCRB and nearly every estimator in this
+chapter.
+\item H.~Meyr, M.~Moeneclaey and S.~A.~Fechtel, \emph{Digital Communication Receivers: Synchronization,
+Channel Estimation, and Signal Processing}, Wiley, 1998. Encyclopaedic and implementation-minded.
+\item F.~M.~Gardner, \emph{Phaselock Techniques}, 3rd ed., Wiley, 2005. The classic engineering text on
+PLLs: acquisition, noise, cycle slips and synthesizers, written with rare clarity.
+\item M.~Rice, \emph{Digital Communications: A Discrete-Time Approach}, Pearson, 2009. Chapters 7 and 8
+develop discrete-time carrier and timing loops exactly as \texttt{commlib} implements them.
+\item F.~M.~Gardner, ``Interpolation in digital modems---Part I: Fundamentals,'' \emph{IEEE Trans.
+Commun.}, 41(3), 1993; L.~Erup, F.~M.~Gardner and R.~A.~Harris, ``Part II: Implementation and
+performance,'' 41(6), 1993. The foundation of asynchronous timing recovery.
+\item F.~M.~Gardner, ``A BPSK/QPSK timing-error detector for sampled receivers,'' \emph{IEEE Trans.
+Commun.}, 34(5), 1986; K.~H.~Mueller and M.~M\"uller, ``Timing recovery in digital synchronous data
+receivers,'' \emph{IEEE Trans. Commun.}, 24(5), 1976; M.~Oerder and H.~Meyr, ``Digital filter and square
+timing recovery,'' \emph{IEEE Trans. Commun.}, 36(5), 1988.
+\item M.~Luise and R.~Reggiannini, ``Carrier frequency recovery in all-digital modems for burst-mode
+transmissions,'' \emph{IEEE Trans. Commun.}, 43(2/3/4), 1995; S.~Kay, ``A fast and accurate single
+frequency estimator,'' \emph{IEEE Trans. ASSP}, 37(12), 1989.
+\item T.~M.~Schmidl and D.~C.~Cox, ``Robust frequency and timing synchronization for OFDM,''
+\emph{IEEE Trans. Commun.}, 45(12), 1997. Short, readable and still the starting point for OFDM
+synchronization.
+\item J.~L.~Massey, ``Optimum frame synchronization,'' \emph{IEEE Trans. Commun.}, 20(2), 1972.
+\item f.~j.~harris and M.~Rice, ``Multirate digital filters for symbol timing synchronization in
+software defined radios,'' \emph{IEEE J. Sel. Areas Commun.}, 19(12), 2001. The polyphase clock sync
+used in GNU Radio.
+\item A.~J.~Viterbi, \emph{Principles of Coherent Communication}, McGraw-Hill, 1966. The PLL in noise,
+including the cycle-slip analysis, from the engineer who solved it.
+\item 3GPP TS 38.211 (NR physical channels, PSS/SSS/SSB); ETSI EN 302 307-1 (DVB-S2 framing and pilots);
+IEEE Std 1588-2019 (PTP); ITU-T G.8262 (SyncE), G.8271 and G.8275.1 (time synchronization for
+telecom networks).
+\end{itemize}
