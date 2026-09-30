@@ -1,0 +1,1769 @@
+\chapter{Baseband Transmission and Pulse Shaping}
+\label{ch:baseband}
+
+\begin{chapterintro}
+Every digital link, from a 1960s T1 span to a 224\,Gb/s lane inside an AI data centre, must
+turn a sequence of bits into a physical waveform, push it through a channel that blurs and
+adds noise, and turn it back into bits. This chapter covers that problem in its simplest
+setting, \emph{baseband}, where no carrier is involved. It starts with line codes (the
+practical rules that make a waveform DC-free, self-clocking and error-checkable) and the
+power spectra they produce. It then derives the Nyquist criterion for zero intersymbol
+interference and the raised-cosine pulses that meet it, proves that the matched filter is
+the best possible receiver filter, and works out the error probability of binary signalling
+in Gaussian noise. The rest of the chapter covers the tools of the high-speed-link engineer:
+eye diagrams, jitter and bathtub curves, channel loss and its equalisation, multilevel PAM
+in today's 400G and 800G Ethernet, PCIe~6 and graphics memory, and partial-response
+signalling from duobinary to the PRML read channels that made the hard-disk revolution
+possible. It closes with a look at faster-than-Nyquist signalling. Everything in later
+chapters on carrier modulation rests on the ideas developed here.
+\end{chapterintro}
+
+%======================================================================
+\section{From bits to waveforms}
+\label{sec:ch08:pam}
+%======================================================================
+
+A wire, a fibre and a radio channel share one property: none of them can carry a bit. They
+carry voltages, currents, photons and fields, all continuous functions of time. The first
+job of any digital transmitter is to choose a waveform for each group of bits, and the
+first job of the receiver is to decide, from a noisy and distorted version of that waveform,
+which group was sent. This chapter covers the simplest and most important family of
+choices.
+
+\subsection{The PAM model}
+
+In \term{pulse-amplitude modulation} (PAM) the transmitter sends one pulse shape $p(t)$ every
+$T$ seconds and scales each pulse by a symbol $a_k$ drawn from a small alphabet:
+\begin{equation}
+s(t)=\sum_{k=-\infty}^{\infty}a_k\,p(t-kT).
+\label{eq:ch08:pam}
+\end{equation}
+With the binary alphabet $a_k\in\{-1,+1\}$ and a rectangular pulse, this is the familiar
+square wave of polar signalling. With the alphabet $\{-3,-1,+1,+3\}$ it is 4-PAM. With a
+complex alphabet (QPSK, 16-QAM) and a carrier, it becomes the quadrature modulation of
+Chapter~\ref{ch:modulation}. Nearly every single-carrier digital system in this book,
+including the downlink of every geostationary TV satellite, the upstream of a cable modem
+and the electrical lanes inside an Ethernet switch, is an instance of~\eqref{eq:ch08:pam}.
+OFDM (Chapter~\ref{ch:ofdm}) is a set of many PAM-like signals running in parallel.
+
+Equation~\eqref{eq:ch08:pam} splits the design into two nearly independent problems.
+Choosing the \emph{alphabet} and the mapping from bits to symbols sets the spectral
+efficiency and the noise tolerance. Choosing the \emph{pulse} $p(t)$ sets the bandwidth,
+the sensitivity to timing errors and whether neighbouring symbols interfere. Most of this
+chapter is about the pulse; Chapter~\ref{ch:modulation} is about the alphabet.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.42cm and 0.42cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.95cm,minimum width=1.35cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[blk] (map) {Bits to\\symbols\\$a_k$};
+\node[blk,right=of map] (tx) {Transmit\\filter\\$g_T(t)$};
+\node[blk,right=of tx,fill=accent!6,draw=accent] (ch) {Channel\\$c(t)$};
+\node[draw=accent,circle,thick,right=of ch,minimum size=0.6cm,font=\sffamily\small] (sum) {$+$};
+\node[blk,right=of sum] (rx) {Receive\\filter\\$g_R(t)$};
+\node[blk,right=of rx] (smp) {Sample\\at\\$t_0+kT$};
+\node[blk,right=of smp] (dec) {Decide\\$\hat a_k$};
+\node[above=0.45cm of sum,font=\sffamily\scriptsize,text=accent] (n) {noise $n(t)$};
+\draw[arr] (map) -- (tx); \draw[arr] (tx) -- node[above,font=\scriptsize]{$s(t)$} (ch);
+\draw[arr] (ch) -- (sum); \draw[arr] (sum) -- node[above,font=\scriptsize]{$r(t)$} (rx);
+\draw[arr] (rx) -- node[above,font=\scriptsize]{$y(t)$} (smp); \draw[arr] (smp) -- node[above,font=\scriptsize]{$y_k$} (dec);
+\draw[arr,accent] (n) -- (sum);
+\draw[decorate,decoration={brace,amplitude=5pt,mirror},navy!70] ([yshift=-3pt]tx.south west) -- ([yshift=-3pt]rx.south east)
+  node[midway,below=6pt,font=\sffamily\scriptsize,text=navy]{overall pulse $x(t)=g_T*c*g_R$: Nyquist criterion applies here};
+\end{tikzpicture}
+\caption{The baseband PAM link. The transmit filter, channel and receive filter combine
+into a single end-to-end pulse $x(t)$; the receive filter also sets how much noise reaches
+the sampler. The two design questions of this chapter are how to make $x(t)$ free of
+intersymbol interference and how to split the filtering to maximise the signal-to-noise
+ratio at the sampler.}
+\label{fig:ch08_pam_chain}
+\end{figure}
+
+Figure~\ref{fig:ch08_pam_chain} shows the complete link. The transmitted pulse is the
+response $g_T(t)$ of a transmit filter to an impulse of weight $a_k$; the channel adds its
+own impulse response $c(t)$ and noise; the receiver filters with $g_R(t)$, samples once per
+symbol at time $t_0+kT$ and decides. The end-to-end pulse seen at the sampler is
+\begin{equation}
+x(t)=g_T(t)*c(t)*g_R(t),
+\label{eq:ch08:overall}
+\end{equation}
+and the sampler output is
+\begin{equation}
+y_k=a_k\,x(t_0)+\underbrace{\sum_{m\ne k}a_m\,x\big(t_0+(k-m)T\big)}_{\text{intersymbol interference}}+\;\nu_k,
+\label{eq:ch08:sample}
+\end{equation}
+where $\nu_k$ is filtered noise. The first term is the wanted symbol, the last is noise, and
+the middle term, \term{intersymbol interference} (ISI), is the signal getting in its own way.
+Sections~\ref{sec:ch08:nyquist} and~\ref{sec:ch08:mf} show how to eliminate the middle term
+and minimise the last.
+
+\subsection{Symbol rate, bit rate and the baud}
+
+If each symbol carries $b=\log_2 M$ bits from an $M$-ary alphabet, the \term{bit rate} is
+$R_b=b/T$ and the \term{symbol rate} is $R_s=1/T$. Symbol rate is measured in
+\term{baud} (Bd), after \'Emile Baudot, the French telegraph engineer whose five-unit
+printing-telegraph code of the 1870s was the ancestor of every character code since. The
+unit was adopted by the international telegraph community in the 1920s. One baud is one
+symbol per second, and it is the symbol rate, not the bit rate, that sets the bandwidth a
+signal needs. That is why a 100\,Gb/s Ethernet lane that uses 4-PAM runs at 53.125\,GBd,
+and why engineers who say ``a 9600-baud modem'' about a V.32 modem that sent 2400 symbols
+per second at 4 bits per symbol were, strictly, wrong by a factor of four.
+
+\begin{keyidea}[Bandwidth follows the symbol rate; noise tolerance follows the alphabet]
+A PAM signal needs a bandwidth of at least $R_s/2$\,Hz (Section~\ref{sec:ch08:nyquist}),
+whatever the alphabet. Doubling the bits per symbol at a fixed symbol rate doubles the bit
+rate in the same bandwidth but packs the levels closer together, so the receiver needs more
+signal-to-noise ratio. Every trade-off in this chapter---NRZ versus PAM-4, binary versus
+duobinary, rectangular versus raised-cosine---is a variation of this exchange between
+bandwidth, power and complexity.
+\end{keyidea}
+
+\begin{history}[The telegraph pulse problem]
+Intersymbol interference was the first great problem of electrical communication. The first
+transatlantic cable of 1858 was a single conductor wrapped in gutta-percha and armoured in
+iron, about 3000\,km long. Its distributed resistance and capacitance smeared each
+telegraph pulse into a slow rise and a slower tail lasting many seconds, so that
+consecutive dots and dashes ran together. William Thomson (later Lord Kelvin) had analysed
+this in 1854-55 and showed that the smearing time grows with the \emph{square} of the cable
+length, his ``law of squares''. He designed the sensitive mirror galvanometer that let the
+1858 cable work at all, at a rate of roughly a word or less per minute. The cable failed
+after a few weeks, its insulation damaged by the high voltages the chief electrician, Wildman
+Whitehouse, applied in an attempt to push the signals through. The 1866 cable, built on
+Thomson's principles, worked at around eight words per minute. Oliver Heaviside's
+telegrapher's equations of the 1880s later explained that adding series inductance
+(``loading'') could make a line distortionless, an idea Michael Pupin and George Campbell
+turned into loading coils around 1900. The telegraph engineer's question---how fast can
+pulses be sent before they merge?---is exactly the question this chapter answers.
+\end{history}
+
+%======================================================================
+\section{Line codes}
+\label{sec:ch08:linecodes}
+%======================================================================
+
+Before the theory of optimum pulses, consider the practical question every wireline engineer
+faces first: which waveform to put on the wire for each bit. A \term{line code} is a rule
+that maps the bit stream to a sequence of levels, usually with rectangular pulses. The
+choice is driven not by the Gaussian-noise optimum but by the physical constraints of real
+cables, transformers, fibres and clock-recovery circuits.
+
+\subsection{What a line code must do}
+
+A good line code for a practical link should provide most of the following.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[DC balance.] Most wireline links are AC-coupled through transformers (telephone lines,
+Ethernet over twisted pair) or series capacitors (every high-speed SerDes), so the channel
+cannot pass DC. A signal with a long-term average away from zero causes \term{baseline
+wander}: the coupling capacitor charges, the decision threshold drifts, and errors follow.
+The code should have no spectral content at, or near, zero frequency.
+\item[Clock content.] The receiver must recover the transmitter's clock from the data
+(Chapter~\ref{ch:sync}). Clock recovery circuits learn timing from transitions, so the code
+must guarantee a minimum \term{transition density} and a bounded \term{run length} (the
+longest sequence of identical symbols).
+\item[Spectral shape.] The spectrum should fit the channel: little energy where the channel
+loses it (high frequencies on copper), and little energy where it would radiate or couple
+into other circuits.
+\item[Error monitoring.] Some codes have redundancy that lets the receiver detect errors
+without any higher-layer check (bipolar violations in AMI; invalid code words in 8b/10b).
+\item[Framing and control.] Some codes reserve special patterns---\emph{commas}, sync
+headers, control characters---that mark word boundaries and carry link-management
+information.
+\item[Efficiency.] All of the above costs something: extra levels, extra bandwidth or extra
+bits. The \term{code rate} (information bits per transmitted bit) or the ratio of bit rate to
+baud rate captures the overhead.
+\end{description}
+
+\mdcfig[0.9]{ch08_linecodes}{The classic line codes applied to the same 16-bit sequence
+(dotted lines mark bit periods). NRZ codes change level at most once per bit;
+Manchester codes guarantee a transition in every bit at the cost of twice the bandwidth; AMI
+and MLT-3 use three levels to remove DC and, in MLT-3's case, to slow the signal down; 2B1Q
+packs two bits into each four-level symbol so that the symbol rate is half the bit rate.}
+
+\subsection{Non-return-to-zero codes}
+
+The simplest code, \term{NRZ-L} (non-return-to-zero, level), sends $+A$ for a one and $-A$
+for a zero for the full bit period. In its polar form it is the optimum binary signal in
+white Gaussian noise (Section~\ref{sec:ch08:binary}), and it is spectrally compact: its
+power spectral density (PSD) is $\sinc^2(fT_b)$, with a first null at the bit rate
+(Figure~\ref{fig:ch08_linecode_psd}). Its problems are exactly the ones listed above: a long
+run of ones or zeros produces a long constant level with no transitions and a non-zero
+average. Unipolar NRZ (on--off, $0$ and $A$) is worse: it wastes half its power in a DC
+component that carries no information. On-off keying of a laser or LED is unipolar NRZ, and
+optical links therefore have their own DC problems, handled by the block codes and
+scramblers below.
+
+\term{NRZI} (NRZ inverted) encodes a one as a \emph{change} of level and a zero as no change
+(or, in USB's convention, the reverse). The information is in the transitions, so the
+receiver does not need to know the absolute polarity---a swapped wire pair does no harm. A
+long run of ones now produces a square wave, but a long run of zeros still produces a
+constant level, so NRZI is always paired with a code that limits the zeros: 4B5B in FDDI and
+100BASE-FX, bit stuffing in USB~1.x and~2.0 (a zero is inserted after six consecutive ones),
+and the (1,7) and (2,7) run-length-limited codes used on magnetic disks.
+
+\subsection{Return-to-zero and Manchester codes}
+
+\textbf{Return-to-zero}\index{return-to-zero} (RZ) codes return to zero in the middle of every bit. Unipolar RZ
+places a half-width pulse in each one-bit and nothing in each zero-bit. Its spectrum is
+twice as wide as NRZ, but it contains discrete \emph{spectral lines} at the bit rate and its
+odd harmonics (Figure~\ref{fig:ch08_linecode_psd}), which a simple tuned circuit can extract
+as a clock. Optical RZ formats were used in long-haul fibre systems around 2000 because
+their narrow pulses were more tolerant of fibre nonlinearity.
+
+The \term{Manchester code} (also called biphase-L) sends each bit as a pair of half-bit
+levels of opposite sign: in the IEEE~802.3 convention, a one is low-then-high and a zero is
+high-then-low. There is a transition in the middle of \emph{every} bit, so the code is
+perfectly self-clocking and exactly DC-free whatever the data. The price is bandwidth: the
+PSD, $\sinc^2(fT_b/2)\sin^2(\pi fT_b/2)$, peaks near $0.75R_b$ and has its first null at
+$2R_b$. Manchester coding was used in the original 10\,Mb/s Ethernet (10BASE5, 10BASE2 and
+10BASE-T), where the line ran at 20\,MBd, and it survives in RFID tags (ISO/IEC 14443 and
+15693 use Manchester or related subcarrier codes), consumer infrared remotes, and the
+DALI and MIL-STD-1553 buses. \textbf{Differential Manchester}\index{differential Manchester} adds the robustness of NRZI:
+there is always a mid-bit transition, and a zero is marked by an extra transition at the
+start of the bit. It was used in IEEE~802.5 Token Ring and survives in the AES3 (AES/EBU)
+digital audio interface as \emph{biphase-mark} coding.
+
+\begin{history}[Ethernet's Manchester choice]
+When Robert Metcalfe and David Boggs built the experimental Ethernet at Xerox PARC in
+1973--74, and when Digital Equipment, Intel and Xerox published the 10\,Mb/s ``DIX''
+standard in 1980, clock recovery was expensive and the medium was a shared coaxial cable
+with many taps. Manchester coding solved several problems at once: every station could lock
+to any other station's clock from the first few bits of the preamble; the signal had no DC,
+so transceivers could be transformer-isolated; and the absence of mid-bit transitions
+(the ``carrier'') told a receiver that a transmission had ended. The cost---a 20\,MBd line
+for 10\,Mb/s of data---was affordable on coax. It was not affordable at 100\,Mb/s on
+unshielded twisted pair, which is why Fast Ethernet (1995) abandoned Manchester for 4B5B
+with MLT-3.
+\end{history}
+
+\subsection{Bipolar codes: AMI, B8ZS and HDB3}
+
+\textbf{Alternate mark inversion}\index{alternate mark inversion} (AMI), also called bipolar coding, uses three levels: a zero
+is sent as no pulse, and each one (a ``mark'', in telegraph language) is sent as a pulse of
+polarity opposite to the previous one. Because the ones alternate, the running sum of the
+signal can never exceed one pulse, so there is no DC and very little low-frequency energy.
+The symbols are correlated---a $+1$ is always followed eventually by a $-1$---and
+Section~\ref{sec:ch08:psd} shows that this correlation shapes the spectrum to
+$\sin^2(\pi fT_b)$, with nulls at DC and at the bit rate. The redundancy also gives free
+error monitoring: two successive marks of the same polarity, a \term{bipolar violation},
+can only be caused by an error. A T1 line uses AMI with 50\%-duty-cycle pulses at
+1.544\,Mb/s; E1 uses the same at 2.048\,Mb/s.
+
+AMI's weakness is a long string of zeros, which is a long silence with no transitions for the
+clock recovery in the regenerative repeaters every mile or so along the line. The first T1
+systems imposed a \emph{ones-density} rule on the users: no more than 15 consecutive zeros,
+and at least one one in every eight bits on average, which forced 7-bit-per-channel
+signalling in some cases and was the reason 56\,kb/s, not 64\,kb/s, was the usable data rate
+of a DS0 for many years. Substitution codes removed the restriction:
+\begin{itemize}
+\item \term{B8ZS} (bipolar with eight-zero substitution, North American T1): any run of eight
+zeros is replaced by the pattern \texttt{000VB0VB}, where V is a pulse that violates the
+alternation rule and B is a pulse that obeys it. Two deliberate violations in a fixed pattern
+cannot occur by chance from a single error, so the receiver recognises the pattern and
+restores the zeros.
+\item \term{HDB3} (high-density bipolar of order 3, European E1 and E3, ITU-T G.703): any run
+of four zeros is replaced by \texttt{000V} or \texttt{B00V}, the choice being made so that
+successive violations alternate in polarity and the DC balance is preserved. No more than
+three zeros ever appear in a row.
+\end{itemize}
+
+\begin{worked}[The spectrum of a T1 line]
+A T1 line carries $R_b=1.544$\,Mb/s using AMI with half-width (50\% duty) rectangular pulses.
+Where are the spectral nulls and the peak, and why does it matter?
+
+The PSD of AMI with pulse $p(t)$ is $|P(f)|^2\sin^2(\pi fT_b)/T_b$
+(Section~\ref{sec:ch08:psd}). For a half-width pulse, $|P(f)|^2\propto\sinc^2(fT_b/2)$, which
+has its first null at $2R_b=3.088$\,MHz. The $\sin^2(\pi fT_b)$ factor has nulls at DC and at
+$R_b=1.544$\,MHz. The product is zero at DC and at 1.544\,MHz and peaks at approximately
+$R_b/2=772$\,kHz. Nearly all the energy is below 1.5\,MHz.
+
+This matters in three ways. First, with no energy at DC the line can be transformer-coupled
+at both ends and can carry DC power to the repeaters on the same pairs (``simplex
+powering''). Second, the energy peak at 772\,kHz sits well inside the low-loss region of
+22--24-gauge cable, which at that frequency loses roughly 5--6\,dB per thousand feet; T1
+repeaters were spaced about 6000\,ft apart, at the old loading-coil sites, so each span loses
+about 30\,dB at 772\,kHz, and the repeater equalises and regenerates. Third, the T1 test
+engineer's classic measurements of line loss and crosstalk are made at 772\,kHz, because that
+is where the signal lives.
+\end{worked}
+
+\subsection{Multilevel line codes: 2B1Q, MLT-3, PAM-3 and PAM-5}
+
+Using more than two levels reduces the symbol rate for a given bit rate, which reduces the
+bandwidth and therefore the loss on a copper line.
+
+\term{2B1Q} (two binary, one quaternary) maps each pair of bits to one of the four
+levels $\pm1$ and $\pm3$; the first bit gives the sign and the second the magnitude. It is simply
+4-PAM with rectangular pulses, and it was chosen for the ISDN basic-rate subscriber-loop
+interface (the ``U'' interface of ANSI T1.601, 160\,kb/s at 80\,kBd) and later for HDSL. Halving the symbol rate halved the Nyquist
+frequency on long subscriber loops, where loss rises steeply with frequency, and the
+receiver's echo canceller (the loop is full duplex on one pair) had half as many taps to
+adapt.
+
+\term{MLT-3} (multi-level transmit, three levels) cycles through the levels
+$0,+1,0,-1,0,\dots$, advancing one step for each one-bit and staying put for each zero-bit.
+It takes four ones to complete a full cycle, so the fundamental frequency of the worst-case
+pattern (all ones) is a quarter of the bit rate. 100BASE-TX Fast Ethernet (IEEE~802.3u,
+1995) sends 125\,MBd MLT-3 over Category-5 cable, with most of the energy below about
+30\,MHz (Figure~\ref{fig:ch08_linecode_psd}), which kept radiated emissions within the FCC
+limits on unshielded cable. MLT-3 on its own has no guaranteed transitions (a run of zeros
+is a constant level) and is not DC-free, so 100BASE-TX first maps the data through 4B5B
+and then scrambles it with an 11-bit LFSR.
+
+Three-level signalling has had a remarkable revival in the 2020s. The automotive Ethernet
+standard 100BASE-T1 (IEEE~802.3bw) sends 3 bits as 2 ternary symbols (3B2T) at 66.67\,MBd
+on a single twisted pair; USB4 Version~2.0 (2022) reaches 80\,Gb/s per direction using
+PAM-3 with an 11-bit-to-7-trit mapping; and the JEDEC GDDR7 graphics-memory standard (2024)
+uses PAM-3 as well. PAM-3 gives $\log_2 3\approx1.58$ bits per symbol, with a smaller SNR
+penalty than PAM-4 and simpler receivers. Gigabit Ethernet over copper (1000BASE-T) uses
+five-level PAM-5 at 125\,MBd on all four pairs at once, with a trellis code across the pairs;
+10GBASE-T uses 16-level PAM at 800\,MBd with an LDPC code (Chapter~\ref{ch:wireline}).
+
+\begin{table}[htbp]\centering\small
+\caption{Classic line codes compared. $R_b$ is the bit rate. ``DC'' means whether the code
+guarantees no DC component whatever the data; ``clock'' whether it guarantees transitions.}
+\label{tab:ch08:linecodes}
+\begin{tabularx}{\linewidth}{@{}l c c c c X@{}}
+\toprule
+Code & Levels & Baud rate & DC-free & Clock & Where it is (or was) used\\
+\midrule
+NRZ-L & 2 & $R_b$ & no & no & Inside chips, RS-232, with scrambling in SONET and SerDes\\
+NRZI & 2 & $R_b$ & no & for ones & USB 1.x/2.0 (with bit stuffing), FDDI, 100BASE-FX\\
+Unipolar RZ & 2 & $2R_b$ & no & for ones & Early optical links, IrDA SIR\\
+Manchester & 2 & $2R_b$ & yes & yes & 10\,Mb/s Ethernet, RFID, MIL-STD-1553\\
+Diff.\ Manchester & 2 & $2R_b$ & yes & yes & Token Ring, AES3 digital audio (biphase mark)\\
+AMI & 3 & $R_b$ & yes & for ones & T1, E1 (with B8ZS, HDB3), ISDN S/T interface\\
+2B1Q & 4 & $R_b/2$ & no & no & ISDN U-interface, HDSL\\
+MLT-3 & 3 & $R_b$ & no & for ones & 100BASE-TX (after 4B5B and scrambling)\\
+PAM-3 & 3 & $\approx R_b/1.5$ & -- & -- & 100BASE-T1, USB4 v2, GDDR7\\
+PAM-4 & 4 & $R_b/2$ & -- & -- & 50--800G Ethernet, PCIe 6.0, GDDR6X\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Block codes: 4B5B, 8b/10b, 64b/66b and 128b/130b}
+
+Bit-level rules like AMI and Manchester spend their redundancy inefficiently. A
+\term{block line code} maps each group of $m$ data bits to a longer group of $n$ code bits,
+choosing the $2^m$ code words from the $2^n$ available so that every sequence of code words
+has the desired properties. The rate is $m/n$.
+
+\subsubsection{4B5B}
+The 4B5B code of FDDI (1980s) and 100BASE-TX maps each 4-bit nibble to a 5-bit code word with
+at most one leading and two trailing zeros, so that with NRZI coding no more than three zeros
+ever appear in a row. Of the 16 remaining 5-bit words, several serve as control symbols
+(idle, start-of-stream delimiter J/K, end delimiter T/R) and the rest are invalid, which gives
+error detection. The rate is 0.8: a 100\,Mb/s stream becomes 125\,MBd. 4B5B is not DC-balanced,
+which is why 100BASE-TX adds a scrambler.
+
+\subsubsection{8b/10b}
+The \term{8b/10b code} of Widmer and Franaszek (IBM, 1983) is the most successful line code
+ever designed. Each byte is split into a 5-bit and a 3-bit part, coded separately by a 5b/6b
+and a 3b/4b table. The encoder keeps track of the \term{running disparity} (RD), the
+difference between the numbers of ones and zeros sent so far. Every code word has disparity
+0 or $\pm2$; for each unbalanced input there are two complementary code words, and the
+encoder picks the one that drives the running disparity back towards zero. The result
+(Figure~\ref{fig:ch08_rds}) is a code with
+\begin{itemize}
+\item strict DC balance: the running digital sum never wanders more than a few bits from zero;
+\item a maximum run length of five identical bits, so that transitions are frequent and
+clock recovery never starves;
+\item twelve special control characters (K-codes), including the \term{comma}
+K28.5 (\texttt{0011111010} or its complement), whose run of five identical bits cannot
+occur across the boundary of normal data characters, so a receiver can find word
+alignment by searching for it;
+\item error detection: many single-bit errors produce an invalid code word or a disparity
+violation.
+\end{itemize}
+The cost is a 25\% overhead: a 1\,Gb/s Gigabit Ethernet (1000BASE-X) link runs at 1.25\,GBd.
+8b/10b appears in Fibre Channel, Gigabit Ethernet over fibre, PCI Express generations 1 and
+2, Serial ATA, USB~3.0 at 5\,Gb/s, DisplayPort~1.x, JESD204B converter interfaces and
+countless proprietary links. It is still the default choice for FPGA transceiver links
+below a few gigabits per second.
+
+\mdcfig{ch08_rds}{Left: the running digital sum (cumulative sum of the $\pm1$ NRZ levels)
+of several bit streams. Raw random data performs a random walk; a mostly-zero idle pattern
+drifts without bound, which would charge an AC-coupling capacitor; the 64b/66b scrambler
+turns idle into a random walk; 8b/10b keeps the sum inside a narrow band for any data,
+including the idle pattern. Right: 8b/10b limits runs to five bits, whereas a scrambled
+stream has geometrically distributed runs with no hard limit.}
+
+\begin{history}[The IBM code that ran the gigabit era]
+Albert X.~Widmer and Peter A.~Franaszek, at IBM's Thomas J.~Watson Research Center, published
+``A DC-balanced, partitioned-block, 8B/10B transmission code'' in the \emph{IBM Journal of
+Research and Development} in 1983. Their insight was the partitioning: splitting the byte
+into 5- and 3-bit sub-blocks made the encoder and decoder small enough for the logic of the
+day (a few hundred gates), while careful choice of the sub-block tables kept the run length
+at five and supplied the unique comma. IBM used it in the ESCON channel for mainframe
+storage; it was adopted by Fibre Channel in 1994 and from there by Gigabit Ethernet in 1998.
+For roughly twenty years, almost every serial link above 1\,Gb/s used it. It was finally
+displaced not because it was flawed but because 25\% overhead became intolerable once lane
+rates reached 10\,Gb/s.
+\end{history}
+
+\subsubsection{64b/66b and 128b/130b}
+Above 10\,Gb/s, the industry switched to codes with tiny overhead that obtain their balance and
+transitions statistically by scrambling. In \term{64b/66b} (IEEE~802.3ae 10GBASE-R, 2002, and
+every faster Ethernet PCS since) each 64-bit block is prefixed with a 2-bit \emph{sync header},
+\texttt{01} for a data block or \texttt{10} for a control block. The header is guaranteed to
+contain a transition and is never scrambled, so the receiver finds block alignment by
+looking for a position where every 66th bit pair is \texttt{01} or \texttt{10}. The 64
+payload bits are scrambled with the self-synchronising polynomial $1+x^{39}+x^{58}$. The
+overhead is 3.125\%: 10.3125\,GBd for 10\,Gb/s. PCI Express 3.0 (8\,GT/s) uses the analogous
+\term{128b/130b} code with a 2-bit sync header on 128-bit blocks (1.5\% overhead) and an
+additive scrambler; USB~3.1 at 10\,Gb/s uses 128b/132b. PCI Express 6.0 abandons block
+coding altogether: its 64\,GT/s PAM-4 lanes carry fixed-size \emph{flits} protected by forward
+error correction and CRC, with no line-code overhead at all.
+
+A scrambled code does not \emph{guarantee} a maximum run length; it makes long runs
+exponentially unlikely. With good scrambling a run of $L$ identical bits has probability of
+about $2^{-L}$, so a run of 66 would be expected about once every $2^{66}$ bits---many
+centuries at 10\,Gb/s. Designers therefore specify clock recovery and AC coupling to survive
+runs of a few tens of bits, and check that no plausible data pattern can defeat the scrambler.
+
+\subsection{Scramblers}
+\label{sec:ch08:scramblers}
+
+A \term{scrambler} XORs the data with a pseudo-random sequence generated by a
+\term{linear-feedback shift register} (LFSR). The sequence has a period of $2^L-1$ bits if the
+feedback polynomial of the $L$-stage register is \emph{primitive}, and it looks random: equal
+numbers of ones and zeros, runs distributed like coin flips, and a two-valued autocorrelation.
+Chapter~\ref{ch:spreadspectrum} uses the same maximal-length sequences as spreading codes.
+There are two kinds of scrambler (Figure~\ref{fig:ch08_scrambler}).
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[scale=0.92,transform shape,
+  reg/.style={draw=navy,fill=navy!6,thick,minimum height=0.6cm,minimum width=1.25cm,font=\sffamily\scriptsize},
+  xor/.style={draw=accent,circle,thick,inner sep=0pt,minimum size=0.42cm,font=\small},
+  arr/.style={-{Stealth[length=1.8mm]},thick,navy}]
+% ----- self-synchronous scrambler
+\node[font=\sffamily\small\bfseries,text=navy,anchor=west] at (-1.2,1.35) {(a) Self-synchronising (multiplicative) scrambler, $1+x^{39}+x^{58}$};
+\node[xor] (x1) at (0.4,0) {$\oplus$};
+\node[anchor=east,font=\sffamily\scriptsize] (din) at (-0.8,0) {data $d_n$};
+\draw[arr] (din) -- (x1);
+\node[reg] (r1) at (2.2,-1.1) {$s_{n-1}\cdots$};
+\node[reg] (r39) at (4.2,-1.1) {$s_{n-39}$};
+\node[reg] (r40) at (6.2,-1.1) {$\cdots$};
+\node[reg] (r58) at (8.2,-1.1) {$s_{n-58}$};
+\node[xor] (x2) at (5.2,-2.05) {$\oplus$};
+\draw[arr] (x1) -- ++(1.1,0) node[right,font=\sffamily\scriptsize]{line $s_n$};
+\draw[arr] (1.3,0) |- (r1.west);
+\draw[arr] (r1) -- (r39); \draw[arr] (r39) -- (r40); \draw[arr] (r40) -- (r58);
+\draw[arr] (r39.south) |- (x2.west);
+\draw[arr] (r58.south) |- (x2.east);
+\draw[arr] (x2.south) -- ++(0,-0.3) -| (x1.south);
+\node[font=\sffamily\scriptsize,text=gray,anchor=west] at (9.0,-1.1) {receiver: same register};
+\node[font=\sffamily\scriptsize,text=gray,anchor=west] at (9.0,-1.5) {fed by the \emph{received} bits};
+% ----- additive scrambler
+\node[font=\sffamily\small\bfseries,text=navy,anchor=west] at (-1.2,-3.3) {(b) Additive (synchronous) scrambler, SONET $1+x^6+x^7$, reset each frame};
+\node[reg] (a1) at (1.8,-4.4) {$x^1\cdots x^5$};
+\node[reg] (a6) at (3.8,-4.4) {$x^6$};
+\node[reg] (a7) at (5.8,-4.4) {$x^7$};
+\node[xor] (ax) at (4.8,-5.35) {$\oplus$};
+\draw[arr] (a1) -- (a6); \draw[arr] (a6) -- (a7);
+\draw[arr] (a6.south) |- (ax.west); \draw[arr] (a7.south) |- (ax.east);
+\draw[arr] (ax.south) -- ++(0,-0.3) -| (0.7,-4.4) -- (a1.west);
+\node[xor] (ay) at (8.3,-4.4) {$\oplus$};
+\draw[arr] (a7.east) -- (ay.west);
+\node[anchor=west,font=\sffamily\scriptsize] (d2) at (8.8,-3.75) {data};
+\draw[arr] (d2.west) -| (ay.north);
+\draw[arr] (ay.east) -- ++(1.0,0) node[right,font=\sffamily\scriptsize]{line};
+\end{tikzpicture}
+\caption{(a) A self-synchronising scrambler feeds its own output back through the
+register; the descrambler is the mirror image fed by the received bits and needs no
+initialisation, but each line error is multiplied (here into three errors). (b) An
+additive scrambler generates a free-running pseudo-random sequence and XORs it with the
+data; there is no error multiplication, but transmitter and receiver registers must be
+synchronised, for example by resetting them at a known point in each frame.}
+\label{fig:ch08_scrambler}
+\end{figure}
+
+A \term{self-synchronising scrambler} (or multiplicative scrambler) computes
+$s_n=d_n\oplus s_{n-39}\oplus s_{n-58}$ in the 64b/66b case: the line bit depends on the data
+bit and on earlier \emph{line} bits. The descrambler computes
+$d_n=s_n\oplus s_{n-39}\oplus s_{n-58}$ from the received line bits, so after 58 bits it is
+automatically in step with the scrambler, whatever state either started in. This is
+convenient---there is nothing to synchronise---but it has two costs. Each line error appears
+three times at the descrambler output (at $n$, $n+39$ and $n+58$), which the CRC or FEC above
+must tolerate; Ethernet's CRC-32 detects any three bit errors in a maximum-length frame, which
+is part of why this polynomial was acceptable. Its great advantage is that, with 58 stages,
+no practical data pattern can accidentally match the scrambler state for long.
+
+An \term{additive scrambler} (synchronous scrambler) runs its LFSR independently of the data
+and simply XORs its output onto the stream. There is no error multiplication, but the two
+registers must be synchronised. SONET/SDH uses the 7-stage generator $1+x^6+x^7$ (period 127),
+reset to all ones at the start of every frame. Its period is so short that users could, and
+did, send packet payloads that reproduced the scrambler sequence and produced long runs of
+zeros---the ``killer packet'' problem---which is why Packet-over-SONET (RFC~2615) added a
+second, self-synchronising $1+x^{43}$ scrambler on the payload. PCI Express~1 and~2 use $1+x^3+x^4+x^5+x^{16}$,
+reset by special symbols; PCI Express~3 to~5 use the 23-stage polynomial
+$1+x^2+x^5+x^8+x^{16}+x^{21}+x^{23}$ with a different seed per lane so that adjacent lanes do
+not radiate identical patterns. DVB-S2 baseband frames use an additive $1+x^{14}+x^{15}$
+scrambler, and 802.11 Wi-Fi uses $1+x^4+x^7$ with a random seed per packet.
+
+\begin{pitfall}[A scrambler is not a line code]
+Scrambling makes data look random; it does not make it DC-free or run-limited. A short
+scrambler cannot prevent a user from sending data that happens to equal its sequence, as the
+SONET killer-packet episode showed. Robust designs use long registers, scramble the payload
+with a self-synchronising scrambler that no fixed data pattern can track, and use receivers
+that tolerate runs of tens of bits. When you design a custom FPGA link, test it with
+worst-case patterns, not just PRBS-31.
+\end{pitfall}
+
+\begin{inpractice}[PRBS test patterns]
+The same LFSRs generate the \term{pseudo-random binary sequences} (PRBS) that every bit-error
+tester, oscilloscope and SerDes built-in self-test uses: PRBS-7 ($1+x^6+x^7$), PRBS-15
+($1+x^{14}+x^{15}$), PRBS-23 ($1+x^{18}+x^{23}$) and PRBS-31 ($1+x^{28}+x^{31}$), as defined in
+ITU-T O.150 and the relevant IEEE and OIF documents. The longer the pattern, the longer its
+longest run and the richer its low-frequency content, so PRBS-31 is the stress test for
+baseline wander and clock recovery, and PRBS-7 the quick check. For PAM-4 links, the
+standards define PRBS13Q and PRBS31Q (Gray-coded PAM-4 versions) and the SSPRQ ``short
+stress pattern'' used for transmitter compliance.
+\end{inpractice}
+
+%======================================================================
+\section{The power spectrum of a PAM signal}
+\label{sec:ch08:psd}
+%======================================================================
+
+Every claim about line-code spectra in the previous section follows from one formula. It is
+worth deriving carefully, because it also explains spectral lines, the spectral effect of
+correlation between symbols, and later the spectra of QAM and OFDM signals.
+
+\subsection{Cyclostationarity and the averaged autocorrelation}
+
+The PAM signal $s(t)=\sum_k a_kp(t-kT)$ with random symbols is not wide-sense stationary: its
+statistics repeat with period $T$ (the variance is higher at the pulse centres than between
+them, for example). Such a process is \term{cyclostationary}. Its PSD is defined through the
+autocorrelation averaged over one period, which is what a spectrum analyser measures. Assume
+the symbols form a wide-sense stationary sequence with mean $\mu_a=\E[a_k]$ and
+autocorrelation $R_a[m]=\E[a_k a_{k+m}]$ (real symbols for simplicity). Then
+\begin{align}
+R_s(t+\tau,t)&=\E[s(t+\tau)s(t)]=\sum_k\sum_l R_a[l-k]\,p(t+\tau-lT)\,p(t-kT),\notag\\
+\bar R_s(\tau)&=\frac1T\int_0^T R_s(t+\tau,t)\,dt
+=\frac1T\sum_m R_a[m]\int_{-\infty}^{\infty}p(u+\tau-mT)\,p(u)\,du,
+\end{align}
+where the second line uses the fact that summing $k$ over all integers and integrating $t$ over
+one period is the same as integrating over all time. The integral is the pulse's deterministic
+autocorrelation $r_p(\tau-mT)$, whose Fourier transform is $|P(f)|^2$. Taking the transform
+gives the \term{PAM spectrum formula}
+\begin{equation}
+\boxed{\;S_s(f)=\frac{|P(f)|^2}{T}\,S_a(f),\qquad S_a(f)=\sum_{m=-\infty}^{\infty}R_a[m]\,e^{-j2\pi fmT}.\;}
+\label{eq:ch08:psd}
+\end{equation}
+The spectrum factors into two parts: the \emph{pulse} term $|P(f)|^2/T$ and the \emph{symbol}
+term $S_a(f)$, the discrete-time PSD of the symbol sequence (periodic in $f$ with period
+$1/T$). The pulse sets the envelope; the correlation between symbols sculpts it.
+
+\subsection{Uncorrelated symbols and spectral lines}
+
+For independent symbols with variance $\sigma_a^2$ and mean $\mu_a$, $R_a[m]=\sigma_a^2\delta[m]+\mu_a^2$.
+The constant $\mu_a^2$ term is an infinite sum of complex exponentials, which by the Poisson
+sum formula is a train of impulses: $\sum_m e^{-j2\pi fmT}=\frac1T\sum_k\delta(f-k/T)$.
+Substituting into~\eqref{eq:ch08:psd},
+\begin{equation}
+S_s(f)=\frac{\sigma_a^2}{T}|P(f)|^2+\frac{\mu_a^2}{T^2}\sum_{k=-\infty}^{\infty}\big|P(k/T)\big|^2\,\delta\!\left(f-\frac kT\right).
+\label{eq:ch08:psdlines}
+\end{equation}
+This is the most useful result about line-code spectra. The first term is a continuous
+spectrum shaped like the pulse. The second term exists only if the symbols have a non-zero
+mean: it is a set of \term{spectral lines} at multiples of the symbol rate, weighted by the
+pulse spectrum at those frequencies. Several consequences follow at once
+(Figure~\ref{fig:ch08_linecode_psd}):
+\begin{itemize}
+\item \emph{Polar} codes with equiprobable symbols have $\mu_a=0$ and no lines. Polar NRZ has
+$S(f)=A^2T\sinc^2(fT)$, with most of its power below the bit rate (about 90\% inside
+$|f|<1/T$).
+\item \emph{Unipolar NRZ} ($a\in\{0,A\}$) has $\sigma_a^2=\mu_a^2=A^2/4$. Its continuous part is
+a quarter of polar NRZ's, and it has a DC line of power $A^2/4$---half the total power
+spent on a constant that carries no information. The other lines fall on the nulls of
+$\sinc^2(fT)$ and vanish.
+\item \emph{Unipolar RZ} with half-width pulses has $|P(f)|^2=(AT/2)^2\sinc^2(fT/2)$, whose
+nulls are at even multiples of $1/T$. The lines at $f=\pm1/T,\pm3/T,\dots$ survive. The line
+at the bit rate has power $A^2/(4\pi^2)$ in each sideband, a ready-made clock tone that a
+tuned circuit or narrowband PLL can extract directly.
+\end{itemize}
+
+\mdcfig{ch08_linecode_psd}{Power spectral densities of common line codes (unit amplitude,
+equiprobable bits; lines are theory from~\eqref{eq:ch08:psd}--\eqref{eq:ch08:psdlines} and
+dots are Welch estimates from $2\times10^5$ simulated bits). Left: polar codes. Manchester
+moves the energy up and away from DC; AMI and MLT-3 use symbol correlation to create a null at
+DC, with MLT-3's energy concentrated below about $0.3R_b$. Right: unipolar codes waste power
+in spectral lines (arrows); the RZ line at the bit rate is a free clock tone.}
+
+\begin{keyidea}[Spectral lines come from the mean; spectral nulls come from correlation]
+A non-zero symbol mean produces discrete lines at multiples of the symbol rate, weighted by
+$|P(k/T)|^2$. They cost power but can supply a clock. Correlation between symbols multiplies
+the continuous spectrum by $S_a(f)$, which can place nulls where the channel cannot pass
+energy---at DC for a transformer-coupled line, or at the band edge for a partial-response
+channel. Designing a line code is designing $S_a(f)$.
+\end{keyidea}
+
+\subsection{Correlated symbols: AMI, Manchester and MLT-3}
+
+For AMI, the symbols take the values $0$ (probability $\tfrac12$) and $\pm1$ (probability
+$\tfrac14$ each), and successive marks alternate. A short calculation gives $R_a[0]=\tfrac12$,
+$R_a[\pm1]=-\tfrac14$ (the product $a_ka_{k+1}$ is $-1$ when both bits are ones, with
+probability $\frac14$, and zero otherwise), and $R_a[m]=0$ for $|m|\ge2$ (a pair of marks
+separated by one or more bits has equally likely equal and opposite polarities). Hence
+\begin{equation}
+S_a(f)=\tfrac12-\tfrac12\cos(2\pi fT)=\sin^2(\pi fT),
+\end{equation}
+which has a double zero at DC. AMI with NRZ-width pulses has
+$S(f)=T\sinc^2(fT)\sin^2(\pi fT)$; the negative correlation between neighbours has pushed the
+energy away from DC without widening the spectrum.
+
+Manchester can be analysed either as a binary code with the two-half-bit pulse
+$p(t)=\mathrm{rect}$ on the second half minus $\mathrm{rect}$ on the first, which gives
+$|P(f)|^2=T^2\sinc^2(fT/2)\sin^2(\pi fT/2)$ and hence
+$S(f)=T\sinc^2(fT/2)\sin^2(\pi fT/2)$, or as a correlated code at twice the rate. The first
+view is simpler: it is the \emph{pulse} that has no DC content, because its area is zero, so
+no data pattern can produce DC.
+
+MLT-3 is a Markov code: its state walks around the cycle $0,+1,0,-1$ one step per one-bit.
+Writing the level as $\cos(\pi\theta_k/2)$ with the state $\theta_k$ uniform on $\{0,1,2,3\}$
+and averaging over the random walk gives
+$R_a[m]=\tfrac12\,\re\!\big[\big(\tfrac{1+j}{2}\big)^{|m|}\big]$: a damped cosine at a quarter
+of the bit rate. The resulting spectrum (Figure~\ref{fig:ch08_linecode_psd}) peaks at about
+$0.11R_b$ and is small above $0.3R_b$. For 100BASE-TX at 125\,MBd that means a peak near
+14\,MHz and little energy above about 40\,MHz, which is why Category-5 cable rated to
+100\,MHz was enough.
+
+\begin{pitfall}[A spectrum analyser measures something slightly different]
+The averaged PSD of~\eqref{eq:ch08:psd} assumes random data. A real link idling on a fixed
+pattern (a comma, an idle ordered set, a repeated training sequence) is periodic, so its
+spectrum is a set of lines, and those lines can fail an electromagnetic-emissions test that
+random data would pass. This is one reason every modern link scrambles its idle pattern, and
+why spread-spectrum clocking (a slow frequency modulation of the reference clock by about
+0.5\%) is used in PCI Express, SATA and DisplayPort to smear the remaining lines.
+\end{pitfall}
+
+%======================================================================
+\section{Intersymbol interference and the Nyquist criterion}
+\label{sec:ch08:nyquist}
+%======================================================================
+
+\subsection{What ISI looks like}
+
+A rectangular pulse of duration $T$ is perfect in time---neighbouring pulses do not overlap---but
+its $\sinc$ spectrum extends to infinity. Any real channel is band-limited, and band-limiting a
+pulse spreads it in time. In Figure~\ref{fig:ch08_isi} a train of rectangular pulses passes
+through a first-order RC low-pass with a time constant of $0.6T$, a crude model of a cable.
+Each pulse rises too slowly to reach full amplitude and leaves a tail that decays into the next
+symbol periods. The sample of each symbol is now a sum of that symbol and the tails of its
+predecessors, exactly the middle term of~\eqref{eq:ch08:sample}. Whether a given symbol is
+decided correctly depends on the data around it. When the tails are large enough, some data
+patterns cause errors even without noise.
+
+\mdcfig{ch08_isi}{Left: $\sinc$ pulses overlap heavily, yet at each sampling instant every
+pulse except one passes through zero, so the samples (red) equal the transmitted symbols
+exactly. Right: rectangular pulses smeared by an RC low-pass leave tails that add to the
+following samples; the dotted lines show the error each sample suffers from the tails of its
+predecessors.}
+
+The left half of Figure~\ref{fig:ch08_isi} shows the way out. Pulses may overlap as much as
+they like in time, provided each pulse passes through \emph{zero} at every sampling instant of
+the other symbols. Then the sampled sum is exactly the wanted symbol. This is the idea behind
+Nyquist's 1928 paper.
+
+\subsection{The Nyquist criterion}
+
+Let $x(t)$ be the end-to-end pulse of~\eqref{eq:ch08:overall}, with the sampling instant taken
+as $t_0=0$ for convenience. There is no ISI if and only if
+\begin{equation}
+x(kT)=\begin{cases}1,&k=0,\\0,&k\ne0.\end{cases}
+\label{eq:ch08:nyqtime}
+\end{equation}
+To translate this into the frequency domain, sample $x(t)$ with an impulse train. Sampling in
+time replicates the spectrum in frequency (Chapter~\ref{ch:pcm}), so the samples $x(kT)$ have
+the discrete-time Fourier transform $\frac1T\sum_k X(f-k/T)$. The condition
+$x(kT)=\delta[k]$ says this transform is the constant 1. Therefore:
+
+\begin{keyidea}[The Nyquist criterion for zero ISI]
+A pulse $x(t)$ with $x(0)=1$ has zero crossings at every non-zero multiple of $T$ if and only if
+its spectrum satisfies
+\begin{equation}
+\sum_{k=-\infty}^{\infty}X\!\left(f-\frac kT\right)=T\qquad\text{for all }f.
+\label{eq:ch08:nyquist}
+\end{equation}
+The shifted copies of the spectrum must add up to a flat line. A pulse that satisfies this is
+called a \term{Nyquist pulse}.
+\end{keyidea}
+
+Two consequences are immediate.
+\begin{enumerate}
+\item \emph{Minimum bandwidth.} If $X(f)$ is confined to $|f|<W$ with $W<1/(2T)$, the copies do
+not touch and there are gaps where the sum is zero, so~\eqref{eq:ch08:nyquist} fails. A pulse
+that carries $R_s=1/T$ symbols per second without ISI needs a bandwidth of at least
+\begin{equation}
+W_{\min}=\frac{1}{2T}=\frac{R_s}{2},
+\end{equation}
+the \term{Nyquist bandwidth}. Equivalently, a channel of bandwidth $W$ can carry at most $2W$
+independent symbols per second without ISI---the \emph{Nyquist rate}, the same $2W$ as in the
+sampling theorem, and for the same reason.
+\item \emph{The minimum-bandwidth pulse is unique.} At exactly $W=1/(2T)$ the only solution is
+the brick wall $X(f)=T$ for $|f|<1/(2T)$, whose impulse response is $x(t)=\sinc(t/T)$. It is
+impractical: its tails decay only as $1/t$, so a truncated version needs a very long filter, and
+the sum of the tails of many symbols can diverge if the sampling instant is even slightly wrong
+(Section~\ref{sec:ch08:rc}).
+\end{enumerate}
+With more bandwidth than the minimum there is freedom: any spectrum whose roll-off region
+around $1/(2T)$ has \emph{odd symmetry}---whatever it loses below $1/(2T)$ it gains back as a
+mirror image above---satisfies~\eqref{eq:ch08:nyquist}. This is the \term{vestigial symmetry}
+condition, and it is the key to practical pulses.
+
+\begin{history}[Nyquist, 1928]
+Harry Nyquist, a Swedish-born engineer at AT\&T and later Bell Labs, published ``Certain
+factors affecting telegraph speed'' in the \emph{Bell System Technical Journal} in 1924 and
+``Certain topics in telegraph transmission theory'' in the \emph{Transactions of the AIEE} in
+1928. The second paper showed that $2W$ independent pulse values per second can be sent through
+a channel of bandwidth $W$, and gave the vestigial-symmetry condition for pulses that do so
+without interference. Nyquist was thinking about telegraph signals on cables, not about
+sampling, but his result is the direct ancestor of the sampling theorem and, via Hartley's
+1928 paper on information, of Shannon's capacity formula. The same Nyquist also explained
+thermal noise (with John B.~Johnson, 1928) and invented the stability criterion used in every
+feedback-control course (1932). Few engineers have their name attached to three different
+fundamental results.
+\end{history}
+
+%======================================================================
+\section{Raised-cosine and root-raised-cosine pulses}
+\label{sec:ch08:rc}
+%======================================================================
+
+\subsection{The raised-cosine family}
+
+The standard Nyquist pulse is the \term{raised cosine} (RC). Its spectrum is flat up to
+$(1-\beta)/(2T)$, falls as a half-period of a cosine through the Nyquist frequency $1/(2T)$,
+and reaches zero at $(1+\beta)/(2T)$:
+\begin{equation}
+X_{\mathrm{RC}}(f)=\begin{cases}
+T, & |f|\le\dfrac{1-\beta}{2T},\\[2mm]
+\dfrac T2\left[1+\cos\!\left(\dfrac{\pi T}{\beta}\left(|f|-\dfrac{1-\beta}{2T}\right)\right)\right], & \dfrac{1-\beta}{2T}<|f|\le\dfrac{1+\beta}{2T},\\[2mm]
+0, & \text{otherwise.}
+\end{cases}
+\label{eq:ch08:rcspec}
+\end{equation}
+The parameter $\beta\in[0,1]$ is the \term{roll-off factor} or \term{excess bandwidth}: the
+occupied bandwidth is
+\begin{equation}
+B=\frac{1+\beta}{2T}=\frac{R_s(1+\beta)}{2}\ \ \text{(baseband)},\qquad
+B=R_s(1+\beta)\ \ \text{(passband, on a carrier).}
+\label{eq:ch08:rcbw}
+\end{equation}
+The impulse response is
+\begin{equation}
+x_{\mathrm{RC}}(t)=\sinc\!\left(\frac tT\right)\frac{\cos(\pi\beta t/T)}{1-(2\beta t/T)^2}.
+\label{eq:ch08:rctime}
+\end{equation}
+The $\sinc(t/T)$ factor supplies the zero crossings at multiples of $T$; the second factor
+tapers the tails, which now decay as $1/|t|^3$ instead of $1/|t|$
+(Figure~\ref{fig:ch08_raised_cosine}). The case $\beta=0$ is the brick-wall sinc; $\beta=1$ is
+the ``full'' raised cosine, which has a spectrum twice the Nyquist bandwidth and additional
+zero crossings halfway between the sampling instants.
+
+\mdcfig{ch08_raised_cosine}{The raised-cosine family. Left: impulse responses; all pass
+through zero at every non-zero multiple of $T$. Centre: spectra; the roll-off is odd-symmetric
+about the Nyquist frequency $1/(2T)$, so the shifted copies sum to a constant. Right: the tail
+envelope on a log scale; larger roll-off buys much faster decay.}
+
+\subsection{Choosing the roll-off}
+
+The roll-off is one of the most consequential numbers in a physical-layer specification. A
+small $\beta$ saves bandwidth; a large $\beta$ buys:
+\begin{itemize}
+\item \emph{Shorter filters.} The tails decay faster, so the pulse can be truncated to fewer
+symbol periods for a given level of residual ISI and out-of-band emission.
+\item \emph{Timing tolerance.} With a small roll-off, the tails are large, and if the receiver
+samples a fraction of a symbol away from the ideal instant, the tails of many neighbouring
+symbols no longer pass through zero and add up. Figure~\ref{fig:ch08_timing_sensitivity}
+shows the worst-case eye opening against timing error: at $\beta=0.1$ a timing error of 0.2
+symbols closes the eye completely, whereas at $\beta=1$ the eye loses only a few decibels.
+\item \emph{Lower peak-to-average power ratio.} Large tails also mean large peaks when many of
+them add in phase. In a simulation of RRC-shaped QPSK, the peak-to-average power ratio exceeded
+with probability $10^{-4}$ is about 3.7\,dB at $\beta=0.35$, 5.1\,dB at $\beta=0.20$ and
+6.3\,dB at $\beta=0.05$; every extra decibel costs power-amplifier back-off
+(Chapter~\ref{ch:sdr}).
+\end{itemize}
+
+\mdcfig[0.7]{ch08_timing_sensitivity}{Worst-case eye opening (the smallest value of the
+decision variable over a long random sequence, relative to the ideal) against sampling-time
+error, for raised-cosine pulses. Small roll-off demands precise timing.}
+
+\begin{inpractice}[Roll-off factors in real systems]
+Wideband CDMA (3GPP TS 25.104) uses $\beta=0.22$ at 3.84\,Mchip/s, giving an occupied
+bandwidth of 4.68\,MHz inside its 5\,MHz channel. TETRA uses 0.35. DVB-S (1994) used 0.35;
+DVB-S2 (ETSI EN 302 307, 2005) offers 0.35, 0.25 and 0.20; and DVB-S2X (2014) adds 0.15, 0.10
+and 0.05, because on a satellite transponder of fixed bandwidth, lower roll-off translates
+directly into more symbols per second. Cable-TV QAM (ITU-T J.83 Annex~B) uses 0.18 for 64-QAM
+and 0.12 for 256-QAM. The trend is towards smaller roll-offs as digital filters become cheap
+and receivers' timing recovery improves. At the other extreme, high-speed wireline links
+rarely use explicit raised-cosine filtering at all: the channel itself provides the
+band-limiting and an equaliser shapes the result (Section~\ref{sec:ch08:channel}).
+\end{inpractice}
+
+\begin{worked}[Roll-off and a satellite transponder]
+A 36\,MHz satellite transponder carries a single DVB-S2 carrier. What symbol rate fits with
+$\beta=0.35$, 0.20 and 0.05, and how much extra throughput does the lowest roll-off give?
+
+From~\eqref{eq:ch08:rcbw}, the passband bandwidth is $R_s(1+\beta)$, so $R_s=36/(1+\beta)$\,MBd:
+26.7\,MBd at $\beta=0.35$, 30.0\,MBd at 0.20 and 34.3\,MBd at 0.05. In practice a guard
+band of a few per cent is left between carriers, but the ratio stands: going from 0.35 to
+0.05 gives $1.35/1.05=1.29$, a 29\% throughput increase for the same modulation and coding,
+and 14\% compared with 0.20. The price is a filter roughly three to four times longer, tighter
+timing recovery, and more amplifier back-off. For a satellite operator who charges by the
+megahertz, that is a bargain.
+\end{worked}
+
+\subsection{Splitting the filter: the root raised cosine}
+
+The Nyquist criterion constrains the \emph{end-to-end} pulse $x(t)=g_T*c*g_R$. The next section
+shows that, in white noise, the receive filter should be matched to the received pulse,
+$G_R(f)=G_T^*(f)$ when the channel is flat. Both requirements are met by splitting the
+raised-cosine spectrum equally:
+\begin{equation}
+|G_T(f)|=|G_R(f)|=\sqrt{X_{\mathrm{RC}}(f)}.
+\end{equation}
+This is the \term{root raised cosine} (RRC), used in nearly every single-carrier radio
+standard. Its impulse response is
+\begin{equation}
+g_{\mathrm{RRC}}(t)=\frac{1}{\sqrt T}\,
+\frac{\sin\!\big(\pi(1-\beta)t/T\big)+4\beta(t/T)\cos\!\big(\pi(1+\beta)t/T\big)}
+{\pi(t/T)\big[1-(4\beta t/T)^2\big]},
+\label{eq:ch08:rrc}
+\end{equation}
+with the limiting values at $t=0$ and $t=\pm T/(4\beta)$ found by l'H\^opital's rule. The RRC
+pulse alone is \emph{not} a Nyquist pulse---it has ISI---but the cascade of two RRC filters is.
+A receiver that looks at the transmitted waveform before the matched filter will therefore see
+a messy eye; only after the receive RRC does the eye open. Figure~\ref{fig:ch08_eyes} shows
+the result for three roll-offs.
+
+\mdcfig{ch08_eyes}{Eye diagrams after an RRC transmit filter and RRC matched filter
+(truncated to 16 symbols), for three roll-off factors. Top: without noise the eye is fully
+open at the sampling instant, with thin crossings for large $\beta$. Bottom: at
+$E_s/N_0=15$\,dB, the same noise gives the same vertical spread, but the small-roll-off eyes
+close faster away from the centre.}
+
+\begin{pitfall}[Truncation and quantisation break the Nyquist property]
+A digital RRC filter is a truncated, sampled and quantised version of~\eqref{eq:ch08:rrc}.
+Truncating it leaves residual ISI and raises the stopband: with $\beta=0.22$ and plain
+truncation, a span of 8 symbols leaves sidelobes only about 30\,dB down, and even 20 symbols
+reaches only about 48\,dB. Designers often window the truncated response or optimise the taps
+directly (for example with a least-squares design against the ideal spectrum) and then check
+two things: the adjacent-channel emission against the spectrum mask, and the residual ISI of
+the TX--RX cascade, usually quoted as the \emph{error-vector magnitude} (EVM) with no noise.
+A self-ISI EVM below about 1\% ($-40$\,dB) is a typical target. Remember also that the
+transmitter's analog reconstruction filter and the receiver's anti-aliasing filter are part of
+the cascade and have phase distortion of their own.
+\end{pitfall}
+
+%======================================================================
+\section{The matched filter}
+\label{sec:ch08:mf}
+%======================================================================
+
+The Nyquist criterion removes ISI. The receive filter has a second job: to let through as
+much signal and as little noise as possible. Surprisingly, the answer to ``what is the best
+receive filter?'' does not depend on the details of the noise level or the alphabet. It depends
+only on the pulse.
+
+\subsection{Derivation by the Cauchy--Schwarz inequality}
+
+Consider one pulse $p(t)$ of energy $E_p=\int|p(t)|^2dt$, received in additive white Gaussian
+noise of two-sided PSD $N_0/2$. The receiver passes $r(t)=p(t)+n(t)$ through a filter $h(t)$
+and samples the output at time $T_0$. The signal part of the sample is
+\begin{equation}
+y_s(T_0)=\int_{-\infty}^{\infty}h(\tau)\,p(T_0-\tau)\,d\tau,
+\end{equation}
+and the noise part has variance
+\begin{equation}
+\sigma^2=\frac{N_0}{2}\int_{-\infty}^{\infty}|h(\tau)|^2\,d\tau.
+\end{equation}
+The output signal-to-noise ratio is therefore
+\begin{equation}
+\mathrm{SNR}=\frac{\big|\int h(\tau)\,p(T_0-\tau)\,d\tau\big|^2}{\frac{N_0}{2}\int|h(\tau)|^2d\tau}.
+\end{equation}
+The \term{Cauchy--Schwarz inequality} says that for any two finite-energy functions,
+$\big|\int u\,v\,d\tau\big|^2\le\int|u|^2d\tau\int|v|^2d\tau$, with equality if and only if one is
+a scalar multiple of the conjugate of the other. Applying it with $u=h(\tau)$ and
+$v=p(T_0-\tau)$,
+\begin{equation}
+\mathrm{SNR}\le\frac{\int|h|^2d\tau\;\int|p(T_0-\tau)|^2d\tau}{\frac{N_0}{2}\int|h|^2d\tau}=\frac{2E_p}{N_0},
+\label{eq:ch08:mfsnr}
+\end{equation}
+with equality when
+\begin{equation}
+\boxed{\;h(t)=K\,p^*(T_0-t).\;}
+\label{eq:ch08:mf}
+\end{equation}
+
+\begin{keyidea}[The matched filter]
+In white Gaussian noise, the linear filter that maximises the sampled signal-to-noise ratio
+has an impulse response equal to the time-reversed, conjugated, delayed pulse. Its output SNR
+is $2E_p/N_0$, which depends only on the pulse \emph{energy}, not on its shape, bandwidth or
+duration. In the frequency domain, $H(f)=K\,P^*(f)e^{-j2\pi fT_0}$: the filter emphasises the
+frequencies where the signal is strong and ignores those where there is only noise.
+\end{keyidea}
+
+This result is remarkable. Two pulses of the same energy---a short, tall one and a long, flat
+one; a chirp and a rectangle---are equally detectable in white noise if each receiver is
+matched to its pulse. That is why radar can send long, low-power chirps instead of short,
+high-power spikes (pulse compression), why GPS signals 20\,dB below the thermal noise floor can
+be received (Chapter~\ref{ch:spreadspectrum}), and why deep-space probes trade time for
+energy at rates of a few bits per second. Matched filtering is the reason energy, and hence
+$E_b/N_0$, is the natural currency of digital communications.
+
+\subsection{The correlator and integrate-and-dump}
+
+Sampling the matched filter's output at $T_0$ gives
+\begin{equation}
+y(T_0)=\int r(\tau)\,h(T_0-\tau)\,d\tau=\int r(\tau)\,p^*(\tau)\,d\tau,
+\end{equation}
+which is simply the \term{correlation} of the received signal with the known pulse. A
+\term{correlator receiver} multiplies $r(t)$ by a locally generated replica of $p(t)$ and
+integrates. For a rectangular pulse the replica is a constant and the correlator reduces to
+an \term{integrate-and-dump} circuit: integrate the received signal over each bit, sample,
+reset. Figure~\ref{fig:ch08_matched_filter} shows it at work on a signal whose per-sample SNR is
+about $-1$\,dB---individual samples are almost useless---but whose integrated value at the end of
+each bit is decided correctly every time. Integrating 32 independent noise samples improves the
+SNR by $10\log_{10}32=15$\,dB.
+
+\mdcfig{ch08_matched_filter}{The matched filter for a rectangular pulse is an
+integrate-and-dump. Top: polar NRZ at a per-sample SNR of about $-1$\,dB. Bottom: the
+integrator output ramps towards $\pm A$ during each bit and is sampled (red dots) at the end of
+the bit, then reset. The noise averages out; the signal adds coherently.}
+
+For a filter matched to a pulse that is also a Nyquist pulse after matching---the RRC pair of
+Section~\ref{sec:ch08:rc}---the matched filter maximises SNR \emph{and} gives zero ISI. That is
+the condition for a pulse $g(t)$ whose autocorrelation $\int g(\tau)g^*(\tau-kT)d\tau$ is zero
+for $k\ne0$: in other words, the shifted pulses $g(t-kT)$ are \emph{orthogonal}. The RRC pulse
+is the standard orthogonal pulse, and a PAM signal built from it is an orthonormal expansion
+whose coefficients the matched filter recovers exactly, sample by sample. This geometric view
+is developed in Chapter~\ref{ch:modulation}.
+
+\subsection{Coloured noise and the whitening filter}
+
+If the noise is not white but has PSD $S_n(f)$, the same argument applied in the frequency
+domain (Cauchy--Schwarz on $\int H P\,e^{j2\pi fT_0}df$ with weights $S_n(f)$) gives
+\begin{equation}
+H(f)=K\,\frac{P^*(f)}{S_n(f)}\,e^{-j2\pi fT_0},\qquad
+\mathrm{SNR}_{\max}=\int_{-\infty}^{\infty}\frac{|P(f)|^2}{S_n(f)}\,df.
+\label{eq:ch08:coloured}
+\end{equation}
+This filter factors into two stages. A \term{whitening filter} $1/\sqrt{S_n(f)}$ makes the noise
+white and changes the pulse to $P(f)/\sqrt{S_n(f)}$; a filter matched to that whitened pulse
+follows. The result is intuitive: frequencies where the noise is strong are attenuated, even if
+the signal is strong there too. It matters in practice whenever crosstalk or interference
+dominates thermal noise---on a DSL line, where near-end crosstalk from other pairs in the same
+binder rises with frequency, or in a receiver with a strong narrowband interferer. The
+same structure---whiten, then match---appears in the equalisers of Chapter~\ref{ch:equalization}
+and in the optimum MIMO receivers of Chapter~\ref{ch:mimo}.
+
+\begin{pitfall}[Matched to what?]
+The matched filter must be matched to the pulse \emph{as received}, after the channel. In a
+radio with a flat channel the receive RRC is matched to the transmit RRC and all is well. On a
+cable with 20\,dB of high-frequency loss, a filter matched to the \emph{transmitted} pulse is
+badly mismatched: the received pulse is long and smeared. The combination of a filter matched
+to the received pulse followed by a symbol-spaced equaliser is optimal; that structure, the
+\emph{whitened matched filter}, is the front end of the maximum-likelihood sequence detector of
+Chapter~\ref{ch:equalization}.
+\end{pitfall}
+
+%======================================================================
+\section{Binary detection in Gaussian noise}
+\label{sec:ch08:binary}
+%======================================================================
+
+After the matched filter and sampler, the receiver has one number per symbol, $y=a+\nu$, where
+$a$ is the noiseless sample value and $\nu$ is Gaussian with variance $\sigma^2$. The last step
+is to decide which symbol was sent.
+
+\subsection{MAP and ML decisions}
+
+Suppose one of two values $a_0<a_1$ is sent with prior probabilities $P_0$ and $P_1$. The
+decision that minimises the probability of error is the \term{maximum a posteriori} (MAP) rule:
+choose the symbol with the larger posterior probability $P_i\,f(y\,|\,a_i)$. With Gaussian
+likelihoods $f(y|a_i)\propto e^{-(y-a_i)^2/2\sigma^2}$, taking logarithms reduces the comparison to
+a threshold test, $y\gtrless\gamma$, with
+\begin{equation}
+\gamma=\frac{a_0+a_1}{2}+\frac{\sigma^2}{a_1-a_0}\ln\frac{P_0}{P_1}.
+\label{eq:ch08:map}
+\end{equation}
+With equal priors the log term vanishes and the threshold is the midpoint---the
+\term{maximum-likelihood} (ML) rule, used unless the source is known to be biased. Unequal
+priors shift the threshold towards the less likely symbol, by an amount that grows with the
+noise. (Modern soft-decision decoders, Chapter~\ref{ch:moderncodes}, do not make this hard
+decision at all; they pass the log-likelihood ratio $\ln\frac{f(y|a_1)}{f(y|a_0)}=\frac{(a_1-a_0)}{\sigma^2}\big(y-\frac{a_0+a_1}2\big)$ to the decoder.)
+
+With the midpoint threshold, an error occurs when the noise pushes $y$ past the midpoint, a
+distance $d/2$ from each point, where $d=a_1-a_0$. The probability is
+\begin{equation}
+P_e=\Q\!\left(\frac{d}{2\sigma}\right),\qquad \Q(x)=\frac{1}{\sqrt{2\pi}}\int_x^\infty e^{-u^2/2}du.
+\label{eq:ch08:pe}
+\end{equation}
+The \term{Q-function}, the tail of the standard Gaussian, is the most important function in
+this book (Chapter~\ref{ch:noise}). Values worth memorising: $\Q(x)=10^{-3}$ at $x=3.09$,
+$10^{-6}$ at 4.75, $10^{-9}$ at 6.00, $10^{-12}$ at 7.03 and $10^{-15}$ at 7.94. For large
+$x$, $\Q(x)\approx e^{-x^2/2}/(x\sqrt{2\pi})$, so the error probability falls exponentially
+with the square of the distance-to-noise ratio: each additional decibel of SNR buys more and
+more decades of error rate.
+
+\subsection{Energy bookkeeping: \texorpdfstring{$E_b/N_0$}{Eb/N0}}
+
+To compare signalling schemes fairly, express $d/2\sigma$ in terms of the energy spent per bit.
+With a matched filter normalised to unit energy, the noise variance at the sampler is
+$\sigma^2=N_0/2$ and a pulse of energy $E$ produces a sample of amplitude $\sqrt E$. For three
+classic binary schemes:
+\begin{itemize}
+\item \emph{Antipodal} (polar NRZ, BPSK): the two pulses are $\pm p(t)$, each of energy $E_b$.
+The samples are $\pm\sqrt{E_b}$, $d=2\sqrt{E_b}$, and
+\begin{equation}
+P_b=\Q\!\left(\sqrt{\frac{2E_b}{N_0}}\right).
+\label{eq:ch08:antipodal}
+\end{equation}
+\item \emph{Orthogonal} (e.g.\ two tones in coherent FSK, or pulses in different time slots as
+in pulse-position modulation): the pulses $p_0(t)$, $p_1(t)$ each have energy $E_b$ and zero
+cross-correlation, so they are a distance $\sqrt{2E_b}$ apart in signal space
+(Chapter~\ref{ch:modulation}), and
+\begin{equation}
+P_b=\Q\!\left(\sqrt{\frac{E_b}{N_0}}\right).
+\end{equation}
+\item \emph{On--off} (unipolar NRZ, on-off keying): the pulses are $0$ and $p(t)$ with peak
+energy $E_1$. The average energy is $E_b=E_1/2$, the distance is $\sqrt{E_1}=\sqrt{2E_b}$, and
+$P_b=\Q\big(\sqrt{E_b/N_0}\big)$---the same as orthogonal, 3\,dB worse than antipodal. In terms
+of \emph{peak} energy it is 6\,dB worse than antipodal, which matters for peak-power-limited
+transmitters such as lasers.
+\end{itemize}
+
+\mdcfig[0.78]{ch08_ber_binary}{Bit error probability against $E_b/N_0$. Antipodal signalling
+is 3\,dB better than orthogonal or on-off signalling at every error rate. The dots are a
+Monte Carlo simulation of polar NRZ with $2\times10^6$ bits per point. Gray-coded 4-PAM needs
+about 4\,dB more $E_b/N_0$ than binary; noncoherent detection of orthogonal FSK costs
+roughly another 1\,dB at low error rates (Chapter~\ref{ch:modulation}).}
+
+Figure~\ref{fig:ch08_ber_binary} plots these curves. The 3\,dB gap between antipodal and
+orthogonal is a direct consequence of geometry: antipodal points are $2\sqrt{E_b}$ apart,
+orthogonal points only $\sqrt2\sqrt{E_b}$. Everything else in digital modulation---QPSK, QAM,
+coding gains---can be understood as a way of placing points so that their minimum distance is
+as large as possible for a given average energy.
+
+\begin{worked}[How much signal does a 10\,Gb/s receiver need?]
+A 10\,Gb/s NRZ optical receiver must achieve a bit error rate of $10^{-12}$ without FEC. What
+$E_b/N_0$ does ideal antipodal detection require, and what does that mean for the eye?
+
+From~\eqref{eq:ch08:antipodal}, $\sqrt{2E_b/N_0}=\Q^{-1}(10^{-12})=7.03$, so
+$E_b/N_0=7.03^2/2=24.7$, or 13.9\,dB. In terms of the eye: the ratio of half the eye opening to
+the RMS noise, $d/2\sigma$, must be at least 7.03, or equivalently the full eye opening must be
+about 14 times the RMS noise. If the receiver's input-referred noise after the matched filter is
+$\sigma=2$\,mV, the eye must be at least 28\,mV high at the slicer---before accounting for any
+ISI, jitter, crosstalk or slicer offset, each of which eats part of the margin. An optical
+receiver's noise is actually signal dependent (shot noise and optical amplifier noise are larger
+on a one than on a zero), which shifts the optimum threshold below the midpoint, a
+practical instance of~\eqref{eq:ch08:map} with unequal variances rather than unequal priors.
+Optical engineers express the same requirement as a ``Q-factor'' of 7.03, or 17\,dB in their
+$20\log_{10}Q$ convention.
+\end{worked}
+
+\begin{inpractice}[The Q-factor and the BER that nobody measures]
+A BER of $10^{-12}$ at 10\,Gb/s means one error every 100 seconds; measuring it with 95\%
+confidence requires about $3\times10^{12}$ error-free bits, five minutes per data point, and
+$10^{-15}$ would take days. Test engineers therefore extrapolate. They measure the mean and
+standard deviation of the one and zero levels at the sampling instant (or the BER at several
+deliberately offset thresholds, which is quicker to accumulate) and compute
+$Q=(\mu_1-\mu_0)/(\sigma_1+\sigma_0)$, from which $\mathrm{BER}\approx\Q(Q)$. The same idea,
+applied along the time axis, gives the bathtub curves of Section~\ref{sec:ch08:jitter}.
+Extrapolation assumes Gaussian tails; bounded interferers such as crosstalk and deterministic
+jitter make the true tails thinner, whereas rare events such as supply glitches make them
+fatter, and the latter can surprise you in the field.
+\end{inpractice}
+
+%======================================================================
+\section{Eye diagrams}
+\label{sec:ch08:eyes}
+%======================================================================
+
+\subsection{Anatomy of an eye}
+
+An \term{eye diagram} overlays many short segments of the received waveform, each two or three
+symbols long, aligned to the symbol clock. On an oscilloscope it is produced by triggering on a
+recovered clock and using infinite persistence; in simulation it is a reshaping of the waveform
+array. Because every data pattern leaves its trace, the eye shows at a glance the worst-case
+behaviour of the link: the effect of all combinations of neighbouring symbols, of noise and of
+timing variations. It is the single most useful diagnostic in baseband engineering, and a
+test engineer can read a link's health from it in seconds.
+
+\mdcfig[0.9]{ch08_eye_anatomy}{Anatomy of an eye diagram (binary RRC signal, $\beta=0.5$,
+$E_s/N_0=21$\,dB). The eye height is the vertical noise margin at the best sampling instant; the
+eye width is the timing margin at the decision threshold. The slope of the sides determines how
+quickly the vertical opening shrinks with timing error. A compliance mask (orange) defines a
+keep-out region that no trace may enter.}
+
+The features in Figure~\ref{fig:ch08_eye_anatomy} each tell a story:
+\begin{itemize}
+\item \emph{Eye height} (vertical opening) at the sampling instant is the noise margin: the
+smallest distance between any ``one'' trace and any ``zero'' trace. ISI reduces it
+deterministically (the spread of the upper and lower rails in the noise-free eye); noise
+reduces it statistically.
+\item \emph{Eye width} (horizontal opening) at the threshold is the timing margin, reduced by
+jitter and by ISI, which shifts the zero crossings according to the data pattern.
+\item \emph{Slope} of the eye's sides at the sampling instant sets the sensitivity to timing
+error: a steep eye closes quickly as the sampling phase moves.
+\item \emph{Crossing point}. For NRZ the crossings should be at 50\% of the amplitude. Crossings
+that are high or low indicate asymmetric rise and fall times or duty-cycle distortion, typical
+of optical transmitters.
+\item \emph{Overshoot and ringing} indicate reflections from impedance discontinuities or an
+over-peaked equaliser.
+\end{itemize}
+
+\subsection{Compliance masks}
+
+Standards specify transmitter and receiver quality by \term{eye masks}: a hexagonal or
+diamond-shaped keep-out region in the centre of the eye, and keep-out regions above and below,
+that no trace may enter over a specified number of waveforms. SONET/SDH (ITU-T G.957) and
+10G Ethernet optical transmitters are specified this way, with the mask margin (how far the
+mask can be scaled before hits occur) as a figure of merit. Faster electrical standards have
+moved from fixed masks to statistical ones: the receiver-side eye after a reference equaliser
+must exceed a minimum eye height and width at a stated BER, obtained by extrapolation. PCI
+Express, for example, defines the received eye after a reference CTLE and DFE at a BER of
+$10^{-12}$; IEEE 802.3 PAM-4 interfaces use metrics such as \emph{eye height and width at
+$10^{-6}$} (EH6, EW6) and the transmitter dispersion eye closure for PAM-4 (TDECQ), which
+estimates the SNR penalty of a real transmitter compared with an ideal one after a reference
+equaliser.
+
+\subsection{Jitter and its decomposition}
+\label{sec:ch08:jitter}
+
+\textbf{Jitter}\index{jitter} is the deviation of signal edges from their ideal positions in time. At 25\,Gb/s
+one unit interval (UI, a bit period) is 40\,ps, and a few picoseconds of jitter is a large
+fraction of the budget. Jitter is decomposed into components with different statistics,
+because they add differently:
+\begin{itemize}
+\item \textbf{Random jitter}\index{random jitter} (RJ): unbounded, approximately Gaussian, from thermal noise and
+oscillator phase noise (Chapter~\ref{ch:sdr}). Specified by its RMS value $\sigma_{RJ}$.
+\item \textbf{Deterministic jitter}\index{deterministic jitter} (DJ): bounded, specified by its peak-to-peak value. Its main
+sub-types are \emph{data-dependent jitter} (DDJ), which is ISI seen on the time axis---an edge
+after a long run of ones arrives at a different time from one after an alternating
+pattern---\emph{duty-cycle distortion} (DCD), a systematic difference between rising and falling
+edges; \emph{periodic jitter} (PJ) from power-supply ripple or spurious tones; and
+\emph{bounded uncorrelated jitter} from crosstalk.
+\end{itemize}
+Bounded components add linearly (peak to peak), Gaussian components add in root-sum-square,
+and the total jitter at a given BER is the combination:
+\begin{equation}
+\mathrm{TJ}(\mathrm{BER})\approx\mathrm{DJ}_{\delta\delta}+2\,\Q^{-1}\!\left(\frac{\mathrm{BER}}{\rho_T}\right)\sigma_{RJ},
+\label{eq:ch08:tj}
+\end{equation}
+where $\rho_T$ is the transition density (0.5 for random data). This is the \term{dual-Dirac
+model}: the DJ distribution is replaced by two impulses separated by $\mathrm{DJ}_{\delta\delta}$,
+each convolved with the RJ Gaussian (Figure~\ref{fig:ch08_bathtub}, left). The factor multiplying
+$\sigma_{RJ}$ is about 14 at $10^{-12}$ (13.9 with $\rho_T=0.5$; the often-quoted 14.07
+assumes $\rho_T=1$) and about 16 at $10^{-15}$, so even a small RJ dominates
+the total at low BER. $\mathrm{DJ}_{\delta\delta}$ is a model parameter fitted to the tails, and
+it is usually smaller than the actual peak-to-peak DJ.
+
+\subsection{Bathtub curves}
+
+If the receiver samples at phase $x$ (in UI) from the left crossing of the eye, an error occurs
+when an edge from the left crosses to the right of $x$, or one from the right crosses to its
+left. Under the dual-Dirac model,
+\begin{equation}
+\mathrm{BER}(x)=\frac{\rho_T}{2}\left[\Q\!\left(\frac{x-\mathrm{DJ}/2}{\sigma}\right)+\Q\!\left(\frac{x+\mathrm{DJ}/2}{\sigma}\right)\right]+\big(\text{same with }x\to1-x\big).
+\end{equation}
+Plotted on a log scale against $x$, this is the \term{bathtub curve}
+(Figure~\ref{fig:ch08_bathtub}, right): steep walls where the sampling phase is close to the
+crossings, and a flat, very low floor in the middle. The width of the bathtub at a target BER is
+the eye opening at that BER, $1-\mathrm{TJ}(\mathrm{BER})$. A bit-error-rate tester measures the
+bathtub directly by sweeping the sampling phase and counting errors down to $10^{-8}$ or so;
+the rest of the curve is extrapolated by fitting the dual-Dirac model to the measured walls.
+
+\mdcfig{ch08_bathtub}{Left: a jitter histogram with a bimodal deterministic component convolved
+with Gaussian random jitter; the RJ-only distribution (pink) is shown for comparison. Right:
+bathtub curves for the dual-Dirac model. Increasing RJ from 0.01 to 0.035\,UI closes the
+$10^{-12}$ eye far more than increasing DJ from 0.1 to 0.25\,UI, because RJ is multiplied by
+about 14 at that error rate.}
+
+\begin{worked}[A jitter budget at 25.78\,Gb/s]
+A 25GBASE-R lane runs at 25.78125\,Gb/s, so 1\,UI $=38.8$\,ps. Suppose a transmitter has
+$\mathrm{DJ}_{\delta\delta}=0.15$\,UI and $\sigma_{RJ}=0.7$\,ps $=0.018$\,UI. What is the total
+jitter and eye width at $10^{-12}$?
+
+From~\eqref{eq:ch08:tj} with $\rho_T=0.5$: $\Q^{-1}(2\times10^{-12})\approx6.93$, so
+$\mathrm{TJ}=0.15+2(6.93)(0.018)=0.15+0.25=0.40$\,UI, and the eye width is $0.60$\,UI
+$=23$\,ps. Notice that the 0.7\,ps of random jitter contributes more than the 5.8\,ps of
+deterministic jitter. Halving $\sigma_{RJ}$ with a lower-phase-noise PLL would widen the eye by
+0.125\,UI (4.8\,ps); halving the DJ would add only 0.075\,UI. The lesson generalises: at low
+BER, random jitter is the expensive kind.
+\end{worked}
+
+\subsection{Clock and data recovery}
+
+Every eye in this chapter assumed that the receiver knows where the centre of the eye is. In a
+wireline link no clock is sent; the receiver derives it from the data with a
+\term{clock and data recovery} (CDR) circuit, a phase-locked loop whose phase detector compares
+data transitions with the local clock. The classic \emph{Alexander} or \emph{bang-bang} phase
+detector samples each bit twice, at the centre and at the edge: if the edge sample agrees with
+the previous bit, the clock is late; if it agrees with the next bit, early. Baud-rate detectors
+such as the Mueller--M\"uller detector use only one sample per symbol and are favoured in
+ADC-based receivers. The CDR's loop bandwidth is a compromise (many serial standards
+measure jitter through a reference ``golden PLL'' with a corner at the baud rate divided by
+1667, which is 3.75\,MHz at 6.25\,Gb/s): it must track
+low-frequency wander and spread-spectrum clocking, which the receiver tolerates, while rejecting
+high-frequency jitter, which it cannot follow and which therefore eats the eye. The
+standards express this as a \emph{jitter tolerance mask}: sinusoidal jitter of many UI is
+tolerated at low frequency, falling to a fraction of a UI above the loop bandwidth.
+Chapter~\ref{ch:sync} develops the PLL theory and timing-error detectors in detail.
+
+%======================================================================
+\section{Channel loss and baseband equalisation}
+\label{sec:ch08:channel}
+%======================================================================
+
+So far the channel has been flat. Real baseband channels---a circuit-board trace, a backplane,
+a twinax cable, a twisted pair---are not. Their loss rises steeply with frequency, and at modern
+data rates the received pulse is spread over many symbol periods. This section introduces the
+problem and the three classic remedies; Chapter~\ref{ch:equalization} develops the theory in
+full.
+
+\subsection{Why copper is a low-pass filter}
+
+Two mechanisms dominate the loss of a transmission line at gigahertz frequencies. The
+\term{skin effect} confines current to a thin layer at the conductor surface, of depth
+$\delta=1/\sqrt{\pi f\mu\sigma}$ (about 0.66\,$\mu$m in copper at 10\,GHz), so resistance, and
+hence loss in decibels, grows as $\sqrt f$. \textbf{Dielectric loss}\index{dielectric loss}, from the energy absorbed by
+the insulating material in each cycle of the field, grows in proportion to $f$ and to the
+material's loss tangent: about 0.02 for ordinary FR-4 laminate, and below 0.004 for the
+low-loss materials used at 50\,Gb/s per lane and above. Surface roughness of the copper foil
+adds more loss. On top of the smooth loss, every via stub, connector and package transition
+causes a reflection, which appears as notches in the frequency response and echoes in the
+pulse response. The engineering answers include low-loss laminates, smooth copper, back-drilled
+vias to remove stubs, and ever-shorter paths such as cables in place of board traces and
+co-packaged optics.
+
+\mdcfig{ch08_channel_loss}{Left: a lossy-line model with loss in decibels proportional to
+$0.4\sqrt f+0.6f$, scaled to 10, 20 and 30\,dB at the Nyquist frequency. Right: the resulting
+single-bit (pulse) responses, normalised to their peaks. The dots mark the samples at
+unit-interval spacing: the main cursor $h_0$, a small pre-cursor $h_{-1}$, and a long train of
+post-cursors that are the ISI.}
+
+The \term{pulse response}---the response of the channel to a single one-UI pulse---is the
+wireline engineer's main tool. Sampled once per UI, it gives the \term{cursors}: the main
+cursor $h_0$, pre-cursors $h_{-1},h_{-2},\dots$ and post-cursors $h_1,h_2,\dots$
+(Figure~\ref{fig:ch08_channel_loss}). The worst-case eye opening can be computed directly from
+them: the eye closes when the sum of the magnitudes of all the other cursors exceeds the main
+cursor, $\sum_{k\ne0}|h_k|\ge h_0$. This \emph{peak distortion} analysis is how link budgets are
+first estimated. Channel loss is quoted at the Nyquist frequency, $f_N=R_s/2$: in rough terms, a
+link with less than 10\,dB of loss at $f_N$ needs little equalisation, one with 20--30\,dB needs
+serious equalisation, and the long-reach backplane channels of current standards---about
+28\,dB at 26.56\,GHz for IEEE~802.3ck 100GBASE-KR1, about 36\,dB at 16\,GHz for PCI Express
+5.0---need everything in the next subsection.
+
+\subsection{Three equalisers}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.35cm and 0.38cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.95cm,minimum width=1.2cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[blk] (ser) {Serialiser\\(PISO)};
+\node[blk,right=of ser] (ffe) {TX FFE\\(3--5 taps)};
+\node[blk,right=of ffe] (drv) {Driver};
+\node[blk,right=of drv,fill=accent!6,draw=accent,minimum width=1.6cm] (ch) {Channel\\package, board,\\connector, cable};
+\node[blk,right=of ch] (ctle) {CTLE\\+ VGA};
+\node[draw=accent,circle,thick,right=of ctle,minimum size=0.55cm,font=\small] (sum) {$+$};
+\node[blk,right=of sum] (sl) {Slicer};
+\node[blk,below=0.55cm of sl] (dfe) {DFE\\taps};
+\node[blk,above=0.5cm of sl] (cdr) {CDR};
+\draw[arr] (ser) -- (ffe); \draw[arr] (ffe) -- (drv); \draw[arr] (drv) -- (ch); \draw[arr] (ch) -- (ctle);
+\draw[arr] (ctle) -- (sum); \draw[arr] (sum) -- (sl);
+\draw[arr] (sl.east) -- ++(0.35,0) node[right,font=\sffamily\scriptsize]{bits};
+\draw[arr] (sl.east) ++(0.15,0) |- (dfe.east);
+\draw[arr] (dfe.west) -| node[pos=0.8,left,font=\scriptsize]{$-$} (sum.south);
+\draw[arr,dashed] ([xshift=0.3cm]sl.north) -- node[right,font=\sffamily\scriptsize]{samples} ([xshift=0.3cm]cdr.south);
+\draw[arr,dashed] ([xshift=-0.3cm]cdr.south) -- node[left,font=\sffamily\scriptsize]{clock} ([xshift=-0.3cm]sl.north);
+\end{tikzpicture}
+\caption{A typical SerDes (serialiser--deserialiser) link. The transmitter pre-distorts with a
+short feed-forward equaliser, the receiver's continuous-time linear equaliser boosts high
+frequencies, and a decision-feedback equaliser subtracts the post-cursor ISI of past decisions.
+The clock and data recovery (CDR) loop locks the sampling phase to the data. Above about
+50\,Gb/s per lane, the receiver is often an ADC followed by a digital FFE and DFE instead.}
+\label{fig:ch08_serdes}
+\end{figure}
+
+Figure~\ref{fig:ch08_serdes} shows the architecture used by nearly every high-speed serial
+link. Three kinds of equaliser share the work.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Feed-forward equaliser (FFE).] A finite-impulse-response filter with taps spaced one UI
+apart. At the transmitter it is usually three to five taps: a large main tap with a negative
+post-cursor tap is called \term{de-emphasis}, because it reduces the amplitude of bits that
+repeat the previous one, and a negative pre-cursor tap is \emph{pre-shoot}. PCI Express 3.0
+and later define a set of transmitter presets and let the receiver request adjustments during
+link training. A transmit FFE cannot increase the peak voltage, so its high-frequency boost is
+really a low-frequency cut. At the receiver, in ADC-based designs, the FFE may have 20 to 40
+taps. Figure~\ref{fig:ch08_equalized_eye} shows a 9-tap FFE opening an eye that a 20\,dB channel
+had closed completely.
+\item[Continuous-time linear equaliser (CTLE).] An analog filter with a zero and two or more
+poles, giving a high-pass ``peaking'' response of up to 10 to 20\,dB at the Nyquist frequency.
+It is cheap, fast and power efficient, but it amplifies high-frequency noise and crosstalk
+along with the signal.
+\item[Decision-feedback equaliser (DFE).] Once a bit has been decided, its contribution to later
+samples---the post-cursors $h_1,h_2,\dots$ times the decision---is known and can simply be
+subtracted. Because the DFE works on noiseless decisions, it removes ISI without amplifying
+noise, which is its great virtue. Its weaknesses are that it cannot touch pre-cursors, that a
+wrong decision subtracts the wrong value and makes further errors more likely (\term{error
+propagation}), and that the first tap must be computed and fed back within one UI---10\,ps at
+100\,Gb/s. Designers meet the last constraint with \emph{loop unrolling} (speculation): compute
+both possible outcomes in advance and select one when the previous decision arrives.
+\end{description}
+
+\mdcfig{ch08_equalized_eye}{Equalisation at baseband. Left: NRZ after the 20\,dB channel of
+Figure~\ref{fig:ch08_channel_loss}; the eye is closed. Centre: after a 9-tap, UI-spaced
+zero-forcing FFE with two pre-cursor and six post-cursor taps, the eye is wide open (no noise
+is added here; in practice the FFE's high-frequency gain amplifies noise and crosstalk too).
+Right: the FFE taps, dominated by the main tap and a negative first post-cursor.}
+
+The division of labour matters for noise: a linear equaliser that fully inverts a 30\,dB
+loss also boosts the high-frequency noise and crosstalk by up to 30\,dB, whereas a DFE cancels
+post-cursor ISI without that penalty. That is why nearly every long-reach SerDes uses a
+modest CTLE and FFE to shape the pre-cursors and the first few post-cursors, followed by a DFE.
+Chapter~\ref{ch:equalization} derives the zero-forcing, MMSE and DFE solutions, adaptive
+algorithms such as sign--sign LMS (used in SerDes because it needs only comparators), and the
+maximum-likelihood sequence detectors that some 200\,Gb/s-per-lane receivers now include.
+
+\begin{inpractice}[Anatomy of a 112\,Gb/s SerDes]
+A 112\,Gb/s PAM-4 SerDes (56\,GBd, 53.125\,GBd with the Ethernet rate plan) as used for
+IEEE~802.3ck and OIF CEI-112G links typically has a transmitter with a 3- to 5-tap FFE built
+from a DAC, and a receiver with a CTLE, a 6- to 8-bit ADC running at the symbol rate
+(time-interleaved from 32 to 64 slower sub-ADCs), and a DSP with an FFE of a few tens of taps, a
+one-tap or short DFE or a simple sequence detector, a CDR and adaptation engines. The whole
+lane consumes a few hundred milliwatts, and a switch chip with 512 such lanes (51.2\,Tb/s)
+spends a large part of its power budget on SerDes. This is why the industry is so interested in
+shorter reaches, linear-drive optics and co-packaged optics, all of which reduce the loss a
+SerDes must overcome.
+\end{inpractice}
+
+%======================================================================
+\section{Multilevel PAM}
+\label{sec:ch08:mpam}
+%======================================================================
+
+\subsection{\texorpdfstring{$M$}{M}-PAM and its error probability}
+
+An $M$-level PAM alphabet places the levels at $\{\pm1,\pm3,\dots,\pm(M-1)\}\cdot d/2$, equally
+spaced by $d$. Each symbol carries $\log_2M$ bits. With a matched filter and ML thresholds at the
+midpoints, an inner level can be mistaken for either neighbour and an outer level for one, so
+the symbol error probability is
+\begin{equation}
+P_s=2\left(1-\frac1M\right)\Q\!\left(\frac{d}{2\sigma}\right).
+\end{equation}
+The average energy is $E_s=\frac{(M^2-1)}{12}d^2$ (for unit-energy pulses), and
+$E_b=E_s/\log_2M$. Substituting $\sigma^2=N_0/2$ gives
+\begin{equation}
+P_s=2\left(1-\frac1M\right)\Q\!\left(\sqrt{\frac{6\log_2M}{M^2-1}\cdot\frac{E_b}{N_0}}\right).
+\label{eq:ch08:mpam}
+\end{equation}
+With \term{Gray coding}---labelling adjacent levels with bit patterns that differ in one bit, as
+in the PAM-4 map $\{00,01,11,10\}$---a symbol error almost always causes exactly one bit
+error, so $P_b\approx P_s/\log_2M$.
+
+The factor $6\log_2M/(M^2-1)$ is 2 for binary, 0.8 for PAM-4, $12/35\approx0.34$ for PAM-8.
+At a fixed $E_b/N_0$, PAM-4 therefore loses $10\log_{10}(2/0.8)\approx4$\,dB relative to
+binary, and each further doubling of $M$ costs about 6\,dB more. In return, PAM-4 carries
+twice the bit rate at the same symbol rate, or the same bit rate in half the bandwidth.
+Chapter~\ref{ch:infotheory} shows that this exchange of power for bandwidth is exactly what
+Shannon's capacity formula predicts in the high-SNR regime.
+
+\mdcfig{ch08_pam4}{NRZ and PAM-4 at the same bit rate and the same peak swing. PAM-4 runs at
+half the symbol rate, so its eyes are twice as wide in absolute time, but each of its three
+eyes is one third as tall. The Gray-coded labels are shown at right. Transitions between the
+outer levels ($00\leftrightarrow10$) cross all three thresholds and are the steepest, which is
+why PAM-4 eyes look skewed in real transmitters with limited slew rate.}
+
+\subsection{Why the data centre switched to PAM-4}
+
+For a band-limited wireless channel with flat noise, the 4\,dB penalty is simply the price of
+spectral efficiency. For a lossy copper channel it is a bargain, because halving the symbol
+rate halves the Nyquist frequency, and the loss at the Nyquist frequency falls by far more than
+4\,dB. There is a second way to state the penalty that is common in the SerDes world: at a fixed
+\emph{peak-to-peak swing} (set by the supply voltage and the driver), each PAM-4 eye is one third
+of the NRZ eye, a loss of $20\log_{10}3=9.5$\,dB in vertical opening
+(Figure~\ref{fig:ch08_pam4}). Part of that is regained because the noise bandwidth is halved.
+
+\begin{worked}[NRZ or PAM-4 at 112\,Gb/s?]
+A backplane channel has a loss of approximately 0.9\,dB/GHz in the 20--60\,GHz range. Compare NRZ
+and PAM-4 at 112\,Gb/s.
+
+NRZ runs at 112\,GBd with a Nyquist frequency of 56\,GHz, where the loss is about
+$0.9\times56\approx50$\,dB. PAM-4 runs at 56\,GBd with a Nyquist frequency of 28\,GHz and a loss of
+about 25\,dB. The PAM-4 signal starts with a 9.5\,dB eye-height disadvantage, but arrives with
+25\,dB less loss to equalise; since equaliser noise enhancement and residual ISI grow rapidly with
+the loss being compensated, PAM-4 wins by a large margin. A 50\,dB NRZ channel is, for practical
+purposes, not equalisable with SerDes-class power budgets. Conversely, on a short, low-loss link
+(a few decibels of loss), NRZ is better, which is why NRZ survived at 25\,Gb/s and PAM-4 took over
+at 50 and 100\,Gb/s per lane.
+\end{worked}
+
+\subsection{PAM-4 in standards}
+
+PAM-4 has become the workhorse of the data centre. Table~\ref{tab:ch08:pam4} lists the main
+deployments.
+
+\begin{table}[htbp]\centering\small
+\caption{Multilevel PAM in wireline standards (rates are per lane; approximate years of
+publication).}
+\label{tab:ch08:pam4}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+Standard & Year & Signalling & Notes\\
+\midrule
+IEEE 802.3bs (200/400GbE) & 2017 & 26.5625\,GBd PAM-4 electrical & 400GAUI-8; RS(544,514) ``KP4'' FEC mandatory\\
+IEEE 802.3cd (50/100/200GbE) & 2018 & 26.5625\,GBd PAM-4 & 50\,Gb/s per lane over backplane and copper cable\\
+IEEE 802.3ck & 2022 & 53.125\,GBd PAM-4 & 100\,Gb/s per electrical lane; basis of 400G and 800G ports\\
+IEEE 802.3dj (in development) & -- & about 106--113\,GBd PAM-4 & 200\,Gb/s per lane, for 800G and 1.6T Ethernet\\
+PCI Express 6.0 & 2022 & 32\,GBd PAM-4 (64\,GT/s) & Flit mode, light-weight FEC plus CRC, no block code\\
+PCI Express 7.0 & 2025 & 64\,GBd PAM-4 (128\,GT/s) & Same flit architecture\\
+GDDR6X (Micron) & 2020 & PAM-4, about 10\,GBd per pin & 19--21\,Gb/s per pin in graphics cards\\
+GDDR7 (JEDEC) & 2024 & PAM-3 & about 1.5 bits per symbol, simpler than PAM-4\\
+USB4 Version 2.0 & 2022 & PAM-3 & 80\,Gb/s, 11 bits in 7 ternary symbols\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Three design features recur in PAM-4 systems.
+\begin{itemize}
+\item \emph{Forward error correction is mandatory.} Without FEC, PAM-4 links could not reach a
+BER of $10^{-12}$ at acceptable power. Ethernet's KP4 code, the Reed--Solomon RS(544,514) code
+over 10-bit symbols (Chapter~\ref{ch:classiccodes}), corrects up to 15 symbol errors per
+codeword and turns a raw BER of about $2.4\times10^{-4}$ into an essentially error-free link, at
+the cost of about 100\,ns of latency. PCI Express 6.0, which cannot afford that latency, uses a
+light-weight interleaved code and relies on a CRC and fast link-level retry, with a target raw
+flit error rate of around $10^{-6}$.
+\item \emph{Precoding against error bursts.} A DFE error on a PAM-4 signal tends to cause a
+burst of errors. The optional $1/(1+D)$ modulo-4 precoder in the Ethernet standards converts
+such bursts into (typically) two symbol errors, which the Reed--Solomon code handles easily.
+This is the same precoding idea as in duobinary (Section~\ref{sec:ch08:pr}).
+\item \emph{Level linearity.} The three eyes are equal only if the four levels are equally
+spaced. Transmitters are specified by a \emph{ratio of level mismatch} (RLM), typically at least
+0.95, and optical PAM-4 transmitters, whose lasers and modulators are nonlinear, are often
+pre-distorted to space the levels. GDDR6X adds a coding trick, \emph{maximum transition
+avoidance}, that forbids full-swing transitions between the outer levels to reduce
+simultaneous-switching noise on wide parallel buses.
+\end{itemize}
+
+\begin{inpractice}[PAM-4 in fibre]
+Direct-detection optical links also use PAM-4: 400GBASE-DR4 sends four lanes of 53.125\,GBd
+PAM-4 (100\,Gb/s each) over single-mode fibre up to 500\,m, and 800G modules use eight such
+lanes or four lanes at twice the rate. An optical PAM-4 receiver sees intensity, not field, so
+the levels are optical power levels and the noise differs between them; the TDECQ metric of
+Section~\ref{sec:ch08:eyes} was invented for exactly this. For longer reaches, where chromatic
+dispersion and the square-law detector make intensity modulation impractical, coherent optics
+with QAM on both polarisations takes over (Chapter~\ref{ch:wireline}).
+\end{inpractice}
+
+%======================================================================
+\section{Partial-response signalling}
+\label{sec:ch08:pr}
+%======================================================================
+
+The Nyquist criterion treats ISI as the enemy. \textbf{Partial-response signalling}\index{partial-response signalling} (also called
+correlative coding) treats it as a design variable: introduce a small, \emph{known} amount of ISI
+on purpose, and in exchange obtain a pulse that is realisable at exactly the Nyquist bandwidth,
+or a spectrum with nulls where the channel has none to give.
+
+\subsection{Duobinary}
+
+The \term{duobinary} pulse is the sum of two sinc pulses one symbol apart:
+\begin{equation}
+x(t)=\sinc\!\left(\frac tT\right)+\sinc\!\left(\frac{t-T}{T}\right),\qquad
+X(f)=\begin{cases}2T\cos(\pi fT)\,e^{-j\pi fT},&|f|<\dfrac1{2T},\\0,&\text{otherwise.}\end{cases}
+\label{eq:ch08:duobinary}
+\end{equation}
+Its spectrum occupies exactly the Nyquist bandwidth $1/(2T)$---no excess bandwidth at all---yet,
+unlike the sinc, it falls smoothly to zero at the band edge, so it can be approximated by a
+realisable filter (Figure~\ref{fig:ch08_duobinary}). Its tails decay as $1/t^2$. The price is
+that $x(t)$ is 1 at \emph{two} sampling instants, $t=0$ and $t=T$. The sampled output is
+\begin{equation}
+y_k=a_k+a_{k-1},
+\end{equation}
+which, for binary $a_k=\pm1$, takes three values: $+2$, $0$ and $-2$. The ISI is controlled: the
+receiver knows it is exactly the previous symbol. In $D$-transform notation (with $D$ a one-symbol
+delay), the channel from symbols to samples is $1+D$.
+
+\mdcfig{ch08_duobinary}{Partial response. Left: the duobinary spectrum ($1+D$) falls smoothly
+to zero at the Nyquist frequency; modified duobinary ($1-D^2$) also has a null at DC. Centre:
+the duobinary pulse is the sum of two sincs and is non-zero at exactly two sampling instants.
+Right: the sampled duobinary signal has three levels and two eyes.}
+
+A receiver could decide $a_k$ as $\hat a_k=y_k-\hat a_{k-1}$, but one error would then propagate
+indefinitely. The standard cure is \term{precoding}, applied at the transmitter to the bits
+$d_k\in\{0,1\}$:
+\begin{equation}
+b_k=d_k\oplus b_{k-1},\qquad a_k=2b_k-1.
+\end{equation}
+Then $y_k=a_k+a_{k-1}=2(b_k+b_{k-1}-1)$ is 0 exactly when $b_k\ne b_{k-1}$, that is, when
+$d_k=1$, and $\pm2$ when $d_k=0$. The receiver decides each bit from a single sample---$\hat d_k=1$
+if $|y_k|<1$, else 0---with no memory and no error propagation. Precoding moves the inverse of
+the channel's memory to the transmitter, where there is no noise; the same principle reappears
+in Tomlinson--Harashima precoding and in the precoders of multi-user MIMO
+(Chapter~\ref{ch:mimo}).
+
+\begin{worked}[Precoded duobinary by hand]
+Encode the bits $d=1\,0\,1\,1\,0\,0\,1$ with precoded duobinary, starting from $b_{-1}=0$.
+
+The precoder gives $b_k=d_k\oplus b_{k-1}$: $b=1\,1\,0\,1\,1\,1\,0$. The levels are
+$a=+1,+1,-1,+1,+1,+1,-1$, and with $a_{-1}=-1$ the channel outputs $y_k=a_k+a_{k-1}$ are
+$0,+2,0,0,+2,+2,0$. Decoding with ``$|y|<1\Rightarrow1$'' gives $1\,0\,1\,1\,0\,0\,1$, the
+original data. Now suppose noise corrupts $y_2$ from 0 to $+2$. Only $\hat d_2$ is wrong; every
+other bit is decoded independently. Without precoding, the recursive decision
+$\hat a_k=y_k-\hat a_{k-1}$ would carry the error forward.
+\end{worked}
+
+\subsection{The cost, and how to recover it}
+
+Symbol-by-symbol detection of duobinary costs noise margin. The receiver now makes a
+three-level decision, and each of the two eyes spans only half the peak-to-peak range of the
+signal, whereas a binary eye spans all of it. When the duobinary response is split optimally
+between the transmit and receive filters, the loss works out to a factor of $(4/\pi)^2$, or
+about 2.1\,dB of $E_b/N_0$, relative to ideal binary signalling with Nyquist pulses (see
+Proakis and Salehi in the further reading). It can be recovered almost entirely by recognising that the
+channel $1+D$ is a two-state machine and deciding the whole sequence at once with the
+\term{Viterbi algorithm} (maximum-likelihood sequence detection, Chapters~\ref{ch:classiccodes}
+and~\ref{ch:equalization}). The minimum distance between two different output sequences of the
+$1+D$ channel equals that of binary signalling with the same pulse energy, so sequence detection
+suffers no asymptotic loss.
+
+\subsection{Modified duobinary and the partial-response classes}
+
+Other polynomials give other spectra. In 1966 Kretzmer tabulated the useful ones as
+\emph{classes} of partial response. The most important besides duobinary (class~1, $1+D$) is
+\term{modified duobinary} (class~4, $1-D^2$), whose spectrum
+$\propto\sin(2\pi fT)$ has nulls at \emph{both} DC and the Nyquist frequency
+(Figure~\ref{fig:ch08_duobinary}). A DC null suits transformer-coupled lines and, as the next
+subsection shows, magnetic recording. The precoder is $b_k=d_k\oplus b_{k-2}$, and the output
+again has three levels. The $1-D^2$ channel is two interleaved $1-D$ channels (even and odd
+samples), so its Viterbi detector is two interleaved two-state detectors, which made it cheap to
+build in 1990s silicon.
+
+\begin{history}[Duobinary, from telephone lines to 40\,Gb/s optics]
+Adam Lender of Lenkurt Electric published the duobinary technique in 1963, motivated by the
+need to send more data over telephone-grade analog channels. Ernest Kretzmer of Bell Labs
+generalised it to partial-response classes in 1966. The idea found its most enduring homes far
+from telephony. Optical duobinary, in which the three levels $-2,0,+2$ are sent as optical
+fields of opposite phase so that the intensity has only two levels, was used in 10 and 40\,Gb/s
+fibre systems from around 2000 because its narrow spectrum tolerates chromatic dispersion. And
+class-4 partial response became, as ``PR4'', the target of the read channels in virtually every
+hard disk drive of the 1990s.
+\end{history}
+
+\subsection{PRML: partial response in the disk drive}
+
+A magnetic recording head reads transitions of magnetisation. Each transition produces a
+pulse---well modelled by the Lorentzian $s(t)=1/[1+(2t/PW_{50})^2]$, where $PW_{50}$ is the pulse
+width at half its amplitude---and a written bit, which is a pair of opposite transitions,
+produces the \emph{dibit} response $s(t)-s(t-T)$. The channel therefore has a built-in $1-D$
+factor, a null at DC (a head cannot read a constant magnetisation), and a high-frequency
+roll-off that worsens as the \emph{normalised density} $PW_{50}/T$ increases
+(Figure~\ref{fig:ch08_prml}). Early drives used peak detection: find each pulse's peak and
+declare a transition. That works only if pulses are well separated, so densities were limited
+to $PW_{50}/T$ below about 1, and run-length-limited codes such as (2,7) were used to keep
+transitions apart.
+
+\mdcfig{ch08_prml}{Left: the frequency response of a Lorentzian recording channel (dibit
+response) at three normalised densities. Right: the partial-response targets used in
+read channels. PR4 suits densities near 1.5--2; the extended targets EPR4 and E$^2$PR4, with more
+low-frequency emphasis, match the higher densities better.}
+
+\term{PRML} (partial response, maximum likelihood) takes the opposite approach. An equaliser
+shapes the channel to a partial-response target such as PR4, $1-D^2=(1-D)(1+D)$, whose
+spectrum matches the recording channel's natural shape (a DC null and a high-frequency
+roll-off) so that little noise enhancement is needed; a Viterbi detector then decides the
+sequence. The idea was proposed by Kobayashi and Tang of IBM in 1970, and IBM shipped the first
+PRML disk drive around 1990. As densities rose, the targets were extended to EPR4,
+$(1+D)(1-D^2)$, and E$^2$PR4, $(1+D)^2(1-D^2)$, whose Viterbi trellises have 8 and 16 states.
+Later drives replaced fixed targets with noise-predictive maximum-likelihood (NPML) detectors
+and, from the late 2000s, iterative detection with LDPC codes (Chapter~\ref{ch:moderncodes}). The
+PRML read channel roughly doubled the density achievable with peak detection and was one of
+the key enablers of the capacity explosion of hard drives in the 1990s and 2000s.
+
+\begin{inpractice}[Partial response is everywhere once you look]
+The duobinary idea keeps reappearing. The channel of Section~\ref{sec:ch08:channel}, with its
+large first post-cursor, is naturally close to $1+D$; some 100 and 200\,Gb/s-per-lane
+receivers equalise to a $1+\alpha D$ target and use a short Viterbi detector (``1+D MLSE'') rather
+than forcing the full response to a Nyquist pulse, avoiding the noise enhancement of complete
+equalisation. Tamed FM and GMSK in GSM (Chapter~\ref{ch:modulation}) can be viewed as
+partial-response continuous-phase modulation. And the $1/(1+D)$ precoder in 802.3 PAM-4 links
+is Lender's precoder generalised to four levels.
+\end{inpractice}
+
+%======================================================================
+\section{Faster-than-Nyquist signalling}
+\label{sec:ch08:ftn}
+%======================================================================
+
+The Nyquist rate of $2W$ symbols per second is the maximum rate for \emph{zero ISI}. It is not a
+limit on the information rate, and it is not even a limit on the symbol rate. In
+\term{faster-than-Nyquist} (FTN) signalling, pulses designed for a symbol period $T$ are sent
+every $\tau T$ with $\tau<1$, without changing the pulse or the bandwidth:
+\begin{equation}
+s(t)=\sum_k a_k\,p(t-k\tau T),\qquad 0<\tau\le1.
+\end{equation}
+The pulses are no longer orthogonal and ISI is unavoidable (Figure~\ref{fig:ch08_ftn}, left), so
+symbol-by-symbol detection fails. But the symbol rate is $1/\tau$ times higher in the same
+bandwidth, and a sequence detector can undo the ISI.
+
+The surprising result, found by James Mazo at Bell Labs in 1975, concerns the minimum Euclidean
+distance between two different signals. For binary sinc pulses, the minimum distance stays at
+the binary antipodal value $2\sqrt{E_b}$---so an ideal sequence detector has \emph{the same
+asymptotic error rate as ISI-free binary signalling}---for all $\tau$ down to about 0.802. This
+is the \term{Mazo limit}. Below it, some pair of long error events comes closer together and the
+distance falls (Figure~\ref{fig:ch08_ftn}, right). Signalling at $\tau=0.802$ carries 25\% more
+bits in the same bandwidth at no cost in asymptotic power efficiency. For raised-cosine pulses
+with excess bandwidth, the Mazo limit is lower still, since there is more ``slack'' spectrum to
+exploit.
+
+\mdcfig{ch08_ftn}{Faster-than-Nyquist signalling. Left: sinc pulses sent every $0.8T$ no longer
+have zero crossings at the other sampling instants. Right: the minimum squared distance between
+binary FTN signals, normalised to the antipodal value $4E_b$, found by a search over error
+events up to 8 bits long. It remains at 0\,dB down to $\tau\approx0.80$, the Mazo limit, and
+falls below it.}
+
+FTN does not beat Shannon: a Nyquist-rate system with a larger alphabet and good coding can
+achieve the same rates. Its appeal is practical---binary or QPSK transmitters and power amplifiers
+with the spectral efficiency of denser constellations---and its cost is receiver complexity, since
+the ISI spans many symbols and full Viterbi detection is out of the question. Reduced-complexity
+detectors (M-algorithm, BCJR with channel shortening, iterative detection combined with the
+decoder) have made FTN practical in experiments and it has been studied for satellite links,
+optical superchannels and 6G, a story taken up in the final chapter. The deeper point is conceptual: the
+Nyquist rate is a property of a particular receiver, not of the channel.
+
+%======================================================================
+\section{Summary}
+%======================================================================
+
+\begin{itemize}
+\item A baseband PAM signal $\sum_ka_kp(t-kT)$ splits the design into the alphabet (bits per
+symbol, noise tolerance) and the pulse (bandwidth, ISI, timing sensitivity). Bandwidth follows
+the symbol rate, measured in baud.
+\item Line codes adapt the signal to real channels: DC balance for AC coupling, transitions for
+clock recovery, spectral shaping, error monitoring and framing. The classic bit-level codes
+(Manchester, AMI with B8ZS/HDB3, MLT-3, 2B1Q) have given way to block codes (8b/10b) and then to
+scrambled, low-overhead codes (64b/66b, 128b/130b) and, with PAM-4 and FEC, to no line code at
+all.
+\item The PSD of a PAM signal is $|P(f)|^2S_a(f)/T$. A non-zero symbol mean adds spectral lines;
+correlation between symbols shapes the spectrum and can put nulls at DC.
+\item Zero ISI requires the folded spectrum $\sum_kX(f-k/T)$ to be flat. The minimum bandwidth is
+$R_s/2$; the raised-cosine family trades excess bandwidth $\beta$ for shorter filters, timing
+tolerance and lower peak-to-average ratio. Split as a root-raised-cosine pair, it is both
+Nyquist and matched.
+\item The matched filter, $h(t)=p^*(T_0-t)$, maximises SNR at $2E_p/N_0$, independent of pulse
+shape; with coloured noise, whiten first. Antipodal signalling gives $P_b=\Q(\sqrt{2E_b/N_0})$,
+3\,dB better than orthogonal or on-off signalling; $M$-PAM trades about 6\,dB per extra bit per
+symbol for bandwidth.
+\item Eye diagrams, jitter decomposition and bathtub curves are how links are measured. Random
+jitter is multiplied by about 14 at $10^{-12}$, so it dominates budgets at low BER.
+\item Copper loss grows with frequency; FFE, CTLE and DFE equalisers remove ISI, with DFE avoiding
+noise enhancement. Halving the Nyquist frequency is why PAM-4, with mandatory FEC, now carries
+Ethernet, PCIe~6 and graphics memory.
+\item Partial response introduces known ISI to reach the Nyquist bandwidth with realisable filters
+or to match a channel's spectral shape; precoding removes error propagation and Viterbi detection
+recovers the distance. PRML made the modern hard disk. Faster-than-Nyquist signalling shows that
+even the Nyquist rate is a receiver convention, not a law.
+\end{itemize}
+
+\begin{labbox}[Pulse shaping, line codes and eye diagrams]
+Two notebooks accompany this chapter:
+\begin{itemize}
+\item \lab{moderncomms-labs/labs/lab03\_pulse\_shaping.py}
+\item \lab{moderncomms-labs/labs/lab13\_line\_codes\_eyes.py}
+\end{itemize}
+The first compares rectangular, sinc and raised-cosine pulses in time and frequency, verifies the Nyquist
+criterion, demonstrates that the matched filter maximises SNR and why the RRC is split between
+transmitter and receiver, and lets you read eye diagrams as you vary roll-off, noise and timing
+offset (Figures~\ref{fig:ch08_raised_cosine}, \ref{fig:ch08_eyes}
+and~\ref{fig:ch08_timing_sensitivity}). The second implements the line codes of Section~\ref{sec:ch08:linecodes} and measures their spectra against
+the formulas of Section~\ref{sec:ch08:psd}, builds LFSR scramblers and an 8b/10b encoder and
+plots the running disparity, draws eye diagrams and bathtub curves with adjustable random and
+deterministic jitter, compares NRZ with PAM-4 over a lossy channel with a simple FFE, and encodes
+and decodes precoded duobinary. The figure script \lab{book/figscripts/ch08\_figs.py} generates
+every data figure in this chapter and is a useful starting point for your own experiments.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item A modem sends 3200 symbols per second using a 64-point constellation. What are its bit
+rate and baud rate? What minimum bandwidth would a baseband PAM signal need at the same symbol
+rate?
+\item Sketch the NRZ-L, NRZI, Manchester, AMI and MLT-3 waveforms for the bit sequence
+\texttt{1100001011}. Which of them have a transition in every bit? Which are DC-free for this
+sequence?
+\item Encode the T1 sequence \texttt{1 0000 0000 1 0000 0000 01} with B8ZS, assuming the last
+mark before it was positive. Mark the bipolar violations. Repeat with HDB3 for E1.
+\item Using~\eqref{eq:ch08:psdlines}, derive the PSD of unipolar RZ signalling with a pulse of
+duty cycle $\delta$ (pulse width $\delta T$). What fraction of the total power is in the
+spectral line at $f=1/T$? Which $\delta$ maximises it?
+\item Show that AMI with independent equiprobable input bits has $R_a[0]=\tfrac12$,
+$R_a[\pm1]=-\tfrac14$ and $R_a[m]=0$ for $|m|\ge2$, and hence $S_a(f)=\sin^2(\pi fT)$.
+\item Prove that the raised-cosine spectrum~\eqref{eq:ch08:rcspec} satisfies the Nyquist
+criterion~\eqref{eq:ch08:nyquist}. Then show that the trapezoidal spectrum (linear roll-off
+over the same band) also does. Compare the decay rates of the two impulse responses.
+\item A UMTS carrier uses RRC filtering with $\beta=0.22$ at 3.84\,Mchip/s. What is the
+occupied bandwidth? If the symbol rate were raised until the occupied bandwidth filled the full
+5\,MHz channel, what would it be?
+\item Derive the matched filter for coloured noise,~\eqref{eq:ch08:coloured}, using the
+Cauchy--Schwarz inequality in the frequency domain. Show that it can be implemented as a whitening
+filter followed by a filter matched to the whitened pulse.
+\item A binary source emits ones with probability 0.9. The receiver sees $y=\pm1+\nu$ with
+$\sigma=0.5$. Find the MAP threshold and the error probability, and compare with the ML
+threshold. At what $\sigma$ does the MAP threshold move by more than 0.1?
+\item A 28\,Gb/s NRZ link has $\mathrm{DJ}_{\delta\delta}=0.2$\,UI. What RMS random jitter can it
+tolerate if the eye width at $10^{-12}$ must be at least 0.3\,UI? Express the answer in
+picoseconds.
+\item Using~\eqref{eq:ch08:mpam}, find the $E_b/N_0$ required for a bit error rate of $10^{-6}$
+with 2-, 4- and 8-PAM (Gray coded). How much of the penalty is regained if the channel has 1\,dB
+of loss per GHz and the bit rate is 50\,Gb/s?
+\item The sampled pulse response of a channel is $h=[0.05,\,1,\,0.45,\,0.2,\,0.1]$ (pre-cursor,
+main, post-cursors). Compute the worst-case eye opening with no equaliser. Design (a) a three-tap
+transmit FFE and (b) a three-tap DFE that remove the first three post-cursors, and compare the
+remaining worst-case ISI. Which one amplifies noise?
+\item Show that the $1-D^2$ modified-duobinary channel with precoder $b_k=d_k\oplus b_{k-2}$ can be
+decoded symbol by symbol as $\hat d_k=1$ if $|y_k|>1$. Encode and decode a sequence of ten bits by
+hand.
+\item \emph{(Simulation)} Implement a 64b/66b scrambler and descrambler. Introduce a single bit
+error on the line and verify that it produces exactly three errors after descrambling. Then show
+that the descrambler resynchronises from an arbitrary initial state after 58 bits.
+\item \emph{(Simulation)} Generate 10\,000 symbols of RRC-shaped binary PAM with $\beta=0.25$ and
+a span of 8 symbols. Measure the residual ISI (noise-free EVM) and the adjacent-channel leakage
+ratio. Repeat with spans of 16 and 32 and with a Kaiser window applied to the taps.
+\item \emph{(Simulation)} Reproduce Figure~\ref{fig:ch08_equalized_eye} and extend it: add white
+noise at the receiver, and compare the BER of (a) a 9-tap ZF FFE, (b) a 9-tap MMSE FFE and (c) a
+3-tap FFE followed by a 5-tap DFE, as the channel loss increases from 10 to 30\,dB.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item J.~G.~Proakis and M.~Salehi, \emph{Digital Communications}, 5th ed., McGraw-Hill, 2008.
+Chapter 9 covers band-limited channels, the Nyquist criterion, partial response and the
+spectral analysis of PAM; the standard graduate reference.
+\item E.~A.~Lee and D.~G.~Messerschmitt, \emph{Digital Communication}, 2nd ed., Kluwer, 1994. The
+best treatment of baseband PAM, line codes, the whitened matched filter and equalisation from the
+wireline point of view.
+\item H.~Nyquist, ``Certain topics in telegraph transmission theory,'' \emph{Transactions of the
+AIEE}, vol.~47, pp.~617--644, 1928 (reprinted in \emph{Proc. IEEE}, vol.~90, no.~2, 2002). Still
+worth reading for its clarity.
+\item A.~X.~Widmer and P.~A.~Franaszek, ``A DC-balanced, partitioned-block, 8B/10B transmission
+code,'' \emph{IBM Journal of Research and Development}, vol.~27, no.~5, 1983. The original 8b/10b
+paper, with the complete tables.
+\item J.~Bellamy, \emph{Digital Telephony}, 3rd ed., Wiley, 2000. T1/E1 line coding, B8ZS, HDB3 and
+the practice of the telephone plant.
+\item J.~E.~Mazo, ``Faster-than-Nyquist signaling,'' \emph{Bell System Technical Journal},
+vol.~54, no.~8, 1975; and J.~B.~Anderson, F.~Rusek and V.~\"Owall, ``Faster-than-Nyquist
+signaling,'' \emph{Proceedings of the IEEE}, vol.~101, no.~8, 2013, a modern survey.
+\item P.~Kabal and S.~Pasupathy, ``Partial-response signaling,'' \emph{IEEE Transactions on
+Communications}, vol.~23, no.~9, 1975. The classic tutorial on duobinary, modified duobinary and
+the partial-response classes.
+\item R.~D.~Cideciyan, F.~Dolivo, R.~Hermann, W.~Hirt and W.~Schott, ``A PRML system for digital
+magnetic recording,'' \emph{IEEE Journal on Selected Areas in Communications}, vol.~10, no.~1,
+1992. How PRML was engineered into IBM's disk drives.
+\item IEEE Std 802.3 (current edition), especially Clause 49 (64b/66b PCS), Clause 91 (RS-FEC) and
+the PAM-4 clauses of 802.3bs, 802.3cd and 802.3ck. Dense, but the definitive source for SerDes
+specifications, scramblers and compliance tests.
+\item M.~P.~Li, \emph{Jitter, Noise, and Signal Integrity at High-Speed}, Prentice Hall, 2007. The
+standard reference on jitter decomposition, the dual-Dirac model and bathtub curves.
+\end{itemize}
