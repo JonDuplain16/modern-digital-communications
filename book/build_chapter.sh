@@ -23,7 +23,7 @@ cd "$W"
 for i in 1 2; do pdflatex -interaction=nonstopmode only.tex > build.log 2>&1; done
 cp only.pdf "$OUT/${CH}_only.pdf" 2>/dev/null
 echo "== errors"; grep -E "^!" -A2 build.log | head -40
-echo "== overfull hboxes > 10pt"; grep -E "Overfull \\hbox \(([1-9][0-9]+)" build.log | head -20
+echo "== overfull hboxes > 10pt"; grep -E "Overfull .hbox .([1-9][0-9]+)" build.log | head -20
 echo "== missing figures"; grep -i "not found" build.log | head
 echo "pages: $(python -c "import pymupdf;print(pymupdf.open('only.pdf').page_count)" 2>/dev/null)"
 echo "pdf: $OUT/${CH}_only.pdf"
