@@ -151,6 +151,15 @@ simulator); a lab index notebook; each chapter's `labbox` should name the exact 
   `python tests/dump_figs.py labNN_name /tmp/x.png` to eyeball figures.
 - Run `python tests/test_commlib.py` after any change to `commlib`.
 
+## 4b. Windows workstation notes (Jon's PC, from 2026-09-30)
+- LaTeX = MiKTeX 25.12, user install at `%LOCALAPPDATA%\Programs\MiKTeX` (auto-install of missing
+  packages is on). `build.sh` adds it to PATH automatically. Python = `python` (3.12, numpy 2.x).
+  PyMuPDF replaces poppler: `python book/render.py FIRST LAST [dpi] [outdir]` renders pages to PNG.
+- `book/build_chapter.sh chNN` builds ONE chapter in an isolated temp dir (`book/_chapbuild/`),
+  safe to run in parallel. `book/WRITING_GUIDE.md` = rules + quality bar for (parallel) chapter authors.
+- Git: private repo https://github.com/JonDuplain16/modern-digital-communications (branch main).
+  Commit + push after every completed chapter/lab batch.
+
 ## 5. Known issues / gotchas
 - **GNU Radio + NumPy 2:** distro GNU Radio packages are built against NumPy 1.x; a pip NumPy 2
   in the same Python breaks `from gnuradio import gr`. Use radioconda, or run flowgraphs with
@@ -175,3 +184,6 @@ simulator); a lab index notebook; each chapter's `labbox` should name the exact 
 ## 7. Session log
 - 2026-09-30 (claude.ai chat): built commlib, 12 labs, 5 GNU Radio flowgraphs, a short Claude Doc
   version, then the LaTeX book framework and Chapters 1–7 (+ Chapter 8 figures). Handed off to Claude Code.
+- 2026-09-30 (Claude Code, Windows): installed MiKTeX + PyMuPDF, made build Windows-friendly, created
+  GitHub repo, added build_chapter.sh + WRITING_GUIDE.md. Wave 1 in parallel agents: Ch 8, 9, 10, 11,
+  12, 23 + labs engineer (labkit.py, polish labs 01-12, fix chapter mapping, new labs 13-18, lab00 index).
