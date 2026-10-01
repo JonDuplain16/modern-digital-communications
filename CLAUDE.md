@@ -54,6 +54,27 @@ comms-textbook/
 `book/figscripts/figstyle.py` imports `commlib` via a relative path
 (`../../moderncomms-labs`), so keep the two folders side by side.
 
+## 2b. SECOND EDITION (in progress from 1 Oct 2026) — read this first
+Jon's feedback on the first edition: "a little too academic and hard to read. I want this to be an
+easy and interesting read. Keep all the same content, but rewrite it to be an easier read and more
+interesting than just formulas... more real world examples, stories, analogies, real images and
+figures. Every page should have some images or figures or charts. Also, the labs need to be all live
+interactive demos... sliders and live figures... I would rather not have Jupyter notebooks and just
+have really interactive and in depth python scripts to run. Each python script should have the same
+look and architecture and feel... a true learning experience to enjoy. The audience is still
+engineers, but it should be an enjoyable and easy experience and not a math and theory information dump."
+- Book contract: `book/REWRITE_GUIDE.md`. Tools: `book/tools/fetch_image.py` (Wikimedia Commons,
+  free licenses only, per-photo .json credit sidecars), `book/tools/gen_credits.py` (Image Credits
+  backmatter + caption credit macros; run automatically by build scripts), `book/tools/check_visuals.py`
+  (pages without any visual; target ≤ 5 %). New boxes: analogy, tryit, deeper ("Under the hood").
+  New macros: \mdcphoto, \mdcsidephoto, \mdcside (wrapfig), \mdcpair.
+- Labs: PySide6 + pyqtgraph desktop apps on a shared framework `moderncomms-labs/studio/`; each lab
+  `labs/labNN_name.py` = same window/architecture (experiments list, controls, live plots, "What's
+  going on" panel, auto-ticking "Try this" challenges, readouts), `--selftest` saves screenshots.
+  Style guide: `moderncomms-labs/LAB_STYLE_GUIDE.md`. Notebooks are being retired.
+- Process: pilots (Ch 8, Ch 4, Labs 03 & 14) → fan out remaining chapters/labs in waves → full build,
+  visual coverage check, push.
+
 ## 3. Status (1 Oct 2026) — first complete edition
 
 ### Book — COMPLETE: 25 chapters + 2 appendices + bibliography + index (~1,300 pages)
