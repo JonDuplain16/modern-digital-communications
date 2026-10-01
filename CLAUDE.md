@@ -161,6 +161,10 @@ simulator); a lab index notebook; each chapter's `labbox` should name the exact 
   Commit + push after every completed chapter/lab batch.
 
 ## 5. Known issues / gotchas
+- **Backslashes in this Windows Git-Bash tool get mangled** (heredocs collapse `\\`, `sed` turns
+  `\r`/`\n` in replacements into control chars). Edit .tex with the Edit/Write tools, or write a
+  Python script to a file with Write and run it.
+- `\vect` is `\mathbf`, which breaks on lowercase Greek with mathpazo — use `\bm{\mu}` there.
 - **GNU Radio + NumPy 2:** distro GNU Radio packages are built against NumPy 1.x; a pip NumPy 2
   in the same Python breaks `from gnuradio import gr`. Use radioconda, or run flowgraphs with
   `PYTHONPATH=/usr/lib/python3/dist-packages`. The labs themselves work with NumPy 1.24+ or 2.x.
