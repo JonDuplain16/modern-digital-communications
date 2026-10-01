@@ -1,0 +1,2493 @@
+\chapter{Cellular Generations: From AMPS to 5G}
+\label{ch:cellular}
+
+\begin{chapterintro}
+In 1980 a mobile telephone was a forty-pound box in the boot of a car, and a large city
+could serve a few thousand of them. By 2025 there were more mobile subscriptions than people
+on Earth, and the device in a teenager's pocket moved more data in an evening than the whole
+mobile network of 1990 carried in a year. This chapter tells how that happened, one
+generation at a time, and takes each generation apart to show its engineering. It starts with
+the pre-cellular radiotelephone and the cellular idea, then examines the analog AMPS family
+and its security failures, the GSM system in depth (frame structure, bursts, logical channels,
+speech coding, frequency hopping, the SIM and the A5 ciphers), its 2G rivals including
+Qualcomm's CDMA, and the packet-data retrofits GPRS and EDGE. The 3G section covers the
+politics of IMT-2000, WCDMA's fast power control and soft handover, CDMA2000 and HSPA. The
+4G section works through LTE's flat all-IP architecture, its frame and reference signals, its
+channels, HARQ, link adaptation and MIMO modes, LTE-Advanced and VoLTE. The 5G section covers
+the IMT-2020 requirements, NR's flexible numerology and beam-based access, LDPC and polar codes,
+massive MIMO in the field, non-standalone and standalone deployment, the service-based core,
+network slicing, the disaggregated RAN and the releases from 15 to 18. The chapter closes with
+a side-by-side comparison and the lessons, technical and economic, of forty years of cellular
+engineering. The goal throughout is not to list features but to explain \emph{why} each
+generation was designed as it was.
+\end{chapterintro}
+
+%======================================================================
+\section{Four decades, five generations}
+\label{sec:ch21:overview}
+%======================================================================
+
+Every engineer who works on cellular systems eventually notices that the standards read like
+geology. Each generation is a stratum laid down over the previous one, and each carries the
+fossils of the problems its designers were trying to solve. GSM's 4.615\,ms frame exists
+because a 13\,MHz crystal divided by 48 gives 270.833\,kb/s and eight users were judged the
+right number to share a 200\,kHz carrier. LTE's 15\,kHz subcarrier spacing exists because it
+had to tolerate a few hundred hertz of Doppler at 2\,GHz and a few microseconds of delay
+spread at a sensible cyclic-prefix overhead. NR's 30\,kHz spacing at 3.5\,GHz exists because
+the phase noise of an affordable oscillator grows with carrier frequency. Learn the reasons
+and the parameters stop being arbitrary numbers to memorise.
+
+\subsection{What a ``generation'' is}
+
+The word \term{generation} is partly engineering and partly marketing. In engineering terms a
+new generation is a new air interface that cannot be received by the previous generation's
+phones: analog FM (1G), digital TDMA or narrowband CDMA (2G), wideband CDMA (3G), OFDMA with
+an all-IP core (4G), and flexible-numerology OFDM with a cloud-native core (5G). In
+regulatory terms the generations from 3G onward are defined by the
+\term{International Telecommunication Union} (ITU) through the IMT family of recommendations:
+IMT-2000 (3G), IMT-Advanced (4G) and IMT-2020 (5G), each with a list of minimum requirements
+that a candidate technology must meet. In marketing terms a generation is whatever operators
+are prepared to put next to the signal-strength bars, which is why the industry has seen
+``3.5G'', ``3.9G'', ``4G LTE'' (for systems that did not meet the IMT-Advanced requirements)
+and ``5G E'' (for LTE-Advanced).
+
+The cadence has been remarkably steady: a new generation about every ten years, with the first
+commercial networks in 1979--83 (1G), 1991--95 (2G), 2001--03 (3G), 2009--10 (4G) and 2019
+(5G), and the next expected around 2030. The steadiness is not a coincidence. A generation
+takes about five years to research and standardise, and an operator needs about ten years to
+deploy it widely and recover its investment. Silicon improves enough in a decade to make
+affordable what was impossible ten years before: a GSM handset's equaliser would have filled a
+rack in 1980, and an LTE phone's turbo decoder would have dissipated more than its battery
+could supply in 2000.
+
+\mdcfig{ch21_growth}{(a) Global mobile subscriptions by the most advanced technology they
+use. 2G dominated for two decades and peaked around 2012; 4G became the majority technology
+around 2018; 5G passed a billion subscriptions in 2022. (b) Global mobile data traffic, which
+grew by roughly 60\% a year from 2010 to 2024, a factor of about 600 in fourteen years.
+Both panels are approximate, compiled from ITU statistics and Ericsson Mobility Reports.}
+
+Figure~\ref{fig:ch21_growth} shows the result. Subscriptions grew from about ten million in
+1990 to about 8.8~billion in 2025, and traffic grew from a negligible amount of circuit-switched
+voice to well over a hundred exabytes a month. The two curves tell different stories.
+Subscription growth was a 1990s and 2000s phenomenon driven by cheap 2G phones and prepaid
+billing; data growth is a 2010s phenomenon driven by smartphones and video. Each generation was
+designed for the problem of its decade: 1G for mobility itself, 2G for capacity, security and
+roaming in voice, 3G for data that turned out to arrive later than planned, 4G for the data
+that finally arrived, and 5G for both more data and new kinds of user.
+
+\begin{keyidea}[Each generation fixes its predecessor's bottleneck]
+The history of cellular is a sequence of bottlenecks removed. 1G proved cellular reuse but ran
+out of capacity and was trivially cloned; 2G went digital for capacity and security. 2G was
+circuit-switched voice; 3G built a packet core and a wideband air interface. 3G's architecture
+put scheduling and retransmission far from the radio, so its data was slow to react; HSPA and
+then LTE moved them into the base station and flattened the network. LTE served smartphones
+well but had a single numerology, always-on reference signals and a monolithic core; 5G made
+the numerology scalable, the signalling lean and the core a set of software services. When you
+study any generation, ask what problem in the previous one it was built to solve.
+\end{keyidea}
+
+\subsection{The engineering problems every generation solves}
+
+All five generations solve the same list of problems, with different tools. Keep this list in
+mind as a template for the rest of the chapter.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Sharing the spectrum.] Among users in one cell (FDMA, TDMA, CDMA, OFDMA) and among cells
+(frequency reuse, power control, interference coordination). Chapter~\ref{ch:multipleaccess}
+develops the theory; this chapter shows the choices.
+\item[Beating the channel.] Multipath, fading and Doppler (Chapter~\ref{ch:channels}) are
+handled with equalisers (GSM), rake receivers (CDMA), cyclic-prefix OFDM (LTE, NR), coding and
+interleaving, diversity and, increasingly, multiple antennas.
+\item[Finding and keeping the network.] A phone must find a cell, synchronise to it, register,
+be paged, and hand over between cells at speed (Chapter~\ref{ch:sync} covers cell search).
+\item[Mobility management.] The network must know roughly where each phone is (location or
+tracking areas) and route calls and packets to it as it moves, including across operators and
+countries (roaming).
+\item[Security.] Subscribers must be authenticated, traffic kept confidential, and identities
+protected from tracking; each generation's security reflects the threats of its day and has
+been broken in instructive ways.
+\item[Economy.] A generation must be cheap enough to build, operate and buy. Battery life,
+handset cost, base-station power and spectrum price constrain every design decision.
+\end{description}
+
+%======================================================================
+\section{Before cellular: the radiotelephone and the cellular idea}
+\label{sec:ch21:zerog}
+%======================================================================
+
+\subsection{MTS and IMTS}
+
+The first public mobile telephone service in the United States, the Bell System's
+\term{Mobile Telephone Service} (MTS), opened in St.~Louis in June 1946. It used a single
+high-power transmitter on a tall building to cover a whole metropolitan area, a handful of
+FM channels around 150\,MHz, and an operator who connected each call by hand. The equipment
+filled much of a car boot and the user pressed a button to talk, as on a two-way radio. The
+\term{Improved Mobile Telephone Service} (IMTS) of the mid-1960s added full-duplex operation,
+direct dialling and automatic channel selection, but kept the architecture: one big
+transmitter per city and a few dozen channels at most. Because every channel was used once
+across the entire city, capacity was fixed by the number of channels, not by the number of
+users. In the 1970s the New York IMTS system reportedly had a few dozen channels serving
+around two thousand subscribers, with thousands more on a waiting list, and a caller might
+wait many minutes for a free channel. The other 0G systems around the world (the Nordic MTA
+and MTD, Germany's A-Netz and B-Netz) had the same structure and the same ceiling.
+
+\subsection{The cellular concept}
+
+The solution was proposed inside Bell Labs as early as 1947, in an internal memorandum by
+Douglas H.~Ring, and developed through the 1960s and 1970s by Richard Frenkiel, Joel Engel and
+colleagues. Replace the single high transmitter with many low-power base stations, each
+covering a small \term{cell}. Divide the channels into groups, give each cell one group, and
+reuse the same group in cells far enough apart that their interference is tolerable. When a
+mobile moves from one cell to the next, switch its call to a channel of the new cell, a
+\term{handoff} (the American term) or \term{handover} (the European one). Capacity now scales
+with the number of cells: halve the cell radius and the number of cells in the city
+quadruples, and so does the number of simultaneous calls.
+
+Three ideas make this work, and every later generation inherits them.
+\begin{enumerate}
+\item \textbf{Frequency reuse} with a \term{cluster size} $N$: for hexagonal cells of radius $R$
+the co-channel reuse distance is $D=R\sqrt{3N}$, and with path-loss exponent $n$ the
+signal-to-interference ratio at the cell edge is roughly $(3N)^{n/2}/6$. The derivation, the
+geometry and the trunking theory of Erlang that sizes each cell are developed in
+Chapter~\ref{ch:multipleaccess}; Lab~11 simulates them.
+\item \textbf{Cell splitting}: when traffic grows, add base stations and shrink the cells.
+\item \textbf{Handoff}: a mobile switching centre that tracks signal quality and moves calls
+between cells without the user noticing.
+\end{enumerate}
+The cost was complexity: many base stations, a switching centre able to reroute calls in
+mid-conversation, and mobiles able to retune on command. The technology to build all this
+cheaply---the microprocessor and the frequency synthesiser---arrived in the 1970s, and the
+spectrum arrived when the US Federal Communications Commission (FCC), after more than a decade
+of proceedings, allocated 40\,MHz near 850\,MHz to cellular service in 1981 (raised to 50\,MHz
+in 1986).
+
+\begin{history}[The call that started a race]
+On 3~April 1973, Martin Cooper of Motorola stood on Sixth Avenue in Manhattan with a
+prototype handheld telephone, the DynaTAC, and placed a call through a base station Motorola
+had set up on a nearby building. He called Joel Engel, who led the competing cellular effort
+at Bell Labs, to tell him that he was speaking from a portable cellular phone. The prototype
+weighed about a kilogram and gave around half an hour of talk time after a recharge of about
+ten hours. The point of the stunt was regulatory as much as technical: AT\&T's plan was for
+car-mounted mobile telephones, and Motorola wanted the FCC to see that the future was a phone
+carried by a person. A decade later, in 1983, the commercial DynaTAC 8000X went on sale for
+about \$3,995. The two visions---the car phone and the personal handset---are both visible in
+the AMPS standard that followed: its power classes run from several watts for vehicle
+installations down to 0.6\,W for handhelds.
+\end{history}
+
+%======================================================================
+\section{First generation: AMPS and its cousins}
+\label{sec:ch21:1g}
+%======================================================================
+
+\subsection{AMPS}
+
+The \term{Advanced Mobile Phone System} (AMPS), developed at Bell Labs and tested in Chicago
+from 1978, opened commercially in Chicago in October 1983. It was an analog FM system in the
+825--845\,MHz (mobile transmit) and 870--890\,MHz (base transmit) bands, later extended to
+824--849 and 869--894\,MHz. Its main parameters, which defined North American cellular for
+twenty years, are as follows.
+\begin{itemize}
+\item \textbf{Channels.} 30\,kHz channel spacing and a fixed 45\,MHz duplex separation between
+the mobile and base frequencies: \term{frequency-division duplex} (FDD). The band was split
+between two licensees per market, the ``A'' (non-wireline) and ``B'' (wireline) carriers, each
+with 416 channel pairs in the extended allocation, of which 21 were control channels.
+\item \textbf{Voice modulation.} FM with a peak deviation of 12\,kHz, preceded by a 2:1
+syllabic compandor and pre-emphasis (Chapter~\ref{ch:analog}). Carson's rule with a 3\,kHz
+audio band gives about 30\,kHz, the channel spacing.
+\item \textbf{Supervisory audio tone.} Each base station added one of three
+\term{supervisory audio tones} (SAT) at 5970, 6000 or 6030\,Hz, above the voice band, and the
+mobile transponded it back. A mobile that heard the wrong SAT knew it was receiving a
+co-channel interferer rather than its own base station, and a base that lost the SAT knew the
+link had failed. The SAT is in effect a two-bit colour code for co-channel cells.
+\item \textbf{Signalling tone.} A 10\,kHz \term{signalling tone} (ST), sent by the mobile,
+signalled on-hook, flash and handoff confirmation.
+\item \textbf{Control channels.} Dedicated control channels carried digital messages at
+10\,kb/s using Manchester-coded binary FSK with $\pm8$\,kHz deviation, protected by BCH codes
+((40,28) on the forward link, (48,36) on the reverse) with each word repeated five times and
+decoded by majority vote. During a call, short digital messages, such as a handoff order,
+were sent on the voice channel by \term{blank-and-burst}: the audio was muted for about
+a tenth of a second while the data burst went through, which users heard as a click.
+\item \textbf{Reuse.} Seven-cell clusters with omnidirectional antennas, or more commonly
+seven-cell clusters with three 120\textdegree{} sectors each (21 channel groups), chosen
+because FM voice needs roughly 17--18\,dB of signal-to-interference ratio for acceptable
+quality.
+\end{itemize}
+Handoff was network-controlled. Each cell site had a \term{locating receiver} that scanned the
+channels used in neighbouring cells and measured the mobile's signal strength; when the
+serving cell's signal fell below a threshold, the \term{mobile telephone switching office}
+(MTSO) chose the neighbour with the strongest measurement and ordered the mobile to retune.
+
+\begin{worked}[How many subscribers can an AMPS cell serve?]
+One AMPS licensee has 416 channel pairs, of which 21 carry control, leaving 395 voice channels.
+With a 7-cell cluster and three sectors per cell, the voice channels are split into 21 groups,
+so each sector has about $395/21\approx19$ channels.
+
+Calls arrive at random, so a sector with 19 channels cannot carry 19\,erlangs of traffic without
+blocking. The Erlang~B formula (Chapter~\ref{ch:multipleaccess}) gives the offered load at a
+2\% blocking probability as $A\approx12.3$\,erlangs per sector, or about 37\,erlangs per cell.
+A typical 1980s subscriber offered about 0.025\,erlang in the busy hour (a call of
+about 90\,s each busy hour). One cell therefore served roughly $37/0.025\approx1500$
+subscribers. A metropolitan system with a hundred cells served about 150\,000, a big improvement
+on IMTS's two thousand, but only because many cells had been built. Halving the cell radius
+quadrupled the subscribers and the number of cell sites. Note also the trunking inefficiency of
+splitting the channels into 21 small groups: one 395-channel pool would carry about 380\,erlangs
+at 2\% blocking, whereas 21 groups of 19 carry only about 260. That waste is a direct cost of
+reuse-7 and sectorisation, and is one of the reasons 2G designers wanted tighter reuse.
+\end{worked}
+
+\subsection{NMT, TACS and the rest of the analog zoo}
+
+AMPS was not first. NTT opened a cellular network in Tokyo in December 1979. The
+\term{Nordic Mobile Telephone} system (NMT), designed jointly by the telecommunications
+administrations of Denmark, Finland, Norway and Sweden, opened in 1981 at 450\,MHz with
+25\,kHz channels, later joined by NMT-900. NMT's lasting contribution was organisational
+rather than technical: it was the first system to offer \term{roaming} across national
+borders, because its designers had insisted on a common specification for four countries. Its
+open specification also spawned a Nordic handset industry; Nokia and Ericsson both learnt the
+trade on NMT. The UK adopted a modified AMPS, \term{TACS} (Total Access Communication System),
+with 25\,kHz channels at 900\,MHz, launched by Vodafone and Cellnet in 1985. West Germany had
+C-Netz (450\,MHz), France had Radiocom~2000, Italy had RTMS, and many other countries had
+their own systems. A traveller in 1988 Europe needed a different phone in almost every
+country. That fragmentation was the political motivation for GSM.
+
+\subsection{Why 1G had to go: capacity, privacy and cloning}
+
+By the late 1980s analog systems were running out of capacity in large cities, and cell
+splitting was getting expensive: below about 1\,km radius, sites were hard to find, handoffs
+became frequent and co-channel interference from tall sites was hard to control. Digital
+speech coding offered a way out: a digital channel could be shared by several users, tolerate
+lower signal-to-interference ratios with error-control coding, and be encrypted.
+
+The security failures were worse. An analog FM conversation could be heard by anyone with a
+scanner tuned to the 870--890\,MHz band, and in the US such scanners were widely sold until
+Congress banned the manufacture of scanners able to receive the cellular bands in the early
+1990s. More damaging was \term{cloning}. An AMPS phone identified itself with its
+\term{mobile identification number} (MIN, the phone number) and a 32-bit
+\term{electronic serial number} (ESN) burnt in at the factory. Both were sent in the clear on
+the reverse control channel every time the phone registered or made a call. A criminal with a
+receiver near a busy motorway could harvest thousands of MIN/ESN pairs an hour, reprogram
+other phones with them, and sell calls billed to the victims. The US industry's losses to
+cloning fraud were estimated in the hundreds of millions of dollars a year by the mid-1990s.
+Operators responded with RF fingerprinting (identifying individual transmitters by their
+turn-on transients), personal identification numbers and, finally, a cryptographic
+challenge--response protocol (the CAVE algorithm with a secret A-key) added to AMPS and its
+digital successors. GSM's designers had the same problem in view, and their answer---a
+secret key in a smart card that never leaves it---is still the basis of mobile security.
+
+\begin{pitfall}[Identity is not authentication]
+AMPS confused \emph{identification} (``I am MIN 312-555-0100, ESN 0x8A3F\ldots'') with
+\emph{authentication} (``and here is proof''). Any identifier that is transmitted can be copied.
+Authentication requires a secret that is never transmitted, used to answer a fresh challenge.
+The same mistake recurs in modern systems wherever a static identifier is trusted: MAC-address
+filtering in Wi-Fi, the IMSI sent in the clear in GSM and LTE attach procedures (which enables
+the ``IMSI catcher''), or a device serial number used as a password in an IoT product. The
+fix was the same each time: a challenge--response protocol based on a secret key, and, in 5G,
+encryption of the permanent identity itself (Section~\ref{sec:ch21:5gc}).
+\end{pitfall}
+
+%======================================================================
+\section{Second generation: GSM in depth}
+\label{sec:ch21:gsm}
+%======================================================================
+
+The \term{Global System for Mobile communications} (GSM) is the most successful communication
+standard ever written. At its peak, around 2012, roughly four billion people used it, and in
+2025 it still carries voice, SMS and machine-to-machine traffic in much of the world. It is
+also the best system to study first, because almost every idea in later generations appears
+in it in a simpler form: a TDMA frame with a known training sequence, an adaptive equaliser,
+slow frequency hopping, discontinuous transmission, power control, mobile-assisted handover,
+a subscriber identity module, challenge--response authentication and a layered,
+standardised core network with open interfaces between vendors.
+
+\begin{history}[Groupe Spécial Mobile and the 1987 MoU]
+In 1982 the Conference of European Postal and Telecommunications Administrations (CEPT) set up
+a study group, the \emph{Groupe Spécial Mobile}, to specify a pan-European mobile system in the
+900\,MHz band that the European Commission was preparing to reserve. Under its chairman Thomas
+Haug of the Swedish administration, the group compared eight candidate radio systems in field
+trials in Paris in 1986: several narrowband and wideband TDMA designs, frequency-hopping CDMA
+and a narrowband FDMA system. In February 1987, at a meeting in Madeira, the group chose
+narrowband TDMA with GMSK modulation, a 200\,kHz carrier and eight time slots, a compromise
+between the French--German preference for a wideband system and the Nordic preference for a
+narrowband one. On 7~September 1987, operators from thirteen countries signed a Memorandum of
+Understanding in Copenhagen committing to open GSM networks by 1991. The MoU, not the technical
+specification, is often called GSM's real innovation: it created a guaranteed market, so
+manufacturers could invest in chips and handsets before a single network existed. In 1989
+responsibility for the specifications moved to the newly formed European Telecommunications
+Standards Institute (ETSI). The first GSM call was made in Finland on 1~July 1991 on the
+Radiolinja network, and the acronym was soon redefined as Global System for Mobile
+communications as networks opened on every continent.
+\end{history}
+
+\subsection{Design goals}
+
+GSM's designers set themselves a list that still reads well: international roaming with a
+single subscription; better speech quality and spectral efficiency than analog; security
+against eavesdropping and fraud; low-cost handsets and infrastructure through open
+interfaces, so that operators could buy base stations from one vendor and switches from
+another; compatibility with the Integrated Services Digital Network (ISDN), then expected to
+be the future of fixed telephony; and support for data and new services. Every major choice
+below follows from these goals together with the radio environment at 900\,MHz: delay
+spreads up to about 10--20\,$\mu$s in hilly terrain, vehicle speeds up to about 250\,km/h, and
+cells up to 35\,km in radius.
+
+\subsection{The radio interface: carriers, slots and GMSK}
+
+The original GSM band (now called P-GSM~900) is 890--915\,MHz for the mobile transmit (uplink)
+and 935--960\,MHz for the base transmit (downlink), with 45\,MHz duplex spacing and
+124 carriers of 200\,kHz in each direction. Later allocations added 880--890/925--935\,MHz
+(E-GSM), DCS~1800 (1710--1785/1805--1880\,MHz, 374 carriers) and PCS~1900 in the Americas
+(3GPP TS 45.005). Each carrier is shared by eight users in time: GSM is a hybrid
+\term{FDMA/TDMA} system.
+
+The bit rate on a carrier is
+\begin{equation}
+R=\frac{13\,\mathrm{MHz}}{48}=270.833\ \mathrm{kb/s},\qquad T_b=\frac{48}{13}\,\mu\mathrm{s}\approx3.69\,\mu\mathrm{s},
+\label{eq:ch21:gsmrate}
+\end{equation}
+derived from the 13\,MHz master clock found in every GSM device. The modulation is
+\term{Gaussian minimum-shift keying} (GMSK) with a bandwidth--time product $BT=0.3$
+(Chapter~\ref{ch:modulation}): continuous-phase binary FSK with modulation index $1/2$, in
+which each bit's frequency pulse has been smoothed by a Gaussian filter. The smoothing spreads
+each pulse over about three bit periods (Figure~\ref{fig:ch21_gmsk}b), which costs a little
+intersymbol interference but makes the spectrum fall much faster than plain MSK. GMSK was
+chosen because it has a \emph{constant envelope}: the handset's power amplifier can run in
+saturation, at high efficiency, without spectral regrowth (Chapter~\ref{ch:sdr}). In 1987 a
+linear amplifier for a handset was expensive and power-hungry; a class-C amplifier was cheap.
+The price is spectral efficiency: one bit per symbol, 1.35\,b/s/Hz gross.
+
+\mdcfig{ch21_gmsk}{(a) Power spectra of MSK and GMSK at the GSM bit rate, with an approximate
+outline of the GSM modulation spectrum mask (after TS 45.005; the real mask depends on power
+class and measurement bandwidth). With $BT=0.3$ the spectrum is about 30\,dB down at the
+adjacent-channel centre (200\,kHz) and below $-60$\,dB at 400\,kHz; MSK's sidelobes would
+violate the mask. (b) The frequency pulse of one bit: MSK's is rectangular, GMSK's is a
+Gaussian-smoothed pulse spread over about three bit periods, which is the price paid in ISI
+for the compact spectrum.}
+
+\subsection{The time structure}
+
+Figure~\ref{fig:ch21_gsm_frames} shows GSM's time hierarchy (3GPP TS 45.002). A
+\term{timeslot} lasts 156.25 bit periods, 576.9\,$\mu$s. Eight timeslots make a
+\term{TDMA frame} of 4.615\,ms ($=60/13$\,ms). A user with a full-rate traffic channel owns one
+timeslot in every frame. Frames are grouped into \term{multiframes}: 26 frames (120\,ms) for
+traffic channels, 51 frames (235.4\,ms) for the broadcast and common control channels. The two
+lengths were chosen to be coprime so that a mobile on a traffic channel, which has an idle
+frame in every 26, slides past every position of the 51-multiframe of a neighbouring cell and
+can find its synchronisation burst within a known time. A superframe of
+$26\times51$ frames (6.12\,s) contains every combination, and a hyperframe of 2048 superframes
+(3\,h\,28\,min\,53.76\,s) sets the period of the frame number used by the cipher and the
+frequency-hopping sequence.
+
+\mdcfig[0.95]{ch21_gsm_frames}{The GSM time hierarchy, from the 3.5-hour hyperframe down to
+the normal burst. A full-rate traffic user owns one timeslot per TDMA frame; in each
+26-multiframe, 24 frames carry traffic, one carries the slow associated control channel
+(SACCH, ``S'') and one is idle (``I''), which the mobile uses to measure neighbouring cells.
+The normal burst places its 26-bit training sequence in the middle, so that the channel
+estimate is valid for both halves of the data.}
+
+\subsubsection{Bursts}
+
+What is sent in a timeslot is a \term{burst}. The \term{normal burst} carries two 57-bit data
+fields, a 26-bit \term{training sequence} in the middle (a \emph{midamble}), two
+\term{stealing flags} that say whether the data fields have been borrowed for urgent
+signalling, three tail bits at each end and a guard period of 8.25 bit periods (about
+30\,$\mu$s) during which the transmitter ramps its power up and down. The design choices are
+worth studying.
+\begin{itemize}
+\item \textbf{The midamble.} The channel changes during a burst at high speed: at 250\,km/h and
+900\,MHz the maximum Doppler is about 210\,Hz, a coherence time of a couple of milliseconds,
+not much more than the 0.58\,ms burst. Placing the training sequence in the middle keeps every
+data bit within about 0.3\,ms of the channel estimate.
+\item \textbf{The training sequences.} There are eight \term{training sequence codes} (TSC),
+each a 16-bit core extended cyclically by five bits on each side. Within $\pm5$ bits of the
+peak their autocorrelation is ideal (zero off-peak), so correlating the received midamble with
+the known sequence gives the channel impulse response directly over a window of about five
+bits, roughly 18\,$\mu$s. Neighbouring co-channel cells are given different TSCs, so the
+estimate favours the wanted signal.
+\item \textbf{The equaliser.} With the channel estimated, a Viterbi (MLSE) equaliser with a
+four- or five-bit memory (16--32 states) detects the data (Chapter~\ref{ch:equalization}).
+The GSM specification requires good performance on its ``hilly terrain'' channel model with
+echoes delayed by about 15--20\,$\mu$s, so the equaliser is mandatory, and it was the most
+demanding block in a 1991 handset. GMSK's own ISI from the Gaussian filter is equalised in
+the same trellis.
+\item \textbf{The guard period.} 30\,$\mu$s covers the power ramps but not the round-trip
+propagation delay to a distant mobile, which is up to about 230\,$\mu$s at 35\,km. That is
+handled by timing advance, below.
+\end{itemize}
+Four other burst types complete the set. The \term{frequency correction burst} is 142 zeros
+which, in GMSK, produce a pure tone 67.7\,kHz ($=R/4$) above the carrier, easy to find with a
+narrow filter during cell search. The \term{synchronisation burst} carries a long 64-bit
+training sequence and the base station identity code and reduced frame number. The
+\term{access burst}, used for the very first transmission from a mobile that does not yet know
+its distance, has a guard period of 68.25 bit periods (252\,$\mu$s), enough for a round trip
+of about 35\,km, the maximum cell radius of standard GSM. The \term{dummy burst} fills unused
+slots on the broadcast carrier, which must always be transmitted at constant power so that
+mobiles in neighbouring cells can measure it.
+
+\subsubsection{Timing advance and half-duplex operation}
+
+A mobile at distance $d$ sees the base's frames late by $d/c$ and its own bursts arrive at the
+base a further $d/c$ late. To keep bursts from different mobiles from overlapping, the base
+measures the delay of each mobile's bursts and commands a \term{timing advance} (TA) of
+0 to 63 bit periods; each step is 3.69\,$\mu$s of round trip, about 553\,m of distance, so
+63 steps cover about 35\,km. The uplink frame is also delayed by three timeslots relative to
+the downlink, so that a phone using timeslot 2 receives in slot 2, transmits three slots
+later and never transmits and receives at the same instant. The phone needs no duplex
+filter to separate simultaneous transmission and reception; a transmit/receive switch is
+enough. This was a significant saving in 1991 and remains a reason why GSM chips are
+cheap.
+
+\subsection{Logical channels}
+
+On top of the physical structure GSM defines \term{logical channels}, listed in
+Table~\ref{tab:ch21:gsmlogical}. Traffic channels carry speech or data. Control channels come
+in three families: \emph{broadcast} channels, which every mobile in a cell listens to;
+\emph{common control} channels, shared by all mobiles for paging and access; and
+\emph{dedicated} control channels, assigned to one mobile. The broadcast and common channels
+live on timeslot~0 of one special carrier per cell, the \term{BCCH carrier}, which transmits
+continuously at constant power and does not hop; that is the carrier mobiles measure for
+handover and cell reselection.
+
+\begin{table}[htbp]\centering\small
+\caption{GSM logical channels (3GPP TS 45.002).}
+\label{tab:ch21:gsmlogical}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+Channel & Direction & Purpose\\
+\midrule
+TCH/F, TCH/H & both & Full-rate (22.8\,kb/s gross) and half-rate (11.4\,kb/s) traffic: speech or circuit data\\
+FCCH & down & Frequency correction bursts: a tone for coarse frequency and slot timing\\
+SCH & down & Synchronisation: base station identity code (BSIC), TDMA frame number\\
+BCCH & down & System information: cell identity, neighbour list, access parameters\\
+PCH & down & Paging: ``mobile X, you have a call''\\
+RACH & up & Random access: slotted-ALOHA access bursts requesting a channel\\
+AGCH & down & Access grant: assigns a dedicated channel after a RACH request\\
+SDCCH & both & Stand-alone dedicated control: call set-up, location updates, SMS when idle\\
+SACCH & both & Slow associated control: power control, timing advance, measurement reports (every 480\,ms)\\
+FACCH & both & Fast associated control: handover commands, by stealing traffic bursts\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A mobile-originated call shows the channels in action. The mobile sends an access burst on
+the RACH with a random reference; the network replies on the AGCH with an SDCCH assignment and
+an initial timing advance; on the SDCCH the mobile and network authenticate, start ciphering
+and exchange call set-up messages; the network then assigns a TCH, and the conversation runs
+with the SACCH alongside it, carrying the mobile's measurements of its serving cell and up to
+six neighbours every 480\,ms. If a handover is needed, the command arrives on the FACCH, which
+steals a 20\,ms speech frame; the stealing flags tell the receiver to decode the burst as
+signalling, and the listener hears a short gap concealed by the speech decoder.
+
+\subsection{Speech coding and channel coding}
+
+The original \term{full-rate} speech codec, regular-pulse-excitation long-term-prediction
+(RPE-LTP, GSM~06.10), produces 260 bits every 20\,ms, 13\,kb/s. The bits are not equally
+important, and GSM was one of the first systems to protect them unequally
+(Chapter~\ref{ch:sourcecoding} explains why):
+\begin{itemize}
+\item 50 \emph{class 1a} bits (filter coefficients, block amplitudes, pitch parameters), whose
+errors are audible as clicks, get a 3-bit CRC; if the CRC fails, the whole frame is discarded
+and the decoder repeats and attenuates the previous one (\emph{bad-frame handling});
+\item 132 \emph{class 1b} bits are convolutionally coded but not checked;
+\item 78 \emph{class 2} bits are sent unprotected.
+\end{itemize}
+The class 1 bits, the 3 parity bits and 4 tail bits ($182+3+4=189$) pass through a rate-1/2,
+constraint-length-5 convolutional code (generators $1+D^3+D^4$ and $1+D+D^3+D^4$,
+Chapter~\ref{ch:classiccodes}), giving 378 bits, to which the 78 class 2 bits are added: 456
+coded bits per 20\,ms, 22.8\,kb/s. The 456 bits are interleaved diagonally over eight
+consecutive bursts, $8\times57=456$, so each burst carries halves of two speech frames. A
+fade that wipes out one burst destroys only one eighth of each codeword, which the Viterbi
+decoder can usually repair.
+
+\begin{worked}[GSM's rates, from the slot to the speech codec]
+\emph{Gross rate per slot.} The carrier runs at 270.833\,kb/s, shared by 8 slots:
+$270.833/8=33.85$\,kb/s per slot, including tails, training, flags and guard.
+
+\emph{Payload per slot.} Each normal burst carries $2\times57=114$ data bits every TDMA frame of
+4.615\,ms: $114/4.615\,\mathrm{ms}=24.7$\,kb/s. The burst overhead is therefore
+$1-114/156.25=27\%$.
+
+\emph{Traffic channel.} In each 120\,ms 26-multiframe, 24 frames carry traffic: $24\times114$ bits
+per 120\,ms $=22.8$\,kb/s, exactly the coded speech rate computed above. The 26th frames carry
+the SACCH ($114$ bits per 120\,ms, 950\,b/s gross) and the idle frame.
+
+\emph{Net speech rate.} 13\,kb/s of RPE-LTP. The channel-coding rate is $13/22.8=0.57$.
+
+\emph{Spectral efficiency.} Eight 13\,kb/s voices in 200\,kHz is 0.52\,b/s/Hz per carrier
+before reuse. With a reuse of 4 sites and 3 sectors (12 carrier groups), each sector gets a
+twelfth of the band: about 0.043\,b/s/Hz per sector, or one simultaneous call for every
+$12\times25=300$\,kHz of spectrum. AMPS, with 30\,kHz channels in 21 groups, needed
+$21\times30=630$\,kHz per call per sector. Counted that way, GSM with 4/12 reuse is about twice
+as efficient as AMPS, and with tighter reuse, frequency hopping and half-rate or AMR codecs
+roughly 3--6 times. That is
+where 2G's capacity came from: not from the modulation, which is no denser, but from tolerance
+of interference (a C/I requirement of about 9\,dB instead of 18\,dB) that allowed tighter reuse.
+\end{worked}
+
+\subsubsection{From RPE-LTP to AMR}
+
+Speech coding improved through GSM's life. The half-rate codec (VSELP, 5.6\,kb/s, 1995)
+doubled capacity at some loss of quality. The enhanced full-rate codec (EFR, ACELP at
+12.2\,kb/s, 1996) gave close to wireline quality in the full-rate channel. The
+\term{Adaptive Multi-Rate} (AMR) codec (3GPP, 1999) provides eight modes from 4.75 to
+12.2\,kb/s and lets the network choose, every 40\,ms or so, how to split the gross channel
+between speech and protection: a user near the cell edge gets a low-rate codec with strong
+coding, a user near the base gets 12.2\,kb/s with light coding. AMR can also run in a
+half-rate channel. AMR-WB (G.722.2, 6.6--23.85\,kb/s) brought wideband ``HD voice'' (50--7000\,Hz)
+to GSM and UMTS. AMR is the first appearance in this chapter of \emph{link adaptation}, the
+principle that later dominates HSPA, LTE and NR.
+
+\subsection{Frequency hopping, DTX and power control}
+
+GSM supports \term{slow frequency hopping}: a traffic channel changes carrier every TDMA
+frame, 217 times a second, following either a cyclic or a pseudo-random sequence over a list
+of carriers allocated to the cell (Chapter~\ref{ch:spreadspectrum}). Each 20\,ms speech frame is
+interleaved over eight bursts on eight different frequencies, which gives two kinds of gain.
+\emph{Frequency diversity} helps a slow-moving or stationary user, whose channel would otherwise
+sit in a deep fade for seconds: with hopping, a fade on one carrier destroys only one burst of
+eight. \emph{Interference diversity} helps everyone: with uncorrelated hopping sequences in
+neighbouring cells, the interference on each burst comes from a different random user, so the
+codeword sees average rather than worst-case interference. Hopping is the main reason GSM
+networks could move from 4/12 reuse to 3/9 and even 1/3 or 1/1 with fractional loading in the
+late 1990s. It was an elegant way of getting part of CDMA's interference averaging inside a
+TDMA system.
+
+\textbf{Discontinuous transmission}\index{discontinuous transmission} (DTX) exploits the fact that a person in a conversation
+talks less than half the time. A voice activity detector stops transmission during silences,
+except for occasional silence-descriptor frames from which the receiver synthesises
+\emph{comfort noise} so that the line does not sound dead. DTX roughly halves the average
+interference and saves battery. \textbf{Power control}\index{power control}, in 2\,dB steps every SACCH period
+(480\,ms) over a range of about 30\,dB, keeps each mobile's power no higher than needed, which
+again reduces interference and saves battery. A GSM~900 handset (power class~4) transmits at
+most 2\,W during its burst, an average of 250\,mW because it transmits in only one slot in
+eight.
+
+\begin{inpractice}[The 217\,Hz buzz]
+Anyone who has left a GSM phone next to a loudspeaker or a car radio has heard a buzzing
+``dit-dit-dit-dit'': that is the 217\,Hz TDMA frame rate, rectified by audio amplifiers that
+were never designed to see a 2\,W, 900\,MHz burst switching on and off 217 times a second. The
+same pulsed envelope caused interference in hearing aids and early medical devices and led to
+the hearing-aid compatibility ratings still printed on phones. CDMA, WCDMA and OFDMA phones
+transmit continuously during a call (or at least with much less regular gating), and the buzz
+disappeared with 2G. It is a reminder that the envelope of a signal matters to equipment that
+does not even demodulate it.
+\end{inpractice}
+
+\subsection{Network architecture}
+
+GSM's architecture (Figure~\ref{fig:ch21_gsm_arch}) divides the network into a
+\term{base station subsystem} (BSS) and a \term{network and switching subsystem} (NSS), with
+standardised interfaces between them.
+\begin{itemize}
+\item The \term{mobile station} (MS) is the \emph{mobile equipment} plus the
+\term{subscriber identity module} (SIM), a smart card holding the subscriber's identity (IMSI)
+and secret key.
+\item The \term{base transceiver station} (BTS) contains the radios and handles the physical
+layer: modulation, equalisation, channel coding, ciphering and frequency hopping.
+\item The \term{base station controller} (BSC) manages tens to hundreds of BTSs over the
+\emph{Abis} interface: it allocates channels, runs power control and decides on handovers
+between its own cells. A transcoder unit (TRAU) converts between the 13\,kb/s codec and the
+64\,kb/s PCM of the fixed network.
+\item The \term{mobile switching centre} (MSC), a telephone exchange extended for mobility, connects
+calls over the \emph{A} interface and to the public telephone network through a gateway MSC.
+The \term{visitor location register} (VLR) holds data on the subscribers currently in its area.
+\item The \term{home location register} (HLR) is the master database of the subscribers of a
+network: their identities, subscribed services and the VLR that currently serves them. The
+\term{authentication centre} (AuC) holds each subscriber's secret key and generates
+authentication vectors. The equipment identity register (EIR) lists stolen handsets.
+\end{itemize}
+The core elements talk to each other with the Mobile Application Part (MAP) of Signalling
+System No.~7, the same signalling network that set up fixed telephone calls
+(Chapter~\ref{ch:wireline}). Roaming is a MAP conversation between the visited network's VLR
+and the home network's HLR: ``a subscriber of yours has turned up here; is she allowed to
+use my network, and please send me her authentication vectors.''
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=1pt,minimum height=0.8cm,minimum width=1.3cm,align=center},
+  db/.style={draw=accent,fill=accent!6,thick,rounded corners=1pt,minimum height=0.7cm,minimum width=1.1cm,align=center},
+  pk/.style={draw=practc,fill=practc!8,thick,rounded corners=1pt,minimum height=0.8cm,minimum width=1.3cm,align=center},
+  ln/.style={thick,navy}, if/.style={font=\sffamily\tiny,text=accent,midway,above}]
+\node[box] (ms) at (0,0) {MS\\(ME + SIM)};
+\node[box] (bts1) at (2.4,0.9) {BTS};
+\node[box] (bts2) at (2.4,-0.9) {BTS};
+\node[box] (bsc) at (4.8,0) {BSC\\+ TRAU};
+\node[box] (msc) at (7.4,0.9) {MSC/VLR};
+\node[box] (gmsc) at (10.1,0.9) {GMSC};
+\node[draw=gray,thick,ellipse,minimum width=1.4cm,minimum height=0.8cm] (pstn) at (12.4,0.9) {PSTN};
+\node[db] (hlr) at (8.75,2.4) {HLR/AuC};
+\node[db] (eir) at (6.6,2.4) {EIR};
+\node[db] (smsc) at (10.9,2.4) {SMSC};
+\node[pk] (sgsn) at (7.4,-0.95) {SGSN};
+\node[pk] (ggsn) at (10.1,-0.95) {GGSN};
+\node[draw=gray,thick,ellipse,minimum width=1.4cm,minimum height=0.8cm] (inet) at (12.4,-0.95) {Internet};
+\draw[ln,dashed] (ms) -- node[if]{Um} (bts1); \draw[ln,dashed] (ms) -- (bts2);
+\draw[ln] (bts1) -- node[if]{Abis} (bsc); \draw[ln] (bts2) -- (bsc);
+\draw[ln] (bsc) -- node[if]{A} (msc); \draw[ln,practc] (bsc) -- node[if,below]{Gb} (sgsn);
+\draw[ln] (msc) -- (gmsc); \draw[ln] (gmsc) -- (pstn);
+\draw[ln,practc] (sgsn) -- node[if]{Gn} (ggsn); \draw[ln,practc] (ggsn) -- node[if]{Gi} (inet);
+\draw[ln,accent!70,dotted] (msc) -- node[if,left]{MAP} (hlr); \draw[ln,accent!70,dotted] (gmsc) -- (hlr);
+\draw[ln,accent!70,dotted] (msc) -- (eir); \draw[ln,accent!70,dotted] (sgsn.north east) -- (hlr);
+\draw[ln,accent!70,dotted] (gmsc) -- (smsc);
+\node[draw=navy!40,dashed,rounded corners,fit=(bts1)(bts2)(bsc),inner sep=4pt,label={[font=\sffamily\tiny,text=navy]below:base station subsystem}] {};
+\node[draw=navy!40,dashed,rounded corners,fit=(msc)(gmsc)(hlr)(eir)(smsc),inner sep=4pt,label={[font=\sffamily\tiny,text=navy]above:network and switching subsystem (circuit)}] {};
+\node[draw=practc!60,dashed,rounded corners,fit=(sgsn)(ggsn),inner sep=4pt,label={[font=\sffamily\tiny,text=practc]below:GPRS packet core (2.5G)}] {};
+\end{tikzpicture}
+\caption{GSM network architecture with the GPRS packet core added in the late 1990s. Solid
+lines carry traffic and signalling; dotted lines are SS7/MAP signalling to the databases.
+Standardised interfaces (Um, Abis, A, Gb) let operators buy each element from a different
+vendor, one of GSM's founding goals.}
+\label{fig:ch21_gsm_arch}
+\end{figure}
+
+\subsection{Security: the SIM, authentication and the A5 ciphers}
+
+GSM's security design (Figure~\ref{fig:ch21_gsm_auth}) rests on a 128-bit secret key $K_i$
+shared between the SIM and the AuC and never transmitted. When the network wants to
+authenticate a mobile, the AuC generates a random 128-bit challenge RAND and computes two
+functions of $K_i$ and RAND: a 32-bit signed response SRES (algorithm A3) and a 64-bit
+cipher key $K_c$ (algorithm A8). The triplet (RAND, SRES, $K_c$) is sent to the serving
+MSC/VLR, which sends RAND to the mobile. The SIM computes SRES and $K_c$ itself and returns
+SRES; if it matches, the subscriber is authentic. Both sides now hold $K_c$ without its ever
+having crossed the air, and the BTS and the handset encrypt each burst with the stream cipher
+\term{A5/1} (or the export variant A5/2, or later the KASUMI-based A5/3), keyed by $K_c$ and
+the TDMA frame number. A5/1 is built from three short linear-feedback shift registers of
+lengths 19, 22 and 23 bits with irregular, majority-rule clocking, and it produces 114
+keystream bits for each direction in each frame. To protect location privacy the network
+assigns a \term{temporary mobile subscriber identity} (TMSI) after the first registration, so
+the permanent IMSI need not be sent again.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=1pt,minimum height=0.75cm,align=center},
+  alg/.style={draw=accent,fill=accent!6,thick,minimum height=0.55cm,minimum width=0.9cm,align=center},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[box,minimum width=3.6cm,minimum height=3.3cm] (sim) at (0,0) {};
+\node[font=\sffamily\bfseries\scriptsize,text=navy] at (0,1.4) {SIM (in the handset)};
+\node[box,minimum width=4.4cm,minimum height=3.3cm] (auc) at (8.2,0) {};
+\node[font=\sffamily\bfseries\scriptsize,text=navy] at (8.2,1.4) {AuC / HLR (home network)};
+\node[alg] (a3s) at (-0.8,0.2) {A3};
+\node[alg] (a8s) at (0.8,0.2) {A8};
+\node (kis) at (0,0.95) {$K_i$ (128 bits, never leaves)};
+\node[alg] (a3n) at (7.4,0.2) {A3};
+\node[alg] (a8n) at (9.0,0.2) {A8};
+\node (kin) at (8.2,0.95) {$K_i$ \quad RAND generator};
+\node (sress) at (-0.8,-0.9) {SRES};
+\node (kcs) at (0.8,-0.9) {$K_c$ (64 bits)};
+\node (sresn) at (7.4,-0.9) {SRES};
+\node (kcn) at (9.0,-0.9) {$K_c$};
+\draw[arr] (kis) -- (a3s); \draw[arr] (kis) -- (a8s); \draw[arr] (kin.south west) -- (a3n); \draw[arr] (kin) -- (a8n);
+\draw[arr] (a3s) -- (sress); \draw[arr] (a8s) -- (kcs);
+\draw[arr] (a3n) -- (sresn); \draw[arr] (a8n) -- (kcn);
+\node[box,minimum width=2.4cm,fill=practc!8,draw=practc] (vlr) at (4.1,-0.9) {MSC/VLR\\compare SRES};
+\draw[arr,accent] (6.0,0.6) -- node[above,font=\sffamily\tiny]{1. triplets (RAND, SRES, $K_c$)} (4.1,0.6) -- (vlr.north);
+\draw[arr] (vlr.north west) ++(0,0.0) -- node[above,sloped,font=\sffamily\tiny]{2. RAND} (1.8,0.2);
+\draw[arr] (1.8,-0.9) -- node[below,font=\sffamily\tiny]{3. SRES} (vlr.west);
+\node[draw=gray,dashed,rounded corners,align=center,font=\sffamily\tiny] at (4.1,-2.15)
+  {4. BTS and handset encrypt each burst with A5/1 (or A5/3), key $K_c$, frame number as IV};
+\end{tikzpicture}
+\caption{GSM authentication and key agreement. The secret $K_i$ stays in the SIM and the AuC;
+only the random challenge and the 32-bit response cross the air, and both ends derive the
+cipher key $K_c$ independently. The network authenticates the mobile, but the mobile never
+authenticates the network.}
+\label{fig:ch21_gsm_auth}
+\end{figure}
+
+\begin{pitfall}[How GSM's security was broken]
+GSM's security was a large advance on AMPS, but nearly every weakness that cryptographers would
+later exploit was a design decision made for cost or politics, and each is now a textbook
+lesson.
+\begin{itemize}
+\item \emph{Secret algorithms.} A3/A8 and A5 were confidential. Once reverse-engineered, they
+were broken quickly. In 1998 Briceno, Goldberg and Wagner showed that COMP128-1, the A3/A8
+example algorithm many operators used, leaked $K_i$ after roughly $10^5$ chosen challenges,
+allowing SIM cloning; COMP128-1 also set ten bits of $K_c$ to zero, weakening A5 to an
+effective 54-bit key. A5/2 was broken almost immediately after publication in 1999.
+\item \emph{Coding before ciphering.} GSM encrypts \emph{after} error-control coding, so the
+ciphertext obeys known linear parity relations. Barkan, Biham and Keller (2003) used this to
+break A5/2 in real time from ciphertext alone, and showed active attacks that tricked a phone
+into using A5/2 and so recovered the $K_c$ also used with A5/1.
+\item \emph{A5/1 itself.} Time--memory trade-off attacks (Biryukov, Shamir and Wagner, 2000) and,
+from 2009--10, publicly computed rainbow tables of about 2\,TB made A5/1 decryptable on a PC
+given a few known-plaintext bursts, which GSM's predictable signalling messages supply.
+\item \emph{One-way authentication.} The network authenticates the phone, not vice versa. A
+fake base station (an \term{IMSI catcher}) can ask the phone for its IMSI, tell it not to
+encrypt, and relay its calls.
+\item \emph{No integrity protection} of signalling and encryption only on the radio link.
+\end{itemize}
+UMTS fixed most of these with mutual authentication (AKA), integrity protection, published
+algorithms (KASUMI, later SNOW~3G and AES) and 128-bit keys; LTE and 5G kept that model.
+Kerckhoffs's principle---assume the attacker knows the algorithm---was learnt the hard way.
+\end{pitfall}
+
+\subsection{SMS: the accidental success}
+
+The \term{Short Message Service} was an afterthought. The idea of sending short text messages
+over the signalling channels of the network was developed in the mid-1980s by Friedhelm
+Hillebrand and Bernard Ghillebaert in the GSM standardisation work, and the limit of 160
+characters came from the 140 octets available in a signalling message at 7 bits per
+character. Hillebrand later recounted that he had checked, by typing out typical postcards and
+telex messages, that 160 characters was enough for most of what people wanted to say. The
+first SMS, ``Merry Christmas'', was sent from a PC to a phone on the Vodafone UK network on
+3~December 1992. Because messages travel on the SDCCH or SACCH and are stored and forwarded
+by a short-message service centre, SMS costs the network almost nothing: it uses capacity
+that already exists for signalling. Operators priced it as if it were valuable, teenagers
+discovered it once prepaid tariffs and inter-network messaging arrived in the late 1990s, and
+for a decade SMS was the most profitable service in telecommunications, with several trillion
+messages a year by around 2010. The lesson, repeated by the mobile internet and by apps,
+is that the most important use of a network is rarely the one its designers planned.
+
+\begin{inpractice}[GSM's long goodbye]
+Operators are switching off 2G and 3G networks to reuse the spectrum for 4G and 5G. AT\&T in
+the US switched off its GSM network at the start of 2017 and its 3G network in 2022; many
+European operators have chosen to keep GSM longer than 3G, because GSM serves roaming
+visitors, old phones, alarm panels, smart meters and cars with emergency-call modules, and
+because a single GSM carrier fits in a 200\,kHz sliver between LTE carriers. GSM-R, the railway
+version, carries train signalling (ETCS level 2) across Europe and is being replaced by the
+5G-based FRMCS from around 2030. Engineers planning an IoT product with a 15-year life should
+check each target country's switch-off plans before choosing a 2G or 3G module.
+\end{inpractice}
+
+%======================================================================
+\section{The other second-generation systems}
+\label{sec:ch21:other2g}
+%======================================================================
+
+GSM did not have the world to itself. In the US the FCC did not mandate a digital standard,
+operators wanted to upgrade in their existing AMPS spectrum, and two incompatible digital
+systems emerged; Japan built its own.
+
+\subsection{D-AMPS (IS-54/IS-136) and PDC}
+
+The US industry association (CTIA) chose TDMA as its digital standard in 1988, and the result,
+IS-54 (1990), later IS-136, was called \term{D-AMPS} or simply ``TDMA''. Its constraint was
+backward compatibility: it had to fit in a 30\,kHz AMPS channel so that operators could convert
+channels one at a time and dual-mode phones could fall back to AMPS. Each 30\,kHz carrier
+carries 48.6\,kb/s of $\pi/4$-DQPSK at 24.3\,kBd with root-raised-cosine filtering
+($\beta=0.35$) in 40\,ms frames of six slots; a full-rate user takes two slots, so three users
+share a channel that carried one under AMPS. The speech codec was 7.95\,kb/s VSELP. A
+three-fold capacity gain looked good, but IS-136 never had GSM's richness of features or its
+economies of scale; AT\&T Wireless and Cingular moved their TDMA networks to GSM in the early
+2000s. $\pi/4$-DQPSK, a linear modulation, required a linear power amplifier but gave twice
+GMSK's bits per hertz; the same trade-off reappears in EDGE.
+
+Japan's \term{Personal Digital Cellular} (PDC, 1993) was similar: 25\,kHz carriers, three-slot
+TDMA, $\pi/4$-DQPSK at 42\,kb/s. It was used only in Japan, but it carried NTT DoCoMo's
+\emph{i-mode} service (1999), the first mass-market mobile internet, with tens of millions of
+users sending email and browsing compact web pages years before the smartphone.
+
+\subsection{IS-95 cdmaOne}
+
+The radical alternative was Qualcomm's \term{code-division multiple access} system,
+standardised as IS-95 in 1993 and marketed as \term{cdmaOne}. Its physical layer---direct-sequence
+spreading, Walsh codes, PN offsets, the rake receiver---is developed in
+Chapter~\ref{ch:spreadspectrum}; here the system view matters.
+\begin{itemize}
+\item \textbf{Wideband carriers.} 1.25\,MHz carriers spread at 1.2288\,Mchip/s, so one CDMA
+carrier replaces 41 AMPS channels. Every cell uses the same carrier: \term{universal frequency
+reuse} ($N=1$). Cells are distinguished by offsets of a common short PN code (512 offsets of
+64 chips), users by orthogonal 64-chip Walsh codes on the downlink and by a long PN code on
+the uplink.
+\item \textbf{Interference-limited capacity.} Capacity is set by total interference rather than
+by the number of channels, so anything that reduces interference adds users: voice activity
+(the variable-rate QCELP and EVRC vocoders transmit at an eighth of full rate in silences),
+sectorisation, and above all tight power control.
+\item \textbf{Power control.} Uplink closed-loop power control at 800\,Hz in 1\,dB steps solves
+the near--far problem, in which a nearby phone would otherwise drown a distant one by 60\,dB
+or more. Section~\ref{sec:ch21:3g} examines power control in WCDMA, which inherited the idea
+at a faster rate.
+\item \textbf{Soft handoff.} A mobile near a cell boundary communicates with two or three
+cells at once, and the network combines the copies. There is no break in the call and the
+diversity reduces the power needed.
+\item \textbf{Synchronised base stations.} The short-PN-offset scheme requires all base stations
+to share a time reference, provided by GPS receivers at every site; this became a political
+and operational issue in countries wary of dependence on GPS.
+\end{itemize}
+
+\begin{history}[Qualcomm's CDMA bet]
+Qualcomm was founded in San Diego in 1985 by Irwin Jacobs, Andrew Viterbi and five colleagues,
+most of whom had worked together at Linkabit on spread-spectrum military and satellite
+systems. In 1988--89 they proposed applying CDMA to cellular, at the moment the industry had
+just chosen TDMA. Their claims of a capacity many times that of AMPS met loud scepticism;
+critics argued that power control would never be accurate enough in a real fading channel and
+that the system would collapse under its own interference. Qualcomm demonstrated a working
+prototype in San Diego in late 1989, persuaded the industry to standardise it as IS-95 in
+1993, and won early commitments from operators in Hong Kong, South Korea and the US. South
+Korea's government chose CDMA as its national digital standard, and Korean manufacturers
+became its first mass producers. Real CDMA capacity turned out lower than the most optimistic
+early claims but clearly higher than D-AMPS. The deeper victory was intellectual: every 3G
+standard used CDMA, and Qualcomm's patent portfolio made it the most important licensor in
+mobile communications.
+\end{history}
+
+\begin{table}[htbp]\centering\small
+\caption{The main 2G air interfaces.}
+\label{tab:ch21:2g}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l l l l l >{\raggedright\arraybackslash}X@{}}
+\toprule
+System & Carrier & Access & Modulation & Gross rate & Speech codecs (kb/s)\\
+\midrule
+GSM & 200\,kHz & TDMA, 8 slots & GMSK & 270.8\,kb/s & RPE-LTP 13; EFR 12.2; AMR 4.75--12.2\\
+D-AMPS & 30\,kHz & TDMA, 3 users & $\pi/4$-DQPSK & 48.6\,kb/s & VSELP 7.95; ACELP 7.4\\
+PDC & 25\,kHz & TDMA, 3 users & $\pi/4$-DQPSK & 42\,kb/s & VSELP 6.7\\
+IS-95 & 1.25\,MHz & CDMA, $N=1$ & QPSK/OQPSK & 1.2288\,Mc/s & QCELP 8 and 13; EVRC\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%======================================================================
+\section{Generation 2.5: GPRS and EDGE}
+\label{sec:ch21:gprs}
+%======================================================================
+
+GSM was designed for circuit-switched voice, and its data service was a circuit too: 9.6\,kb/s
+(later 14.4) on a traffic channel, held and billed for the whole session, like a modem call.
+High-speed circuit-switched data (HSCSD) bundled up to four slots. Neither suited bursty
+internet traffic, in which a user downloads a page in a second and then reads it for a minute.
+
+\subsection{GPRS: packets on a circuit network}
+
+The \term{General Packet Radio Service} (GPRS), commercial from about 2000, added packet
+switching to GSM without changing the physical layer. Timeslots can be configured as
+\term{packet data channels} (PDCH), shared among many users by a MAC scheduler in the BSC
+(the packet control unit). Data is sent in radio blocks of four bursts over four consecutive
+frames (20\,ms). A phone may use several slots at once, up to the limit of its
+\term{multislot class}; a common class-10 phone could receive on four slots and transmit on
+two, five in total. Four coding schemes trade protection for rate: CS-1 to CS-4 give 9.05,
+13.4, 15.6 and 21.4\,kb/s per slot. An RLC layer with selective-repeat ARQ makes the link
+reliable, and on the uplink a 3-bit \emph{uplink state flag} in each downlink block says which
+mobile may transmit in the next uplink block, a simple form of the dynamic uplink grant that
+LTE and NR use. In the core, the \term{SGSN} (serving GPRS support node) handles mobility and
+sessions, and the \term{GGSN} (gateway GPRS support node) is the IP router to the internet; a
+user activates a \emph{PDP context} identified by an access point name (APN), the ancestor of
+the LTE bearer and the NR PDU session. Packets are tunnelled between the two in the GPRS
+tunnelling protocol, GTP, which survives in 5G as GTP-U on the N3 interface.
+
+GPRS gave the first ``always-on'' mobile internet, but it was slow (tens of kilobits per
+second in practice) and had round-trip times of 600\,ms to over a second, because a packet
+waited for resource allocation in the BSC and then crossed several network nodes. A user felt
+the latency more than the rate.
+
+\subsection{EDGE: a smarter modulation and incremental redundancy}
+
+\term{EDGE} (Enhanced Data rates for GSM Evolution, also EGPRS) kept GSM's 200\,kHz carrier,
+270.833\,ksym/s symbol rate and burst structure but added \term{8-PSK}, three bits per symbol.
+To avoid zero crossings of the envelope (which stress a power amplifier), the constellation is
+rotated by $3\pi/8$ every symbol, the same trick as $\pi/4$-QPSK
+(Chapter~\ref{ch:modulation}). Nine modulation and coding schemes give 8.8 to 59.2\,kb/s per
+slot (Table~\ref{tab:ch21:edge}); with four slots, a phone reaches 236.8\,kb/s at the best.
+\begin{table}[htbp]\centering\small
+\caption{EGPRS modulation and coding schemes (3GPP TS 44.060), data rate per timeslot.
+Schemes in the same family share a payload unit size, so a block can be resegmented and
+retransmitted with a more robust scheme of the same family.}
+\label{tab:ch21:edge}
+\begin{tabular}{@{}l c c c | l c c c@{}}
+\toprule
+Scheme & Mod. & Family & kb/s & Scheme & Mod. & Family & kb/s\\
+\midrule
+MCS-1 & GMSK & C & 8.8 & MCS-5 & 8-PSK & B & 22.4\\
+MCS-2 & GMSK & B & 11.2 & MCS-6 & 8-PSK & A & 29.6\\
+MCS-3 & GMSK & A & 14.8 & MCS-7 & 8-PSK & B & 44.8\\
+MCS-4 & GMSK & C & 17.6 & MCS-8 & 8-PSK & A & 54.4\\
+ & & & & MCS-9 & 8-PSK & A & 59.2\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+EDGE's real intellectual content is in its link layer. \textbf{Link adaptation}\index{link adaptation} picks the MCS
+from the mobile's channel-quality measurements. And EDGE was the first widely deployed system
+with \term{incremental redundancy} (IR), a form of \term{hybrid ARQ}: a block that fails is
+not discarded; the receiver keeps its soft values, and the retransmission sends
+\emph{different} punctured bits of the same mother code, so the decoder sees a lower-rate code
+after each attempt (Chapter~\ref{ch:classiccodes} introduces ARQ). IR makes the choice of
+MCS forgiving: a block sent too aggressively costs one more transmission, not a wasted one.
+Figure~\ref{fig:ch21_cqi_harq}b, in the LTE section, shows the gain. HSPA, LTE and NR all
+inherited IR.
+
+Later releases pushed GSM further. EGPRS2 (Release~7) added 16- and 32-QAM, turbo codes and a
+higher symbol rate, and downlink dual-carrier EDGE doubled the peak again, but by then
+operators were investing in 3G and LTE.
+
+\begin{worked}[EDGE throughput and what the user saw]
+A class-12 EDGE phone receives on four slots. At MCS-9 the peak is $4\times59.2=236.8$\,kb/s.
+MCS-9 has a code rate close to 1 and needs a high C/I, roughly 25\,dB or more, so most users
+were on MCS-5 to MCS-7: $4\times22.4=90$\,kb/s to $4\times44.8=179$\,kb/s. Subtract RLC/MAC and
+IP header overhead, TCP slow start with a 200--300\,ms round trip, and the sharing of the PDCHs
+with other users, and a typical user saw something like 100--200\,kb/s. That was enough for
+email and simple web pages, and it was the network the first iPhone used in 2007.
+\end{worked}
+
+%======================================================================
+\section{Third generation: IMT-2000, WCDMA and CDMA2000}
+\label{sec:ch21:3g}
+%======================================================================
+
+\subsection{The politics of IMT-2000}
+
+By the early 1990s the ITU was working on a single global standard for the next generation,
+originally called FPLMTS and renamed IMT-2000, with the idea of one radio interface in one
+band everywhere. The World Administrative Radio Conference of 1992 (WARC-92) identified
+spectrum around 2\,GHz (1885--2025 and 2110--2200\,MHz), and the requirements were set at
+144\,kb/s for vehicular users, 384\,kb/s for pedestrians and 2\,Mb/s indoors. The technology was
+expected to be CDMA, whose advantages had been shown by IS-95 and by research in Europe and
+Japan.
+
+The single global standard never happened. Europe and Japan wanted a wideband CDMA system
+evolved from the GSM core; North American CDMA operators wanted a backward-compatible
+evolution of IS-95; China wanted a homegrown TDD system; and patent holders, above all
+Qualcomm and Ericsson, fought over the details that would determine whose patents were
+essential. In January 1998 ETSI chose \term{wideband CDMA} (WCDMA) for the paired (FDD) bands
+and TD-CDMA for unpaired (TDD) bands, under the name UTRA. In December 1998 standards bodies from
+Europe, Japan, Korea and the US formed the \term{Third Generation Partnership Project}
+(3GPP) to write the specifications for UTRA and the evolved GSM core; a parallel 3GPP2 took on
+CDMA2000. A patent dispute between Ericsson and Qualcomm over WCDMA was settled in March 1999,
+clearing the way. The ITU eventually blessed a family of five ``IMT-2000'' radio interfaces,
+of which WCDMA, CDMA2000 and TD-SCDMA mattered commercially.
+
+The money was even more dramatic than the politics. European governments auctioned 3G
+licences in 2000, at the peak of the dot-com bubble: the UK auction raised about
+\pounds22.5~billion and the German one about \texteuro50~billion. Operators borrowed heavily
+against revenues that were assumed to come from mobile data; when the bubble burst and early
+3G handsets turned out to be large, hot and short-lived, the debt crippled the industry for
+several years. 3G arrived commercially with NTT DoCoMo's FOMA service in October 2001 and in
+Europe in 2002--03, but the data revolution it had been bought for waited for the smartphone.
+
+\begin{history}[How 3GPP works]
+3GPP is not a standards body in the legal sense. It is a partnership of seven regional
+standards organisations (ARIB and TTC in Japan, ATIS in the US, CCSA in China, ETSI in Europe,
+TSDSI in India and TTA in Korea), which transpose its specifications into their own standards.
+The work is done by companies---operators, vendors, chipmakers---who send delegates to
+technical specification groups (TSG RAN, SA and CT) and their working groups (RAN1 for the
+physical layer, RAN2 for the radio protocols, RAN4 for radio performance and so on). Each
+meeting processes hundreds or thousands of written \emph{contributions}; decisions are by
+consensus, which in practice means persistent negotiation until no company sustains an
+objection. Features are packaged into \term{releases}: Release~99 (the first UMTS),
+Releases~4--7 (HSPA and its evolution), Release~8 (the first LTE, frozen in December 2008),
+Release~10 (LTE-Advanced), Release~15 (the first 5G NR, 2018--19), Release~18 (the first
+``5G-Advanced'' release) and so on. Each release goes through study items (technical reports,
+TR~3x.9xx) and work items (technical specifications, TS~3x.xxx) and is \emph{frozen} on a
+published date, after which only corrections are allowed. The specifications are free to
+download from the 3GPP web site, a decision that has done much to spread the knowledge in this
+chapter. Every number in this chapter can be checked there, and an engineer who wants to work
+in cellular should learn to read them.
+\end{history}
+
+\subsection{The WCDMA air interface}
+
+The UMTS Terrestrial Radio Access (UTRA) FDD mode, universally called \term{WCDMA}, uses 5\,MHz
+carriers spread at 3.84\,Mchip/s with root-raised-cosine filtering ($\beta=0.22$), so that
+$3.84\times1.22=4.7$\,MHz is occupied (one of the problems of Chapter~\ref{ch:baseband} works
+this out). Its key
+parameters (3GPP TS~25.211--25.214) are:
+\begin{itemize}
+\item \textbf{Frames and slots.} 10\,ms radio frames of 15 slots, each 2560 chips
+(666.7\,$\mu$s). Power control and many physical-layer fields operate per slot.
+\item \textbf{Two layers of codes.} \textbf{Channelisation codes}\index{channelisation codes} are orthogonal variable
+spreading factor (OVSF) codes, a tree of Walsh-like codes of lengths 4 to 512, which separate
+the channels from one transmitter; a high-rate channel takes a short code (and blocks the
+longer codes below it in the tree). \textbf{Scrambling codes}\index{scrambling codes} are long Gold sequences that
+separate transmitters: on the downlink, each cell is given one of 512 primary scrambling codes
+(in 64 groups of eight); on the uplink, each mobile has its own. Chapter~\ref{ch:spreadspectrum}
+develops both families.
+\item \textbf{Variable rates.} Rates from a few kb/s to 2\,Mb/s are obtained by changing the
+spreading factor and the number of codes, with transport channels of 10, 20, 40 or 80\,ms
+\emph{transmission time interval} (TTI) multiplexed onto physical channels.
+\item \textbf{Coding.} Convolutional codes (constraint length 9) for voice and signalling, and
+a rate-1/3 parallel concatenated \term{turbo code} for data (Chapter~\ref{ch:moderncodes}):
+the first mass-market use of turbo codes, only six years after their invention.
+\item \textbf{Uplink modulation.} The data (DPDCH) and control (DPCCH) channels are placed on
+the I and Q branches with different channelisation codes and scrambled with a complex code
+designed to reduce the zero crossings and peak-to-average ratio of the handset signal, a scheme
+sometimes called HPSK.
+\item \textbf{Asynchronous base stations.} Unlike IS-95, base stations need no common time
+reference; cells are identified by their scrambling codes, which a phone finds by a three-step
+cell search using the primary and secondary synchronisation channels and the common pilot
+(Chapter~\ref{ch:sync} works through the equivalent LTE and NR procedures).
+\end{itemize}
+
+\subsection{Fast power control and the near--far problem}
+
+In a CDMA uplink all users transmit on the same frequency at the same time, and the base
+station separates them by correlation. The processing gain gives each user an advantage of
+$10\log_{10}(\mathrm{SF})$\,dB, about 21\,dB for a 12.2\,kb/s voice user on a downlink
+channel of spreading factor 128. A user 100\,m from the base has a path loss perhaps 60--70\,dB lower than a
+user 5\,km away; without control, the near user's signal would bury the far one completely.
+This is the \term{near--far problem}, and its solution is to make every user's signal arrive
+at the base with the same power (more precisely, the same SIR target).
+
+Slow (open-loop) control based on the downlink path loss is not enough, because in FDD the
+uplink and downlink are 190\,MHz apart and fade independently. WCDMA uses \term{closed-loop
+power control} at 1500\,Hz: in every slot the base station measures the received SIR, compares
+it with a target, and sends a one-bit transmit-power-control (TPC) command telling the phone to
+step up or down by (typically) 1\,dB. An \term{outer loop} in the RNC adjusts the SIR target
+slowly to hold the block error rate at its target, typically 1\% for voice. Figure
+\ref{fig:ch21_power_control} shows the result in Rayleigh fading. At walking speed the inner
+loop follows the fading closely and the received SIR stays within about a decibel of the
+target: the phone's transmit power is a mirror image of the fade. At vehicular speeds the
+fades are faster than a 1\,dB-per-slot loop can follow, and the SIR distribution approaches
+that without power control; there the system relies on the time diversity of interleaving and
+coding instead.
+
+\mdcfig{ch21_power_control}{WCDMA closed-loop power control simulated in Rayleigh fading at
+2\,GHz, with 1\,dB steps at 1500\,Hz, a one-slot loop delay, a 4\% TPC command error rate and
+measurement noise. (a) At 3\,km/h (5.6\,Hz Doppler) the transmit power mirrors the fade and
+the received SIR stays near the target (0\,dB). (b) CDF of the received SIR: at 3\,km/h the
+loop removes the fading almost completely; at 50 and 120\,km/h (93 and 222\,Hz Doppler) it can
+no longer track and the distribution approaches the unfaded-by-control case. The cost at low
+speed is transmit power: following deep fades raises the mean transmit power by several
+decibels, which raises interference to other cells.}
+
+\begin{keyidea}[In CDMA, power is the shared resource]
+In FDMA and TDMA, a user's resource is a channel or a slot, and capacity is the number of
+channels. In CDMA every user is interference for every other, so the shared resource is
+\emph{received power}, and capacity is reached when the total interference at the base
+station (the \term{noise rise}, typically limited to 3--6\,dB above thermal noise) hits its
+budget. Power control, voice activity, soft handover and sectorisation all add capacity
+because they reduce power. This view---radio resources as an interference budget rather than
+a set of channels---carried over directly to the scheduling and interference coordination of
+OFDMA systems.
+\end{keyidea}
+
+\subsection{Soft handover}
+
+Because neighbouring WCDMA cells use the same frequency, a phone near a cell edge can
+receive and transmit to two or three cells at once. The set of cells it is connected to is its
+\term{active set}. On the downlink, the phone's rake receiver combines the signals from the
+cells as if they were extra multipath components. On the uplink, each cell decodes the phone's
+signal and the RNC picks the best copy of each frame (selection combining); when two sectors of
+the same site are involved, the base station can combine at the chip level (\emph{softer}
+handover). The active set is updated by reporting events: a cell is added when its pilot
+$E_c/I_o$ comes within a reporting range (a few decibels) of the best, and removed when it
+falls out.
+
+Soft handover gives \term{macrodiversity}: shadowing on paths to different sites is only
+partly correlated, so the best of two is much more reliable than either.
+Figure~\ref{fig:ch21_soft_handover} shows the effect on the fade margin a cell-edge user needs.
+With 8\,dB shadowing, a single cell needs about 10\,dB of margin for 90\% edge coverage; the
+best of two cells with shadowing correlation 0.5 needs about 4\,dB less. Because a CDMA
+uplink is interference-limited, every decibel of power saved is capacity, and also battery
+life. The costs are extra downlink power (two or three cells transmit to the same user),
+extra backhaul and RNC processing, and more complicated network planning; typically 20--40\%
+of links were in soft handover in a planned WCDMA network.
+
+\mdcfig{ch21_soft_handover}{(a) Macrodiversity with log-normal shadowing ($\sigma=8$\,dB):
+probability that a cell-edge user's best link is below the required level, for a single cell
+(hard handover) and for the best of two cells with shadowing correlation $\rho$. At 10\%
+outage, soft handover saves about 4--6\,dB of fade margin. (b) Pilot $E_c/I_o$ of two cells
+along a route between sites 2\,km apart, with each pilot at 10\% of cell power: in the
+shaded zone both pilots are within 4\,dB of the best and the phone holds both links.}
+
+\begin{pitfall}[Cell breathing]
+In a CDMA network, coverage depends on load. As more users are served, the noise rise at the
+base station grows and a cell-edge phone that could just close its link at low load can no
+longer reach the required SIR at full power. The cell effectively shrinks, a phenomenon called
+\term{cell breathing}. A planner who designs coverage from an empty-network link budget will
+find coverage holes in the busy hour. WCDMA link budgets therefore include an
+\emph{interference margin} (3\,dB for 50\% load, 6\,dB for 75\%), and admission control rejects
+new users before the noise rise exceeds its budget. OFDMA systems with $N=1$ reuse have a
+milder version of the same effect: inter-cell interference rises with neighbour load.
+\end{pitfall}
+
+\subsection{The UMTS network}
+
+UMTS kept the GSM core network---MSC, HLR, SGSN, GGSN, upgraded---and added a new radio
+access network, UTRAN, with the \term{Node~B} (the base station) and the
+\term{radio network controller} (RNC) (Figure~\ref{fig:ch21_umts_arch}). The RNC is a much more
+powerful node than GSM's BSC. It terminates the radio protocols (RLC, MAC and RRC), performs
+soft-handover combining, runs the outer power-control loop and admission control, and talks
+to neighbouring RNCs over a new interface, \emph{Iur}, so that soft handover can span RNC
+boundaries. The Node~B was deliberately kept simple: modulation, spreading, coding and the
+inner power-control loop.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=1pt,minimum height=0.8cm,minimum width=1.3cm,align=center},
+  db/.style={draw=accent,fill=accent!6,thick,rounded corners=1pt,minimum height=0.7cm,minimum width=1.1cm,align=center},
+  pk/.style={draw=practc,fill=practc!8,thick,rounded corners=1pt,minimum height=0.8cm,minimum width=1.3cm,align=center},
+  ln/.style={thick,navy}, if/.style={font=\sffamily\tiny,text=accent,midway,above}]
+\node[box] (ue) at (0,0) {UE\\(USIM)};
+\node[box] (nb1) at (2.3,1.0) {Node B};
+\node[box] (nb2) at (2.3,-1.0) {Node B};
+\node[box] (rnc1) at (4.8,1.0) {RNC};
+\node[box] (rnc2) at (4.8,-1.0) {RNC};
+\node[box] (msc) at (7.6,1.0) {MSC/VLR\\(CS domain)};
+\node[pk] (sgsn) at (7.6,-1.0) {SGSN\\(PS domain)};
+\node[pk] (ggsn) at (10.0,-1.0) {GGSN};
+\node[box] (gmsc) at (10.0,1.0) {GMSC};
+\node[db] (hlr) at (8.8,0) {HLR/AuC};
+\node[draw=gray,thick,ellipse,minimum width=1.3cm] (pstn) at (12.1,1.0) {PSTN};
+\node[draw=gray,thick,ellipse,minimum width=1.3cm] (inet) at (12.1,-1.0) {Internet};
+\draw[ln,dashed] (ue) -- node[if]{Uu} (nb1); \draw[ln,dashed] (ue) -- (nb2);
+\draw[ln] (nb1) -- node[if]{Iub} (rnc1); \draw[ln] (nb2) -- node[if]{Iub} (rnc2);
+\draw[ln] (nb2) -- (rnc1);
+\draw[ln,accent,thick] (rnc1) -- node[midway,right,font=\sffamily\tiny,text=accent]{Iur} (rnc2);
+\draw[ln] (rnc1) -- node[if]{Iu-CS} (msc); \draw[ln,practc] (rnc1) -- (sgsn);
+\draw[ln,practc] (rnc2) -- node[if,below]{Iu-PS} (sgsn); \draw[ln] (rnc2) -- (msc);
+\draw[ln] (msc) -- (gmsc); \draw[ln] (gmsc) -- (pstn);
+\draw[ln,practc] (sgsn) -- node[if]{Gn} (ggsn); \draw[ln,practc] (ggsn) -- node[if]{Gi} (inet);
+\draw[ln,accent!70,dotted] (msc) -- (hlr); \draw[ln,accent!70,dotted] (sgsn) -- (hlr);
+\node[draw=navy!40,dashed,rounded corners,fit=(nb1)(nb2)(rnc1)(rnc2),inner sep=5pt,label={[font=\sffamily\tiny,text=navy]below:UTRAN: RLC, MAC, RRC, macrodiversity in the RNC}] {};
+\end{tikzpicture}
+\caption{UMTS Release~99 architecture. The radio network controller terminates the radio
+protocols and combines soft-handover links; the Iur interface lets soft handover cross RNC
+boundaries. The core keeps GSM's separate circuit-switched (voice) and packet-switched (data)
+domains.}
+\label{fig:ch21_umts_arch}
+\end{figure}
+
+Placing retransmission and scheduling in the RNC was natural for circuit-like dedicated
+channels, but it was a poor fit for packet data. Each retransmission crossed the Iub backhaul,
+adding tens of milliseconds, and a scheduler in the RNC could not react to fast fading. The
+Release~99 phone also had a complicated set of RRC states (CELL\_DCH, CELL\_FACH, CELL\_PCH,
+URA\_PCH and idle); moving between them took hundreds of milliseconds to seconds, so early 3G
+data sessions felt sluggish even when the peak rate was acceptable. Fixing exactly these
+problems was the purpose of HSPA and, later, LTE.
+
+\subsection{CDMA2000 and EV-DO}
+
+The 3GPP2 path evolved IS-95 within its 1.25\,MHz carrier. CDMA2000~1x (first commercial
+in South Korea in 2000) doubled voice capacity with better coding and a coherent uplink pilot
+and offered packet data at up to 153.6\,kb/s. Its data successor, \term{EV-DO} (Evolution, Data
+Optimised, originally Qualcomm's ``high data rate'' system), was a remarkable design and a
+forerunner of HSDPA and LTE. It dedicated a whole 1.25\,MHz carrier to data and, on the
+downlink, abandoned CDMA's simultaneous code channels: the base station transmits at full
+power to one user at a time in 1.67\,ms slots. Each phone reports, every slot, the highest
+rate it could currently decode (its data-rate control, DRC), and the base station chooses whom
+to serve with a \term{proportional-fair scheduler}, serving each user when its channel is near
+its own peak. That exploits \term{multi-user diversity}: with many users fading
+independently, there is almost always someone with a good channel
+(Chapter~\ref{ch:multipleaccess}). EV-DO Rev.~0 (2002) peaked at 2.4\,Mb/s on the downlink;
+Rev.~A (2006) at 3.1\,Mb/s, with a faster uplink and quality-of-service support for VoIP.
+3GPP2's planned 4G system, UMB, was abandoned in 2008 when the large CDMA operators, led by
+Verizon, chose LTE.
+
+\subsection{TD-SCDMA}
+
+China's \term{TD-SCDMA}, developed by the China Academy of Telecommunications Technology with
+Siemens, used 1.6\,MHz TDD carriers at 1.28\,Mchip/s, with 5\,ms subframes, synchronised uplinks,
+joint multi-user detection and eight-element ``smart antenna'' arrays at the base station. It
+was launched by China Mobile in 2009 and, through it, carried several hundred million users.
+Its significance was strategic as much as technical: it built China's capacity in standards and
+equipment, which made Chinese companies leading contributors to LTE TDD and then to 5G.
+
+%======================================================================
+\section{HSPA: 3G grows up}
+\label{sec:ch21:hspa}
+%======================================================================
+
+Release~5's \term{High-Speed Downlink Packet Access} (HSDPA, commercial from late 2005)
+transformed WCDMA by adopting EV-DO's lessons inside a 5\,MHz carrier. Its features are a
+checklist of what packet data needs, and every one of them reappears in LTE.
+\begin{itemize}
+\item \textbf{A shared channel.} The high-speed downlink shared channel (HS-DSCH) uses up to
+fifteen codes of spreading factor~16, shared among users in time and code. There is no power
+control on it: the base station transmits with whatever power is left after the other
+channels, and adapts the \emph{rate} instead.
+\item \textbf{A short TTI.} 2\,ms (three slots) instead of 10--80\,ms, so the scheduler can
+react within a few milliseconds.
+\item \textbf{Adaptive modulation and coding.} QPSK and 16QAM (64QAM from Release~7), with the
+code rate chosen every TTI from a \term{channel quality indicator} (CQI) that the phone reports
+as often as every 2\,ms.
+\item \textbf{Fast HARQ in the base station.} A new MAC entity in the Node~B (MAC-hs) handles
+hybrid ARQ with up to eight parallel stop-and-wait processes, with chase combining or
+incremental redundancy, so a retransmission arrives about 12\,ms after the first attempt
+instead of crossing to the RNC.
+\item \textbf{Scheduling in the base station}, using CQI, buffer state and fairness, usually
+some variant of proportional fair.
+\item \textbf{No soft handover} on the shared channel: the phone is served by one cell at a
+time and switches quickly when another is better.
+\end{itemize}
+
+\begin{worked}[HSDPA's peak rate]
+With fifteen SF-16 codes, the symbol rate is $15\times3.84\,\mathrm{Mchip/s}/16=3.6$\,Msymbol/s.
+With 16QAM (4 bits per symbol) the channel bit rate is $14.4$\,Mb/s. The largest transport block
+for a category-10 phone is 27\,952 bits per 2\,ms TTI, 13.98\,Mb/s, which implies an effective
+code rate of $27\,952/(2\,\mathrm{ms}\times14.4\,\mathrm{Mb/s})=0.97$: the advertised
+``14.4\,Mb/s'' is essentially uncoded and is achievable only at very high SINR, close to the
+base station, with no other users. Release~7's 64QAM raises the channel rate to
+$3.6\times6=21.6$\,Mb/s (21.1 at the largest transport block), and $2\times2$ MIMO with 64QAM
+(Release~8) to 42.2\,Mb/s. Typical early HSDPA users saw 1--3\,Mb/s, ten times the Release~99
+rates, and, as important, round-trip times below 100\,ms.
+\end{worked}
+
+The uplink followed in Release~6 with \term{HSUPA} (the enhanced dedicated channel, E-DCH):
+2 or 10\,ms TTIs, HARQ, and a Node-B scheduler that controls each phone's permitted power ratio
+through absolute and relative grants. HSUPA keeps power control and soft handover, since the
+uplink remains interference-limited, and peaks at 5.76\,Mb/s (11.5\,Mb/s with 16QAM in
+Release~7). \term{HSPA+} (Releases~7--11) added 64QAM, $2\times2$ MIMO, \emph{continuous packet
+connectivity} (discontinuous transmission and reception, so smartphones could stay connected
+without draining their batteries), a flatter architecture that can bypass the SGSN or move RNC
+functions into the Node~B, and multi-carrier operation: dual-carrier HSDPA (42\,Mb/s,
+Release~8), dual-carrier with MIMO (84\,Mb/s, Release~9) and four carriers (168\,Mb/s,
+Release~10). By then LTE was deployed, and HSPA+ became the fallback layer.
+
+\begin{history}[The iPhone and the data tsunami]
+Apple's first iPhone (June 2007) supported only GSM/EDGE. It was not the first smartphone, but
+it was the first that people used the way they used a computer: a full web browser,
+maps, YouTube, email with attachments. The iPhone~3G (July 2008) added HSDPA, and Apple's App
+Store opened the same month; Android phones followed from late 2008. The effect on networks was
+immediate. AT\&T, the exclusive US iPhone carrier, saw its mobile data traffic grow by roughly
+fifty times in three years, and its networks in New York and San Francisco became a byword
+for dropped calls and stalled downloads in 2009. The problem was not only volume. Smartphone
+apps sent frequent small keep-alive messages, each of which moved the phone from idle to a
+connected RRC state and back, so the signalling load per megabyte was far higher than for a
+laptop modem; networks experienced \emph{signalling storms}, and phones invented ``fast
+dormancy'' to drop back to idle early, which made it worse. The engineering response took
+several forms: HSPA+ with continuous packet connectivity, LTE with its simpler two-state RRC and
+fast idle-to-connected transitions, and, a decade later, NR's RRC\_INACTIVE state. The
+commercial response was the end of unlimited data plans in many markets. The smartphone, not
+3G, created the mobile data business, and 4G was designed for it.
+\end{history}
+
+%======================================================================
+\section{Fourth generation: LTE}
+\label{sec:ch21:lte}
+%======================================================================
+
+\subsection{Design goals and the decisions of 2004--2008}
+
+3GPP began work on the ``Long Term Evolution'' of UMTS at a workshop in Toronto in November
+2004, under pressure from two directions: WiMAX (IEEE~802.16e), an OFDMA system from the
+computer industry that promised high rates with a simple IP architecture, and the realisation
+that HSPA's CDMA core would not scale to 20\,MHz carriers. The targets, recorded in
+3GPP TR~25.913, were aggressive for their time:
+\begin{itemize}
+\item peak rates of 100\,Mb/s downlink and 50\,Mb/s uplink in 20\,MHz (5 and 2.5\,b/s/Hz);
+\item average spectral efficiency three to four times that of HSDPA Release~6 on the
+downlink and two to three times HSUPA on the uplink;
+\item user-plane latency below 5\,ms one way across the radio network, and an idle-to-active
+transition below 100\,ms;
+\item scalable bandwidth from 1.4 to 20\,MHz, paired (FDD) and unpaired (TDD) spectrum;
+\item mobility up to 350\,km/h, optimised for 0--15\,km/h;
+\item a packet-only, simplified architecture with fewer nodes, and lower cost per bit.
+\end{itemize}
+Release~8, the first LTE release, was frozen in December 2008. The first commercial networks
+opened in Stockholm and Oslo in December 2009 (TeliaSonera), and the US operators Verizon and
+MetroPCS followed in 2010. By 2012 LTE was the fastest-deployed mobile technology in history,
+and it became the first truly global standard: the CDMA2000 operators, the WCDMA operators,
+China's TD-SCDMA operator and the WiMAX hopefuls all converged on it.
+
+\subsection{Why OFDMA down and SC-FDMA up}
+
+The single most important decision was to abandon CDMA for \term{OFDMA} on the downlink.
+Chapter~\ref{ch:ofdm} develops OFDM in detail; the reasons it won are worth stating in
+cellular terms.
+\begin{enumerate}
+\item \textbf{Wide bandwidths without an equaliser.} At 20\,MHz, a delay spread of
+5\,$\mu$s spans about 150 chips; a rake or chip equaliser over that many taps per antenna is
+expensive, and its performance degrades with spatial multiplexing. OFDM with a cyclic prefix
+turns the channel into parallel flat subchannels, each equalised with one complex multiply.
+\item \textbf{Scheduling in frequency as well as time.} In a frequency-selective channel, each
+user's good subcarriers differ. An OFDMA scheduler can give each user the resource blocks
+where its channel is strong---multi-user diversity in two dimensions.
+\item \textbf{MIMO.} Spatial multiplexing is simple per subcarrier: a small matrix per resource
+element rather than a space--time equaliser (Chapter~\ref{ch:mimo}).
+\item \textbf{Scalability.} The same subcarrier spacing and symbol length work for every
+bandwidth from 1.4 to 20\,MHz; only the number of subcarriers and the FFT size change.
+\end{enumerate}
+OFDM's weakness is its high peak-to-average power ratio, which matters most in the handset
+power amplifier. The uplink therefore uses \term{SC-FDMA}, the DFT-spread OFDM of
+Section~\ref{sec:ch17:dfts}: each user's symbols are DFT-precoded before mapping to a
+contiguous block of subcarriers, so the transmitted signal is a single-carrier waveform with
+a cyclic prefix. Its PAPR is several decibels lower than OFDM's for QPSK (Lab~11, Section~5),
+which translates directly into handset power-amplifier efficiency, battery life and uplink
+coverage, while the base station keeps OFDMA's frequency-domain equalisation and scheduling.
+
+\begin{keyidea}[The radio resource is a time--frequency grid]
+In LTE and NR the scheduler's job is to fill a grid. Its unit, the \term{resource block}
+(RB), is 12 subcarriers (180\,kHz in LTE) by one slot; its granularity in time is the
+1\,ms subframe (LTE) or the slot or mini-slot (NR). Every millisecond, the base station
+decides which user gets which RBs, with which modulation, code rate and MIMO precoding, and
+tells them on a control channel. All of the system's intelligence---link adaptation,
+HARQ, MIMO, quality of service, interference coordination---lives in that decision, which
+is why scheduler design is where vendors compete and where much of the real-world
+performance difference between networks comes from.
+\end{keyidea}
+
+\subsection{A flat, all-IP architecture}
+
+LTE's system architecture (the \term{Evolved Packet System}, EPS) removed the RNC and the
+circuit-switched domain (Figure~\ref{fig:ch21_lte_arch}).
+\begin{itemize}
+\item The radio network, E-UTRAN, has one kind of node, the \term{eNodeB} (eNB), which hosts
+the whole radio protocol stack---PHY, MAC, RLC, PDCP and RRC---and makes all radio
+resource decisions: scheduling, HARQ, link adaptation, admission and handover. Neighbouring
+eNBs talk directly over the X2 interface for handover and interference coordination.
+\item The \term{Evolved Packet Core} (EPC) separates control from user plane. The
+\term{mobility management entity} (MME) handles signalling: attach, authentication (with the
+\term{home subscriber server}, HSS), tracking-area management, paging and bearer set-up. The
+\term{serving gateway} (S-GW) anchors the user plane during handovers between eNBs, and the
+\term{PDN gateway} (P-GW) allocates the user's IP address and connects to external networks;
+the policy and charging rules function (PCRF) sets quality-of-service rules.
+\item User data travels in \term{bearers}, tunnels with a defined quality of service (a QoS
+class identifier, QCI), from the phone through the eNB (in GTP-U tunnels on S1-U) to the
+S-GW and P-GW.
+\end{itemize}
+Putting everything radio-related in the eNB cut latency: HARQ retransmissions happen at the
+radio site, 8\,ms after the first attempt, and the scheduler sees the channel a few
+milliseconds old. Handover became ``hard'' (break-before-make) but fast, with data forwarded
+from the old eNB to the new one over X2 to avoid loss.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=1pt,minimum height=0.8cm,minimum width=1.25cm,align=center},
+  db/.style={draw=accent,fill=accent!6,thick,rounded corners=1pt,minimum height=0.7cm,minimum width=1.1cm,align=center},
+  up/.style={draw=practc,fill=practc!8,thick,rounded corners=1pt,minimum height=0.8cm,minimum width=1.25cm,align=center},
+  cp/.style={thick,accent!80,dashed}, upl/.style={thick,practc},
+  if/.style={font=\sffamily\tiny,text=black!70,midway,above}]
+\node[box] (ue) at (0,0) {UE};
+\node[box] (enb1) at (2.3,0.9) {eNB};
+\node[box] (enb2) at (2.3,-0.9) {eNB};
+\node[db] (mme) at (5.2,1.6) {MME};
+\node[up] (sgw) at (5.2,-0.6) {S-GW};
+\node[up] (pgw) at (7.7,-0.6) {P-GW};
+\node[db] (hss) at (7.7,1.6) {HSS};
+\node[db] (pcrf) at (10.0,0.6) {PCRF};
+\node[draw=gray,thick,ellipse,minimum width=1.6cm,align=center] (pdn) at (10.2,-0.9) {Internet,\\IMS};
+\draw[thick,navy,dashed] (ue) -- node[if]{LTE-Uu} (enb1); \draw[thick,navy,dashed] (ue) -- (enb2);
+\draw[thick,navy] (enb1) -- node[midway,left,font=\sffamily\tiny]{X2} (enb2);
+\draw[cp] (enb1) -- node[if,sloped]{S1-MME} (mme); \draw[cp] (enb2) -- (mme);
+\draw[upl] (enb1) -- node[if,sloped,pos=0.6]{S1-U} (sgw); \draw[upl] (enb2) -- (sgw);
+\draw[cp] (mme) -- node[midway,left,font=\sffamily\tiny]{S11} (sgw);
+\draw[cp] (mme) -- node[if]{S6a} (hss);
+\draw[upl] (sgw) -- node[if]{S5/S8} (pgw);
+\draw[upl] (pgw) -- node[if,below]{SGi} (pdn);
+\draw[cp] (pgw) -- node[midway,above,font=\sffamily\tiny,sloped]{Gx} (pcrf);
+\node[draw=navy!40,dashed,rounded corners,fit=(enb1)(enb2),inner sep=5pt,label={[font=\sffamily\tiny,text=navy]below:E-UTRAN}] {};
+\node[draw=navy!40,dashed,rounded corners,fit=(mme)(sgw)(pgw)(hss)(pcrf),inner sep=5pt,label={[font=\sffamily\tiny,text=navy]below:Evolved Packet Core}] {};
+\node[font=\sffamily\tiny,text=accent,align=left] at (0.3,1.8) {- - - control plane};
+\node[font=\sffamily\tiny,text=practc,align=left] at (0.3,1.5) {------ user plane};
+\end{tikzpicture}
+\caption{The LTE/EPS architecture (3GPP TS 23.401). One radio node, the eNB, holds the whole
+radio stack; the core separates signalling (MME) from the user-plane gateways (S-GW, P-GW).
+There is no circuit-switched domain: voice is an IP application (VoLTE) on the IMS.}
+\label{fig:ch21_lte_arch}
+\end{figure}
+
+\subsection{The radio protocol stack}
+
+Figure~\ref{fig:ch21_lte_stack} shows the radio protocols, which NR kept with small changes.
+From the top:
+\begin{itemize}
+\item \textbf{RRC} (radio resource control, control plane only) configures everything below
+it: bearers, measurements, handovers, MIMO modes, DRX cycles. It defines the phone's
+\term{RRC states}: RRC\_IDLE, in which the phone is known only to the core at the level of a
+tracking area, listens for paging and chooses its own cell; and RRC\_CONNECTED, in which the
+eNB knows it, schedules it and controls its handovers. LTE's two states replaced UMTS's five.
+\item \textbf{NAS} (non-access stratum) runs between the phone and the MME, transparent to
+the eNB: attach, authentication, security mode, tracking-area updates and bearer management.
+\item \textbf{PDCP} (packet data convergence protocol) performs header compression (robust
+header compression, ROHC, which shrinks a 40- or 60-byte IP/UDP/RTP header to a few bytes),
+ciphering, integrity protection of signalling, and in-order delivery and duplicate removal
+at handover.
+\item \textbf{RLC} (radio link control) segments and reassembles packets to fit the transport
+block chosen by the scheduler, and in acknowledged mode runs an ARQ that catches the residual
+errors of HARQ.
+\item \textbf{MAC} multiplexes logical channels into transport blocks, runs HARQ, the random
+access procedure and timing advance, and---in the eNB---the scheduler.
+\item \textbf{PHY} handles coding, modulation, MIMO, OFDM and the physical channels described
+below.
+\end{itemize}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  l/.style={draw=navy,fill=navy!6,thick,minimum width=1.55cm,minimum height=0.42cm,align=center},
+  c/.style={draw=accent,fill=accent!6,thick,minimum width=1.55cm,minimum height=0.42cm,align=center},
+  u/.style={draw=practc,fill=practc!8,thick,minimum width=1.55cm,minimum height=0.42cm,align=center}]
+% control plane
+\node[font=\sffamily\bfseries\scriptsize,text=navy] at (2.6,3.25) {Control plane};
+\foreach \x/\nm in {0/UE,1.75/eNB,3.5/MME}{\node[font=\sffamily\bfseries\tiny] at (\x+0.8,2.85) {\nm};}
+\node[c] at (0.8,2.45) {NAS}; \node[c] at (4.3,2.45) {NAS};
+\node[c] at (0.8,2.0) {RRC}; \node[c] at (2.55,2.0) {RRC};
+\foreach \y/\nm in {1.55/PDCP,1.1/RLC,0.65/MAC,0.2/PHY}{\node[l] at (0.8,\y) {\nm}; \node[l] at (2.55,\y) {\nm};}
+\node[l] at (4.3,2.0) {S1-AP}; \node[l] at (4.3,1.55) {SCTP}; \node[l] at (4.3,1.1) {IP}; \node[l] at (4.3,0.65) {L2/L1};
+\draw[dotted,thick,accent] (1.6,2.45) -- (3.5,2.45);
+% user plane
+\node[font=\sffamily\bfseries\scriptsize,text=navy] at (9.2,3.25) {User plane};
+\foreach \x/\nm in {6.6/UE,8.35/eNB,10.1/S-GW / P-GW}{\node[font=\sffamily\bfseries\tiny] at (\x+0.8,2.85) {\nm};}
+\node[u] at (7.4,2.45) {IP (app)}; \node[u] at (10.9,2.45) {IP};
+\foreach \y/\nm in {1.55/PDCP,1.1/RLC,0.65/MAC,0.2/PHY}{\node[l] at (7.4,\y) {\nm}; \node[l] at (9.15,\y) {\nm};}
+\node[l] at (9.15,2.0) {GTP-U}; \node[l] at (10.9,2.0) {GTP-U}; \node[l] at (10.9,1.55) {UDP/IP}; \node[l] at (10.9,1.1) {L2/L1};
+\draw[dotted,thick,practc] (8.2,2.45) -- (10.1,2.45);
+\draw[navy!50,thick] (5.55,-0.1) -- (5.55,3.3);
+\node[font=\sffamily\tiny,text=black!60,align=center] at (2.6,-0.35) {LTE-Uu \hspace{1.0cm} S1-MME};
+\node[font=\sffamily\tiny,text=black!60,align=center] at (9.2,-0.35) {LTE-Uu \hspace{1.2cm} S1-U};
+\end{tikzpicture}
+\caption{LTE radio protocol stacks. In the control plane, RRC terminates in the eNB and NAS in
+the MME; in the user plane, PDCP, RLC and MAC terminate in the eNB and user packets are
+tunnelled to the gateways in GTP-U. NR uses the same layering with a new SDAP layer above PDCP
+for QoS-flow mapping.}
+\label{fig:ch21_lte_stack}
+\end{figure}
+
+\subsection{Frame structure and the resource grid}
+
+LTE's numerology is defined in 3GPP TS~36.211 in units of
+$T_s=1/(15\,000\times2048)\,\mathrm{s}\approx32.6$\,ns, the sample period of a 2048-point FFT at
+30.72\,MS/s. The \term{radio frame} is 10\,ms, divided into ten 1\,ms \term{subframes}, each of
+two 0.5\,ms \term{slots}. With the normal cyclic prefix a slot holds seven OFDM symbols (the
+first with a 160-sample, 5.2\,$\mu$s prefix, the others 144 samples, 4.7\,$\mu$s); with the
+extended prefix (16.7\,$\mu$s) it holds six. Subcarriers are 15\,kHz apart. A resource block is
+12 subcarriers by one slot, and the scheduler allocates pairs of RBs, one subframe long. The
+channel bandwidths of 1.4, 3, 5, 10, 15 and 20\,MHz contain 6, 15, 25, 50, 75 and 100 RBs,
+about 90\% occupancy for the wider ones. Chapter~\ref{ch:ofdm} works through the numerology's
+design (Section~\ref{sec:ch17:design}) and the resource grid (Section~\ref{sec:ch17:grid}). In
+TDD (frame structure type~2), the subframes are assigned to downlink or uplink by one of seven
+uplink--downlink configurations, with a \emph{special subframe} (downlink part, guard period,
+uplink part) at each downlink-to-uplink switch.
+
+\mdcfig[0.92]{ch21_lte_grid}{Top: the LTE FDD radio frame, with the synchronisation signals in
+subframes 0 and 5 and the broadcast channel in subframe 0. Bottom: subframe 0 of a 1.4\,MHz
+carrier with two cell-specific reference-signal (CRS) ports and a three-symbol control region,
+following TS 36.211. The PSS and SSS occupy the 62 subcarriers around the carrier centre in the
+last two symbols of the first slot; the PBCH occupies the first four symbols of the second
+slot over the central 72 subcarriers, skipping positions reserved for the CRS of four ports.
+The CRS are present in every subframe, whether or not anyone is being served.}
+
+\subsection{Physical channels and reference signals}
+
+Figure~\ref{fig:ch21_lte_grid} shows how the downlink grid is populated. The physical signals
+and channels of LTE (TS~36.211) are as follows.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Synchronisation signals.] The \term{primary synchronisation signal} (PSS), one of three
+length-63 Zadoff--Chu sequences, and the \term{secondary synchronisation signal} (SSS), an
+interleaved pair of m-sequences, are sent twice per frame on the central 62 subcarriers. Together
+they give the 504 physical cell identities, slot and frame timing and the cyclic-prefix length.
+Chapter~\ref{ch:sync} (Section~\ref{sec:ch10:frame}) analyses the search.
+\item[Cell-specific reference signals (CRS).] Pilots on a diagonal pattern, for one, two or four
+antenna ports, in every subframe across the whole bandwidth. Phones use them for channel
+estimation, demodulation, CSI measurement and mobility measurements. They are LTE's most
+characteristic feature and, as the NR section explains, its biggest regret: they are
+transmitted whether or not there is traffic, which costs energy and interference and cannot be
+beamformed.
+\item[PBCH.] The physical broadcast channel carries the 24-bit \emph{master information
+block} (bandwidth, PHICH configuration, frame number) with a 40\,ms TTI, repeated in four
+self-decodable parts. Everything else about the cell is sent in \emph{system information
+blocks} on the PDSCH.
+\item[Control region.] The first one to three OFDM symbols of each subframe (two to four for
+1.4\,MHz) carry the PCFICH (how many control symbols), the PHICH (ACK/NACK for uplink HARQ)
+and the \term{PDCCH}, which carries \emph{downlink control information} (DCI): the scheduling
+assignments and grants. A PDCCH occupies 1, 2, 4 or 8 \emph{control channel elements} of 36
+resource elements each, depending on the user's channel quality; its CRC is scrambled with the
+user's identifier, and each phone blindly decodes up to several tens of candidate positions
+every subframe to find its own messages.
+\item[PDSCH.] The shared data channel: everything else, including paging and system
+information.
+\item[Later additions.] UE-specific demodulation reference signals for beamforming (Release~9),
+channel-state-information reference signals (CSI-RS) for up to eight ports (Release~10),
+positioning reference signals, and the enhanced PDCCH, which moved control into the data
+region (Release~11).
+\end{description}
+On the uplink, the \term{PUCCH} carries uplink control (HARQ ACK/NACK, scheduling requests,
+CQI and precoding reports) on resource blocks at the two edges of the band, hopping between
+them at the slot boundary for frequency diversity. The \term{PUSCH} carries data, with a
+demodulation reference signal in the middle symbol of each slot (another midamble, as in GSM).
+The \term{PRACH} carries random-access preambles, 64 per cell, built from length-839 Zadoff--Chu
+sequences. \textbf{Sounding reference signals}\index{sounding reference signals} (SRS) let the eNB measure the uplink channel
+across the band for frequency-selective scheduling and, in TDD, for downlink beamforming by
+reciprocity.
+
+\subsection{Coding, HARQ and link adaptation}
+
+Data channels use the rate-1/3 \term{turbo code} of UMTS with a new
+\emph{quadratic permutation polynomial} (QPP) interleaver, designed for parallel decoding
+(Chapter~\ref{ch:moderncodes}), and 188 block sizes from 40 to 6144 bits. A transport block
+gets a 24-bit CRC, is segmented into code blocks (each with its own 24-bit CRC so that a decoder
+can stop early) and passes through \term{circular-buffer rate matching}: the systematic and
+parity bits are written into a buffer, and each transmission reads a contiguous window starting
+at one of four \emph{redundancy versions}. The first transmission (RV0) is mostly systematic
+bits; later RVs add parity, implementing incremental redundancy. Control channels use a
+tail-biting convolutional code (Chapter~\ref{ch:classiccodes}).
+
+\textbf{Hybrid ARQ}\index{hybrid ARQ} in LTE FDD uses eight parallel stop-and-wait processes with a fixed timing:
+data in subframe $n$, ACK/NACK in subframe $n+4$, retransmission at the earliest in $n+8$. The
+4\,ms allows about 3\,ms of decoding time in the phone. The downlink HARQ is asynchronous and
+adaptive (the eNB may retransmit any time, with a different allocation and modulation); the
+uplink is synchronous (the retransmission happens exactly eight subframes later unless
+cancelled), which saves signalling.
+
+\textbf{Link adaptation}\index{link adaptation} closes the loop. The phone reports a 4-bit \term{CQI}: the index of the
+highest-rate entry of TS~36.213 Table~7.2.3-1 that it could receive with a block error rate
+of at most 10\%, together with a precoding matrix indicator (PMI) and rank indicator (RI) for
+MIMO. The eNB maps the report to one of 29 modulation and coding schemes and a transport block
+size, usually adding an outer-loop offset that nudges the actual first-transmission BLER to the
+10\% target using the HARQ ACK statistics. Why aim for 10\% and not 0.1\%? Because HARQ makes
+errors cheap. Figure~\ref{fig:ch21_cqi_harq} shows both halves of this design: the CQI table
+tracks Shannon's curve a few decibels to the right, and incremental redundancy makes the
+throughput degrade gracefully when the first transmission was too optimistic.
+
+\mdcfig{ch21_cqi_harq}{(a) The 15 entries of the LTE CQI table (TS 36.213 Table 7.2.3-1),
+QPSK to 64QAM with code rates from 0.076 to 0.93, placed at the SINR at which a code a fixed
+2\,dB from capacity would decode (a common system-simulation abstraction), and the resulting
+throughput staircase at 10\% BLER. (b) Why HARQ matters: a transmission sent at 3\,b/s/Hz fails
+below about 10\,dB SNR, but with up to four transmissions, chase combining (which adds SNR)
+and especially incremental redundancy (which adds parity, and hence mutual information) recover
+a large fraction of the rate the channel could support.}
+
+\begin{worked}[LTE's peak rate: 20\,MHz, $4\times4$, 64QAM]
+A 20\,MHz carrier has 100 RBs, $100\times12=1200$ subcarriers, and with the normal prefix
+14 symbols per 1\,ms subframe: $1200\times14=16\,800$ resource elements per millisecond.
+
+\emph{Overheads.} Take the smallest control region, one symbol: 1200 REs. With four CRS ports,
+each RB pair carries 24 CRS REs, of which 4 fall in the control symbol, so 20 of them in the data
+region: $100\times20=2000$ REs. Synchronisation and broadcast channels occupy subframes 0 and 5
+only and are about 1\% on average; ignore them. The PDSCH has about $16\,800-1200-2000=13\,600$
+REs per millisecond, an overhead of 19\%.
+
+\emph{Bits.} With 64QAM (6 bits) and four spatial layers, $13\,600\times6\times4=326\,400$ coded
+bits per millisecond, 326\,Mb/s. At the highest code rate (about 0.92) that is about 300\,Mb/s.
+The largest transport block for a category-5 phone is 299\,552 bits per subframe: 299.6\,Mb/s.
+
+\emph{Reality.} Few phones had four receive antennas, and a peak rate needs the whole cell,
+SINR above about 25\,dB and a rank-4 channel. Category-3 and -4 phones ($2\times2$) peaked at
+100 and 150\,Mb/s, and typical user rates in a loaded network were 10--50\,Mb/s. The average
+spectral efficiency of a real LTE macro network is of the order of 1.5--2.5\,b/s/Hz per cell,
+roughly a tenth of the peak.
+\end{worked}
+
+\subsection{MIMO transmission modes}
+
+LTE was the first cellular standard designed around multiple antennas
+(Chapter~\ref{ch:mimo}). Its \term{transmission modes} (TM) define how the PDSCH uses them;
+Table~\ref{tab:ch21:tm} summarises them. The early modes (TM2--TM4) rely on the CRS and a
+codebook of precoders known to both sides; the later ones (TM7--TM10) use UE-specific
+demodulation reference signals, so that the eNB can apply any precoder---including beams
+computed from uplink sounding in TDD---without telling the phone what it is.
+
+\begin{table}[htbp]\centering\small
+\caption{LTE downlink transmission modes (TS 36.213).}
+\label{tab:ch21:tm}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+Mode & Release & Description\\
+\midrule
+TM1 & 8 & Single antenna port\\
+TM2 & 8 & Transmit diversity: space--frequency block code (Alamouti on pairs of subcarriers)\\
+TM3 & 8 & Open-loop spatial multiplexing with large-delay cyclic delay diversity (high speed)\\
+TM4 & 8 & Closed-loop spatial multiplexing with codebook precoding (PMI/RI feedback)\\
+TM5 & 8 & Multi-user MIMO with codebook precoding\\
+TM6 & 8 & Closed-loop rank-1 precoding (beamforming with the codebook)\\
+TM7 & 8 & Single-layer beamforming with UE-specific reference signal (port 5), mainly TDD\\
+TM8 & 9 & Dual-layer beamforming (ports 7 and 8), SU/MU-MIMO\\
+TM9 & 10 & Up to 8 layers with CSI-RS for measurement and DM-RS for demodulation\\
+TM10 & 11 & As TM9, with coordinated multipoint (CoMP) and quasi-co-location signalling\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{LTE-Advanced and LTE-Advanced Pro}
+
+The ITU's requirements for IMT-Advanced (ITU-R M.2134, 2008)---including 1\,Gb/s peak for
+low mobility, peak spectral efficiencies of 15\,b/s/Hz downlink and 6.75\,b/s/Hz uplink and
+bandwidths up to 40\,MHz---were beyond Release~8. \term{LTE-Advanced} (Release~10, 2011) met
+them and was accepted, alongside IEEE~802.16m, as an IMT-Advanced technology: the first
+``real'' 4G by the ITU's definition. Its main additions, and those of the following releases,
+were:
+\begin{itemize}
+\item \textbf{Carrier aggregation} (CA): a phone combines up to five \emph{component carriers}
+of up to 20\,MHz each, contiguous or in different bands, into one connection of up to
+100\,MHz; Release~13 raised the limit to 32 carriers. Each carrier keeps its Release-8
+structure, so legacy phones can use any of them. CA was LTE-Advanced's commercial success,
+because operators' spectrum is fragmented across many bands. A primary cell (PCell) carries
+the control signalling and secondary cells (SCells) add capacity.
+\item \textbf{More antennas}: up to eight layers on the downlink and four on the uplink, and in
+Release~13 ``full-dimension'' MIMO with up to 16 (later 32) CSI-RS ports for two-dimensional
+arrays that steer in elevation as well as azimuth.
+\item \textbf{Heterogeneous networks}: small cells under the macro layer, with
+\term{enhanced inter-cell interference coordination} (eICIC). The macro cell transmits
+\emph{almost blank subframes}, in which it sends only reference signals, and pico cells
+schedule their cell-edge users (pushed outwards by a \emph{cell range expansion} bias) in
+those subframes.
+\item \textbf{Relays}: decode-and-forward relay nodes with in-band wireless backhaul.
+\item \textbf{Coordinated multipoint} (CoMP, Release~11): coordinated scheduling and beamforming
+across sites, or joint transmission from several. CoMP needed fast, low-latency backhaul and
+proved hard to make pay in practice; its ideas returned in NR's multi-TRP transmission.
+\item \textbf{Release~12--14}: 256QAM, dual connectivity (simultaneous connection to two eNBs,
+the basis of 5G non-standalone operation), device-to-device communication for public safety,
+licensed-assisted access (LAA) to the 5\,GHz unlicensed band with listen-before-talk, and
+vehicle-to-everything (V2X) sidelinks. Releases~13 and~14 were branded
+\term{LTE-Advanced Pro}.
+\item \textbf{IoT variants} (Release~13): \term{LTE-M} (eMTC, 1.4\,MHz, about 1\,Mb/s) and
+\term{NB-IoT} (180\,kHz, tens of kb/s, a maximum coupling loss of 164\,dB, about 20\,dB
+better than GSM) for low-cost, long-battery-life devices; Chapter~\ref{ch:wifi} compares them
+with LoRa and other IoT radios.
+\end{itemize}
+``Gigabit LTE'' phones (category~16 and above, from 2017) combined carrier aggregation of three
+to five carriers, $4\times4$ MIMO on some of them and 256QAM to reach a peak of about 1\,Gb/s.
+
+\subsection{Voice over LTE and the IMS}
+
+LTE has no circuit-switched domain, so voice had to become an IP application. The first LTE
+phones used \term{circuit-switched fallback} (CSFB): on an incoming or outgoing call, the phone
+dropped to 2G or 3G for the duration, at the cost of a few seconds of call set-up time and no
+LTE data during the call. The target solution, \term{VoLTE} (specified in the GSMA's IR.92
+profile and first launched in 2012), carries voice as RTP packets over a dedicated bearer with
+QCI~1 (guaranteed bit rate, a 100\,ms packet delay budget) and signalling over the
+\term{IP Multimedia Subsystem} (IMS), a SIP-based core of call-session control functions.
+VoLTE needed every layer of the stack to cooperate:
+\begin{itemize}
+\item AMR-WB or, from 2014, the EVS codec (Chapter~\ref{ch:sourcecoding}), sending a packet every
+20\,ms;
+\item ROHC header compression, without which the 40 to 60-byte IP/UDP/RTP headers would be
+larger than the 30-odd-byte speech payload;
+\item \term{semi-persistent scheduling} (SPS), which allocates a fixed resource every 20\,ms
+with one control message instead of one per packet;
+\item \emph{TTI bundling}, which sends each uplink packet in four consecutive subframes to give
+cell-edge users enough energy per packet;
+\item DRX, so the phone's receiver sleeps between packets;
+\item single radio voice call continuity (SRVCC), which hands a VoLTE call over to a 2G or 3G
+circuit when the phone leaves LTE coverage.
+\end{itemize}
+
+\begin{worked}[How many VoLTE calls fit in 10\,MHz?]
+Take a 10\,MHz FDD carrier (50 RBs) and AMR-WB at 12.65\,kb/s: 253 bits every 20\,ms. Adding the
+RTP payload header, a compressed ROHC header of about 3 bytes, PDCP, RLC and MAC headers and the
+24-bit CRC gives roughly 40 bytes, 320 bits, per transport block.
+
+\emph{Resource-limited capacity.} Of the 168 REs in an RB pair, the three-symbol control region
+and the CRS of two ports take about 48, leaving about 120. At a typical mid-cell modulation and
+coding (16QAM at rate about 0.4, 1.6 bits per RE) one RB pair carries about 190 bits, so a voice
+packet needs two RB pairs and 50 RBs carry about 25 packets per subframe. Each call needs one
+packet every 20 subframes, so $25\times20=500$ calls could be served if every call talked
+continuously. With a voice-activity factor of about 0.5 and small silence-descriptor packets,
+the limit approaches 800--900 calls.
+
+\emph{Control-limited capacity.} With dynamic scheduling, each packet also needs a DCI on the
+PDCCH. A three-symbol control region in 10\,MHz holds about 40 control channel elements; at an
+average aggregation of two and with uplink grants sharing the space, only about 10 downlink
+assignments fit per subframe, so the cell saturates at about $10\times20=200$ simultaneously
+talking calls, perhaps 400 calls with voice activity. That is why VoLTE uses semi-persistent
+scheduling, which removes most of the per-packet control.
+
+\emph{Comparison.} The same 10\,MHz as GSM, with 4/12 reuse, gives each sector about four
+carriers: some 30 full-rate traffic channels, or 60 with half-rate AMR. These are rough
+estimates---system simulations with realistic SINR distributions, packet-loss targets and
+uplink limits give lower numbers for VoLTE---but an order-of-magnitude gain in voice capacity per
+megahertz over GSM is the right picture.
+\end{worked}
+
+\begin{inpractice}[Reading an LTE cell from your phone]
+Engineering screens and apps that display a phone's modem state (on Android, several free apps
+read the radio interface layer) show LTE's parameters live: the EARFCN (channel number) and
+band, the physical cell identity (0--503), the bandwidth, and the measurements RSRP (reference
+signal received power, the average power of one CRS resource element, typically $-80$\,dBm
+near a site and $-120$\,dBm at the edge of coverage), RSRQ (RSRP relative to total received
+power, from about $-3$ to $-20$\,dB) and SINR. RSRP is a per-resource-element quantity, so it is
+about $10\log_{10}(1200)\approx31$\,dB below the total received power of a fully loaded 20\,MHz
+carrier: an RSRP of $-100$\,dBm is a respectable signal, not a weak one. With a USRP B200 and an
+open-source LTE receiver you can decode the MIB and system information of a nearby cell, as
+suggested in Lab~11.
+\end{inpractice}
+
+%======================================================================
+\section{Fifth generation: 5G NR}
+\label{sec:ch21:nr}
+%======================================================================
+
+\subsection{IMT-2020: three kinds of user}
+
+5G's starting point was not a bottleneck in LTE's data rate, which by 2015 was adequate for
+most smartphone use, but a broader ambition. The ITU's vision for IMT-2020 (Recommendation
+ITU-R M.2083, 2015) defined three usage scenarios, often drawn as the corners of a triangle:
+\begin{itemize}
+\item \term{enhanced mobile broadband} (eMBB): more of what LTE did, with peak rates of
+gigabits per second, much higher capacity per square kilometre and a more uniform user
+experience;
+\item \term{ultra-reliable low-latency communication} (URLLC): industrial control, vehicle
+coordination and remote operation, with air-interface latency of about 1\,ms and reliability
+of $1-10^{-5}$ for a small packet;
+\item \term{massive machine-type communication} (mMTC): very large numbers of cheap, low-power
+devices, up to a million per square kilometre.
+\end{itemize}
+Figure~\ref{fig:ch21_imt_capabilities} compares the eight ``key capabilities'' of M.2083 with
+those of IMT-Advanced. The minimum technical requirements that a candidate had to meet
+(ITU-R M.2410) include a peak rate of 20\,Gb/s downlink and 10\,Gb/s uplink, peak spectral
+efficiencies of 30 and 15\,b/s/Hz, a user-plane latency of 4\,ms for eMBB and 1\,ms for URLLC,
+a control-plane latency of 20\,ms, mobility up to 500\,km/h and support for at least 100\,MHz of
+bandwidth, up to 1\,GHz above 6\,GHz. 3GPP's NR, submitted with LTE as a combined proposal, was
+approved as IMT-2020 in 2020 (ITU-R M.2150).
+
+\mdcfig{ch21_imt_capabilities}{The key capabilities of IMT-2020 relative to IMT-Advanced, from
+ITU-R M.2083. Note the shape of the target: the peak rate grows by 20, but the biggest factors
+are in area traffic capacity, connection density and network energy efficiency, which call for
+dense small cells, wide bandwidths and lean signalling rather than better modulation.}
+
+\subsection{Design principles of NR}
+
+The 3GPP study for NR ran from 2015 to 2017, and the first specification, Release~15, was
+completed in three steps: a non-standalone version in December 2017, the standalone version in
+June 2018 and a ``late drop'' in March 2019. Commercial service started in South Korea and the
+US in April 2019. The main design decisions, each a response to an LTE limitation or a new
+requirement, are worth listing before the details.
+\begin{enumerate}
+\item \textbf{One air interface from 410\,MHz to 71\,GHz.} Instead of one numerology, a family,
+scaled by powers of two (Section~\ref{sec:ch21:numerology}).
+\item \textbf{Ultra-lean design.} No always-on cell-specific reference signals; reference
+signals are sent only when and where needed, which saves energy, reduces interference in
+lightly loaded networks and leaves room for future features. The only always-on signal is the
+synchronisation block, typically every 20\,ms.
+\item \textbf{Beam-centric design.} Every signal and channel, including the broadcast ones, can
+be beamformed, which is essential at millimetre waves and helps everywhere.
+\item \textbf{Forward compatibility.} Resources can be reserved and left blank for future
+features, and signals are self-contained in time and frequency where possible.
+\item \textbf{Low latency by design.} Short slots at high numerologies, mini-slots, fast HARQ
+feedback within the same slot when the device can manage it, and flexible TDD patterns.
+\item \textbf{New channel coding.} LDPC for data and polar codes for control, replacing turbo
+and convolutional codes (Section~\ref{sec:ch21:nrcoding}).
+\end{enumerate}
+
+\subsection{Flexible numerology, bandwidth parts and spectrum}
+\label{sec:ch21:numerology}
+
+NR's subcarrier spacing is $\Delta f=15\cdot2^{\mu}$\,kHz with $\mu=0,1,\ldots$, and a slot is
+always 14 OFDM symbols (normal prefix), so slots last $1/2^{\mu}$\,ms: 1\,ms at 15\,kHz, 0.5\,ms at
+30\,kHz, 0.125\,ms at 120\,kHz (TS~38.211). Chapter~\ref{ch:ofdm} derives the numerology table
+and explains why the prefix fraction is constant and why symbols of different numerologies
+nest (Section~\ref{sec:ch17:design}). The choice in practice follows the band:
+\begin{itemize}
+\item 15 or 30\,kHz in low bands (below about 2.5\,GHz), where cells are large and delay spreads
+long, and where NR often shares a carrier with LTE;
+\item 30\,kHz in the mid-band TDD bands around 3.5\,GHz, where most 5G capacity is, with
+100\,MHz carriers of 273 RBs;
+\item 120\,kHz in the millimetre-wave bands (FR2), with up to 400\,MHz per carrier, where phase
+noise and Doppler demand wide spacing and cells are small.
+\end{itemize}
+The spectrum itself is divided into two \term{frequency ranges}: FR1 (410\,MHz to 7.125\,GHz)
+and FR2 (24.25 to 52.6\,GHz, extended to 71\,GHz in Release~17). Figure~\ref{fig:ch21_spectrum_bands}
+places the main cellular bands of every generation on one axis.
+
+\mdcfig{ch21_spectrum_bands}{Major cellular bands by the generation that first used them, on a
+logarithmic frequency axis (approximate edges, uplink and downlink shown together). Each
+generation added spectrum above the last, but every band is eventually refarmed to the
+newest technology; 5G uses everything from 600\,MHz to 40\,GHz. FR1 and FR2 are the 5G NR
+frequency ranges of TS 38.101.}
+
+A phone does not have to process the whole carrier. A \term{bandwidth part} (BWP) is a
+contiguous set of RBs with its own numerology; a phone is configured with up to four per
+direction and uses one at a time, switching by a DCI. A smartphone can sit on a 20\,MHz BWP
+while browsing lightly and switch to the full 100\,MHz for a download, saving receiver power;
+a low-cost device can operate only on a narrow part of a wide carrier.
+
+\begin{inpractice}[Spectrum strategy: low, mid and high band]
+Operators think about 5G spectrum in three layers. \textbf{Low band} (600--900\,MHz) gives
+coverage and building penetration but only 5--20\,MHz per operator; NR here is often deployed
+with \emph{dynamic spectrum sharing} (DSS), in which NR and LTE share a carrier and NR's data
+channel is rate-matched around LTE's CRS. Low-band 5G is barely faster than LTE.
+\textbf{Mid band} (2.5--4.2\,GHz, especially the ``C-band'' 3.3--4.2\,GHz, bands n77 and n78)
+is the 5G sweet spot: 60--100\,MHz carriers per operator, TDD, massive MIMO, and cells that can
+reuse existing macro sites with similar coverage to LTE at 1.8--2.1\,GHz once beamforming gain
+is counted. In the US, the FCC's 2021 auction of 280\,MHz of C-band raised about \$81~billion,
+and the 3.55--3.7\,GHz CBRS band introduced a three-tier licensing model in which a spectrum
+access system database coordinates incumbents, priority licensees and general users.
+\textbf{High band} (24--40\,GHz millimetre waves) offers 400--800\,MHz per operator and
+multi-gigabit rates, but cells of a hundred metres or so, line-of-sight sensitivity and blockage
+by bodies and foliage; it has been used mainly for stadiums, dense downtown areas and fixed
+wireless access. Most 5G traffic in 2025 is carried in mid band.
+\end{inpractice}
+
+\subsection{Slot structure, TDD and mini-slots}
+
+Each OFDM symbol in an NR slot can be downlink, uplink or \emph{flexible}, according to one of
+a few dozen \emph{slot formats} (TS~38.213) combined with semi-static TDD patterns. Mid-band
+networks typically use a fixed pattern coordinated among all operators in a country, because
+unsynchronised TDD networks in adjacent blocks would jam each other's receivers. A common
+choice at 30\,kHz is \texttt{DDDSU}: three downlink slots, a special slot (for example ten
+downlink symbols, two guard symbols, two uplink symbols) and an uplink slot, repeating every
+2.5\,ms (Figure~\ref{fig:ch21_nr_frame}c). That gives about three quarters of the time to the
+downlink, matching traffic asymmetry, at the price of uplink latency: an uplink packet waits up
+to 2.5\,ms for an uplink opportunity.
+
+For latency-critical traffic, NR allows transmissions shorter than a slot. A
+\term{mini-slot} (formally PDSCH/PUSCH ``mapping type~B'') of 2, 4 or 7 symbols (any length from
+Release~16) can start at any symbol, and a URLLC transmission can \emph{pre-empt} an ongoing
+eMBB transmission, with a pre-emption indication telling the eMBB user which symbols to
+discard. Configured grants let a device transmit periodic uplink traffic without first
+sending a scheduling request.
+
+\mdcfig[0.95]{ch21_nr_frame}{NR frame elements (TS 38.211, TS 38.213). (a) The SS/PBCH block
+(SSB): four OFDM symbols by 240 subcarriers, with the PSS and SSS on 127 subcarriers and the
+PBCH (with its own DMRS) around them. (b) An SSB burst for case C (30\,kHz, 3--6\,GHz): up to
+eight SSBs in the first half of a 5\,ms half-frame, each sent on a different beam, so a phone
+anywhere in the sector hears at least one. (c) The DDDSU TDD pattern common in the 3.5\,GHz
+band, and a two-symbol mini-slot that can start mid-slot to carry urgent traffic.}
+
+\subsection{Initial access and beam management}
+
+The NR \term{SS/PBCH block} (SSB) bundles the PSS, SSS and PBCH into four OFDM symbols and
+240 subcarriers (20 RBs) (Figure~\ref{fig:ch21_nr_frame}a). The PSS and SSS (length-127
+sequences, analysed in Section~\ref{sec:ch10:frame}) give 1008 physical cell identities;
+the PBCH carries the master information block, which tells the phone where to find the
+control resource set (CORESET\#0) that schedules the first system information block (SIB1).
+Unlike LTE's PSS/SSS, which sit at the carrier centre, an SSB can be placed on a frequency
+raster away from the centre, and a wide carrier may contain several.
+
+The key change is that SSBs are \emph{beam-swept}. A cell transmits a burst of up to 4 SSBs
+(below 3\,GHz), 8 (3--7\,GHz) or 64 (FR2) in a 5\,ms window, each in a different beam direction
+(Figure~\ref{fig:ch21_nr_frame}b). The phone measures them, picks the best, and sends its random
+access preamble in a PRACH occasion associated with that SSB index, which tells the base station
+which beam to use for the reply. In connected mode, \term{beam management} refines the choice
+with CSI reference signals swept in narrower beams and with the phone sweeping its own receive
+beams (in FR2), reports the best beams, and recovers if the serving beam is blocked
+(\emph{beam failure recovery}). Transmission configuration indicator (TCI) states tell the phone
+which reference signal a given transmission is ``quasi-co-located'' with, that is, which beam
+to expect. Chapter~\ref{ch:mimo} develops the array theory behind this.
+
+\subsection{Physical channels}
+
+NR's channels look familiar but are leaner and more flexible than LTE's.
+\begin{itemize}
+\item \textbf{PDCCH} is carried in configurable \term{control resource sets} (CORESETs) of
+1--3 symbols and any set of RBs, not across the whole band, and phones search configured
+\emph{search spaces} for their DCI. There is no PCFICH (the CORESET is configured) and no
+PHICH: uplink retransmissions are scheduled explicitly, and HARQ is asynchronous in both
+directions, with up to 16 processes and feedback timing indicated in the DCI.
+\item \textbf{PDSCH/PUSCH} use front-loaded DMRS (in the third or fourth symbol of a slot, or the
+first symbol of a mini-slot) so that the receiver can estimate the channel and start decoding
+early, with optional additional DMRS symbols for high speed. Phase-tracking reference signals
+(PT-RS) correct the common phase error caused by oscillator phase noise, a problem that grows
+with carrier frequency (Chapter~\ref{ch:sdr}). Retransmission can be by \emph{code-block group},
+so that one corrupted code block in a large transport block does not force retransmission of
+all of them.
+\item \textbf{The uplink waveform} is CP-OFDM by default, with DFT-spread OFDM available for
+single-layer transmission when coverage matters (Section~\ref{sec:ch17:dfts}).
+\item \textbf{Reference signals}: CSI-RS for channel measurement, beam management and fine time
+and frequency tracking (the tracking reference signal, TRS), SRS for uplink sounding and TDD
+reciprocity, and positioning reference signals.
+\item \textbf{PRACH} uses long (839) or short (139) Zadoff--Chu sequences, the short ones for
+the higher numerologies and small cells.
+\end{itemize}
+MCS tables go up to 256QAM (and 1024QAM on the FR1 downlink from Release~17), and there is a
+low-spectral-efficiency table for URLLC, where a 10\% initial block error rate would be
+unacceptable.
+
+\subsection{Channel coding: LDPC and polar}
+\label{sec:ch21:nrcoding}
+
+NR replaced LTE's turbo code with \term{LDPC codes} for data and its convolutional code with
+\term{polar codes} for control information (TS~38.212). Chapter~\ref{ch:moderncodes} develops
+both; the choice itself was one of the most contested decisions in 3GPP's history.
+
+For data, the requirements were throughputs of tens of gigabits per second, a wide range of
+block lengths and code rates, and incremental redundancy. LDPC codes decode in parallel across
+the whole codeword, whereas turbo decoding is iterative and partly sequential, so LDPC wins on
+throughput per unit area and energy at high rates. NR uses two quasi-cyclic base graphs:
+base graph~1 (for large blocks and high rates, up to 8448 information bits, lowest rate 1/3)
+and base graph~2 (for small blocks and low rates, up to 3840 bits, rate down to 1/5), lifted
+by circulant sizes up to 384. Both have a ``raptor-like'' structure that supports
+incremental redundancy through a circular buffer and redundancy versions, as in LTE. The LDPC
+decision was taken at the RAN1 meeting in Lisbon in October 2016.
+
+For control, blocks are short (tens to a few hundred bits) and must be decoded reliably at low
+SNR. After the next meeting, in Reno in November 2016, polar codes with CRC-aided successive
+cancellation list decoding were adopted for downlink and uplink control and the broadcast
+channel. Polar codes, invented by Erdal Ar\i{}kan in 2009, were the first codes provably
+achieving capacity with low complexity; NR made them commercial within a decade. Very short
+uplink control messages (up to 11 bits) use Reed--Muller or repetition codes.
+
+\subsection{The peak rate formula}
+
+TS~38.306 gives an approximate maximum data rate for a phone, used for capability signalling.
+For a single carrier it is
+\begin{equation}
+R_{\max}\approx\nu_{\text{layers}}\,Q_m\,f\,R_{\max}^{\text{code}}\,
+\frac{12\,N_{\text{PRB}}}{T_s^{\mu}}\,(1-\mathrm{OH}),
+\qquad T_s^{\mu}=\frac{10^{-3}}{14\cdot2^{\mu}}\ \mathrm{s},
+\label{eq:ch21:nrpeak}
+\end{equation}
+where $\nu$ is the number of MIMO layers, $Q_m$ the bits per modulation symbol, $f\le1$ a
+scaling factor, $R_{\max}^{\text{code}}=948/1024$ the highest code rate, $N_{\text{PRB}}$ the
+number of RBs, $T_s^{\mu}$ the average OFDM symbol duration including the prefix and OH the
+overhead for control and reference signals: 0.14 for the FR1 downlink, 0.18 for the FR2 downlink,
+0.08 and 0.10 for the uplink. For carrier aggregation the rates of the carriers are added.
+
+\begin{worked}[NR peak rates in mid band and millimetre wave]
+\emph{FR1, 100\,MHz at 30\,kHz.} $N_{\text{PRB}}=273$, $\mu=1$, so $T_s=35.7\,\mu$s and
+$12\times273/T_s=91.7\times10^6$ resource elements per second. With four layers, 256QAM
+($Q_m=8$), $f=1$:
+\[
+R=4\times8\times0.926\times91.7\times10^6\times(1-0.14)\approx2.34\ \text{Gb/s}.
+\]
+This counts every symbol as downlink. With the \texttt{DDDSU} pattern only about 74\% of
+symbols are downlink, so the peak downlink rate of a TDD carrier is about 1.7\,Gb/s.
+
+\emph{FR2, 400\,MHz at 120\,kHz.} $N_{\text{PRB}}=264$, $\mu=3$, $T_s=8.93\,\mu$s,
+$12\times264/T_s=354.8\times10^6$ REs per second. With two layers and 64QAM, as typical for a
+millimetre-wave phone:
+\[
+R=2\times6\times0.926\times354.8\times10^6\times(1-0.18)\approx3.23\ \text{Gb/s}.
+\]
+Aggregating two such carriers (800\,MHz) and adding mid-band carriers gives the 5--10\,Gb/s
+peaks quoted for 2020s modems. Compare the ITU requirement of 20\,Gb/s: it is met by the
+specification (with, say, eight layers and wide aggregation), not by any phone.
+\end{worked}
+
+\subsection{Massive MIMO in practice}
+
+The biggest physical change at a 5G site is the antenna. A typical mid-band macro sector uses an
+\term{active antenna unit} (AAU) with 64 transmit and receive chains (``64T64R'') driving an
+array of about 192 dual-polarised elements, a panel roughly a metre tall and half a metre wide
+with the radios and beamforming built in, radiating around 200\,W. Cheaper variants use 32 or
+16 chains, or 8 for less loaded sites. In TDD, the base station estimates the downlink channel
+from the phones' sounding reference signals by reciprocity; in FDD, or for phones whose
+sounding is weak, it relies on CSI-RS and codebook feedback, either the coarse ``Type~I''
+codebook or the high-resolution ``Type~II'' codebook that describes a few strongest paths with
+their amplitudes and phases. The array delivers two gains (Chapter~\ref{ch:mimo}): about
+15--20\,dB of beamforming gain, which lets 3.5\,GHz cells match the coverage of 1.8\,GHz LTE cells,
+and multi-user MIMO, serving several phones on the same resource blocks with separate beams.
+Published vendor and operator results have generally claimed capacity gains of a few times
+over an 8-antenna baseline in busy cells, well short of the order-of-magnitude gains of
+idealised analysis, because real users cluster, real channels are less ``rich'' than the
+models, and channel information ages.
+
+At millimetre waves, the arrays use \emph{hybrid} beamforming: a few RF chains each driving a
+phased sub-array of tens of elements, at both ends. A phone contains several small antenna
+modules on different edges, because a hand over one of them can block it.
+
+\subsection{Non-standalone and standalone deployment}
+
+To reach the market quickly, the first NR networks were \term{non-standalone} (NSA): NR
+carriers added as a secondary node to an LTE connection, using \term{E-UTRA--NR dual
+connectivity} (EN-DC) and the existing EPC (``option~3'' in 3GPP's deployment-option numbering,
+with variants 3a and 3x for how user traffic is split). The LTE eNB anchors the control
+signalling and mobility, and the NR gNB adds capacity. NSA needed no new core and reused LTE
+coverage, but it delivered only eMBB and inherited LTE's control-plane latency. In
+\term{standalone} (SA, ``option~2'') operation, NR connects to the new 5G core with no LTE
+involvement, enabling the 5G core's features: network slicing, the RRC\_INACTIVE state, lower
+latency and new voice options (VoNR). Figure~\ref{fig:ch21_nsa_sa} compares them.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=1pt,minimum height=0.7cm,minimum width=1.3cm,align=center},
+  nr/.style={draw=accent,fill=accent!8,thick,rounded corners=1pt,minimum height=0.7cm,minimum width=1.3cm,align=center},
+  core/.style={draw=practc,fill=practc!8,thick,rounded corners=2pt,minimum height=0.7cm,minimum width=2.6cm,align=center},
+  cp/.style={thick,black!70,dashed}, up/.style={thick,practc}]
+\node[font=\sffamily\bfseries\scriptsize,text=navy] at (2.2,3.0) {Option 3x: non-standalone (EN-DC)};
+\node[core] (epc) at (2.2,2.2) {EPC (MME, S-GW, P-GW)};
+\node[box] (enb) at (0.9,0.8) {eNB\\(LTE anchor)};
+\node[nr] (gnb) at (3.5,0.8) {en-gNB\\(NR secondary)};
+\node[box] (ue) at (2.2,-0.6) {UE (LTE + NR)};
+\draw[cp] (enb) -- node[left,font=\sffamily\tiny]{S1-MME} (epc);
+\draw[up] (gnb) -- node[right,font=\sffamily\tiny]{S1-U} (epc);
+\draw[thick,navy] (enb) -- node[above,font=\sffamily\tiny]{X2} (gnb);
+\draw[thick,navy,dashed] (ue) -- (enb); \draw[thick,accent,dashed] (ue) -- (gnb);
+\node[font=\sffamily\bfseries\scriptsize,text=navy] at (8.7,3.0) {Option 2: standalone};
+\node[core] (5gc) at (8.7,2.2) {5GC (AMF, SMF, UPF)};
+\node[nr] (g1) at (7.5,0.8) {gNB};
+\node[nr] (g2) at (9.9,0.8) {gNB};
+\node[box] (ue2) at (8.7,-0.6) {UE (NR only)};
+\draw[cp] (g1) -- node[left,font=\sffamily\tiny]{N2} (5gc); \draw[up] (g2) -- node[right,font=\sffamily\tiny]{N3} (5gc);
+\draw[thick,navy] (g1) -- node[above,font=\sffamily\tiny]{Xn} (g2);
+\draw[thick,accent,dashed] (ue2) -- (g1);
+\draw[navy!40,thick] (5.6,-0.9) -- (5.6,3.2);
+\end{tikzpicture}
+\caption{Non-standalone (left) and standalone (right) 5G. In option 3x the LTE eNB carries the
+control signalling and the NR node adds user-plane capacity through dual connectivity, all
+attached to the 4G core. In option 2, NR attaches to the 5G core and works alone. Dashed black
+lines: control; green: user plane; dashed coloured lines: radio links.}
+\label{fig:ch21_nsa_sa}
+\end{figure}
+
+\begin{pitfall}[What the ``5G'' icon means]
+The 5G indicator on a phone says very little. In NSA operation it may appear when the phone is
+attached to an LTE anchor cell that \emph{could} add an NR carrier, even if no NR carrier is
+active. A low-band NR carrier shared with LTE by DSS can be slower than the LTE it displaced.
+And for a few years one US operator labelled its LTE-Advanced service ``5G~E''. When you
+measure or compare 5G performance, record the band, bandwidth, numerology, NSA or SA mode and
+the number of carriers and layers actually in use (all visible in engineering modes and drive-test
+tools), not the icon.
+\end{pitfall}
+
+\subsection{The 5G core: a service-based architecture}
+\label{sec:ch21:5gc}
+
+The \term{5G core} (5GC, 3GPP TS~23.501 and 23.502) was redesigned as software. Instead of
+boxes connected by point-to-point protocols, its control plane is a set of
+\term{network functions} (NFs) that offer services to each other over a common
+\term{service-based interface} using HTTP/2 and JSON, as cloud applications do
+(Figure~\ref{fig:ch21_sba}). The main functions are:
+\begin{itemize}
+\item the \term{access and mobility management function} (AMF): registration, connection and
+mobility management, the endpoint of NAS signalling (part of LTE's MME);
+\item the \term{session management function} (SMF): PDU sessions, IP address allocation and
+control of the user-plane functions (the rest of the MME and the control part of the gateways);
+\item the \term{user plane function} (UPF): packet forwarding, QoS enforcement, usage reporting,
+the anchor for mobility and the connection to data networks, controlled by the SMF over N4
+(the S-GW and P-GW user planes, separated as in LTE's later ``CUPS'' architecture);
+\item the authentication server function (AUSF), the unified data management (UDM) and data
+repository (UDR), the policy control function (PCF), the network repository function (NRF,
+where NFs register and discover each other), the network slice selection function (NSSF),
+the network exposure function (NEF, which exposes capabilities to outside applications) and
+application functions (AF).
+\end{itemize}
+Because UPFs are separate and lightweight, they can be placed anywhere: centrally for ordinary
+internet traffic, or at the edge of the network for low latency (\term{multi-access edge
+computing}, MEC), where an application server sits next to a local UPF a few kilometres from the
+base station instead of hundreds of kilometres away.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  nf/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.62cm,minimum width=1.05cm,align=center},
+  up/.style={draw=practc,fill=practc!8,thick,rounded corners=2pt,minimum height=0.7cm,minimum width=1.2cm,align=center},
+  ra/.style={draw=accent,fill=accent!8,thick,rounded corners=2pt,minimum height=0.7cm,minimum width=1.2cm,align=center}]
+\draw[thick,navy] (0.0,2.2) -- (10.8,2.2);
+\node[font=\sffamily\tiny,text=navy,anchor=west] at (10.85,2.2) {SBI};
+\foreach \x/\nm in {0.6/NSSF,1.95/NEF,3.3/NRF,4.65/PCF,6.0/UDM,7.35/AF,8.7/AUSF}{
+  \node[nf] (\nm) at (\x,3.0) {\nm}; \draw[thick,navy] (\nm.south) -- (\x,2.2);}
+\node[nf] (AMF) at (2.6,1.35) {AMF}; \draw[thick,navy] (AMF.north) -- (2.6,2.2);
+\node[nf] (SMF) at (6.4,1.35) {SMF}; \draw[thick,navy] (SMF.north) -- (6.4,2.2);
+\node[nf] (UDR) at (10.0,3.0) {UDR}; \draw[thick,navy] (UDR.south) -- (10.0,2.2);
+\node[ra] (ue) at (0.2,-0.6) {UE};
+\node[ra] (gnb) at (2.6,-0.6) {(R)AN\\gNB};
+\node[up] (upf) at (6.4,-0.6) {UPF};
+\node[draw=gray,thick,ellipse,minimum width=1.5cm] (dn) at (9.4,-0.6) {DN};
+\draw[thick,black!60,dashed] (ue.north) to[bend left=20] node[left,font=\sffamily\tiny]{N1} (AMF.west);
+\draw[thick,black!60,dashed] (gnb) -- node[left,font=\sffamily\tiny]{N2} (AMF);
+\draw[thick,black!60,dashed] (SMF) -- node[right,font=\sffamily\tiny]{N4} (upf);
+\draw[thick,practc] (ue) -- (gnb); \draw[thick,practc] (gnb) -- node[above,font=\sffamily\tiny]{N3} (upf);
+\draw[thick,practc] (upf) -- node[above,font=\sffamily\tiny]{N6} (dn);
+\draw[thick,practc] (upf.south) .. controls +(0.4,-0.6) and +(-0.4,-0.6) .. node[below,font=\sffamily\tiny]{N9 (to another UPF)} ([xshift=6mm]upf.south);
+\end{tikzpicture}
+\caption{The 5G core's service-based architecture (TS 23.501). Control-plane network
+functions offer services to each other over a common service-based interface (SBI, HTTP/2);
+only the radio-facing and user-plane links (N1--N4, N6, N9) remain point-to-point. The UPF can
+be instantiated centrally or at the network edge.}
+\label{fig:ch21_sba}
+\end{figure}
+
+\subsubsection{Sessions, QoS flows and slices}
+
+A device obtains connectivity through a \term{PDU session} to a data network, identified by a
+data network name (the successor of the APN). Within a session, packets are classified into
+\term{QoS flows}, each with a 5G QoS identifier (5QI) that sets its resource type (guaranteed
+bit rate, delay-critical or best effort), priority, delay budget and error-rate target. A new
+radio protocol layer above PDCP, SDAP, maps QoS flows to radio bearers.
+
+\textbf{Network slicing}\index{network slicing} lets an operator run several logically separate networks on the same
+infrastructure, each with its own set of NF instances, policies and possibly reserved radio
+resources. A slice is identified by an S-NSSAI: an 8-bit slice/service type (1 for eMBB,
+2 for URLLC, 3 for massive IoT, 4 for V2X, among others) and an optional 24-bit slice
+differentiator. A factory, an emergency service or a mobile virtual network operator can have a
+slice with guaranteed resources and isolated management. Slicing was one of 5G's most
+heavily promoted features; its commercial use grew slowly, because the radio part of a slice
+(guaranteeing resources in a shared cell) and the business models proved harder than the core
+part.
+
+\subsubsection{Security}
+
+5G kept LTE's mutual authentication and added two important fixes. The permanent identity
+(SUPI, the successor of the IMSI) is never sent in the clear: the phone encrypts it with the
+home network's public key (an elliptic-curve integrated encryption scheme) into a
+\emph{subscription concealed identifier} (SUCI), which defeats passive IMSI catchers. And the
+home network now confirms authentication itself (5G-AKA or EAP-AKA$'$), rather than trusting the
+visited network, closing a roaming fraud gap. 5G also added integrity protection for user-plane data, which LTE
+lacked (its use is set by network policy), in response to attacks demonstrated on LTE that
+modified unprotected user packets in flight.
+
+\subsection{The disaggregated RAN: CU, DU, RU and O-RAN}
+
+The 5G base station, the \term{gNB}, can be split into parts (Figure~\ref{fig:ch21_ran_split}).
+The \term{central unit} (CU) runs the non-real-time upper layers (RRC, SDAP, PDCP) and can be
+centralised and virtualised on ordinary servers; it can itself be split into control-plane
+and user-plane parts. The \term{distributed unit} (DU) runs the real-time layers (RLC, MAC and
+the upper physical layer: coding, modulation, layer mapping), close to the antennas. The
+\term{radio unit} (RU) does the lower physical layer (FFT, cyclic prefix, digital beamforming,
+digital-to-analog conversion) and the RF. The CU--DU interface F1 is standardised by 3GPP (the
+``option~2'' split between PDCP and RLC); the DU--RU \emph{fronthaul} carries frequency-domain IQ
+samples over Ethernet (eCPRI), using the ``option~7.2x'' split specified by the
+\term{O-RAN Alliance}. Splitting the PHY that way reduces the fronthaul rate by sending
+frequency-domain samples only for the occupied subcarriers, while keeping the heavy, low-latency
+processing in the DU.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum width=2.4cm,align=center},
+  ric/.style={draw=accent,fill=accent!6,thick,rounded corners=2pt,minimum width=2.4cm,align=center},
+  arr/.style={thick,navy,{Stealth[length=1.6mm]}-{Stealth[length=1.6mm]}}]
+\node[box,minimum height=1.6cm] (ru) at (0,0) {\textbf{RU}\\[2pt]low PHY: FFT/iFFT,\\CP, digital\\beamforming, RF};
+\node[box,minimum height=1.6cm] (du) at (4.0,0) {\textbf{DU}\\[2pt]high PHY: coding,\\modulation, MIMO\\RLC, MAC (scheduler)};
+\node[box,minimum height=1.6cm] (cu) at (8.0,0) {\textbf{CU} (CU-CP, CU-UP)\\[2pt]RRC, SDAP, PDCP\\virtualised,\\centralised};
+\node[draw=practc,fill=practc!8,thick,rounded corners=2pt,minimum width=1.7cm,minimum height=0.8cm] (core) at (11.3,0) {5G core};
+\draw[arr] (ru) -- node[above,font=\sffamily\tiny]{open fronthaul} node[below,font=\sffamily\tiny]{split 7.2x, eCPRI} (du);
+\draw[arr] (du) -- node[above,font=\sffamily\tiny]{F1} node[below,font=\sffamily\tiny]{midhaul} (cu);
+\draw[arr] (cu) -- node[above,font=\sffamily\tiny]{N2/N3} node[below,font=\sffamily\tiny]{backhaul} (core);
+\node[ric,minimum height=0.7cm] (nrt) at (6.0,1.8) {near-RT RIC (10\,ms--1\,s)\\xApps};
+\node[ric,minimum height=0.7cm] (srt) at (10.4,1.8) {non-RT RIC ($>$1\,s)\\rApps, in SMO};
+\draw[thick,accent,dashed] (nrt) -- node[left,font=\sffamily\tiny]{E2} (du.north);
+\draw[thick,accent,dashed] (nrt) -- (cu.north);
+\draw[thick,accent,dashed] (srt) -- node[above,font=\sffamily\tiny]{A1} (nrt);
+\node[font=\sffamily\tiny,text=black!60] at (0,-1.15) {at the antenna};
+\node[font=\sffamily\tiny,text=black!60] at (4.0,-1.15) {at the site or a hub ($<$\,20\,km)};
+\node[font=\sffamily\tiny,text=black!60] at (8.0,-1.15) {in an edge data centre};
+\end{tikzpicture}
+\caption{The disaggregated 5G RAN. 3GPP standardises the CU--DU (F1) interface; the O-RAN
+Alliance specifies the open fronthaul between DU and RU and the RAN intelligent controllers
+(RICs), which host third-party applications that tune the RAN on near-real-time and
+non-real-time scales.}
+\label{fig:ch21_ran_split}
+\end{figure}
+
+The O-RAN Alliance, formed by operators in 2018, aims to make these interfaces open so that
+RUs, DUs and CUs from different vendors interoperate, and to add \term{RAN intelligent
+controllers} (RICs) that run third-party applications (xApps and rApps) for functions such as
+traffic steering, energy saving and interference management. Open RAN is the latest round of a
+recurring argument in cellular---GSM's open Abis interface was supposed to do the same in
+1991---and its success depends as much on integration cost and operator commitment as on the
+specifications.
+
+\subsection{Releases 15 to 18: 5G grows beyond broadband}
+
+Release~15 delivered eMBB. The following releases turned NR into a platform for other
+industries and filled the gaps (the dates are the 3GPP functional freezes).
+\begin{itemize}
+\item \textbf{Release~16} (2020): URLLC enhancements (multiple HARQ feedbacks per slot,
+uplink pre-emption, PDCP duplication over two legs, multi-TRP transmission), \emph{industrial
+IoT} with time-sensitive networking integration, positioning with downlink and uplink time
+difference, multi-cell round-trip time and angle methods (targets of a few metres),
+NR in unlicensed spectrum (NR-U), integrated access and backhaul (IAB), NR sidelink for V2X,
+two-step random access and device power saving.
+\item \textbf{Release~17} (2022): \term{RedCap} (reduced-capability) devices for wearables,
+industrial sensors and video surveillance, with 20\,MHz bandwidth in FR1 and one or two
+receive antennas; \term{non-terrestrial networks} (NTN), adapting NR and NB-IoT to satellite
+links with long delays and large Doppler shifts (Chapter~\ref{ch:satellite},
+Section~\ref{sec:ch23:ntn}); operation up to 71\,GHz; positioning with sub-metre accuracy targets
+for industrial uses; multicast and broadcast; coverage enhancements; and further URLLC and
+sidelink work.
+\item \textbf{Release~18} (2024), the first \term{5G-Advanced} release: studies of artificial
+intelligence and machine learning for the air interface (CSI compression, beam management,
+positioning), network energy saving, extended reality, enhanced RedCap with 5\,MHz bandwidth,
+network-controlled repeaters, mobile IAB, low-power wake-up signals, and NTN enhancements.
+Releases~19 and~20 continue 5G-Advanced and begin the studies for 6G, the subject of the final
+chapter.
+\end{itemize}
+
+\subsection{Latency: a budget, not a number}
+
+``5G latency is 1\,ms'' is one of the most misquoted claims in telecommunications. The ITU
+requirement is for the \emph{user-plane air-interface} latency of a small packet, one way,
+in an unloaded system. Figure~\ref{fig:ch21_latency} puts it in context.
+
+\mdcfig{ch21_latency}{(a) Typical round-trip times measured by users of each technology to a
+nearby server (approximate ranges; real values depend on load, core-network routing and server
+location). (b) An illustrative one-way downlink air-interface latency budget in the style of the
+IMT-Advanced and IMT-2020 self-evaluations: waiting for the next transmission opportunity
+(alignment), the transmission time, base-station and device processing, and the expected cost
+of a HARQ retransmission with 10\% probability.}
+
+\begin{worked}[A latency budget]
+\emph{LTE FDD.} A packet arriving at the eNB waits on average half a subframe for the next one
+(0.5\,ms), is processed and scheduled (about 1\,ms), transmitted (1\,ms TTI) and decoded by the phone
+(about 1.5\,ms). With a 10\% chance of one retransmission costing 8\,ms, the expected
+budget is $0.5+1+1+1.5+0.1\times8=4.8$\,ms, just inside LTE's 5\,ms target. The uplink is worse:
+a phone must first send a scheduling request and wait for a grant, adding several
+milliseconds, unless it has a pre-configured grant.
+
+\emph{NR, 30\,kHz.} The slot is 0.5\,ms. Scaling the processing times with the slot (devices of
+NR ``processing capability~1'' need roughly 10 symbols from reception to HARQ feedback at
+30\,kHz) gives alignment 0.25, transmission 0.5, processing about 1\,ms in total and HARQ
+$0.1\times2=0.2$\,ms: about 2\,ms.
+
+\emph{NR URLLC, 120\,kHz with a two-symbol mini-slot.} The transmission is
+$2\times8.9\,\mu\mathrm{s}\approx18\,\mu$s, alignment half that, and with fast (``capability 2'')
+processing the total is a few tenths of a millisecond, comfortably inside 1\,ms.
+
+\emph{End to end.} Add the transport network (a few milliseconds per hundred kilometres of fibre
+plus switching), the core (a fraction of a millisecond in a well-placed UPF) and the server.
+A user in a city reaching a server in a distant data centre sees 20--40\,ms on LTE and 10--25\,ms on
+5G; a device on a factory network with a local UPF and an edge server can see a few milliseconds.
+The radio is now rarely the largest term.
+\end{worked}
+
+\begin{inpractice}[5G in the field versus the brochure]
+The first five years of 5G showed a familiar gap between specification and experience.
+Mid-band 5G with 100\,MHz carriers and massive MIMO delivered large real gains: median
+downlink speeds measured by crowd-sourced testing services were typically several times those
+of LTE in the same markets, often in the low hundreds of megabits per second, with peaks above
+1\,Gb/s. Low-band and DSS deployments gave little improvement over LTE. Millimetre-wave
+networks delivered gigabit speeds in line of sight of a node and nothing a few buildings away.
+Uplink speeds and latency improved less than downlink speeds, because TDD patterns favour the
+downlink and the core and transport networks dominate latency. The eMBB story was largely
+delivered; URLLC and massive IoT found their first markets in private industrial networks and
+in NB-IoT and LTE-M rather than in the public network. The lesson for an engineer is to read the
+peak-rate formula, the TDD pattern and the deployment band before believing any number.
+\end{inpractice}
+
+%======================================================================
+\section{The generations side by side}
+\label{sec:ch21:compare}
+%======================================================================
+
+Table~\ref{tab:ch21:compare} lines up the five generations, and
+Figure~\ref{fig:ch21_peak_rates} plots their peak rates against time. Over three decades the
+peak rate available to a phone grew from 9.6\,kb/s to several gigabits per second, a factor of
+about $10^6$: roughly a factor of ten every five years. It is instructive to decompose that
+factor. Bandwidth grew from 200\,kHz (GSM) to several hundred megahertz of aggregated carriers,
+a factor of about 1000--4000. Peak spectral efficiency grew from about 0.05\,b/s/Hz per user
+(a GSM data slot) to about 30\,b/s/Hz (NR with many layers and 256QAM), a factor of several
+hundred, of which MIMO layers contribute a factor of four to eight, denser modulation a factor
+of eight, and better coding and less overhead the rest. Bandwidth, in other words, did most of
+the work, which is why spectrum is the most expensive input to a mobile network.
+
+\mdcfig{ch21_peak_rates}{Peak downlink rates of each generation's standards and device
+categories against the year they became commercially available (approximate). The dotted
+line is a least-squares exponential fit: about a factor of ten every five years. Peak rates
+are what a single user could get alone in a cell with an excellent channel; typical rates in
+loaded networks are roughly a tenth of these.}
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{The cellular generations compared. Peak rates are for the specification or for
+commercial devices of the period, as noted; ``typical latency'' is a representative round-trip
+time seen by users (approximate).}
+\label{tab:ch21:compare}
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{2.0cm} *{5}{>{\raggedright\arraybackslash}X}@{}}
+\toprule
+ & \textbf{1G} & \textbf{2G / 2.5G} & \textbf{3G / 3.5G} & \textbf{4G} & \textbf{5G}\\
+\midrule
+Main systems & AMPS, NMT, TACS & GSM, IS-95, IS-136, PDC; GPRS, EDGE & WCDMA, CDMA2000, TD-SCDMA; HSPA, EV-DO & LTE, LTE-Advanced (Pro) & NR (Releases 15--18)\\
+First service & 1979--83 & 1991--95 & 2001--03 & 2009--10 & 2019\\
+Carrier bandwidth & 25--30\,kHz & 200\,kHz (GSM), 1.25\,MHz (IS-95) & 5\,MHz (WCDMA), 1.25\,MHz (CDMA2000) & 1.4--20\,MHz, up to 32 carriers aggregated & 5--100\,MHz (FR1), 50--400\,MHz (FR2)\\
+Multiple access & FDMA & TDMA, CDMA & CDMA (+ TDM scheduling in HSPA/EV-DO) & OFDMA down, SC-FDMA up & OFDMA; CP-OFDM or DFT-s-OFDM up\\
+Duplexing & FDD & FDD & FDD (TDD) & FDD and TDD & mostly TDD above 2.5\,GHz\\
+Modulation & analog FM & GMSK, $\pi/4$-DQPSK, 8-PSK & QPSK to 64QAM & QPSK to 256QAM & up to 256QAM (1024QAM)\\
+Channel coding & BCH (signalling) & convolutional & convolutional, turbo & turbo, TBCC & LDPC, polar\\
+MIMO & -- & -- & $2\times2$ (HSPA+) & up to 8 layers DL & up to 8 layers DL; massive MIMO arrays, beam management\\
+Peak rate (DL) & -- (analog voice) & 9.6\,kb/s (CSD) to 237\,kb/s (EDGE) & 384\,kb/s (R99) to 42--168\,Mb/s (HSPA+) & 150\,Mb/s (Rel-8 phone) to $\sim$1\,Gb/s (LTE-A) & 2--10\,Gb/s (devices); 20\,Gb/s (requirement)\\
+Peak spectral efficiency & -- & $\sim$1.4\,b/s/Hz gross per carrier & $\sim$8\,b/s/Hz (HSPA+ MIMO) & 15\,b/s/Hz (IMT-Advanced) & 30\,b/s/Hz (IMT-2020)\\
+Typical latency (RTT) & -- & 300--1000\,ms (GPRS/EDGE) & 100--200\,ms (R99), 30--100\,ms (HSPA) & 20--50\,ms & 8--25\,ms (eMBB)\\
+Core network & analog switch & circuit (MSC) + GPRS packet core & circuit + packet (Iu-CS, Iu-PS) & all-IP EPC; voice over IMS & service-based 5GC, slicing, edge UPF\\
+Defining idea & cellular reuse, handoff & digital voice, SIM, roaming, SMS & wideband CDMA, packet data & OFDMA, flat IP, scheduler-centric & flexible numerology, beams, cloud core\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%======================================================================
+\section{Lessons from forty years}
+\label{sec:ch21:lessons}
+%======================================================================
+
+\subsection{What each generation got right and wrong}
+
+\paragraph{1G} proved that cellular reuse and handoff worked and that people would pay for
+mobility; it got the business right and the security disastrously wrong, and its national
+fragmentation (outside North America and the Nordic countries) left travellers stranded.
+
+\paragraph{2G (GSM)} got the ecosystem right: a single specification across many countries,
+open interfaces, the SIM card, international roaming and a guaranteed market through the MoU.
+Its radio design was conservative and robust---constant-envelope GMSK, an equaliser, slow
+frequency hopping---and its features (SMS, prepaid, roaming) outlived several successors. Its
+security relied on secret algorithms and one-way authentication, and its circuit-switched
+architecture made data a retrofit. IS-95 got interference averaging, power control and soft
+handoff right a decade before anyone else, and its main error was commercial: it never
+achieved GSM's scale.
+
+\paragraph{3G} got the technology roughly right and the timing and economics wrong. WCDMA was
+an elegant, capable radio, but its architecture put the radio intelligence in the RNC, its
+first releases were tuned for circuit-like services, and the operators had paid for spectrum
+as though data revenue would arrive in 2002. It arrived in 2008, delivered by HSPA and the
+smartphone. The lasting contributions were turbo codes, fast power control, the 3GPP process
+itself and mutual authentication.
+
+\paragraph{4G (LTE)} got almost everything right for its decade: OFDMA, a flat architecture,
+a scheduler-centric design, one global standard, and enough headroom (carrier aggregation,
+MIMO) to grow from 100\,Mb/s to a gigabit over ten years. Its regrets were always-on
+cell-specific reference signals (an energy and interference cost that grows with the number of
+cells, and an obstacle to beamforming), a single numerology, and a late, complicated path to
+voice.
+
+\paragraph{5G} fixed LTE's regrets and delivered eMBB well in mid band. It overpromised in
+URLLC, network slicing and millimetre-wave coverage for consumers, at least on the timescale
+marketed, and its business case for operators has been weaker than its technology. The
+flexible, lean, beam-based air interface and the cloud-native core are likely to be its
+longest-lived contributions, inherited by 6G.
+
+\begin{keyidea}[Standards are bets about the future]
+Every generation's designers had to guess, five to ten years ahead, what users would want and
+what silicon could do. The ones that aged well---GSM, LTE---left headroom and kept options open:
+GSM's signalling channels made SMS possible; LTE's flexible scheduler and carrier aggregation
+absorbed a hundredfold growth. The ones that aged badly were tuned too precisely to a predicted
+service (3G's circuit-switched video calls) or relied on assumptions that did not hold (secret
+algorithms, always-on reference signals). When you design a system that must live for twenty
+years, design for flexibility in the parts you are least sure of, and simplicity in the parts
+that must never fail.
+\end{keyidea}
+
+\subsection{The economics}
+
+Engineering decisions in cellular are inseparable from money. A few facts frame them.
+\begin{itemize}
+\item \textbf{Traffic grows, revenue does not.} Mobile data traffic has grown by tens of percent
+a year for fifteen years, while operators' revenues in most mature markets have been flat in
+real terms. The cost of carrying a bit must therefore fall at roughly the rate traffic grows,
+and every generation must deliver a large reduction in cost per bit, not just higher rates.
+Spectral efficiency, wider carriers, cheaper sites and lower energy are all ways to that end.
+\item \textbf{Spectrum is the most expensive input.} Auctions have raised hundreds of billions
+of dollars worldwide since 2000. Because bandwidth is the largest contributor to capacity, an
+operator's spectrum holdings largely determine its network quality, and refarming old bands to
+new technologies is a constant activity.
+\item \textbf{Energy is the largest operating cost of the RAN.} A macro site draws several
+kilowatts, much of it while carrying little traffic. NR's lean design, sleep modes and
+Release~18's network energy saving features respond to an operating cost, not a technical
+curiosity.
+\item \textbf{Sites are expensive and slow.} Acquiring, building and powering a new site takes
+months to years. This is why mid-band 5G was designed to reuse existing macro sites, why small
+cells grew more slowly than predicted, and why tower companies, which own and lease the sites,
+became some of the most valuable businesses in telecommunications.
+\item \textbf{Scale wins.} The cost of a standard's chips and handsets falls with volume, so a
+standard with a global market (GSM, LTE, NR) beats a technically comparable regional one
+(D-AMPS, PDC, WiMAX, TD-SCDMA after its domestic phase). Standards-essential patents, licensed
+on ``fair, reasonable and non-discriminatory'' terms, fund the research that produces each
+generation and are a permanent source of litigation.
+\end{itemize}
+
+\begin{inpractice}[The ten-year rhythm and what comes next]
+If the pattern holds, 6G networks will open around 2030. 3GPP began Release~20 studies in
+2025, and the ITU's IMT-2030 framework (Recommendation ITU-R M.2160, 2023) adds integrated
+sensing and communication, native AI and ubiquitous coverage (including non-terrestrial
+networks) to the usual extrapolation of rates and latency. The candidate technologies---new
+spectrum around 7--15\,GHz and above 100\,GHz, extremely large antenna arrays, new waveforms,
+AI-native air interfaces---are the subject of the final chapter. The lesson of this chapter is
+that whichever technologies are chosen, the system will be judged on the same unglamorous
+criteria as its predecessors: cost per bit, energy per bit, coverage, reliability, security and
+the willingness of a whole industry to build it together.
+\end{inpractice}
+
+%======================================================================
+\section*{Summary}
+%======================================================================
+\begin{itemize}
+\item Cellular systems reuse frequencies in cells, hand calls over between them, and grow
+capacity by shrinking cells. Every generation since 1G inherits this structure; what changes is
+how users share a cell's spectrum and how interference between cells is managed.
+\item 1G (AMPS, NMT, TACS) used analog FM in 25--30\,kHz channels with reuse of about 7,
+and was undone by capacity limits, eavesdropping and cloning.
+\item GSM introduced digital TDMA (eight slots on 200\,kHz carriers, 270.833\,kb/s GMSK), a
+burst with a midamble for an MLSE equaliser, unequal error protection of speech, slow frequency
+hopping, DTX, power control, the SIM and challenge--response authentication, open network
+interfaces and international roaming. Its ciphers and one-way authentication were broken.
+GPRS and EDGE added packet data, 8-PSK, link adaptation and incremental redundancy.
+\item IS-95 and then WCDMA built capacity on interference averaging: universal reuse,
+fast closed-loop power control (800 and 1500\,Hz), soft handover and variable-rate vocoders.
+HSPA moved scheduling, HARQ and link adaptation into the base station with a 2\,ms TTI and
+shared channels, the template for everything after.
+\item LTE adopted OFDMA downlink and SC-FDMA uplink, a flat all-IP architecture with one radio
+node, 1\,ms subframes and 180\,kHz resource blocks, turbo coding with circular-buffer
+incremental redundancy, 8\,ms HARQ, CQI-driven link adaptation, MIMO transmission modes,
+carrier aggregation and voice over IMS.
+\item NR scales the numerology ($15\cdot2^{\mu}$\,kHz), removes always-on reference signals,
+beamforms everything including synchronisation (SSB bursts), uses LDPC and polar codes, supports
+mini-slots and flexible TDD, and runs on a service-based, cloud-native core with network
+slicing and edge computing; the RAN can be split into CU, DU and RU with open interfaces.
+\item Peak rates have grown about tenfold every five years, mostly through bandwidth; typical
+rates are about a tenth of the peaks, and latency is a budget in which the radio is now a small
+term.
+\end{itemize}
+
+\begin{labbox}[Cells, air interfaces and the LTE/NR physical layer]
+\lab{moderncomms-labs/labs/lab11\_air\_interfaces.py} accompanies this chapter and
+Chapters~\ref{ch:multipleaccess} and~\ref{ch:wifi}. It computes co-channel SIR against cluster
+size (the AMPS and GSM reuse trade-off of Sections~\ref{sec:ch21:1g} and~\ref{sec:ch21:gsm}),
+sizes cells with Erlang~B, tabulates the NR numerologies and draws a simplified NR slot with its
+control region, DM-RS and PT-RS overhead, compares round-robin, max-rate and proportional-fair
+OFDMA schedulers, measures the PAPR advantage of DFT-s-OFDM that justified LTE's SC-FDMA uplink,
+builds a link-adaptation staircase from the NR MCS table with HARQ, and simulates Wi-Fi
+contention. A planned follow-on lab, \lab{moderncomms-labs/labs/lab27\_lte\_nr\_phy.py}, will
+build an LTE or NR downlink end to end: a resource grid with synchronisation signals and
+reference signals as in Figures~\ref{fig:ch21_lte_grid} and~\ref{fig:ch21_nr_frame}, PSS/SSS
+cell search on a simulated multi-cell signal, and a PDSCH chain with CRC, LDPC coding,
+circular-buffer rate matching, QAM, OFDM and HARQ combining. The figure script
+\lab{book/figscripts/ch21\_figs.py} reproduces every data figure in this chapter, including the
+power-control and soft-handover simulations.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item An AMPS operator has 395 voice channels. Compare the number of erlangs it can carry at 2\%
+blocking with (a) 7-cell omnidirectional reuse and (b) 7-cell reuse with three sectors per cell.
+Explain why sectorisation improves the SIR but reduces trunking efficiency, and estimate the
+net effect on subscribers per cell.
+\item Starting from the 13\,MHz GSM master clock, derive the bit rate, bit period, timeslot
+duration, TDMA frame duration and 26-multiframe duration. Why does the 26-multiframe last exactly
+120\,ms?
+\item Verify the GSM full-rate channel-coding arithmetic: show how 260 speech bits become 456
+coded bits, and compute the code rate applied to the class 1 bits. If the class 2 bits had
+also been coded at rate 1/2, what gross rate would a traffic channel need?
+\item A GSM base station measures that a mobile's access burst arrives 74\,$\mu$s late. What
+timing advance (in bit periods) should it command, and how far away is the mobile? What is the
+maximum cell radius with the standard access burst guard period?
+\item In a GSM network with slow frequency hopping over $N$ carriers, assume each burst
+independently sees a deep fade with probability $p=0.1$ and the decoder fails if more than two
+of the eight bursts of a speech frame are lost. Compute the frame erasure rate with hopping
+(independent bursts) and without hopping for a stationary user whose eight bursts fade together.
+\item For an EDGE user on four timeslots, compute the throughput with MCS-5, MCS-7 and MCS-9.
+If the BLERs at the user's C/I are 1\%, 15\% and 60\% respectively and failed blocks are
+retransmitted until they succeed (ignore incremental redundancy), which MCS gives the highest
+goodput?
+\item A WCDMA uplink serves voice users at 12.2\,kb/s with a required $\ebno$ of 5\,dB, a voice
+activity factor of 0.6 and an other-cell to own-cell interference ratio of 0.65. Using the
+classic single-cell CDMA capacity formula with these corrections, estimate the number of users
+per cell for a noise rise of 3\,dB and of 6\,dB. Relate the difference to cell breathing.
+\item Explain why HSDPA has no fast power control on its shared channel and no soft handover,
+while WCDMA Release~99 depends on both. What replaces them?
+\item Compute the number of resource elements per subframe available for the PDSCH in a
+10\,MHz LTE carrier with two CRS ports and a two-symbol control region, in a subframe without
+synchronisation or broadcast signals. What peak rate does that give with $2\times2$ MIMO and
+64QAM at code rate 0.9?
+\item Using~\eqref{eq:ch21:nrpeak}, compute the maximum NR downlink rate for (a) 20\,MHz at
+15\,kHz (106 RBs), 4 layers, 256QAM, FDD; (b) 100\,MHz at 30\,kHz, 4 layers, 256QAM, with the
+\texttt{DDDSU} pattern of Figure~\ref{fig:ch21_nr_frame}; (c) the aggregate of (a) and (b).
+Compare with the 20\,Gb/s IMT-2020 requirement.
+\item An NR cell at 3.5\,GHz uses the \texttt{DDDSU} pattern with 30\,kHz subcarriers. Compute
+the worst-case and average waiting time for an uplink packet that arrives at a random time.
+How would a \texttt{DSUUU} pattern change it, and what would it cost?
+\item A 5G network is required to deliver 99.999\% reliability within 1\,ms for 32-byte packets.
+If one transmission of a mini-slot fails with probability $10^{-3}$ and failures are independent,
+how many transmissions are needed? What happens to the latency budget if each retransmission
+takes 0.25\,ms, and why might PDCP duplication over two carriers be preferred?
+\item List the steps by which a phone switched on in an unfamiliar country finds and joins an
+NR standalone cell, from frequency scanning to the first user-plane packet, naming the signals
+and channels involved at each step and which of the steps also existed in GSM.
+\item \emph{(Simulation)} Extend the power-control simulation in
+\lab{book/figscripts/ch21\_figs.py} with an outer loop that adjusts the SIR target to hold a 1\%
+block error rate, using a simple BLER-versus-SIR model. Plot the SIR target and the mean
+transmit power against speed from 3 to 250\,km/h.
+\item \emph{(Simulation)} Generate an LTE downlink signal for a 1.4\,MHz carrier containing the
+PSS and SSS of a chosen physical cell identity (TS~36.211 Section~6.11), add a second cell with
+a different identity 6\,dB weaker, a frequency offset and noise, and implement the PSS/SSS
+search. Measure the probability of detecting both cells against SNR.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item E.~Dahlman, S.~Parkvall and J.~Sköld, \emph{5G NR: The Next Generation Wireless Access
+Technology}, 2nd ed., Academic Press, 2020; and \emph{4G LTE-Advanced Pro and the Road to 5G},
+3rd ed., Academic Press, 2016. Written by Ericsson engineers who took part in the standards;
+the clearest explanations of why NR and LTE are designed as they are.
+\item S.~Sesia, I.~Toufik and M.~Baker (eds.), \emph{LTE---The UMTS Long Term Evolution: From
+Theory to Practice}, 2nd ed., Wiley, 2011. A detailed, physical-layer-heavy reference written by
+standards delegates, with good treatment of the reference signals and control channels.
+\item H.~Holma and A.~Toskala (eds.), \emph{WCDMA for UMTS: HSPA Evolution and LTE}, 5th ed.,
+Wiley, 2010. The standard engineering reference for WCDMA, power control, soft handover and
+HSPA, with many field measurements.
+\item M.~Mouly and M.-B.~Pautet, \emph{The GSM System for Mobile Communications}, published by the
+authors, 1992. The classic description of GSM by two of its designers; still the best book on
+the logic of the system.
+\item F.~Hillebrand (ed.), \emph{GSM and UMTS: The Creation of Global Mobile Communication},
+Wiley, 2002. First-hand accounts by the people who created GSM and UMTS, including the MoU, the
+1987 decisions and SMS.
+\item A.~J.~Viterbi, \emph{CDMA: Principles of Spread Spectrum Communication}, Addison-Wesley,
+1995. The theory behind IS-95 from one of its inventors: power control, soft handoff and
+interference-limited capacity.
+\item V.~H.~MacDonald, ``The cellular concept,'' \emph{Bell System Technical Journal}, vol.~58,
+no.~1, pp.~15--41, 1979. Part of a special issue on AMPS that remains an excellent introduction
+to reuse, cell splitting and the AMPS system design.
+\item T.~S.~Rappaport, \emph{Wireless Communications: Principles and Practice}, 2nd ed.,
+Prentice Hall, 2002. A good textbook treatment of cellular fundamentals and the 1G and 2G
+standards.
+\item E.~Barkan, E.~Biham and N.~Keller, ``Instant ciphertext-only cryptanalysis of GSM encrypted
+communication,'' \emph{Journal of Cryptology}, vol.~21, no.~3, 2008 (first presented at
+CRYPTO~2003). How coding-before-ciphering broke A5/2 and undermined A5/1.
+\item ITU-R Recommendations M.2083 (IMT-2020 vision, 2015) and M.2410 (minimum requirements,
+2017); 3GPP TS 45.002 (GSM multiplexing), TS 25.211--25.214 (WCDMA physical layer), TS 36.211--36.213
+(LTE physical layer), TS 38.211--38.214 and 38.306 (NR physical layer and UE capabilities), and
+TS 23.501 (5G system architecture). The primary sources, free from the ITU and 3GPP web sites.
+\end{itemize}

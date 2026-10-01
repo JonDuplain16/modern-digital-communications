@@ -84,7 +84,7 @@ comms-textbook/
 | 22 | ch:wifi | Wi-Fi, Bluetooth and IoT (LoRa, Zigbee, NB-IoT) | todo |
 | 23 | ch:satellite | Satellite Communications (orbits, link budgets, transponders, DVB-S2, Telstar to Starlink, NTN) | written (45 pp) |
 | 24 | ch:wireline | Wireline and Optical (telephone plant, DSL, cable/DOCSIS, Ethernet SerDes, fibre, coherent optics) | todo |
-| 25 | (add label) | The Road to 6G (ISAC, OTFS/AFDM, AI-native PHY, NTN) | todo |
+| 25 | ch:sixg | The Road to 6G (ISAC, OTFS/AFDM, AI-native PHY, NTN) | todo |
 | A,B | appA, appB | Math reference; Using the labs and GNU Radio (preface promises Appendix B) | todo |
 | — | references | Bibliography | todo |
 
