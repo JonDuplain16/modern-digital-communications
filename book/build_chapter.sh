@@ -5,6 +5,7 @@
 cd "$(dirname "$0")"
 CH="$1"; OUT="${2:-$(pwd)/_chapbuild}"; mkdir -p "$OUT"
 MK="$LOCALAPPDATA/Programs/MiKTeX/miktex/bin/x64"; [ -d "$MK" ] && export PATH="$MK:$PATH"
+python tools/gen_credits.py > /dev/null 2>&1   # refresh photo credit macros
 W="$OUT/work_$CH"; rm -rf "$W"; mkdir -p "$W/chapters" "$W/frontback"
 cp mdcstyle.sty "$W/"; cp chapters/$CH.tex "$W/chapters/"
 ln -s "$(pwd)/figs" "$W/figs" 2>/dev/null || cp -r figs "$W/figs"
