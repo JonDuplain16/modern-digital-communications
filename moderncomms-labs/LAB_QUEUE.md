@@ -23,3 +23,4 @@
 | 32 | lab32_6g_waveforms.py | 25 | OTFS vs OFDM, near-field focusing, ISAC range-Doppler, RIS |
 | 33 | lab33_noise_detection.py | 3 | noise generation/statistics, filtered noise PSD, envelope stats, NF cascade calc, ROC/Neyman–Pearson |
 | 34 | lab34_telegraph_history.py | 1 | Morse keying + spectrum, Morse vs Huffman on user text, Kelvin RC-cable ISI with wpm slider, analog repeater chain vs regenerator chain |
+| 35 | lab35_fourier_spectra.py | 2 | windows/scalloping/zero padding, uncertainty, group delay, STFT, two-tone IP3 (helpers in ch02_figs.py) |
