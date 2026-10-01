@@ -22,9 +22,21 @@ data/        IQ captures from gr01 land here
 python -m venv .venv
 source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-jupyter lab labs/
+python labs/launcher.py            # the Lab Studio gallery (or: python -m studio)
 ```
-Open a notebook and choose *Restart Kernel and Run All Cells*. Panels built with `interact` become
+
+**Interactive studio labs (new).** The labs are being converted from Jupyter notebooks into
+live desktop apps built on `studio/` (PySide6 + pyqtgraph): sliders on the left, plots that
+update instantly, live readouts, a "What's going on" panel, self-ticking challenges and a link
+to the book section. Converted so far: **Lab 03** (pulse shaping, Nyquist, live eyes, matched
+filter, BER Monte Carlo, NRZ vs PAM-4, FTN) and **Lab 14** (AM envelope detector, DSB/SSB,
+FM in time, Bessel/Carson, FM threshold and clicks, FM stereo, with optional audio). Run any
+of them directly (`python labs/lab03_pulse_shaping.py`); `--selftest` checks them headless and
+saves screenshots (`python tests/selftest_labs.py` runs all). See `studio/README.md` for the API
+and `LAB_STYLE_GUIDE.md` for how to convert the remaining labs.
+
+**Notebook labs (being converted).** The others are still notebooks: `jupyter lab labs/`, open
+one and choose *Restart Kernel and Run All Cells*. Panels built with `interact` become
 live sliders; in the shipped (pre-executed) notebooks they are rendered once at their defaults.
 
 Every lab follows the same template: a title block (chapter, what you will learn, prerequisites, time,
@@ -38,7 +50,7 @@ graded **Exercises**. Run times below are for the full notebook on a desktop PC.
 | 00 | — | Start here: setup, environment check, index | — | 1 s |
 | 01 | 2, 7 | Complex baseband, IQ sampling, the SDR receive chain | real vs IQ sampling, IQ imbalance, sensitivity | 3 s |
 | 02 | 9 | Digital modulation and optimal detection (PSK/QAM/APSK, FSK, DPSK, MSK/GMSK) | any constellation vs Eb/N0, GMSK BT | 5 s |
-| 03 | 8 | Pulse shaping, Nyquist criterion, matched filter, eyes, ACLR | folded spectrum, eye explorer | 3 s |
+| 03 | 8 | **Studio app**: pulses and spectra, Nyquist zero-ISI, live eye, matched filter, TX/RX chains, BER Monte Carlo, NRZ vs PAM-4, FTN | everything | live |
 | 04 | 10 | Carrier, timing and frame synchronization; MCRB | PLL playground, burst receiver | 6 s |
 | 05 | 11 | Path loss, fading, Doppler, level crossings, coherence bandwidth, sounding | TDL time-frequency response | 10 s |
 | 06 | 12 | ZF/MMSE, LMS/NLMS/RLS, CMA, DFE, MLSE | null depth vs ZF/MMSE | 5 s |
@@ -49,7 +61,7 @@ graded **Exercises**. Run times below are for the full notebook on a desktop PC.
 | 11 | 20–22 | Frequency reuse, Erlang B, NR grid, scheduling, link adaptation, CSMA/CA, 4096-QAM | PF scheduler, PAPR, MCS/HARQ | 6 s |
 | 12 | 25 | OTFS vs OFDM, OFDM radar (ISAC), RIS, learned demapper | range-Doppler map, RIS | 11 s |
 | 13 | 8 | Line codes and PSDs, PRBS/scramblers, 8b/10b, jitter and bathtubs, NRZ vs PAM-4 + FFE, duobinary | jitter budget, backplane loss | 8 s |
-| 14 | 4 | AM/DSB/SSB, envelope and coherent detection, FM, Carson, FM threshold, FM stereo | AM index and RC, tone FM | 4 s |
+| 14 | 4 | **Studio app**: AM envelope detector, DSB-SC/SSB, FM in time, Bessel/Carson, FM threshold and clicks, FM stereo (with audio) | everything | live |
 | 15 | 4, 7 | Superheterodyne receiver, images, IF selectivity, AGC, zero-IF and low-IF | preselector Q and IF order, low-IF image | 2 s |
 | 16 | 5 | Sampling, ZOH, quantization, dither, μ-law/A-law, delta and sigma-delta, T1 | aliasing, delta-mod step | 2 s |
 | 17 | 6 | FIR/IIR design, polyphase, CIC + compensation, NCO, multi-stage DDC | FIR window vs Parks–McClellan | 2 s |

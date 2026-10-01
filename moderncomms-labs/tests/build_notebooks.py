@@ -134,10 +134,24 @@ def execute(nb, name):
         os.chdir(cwd)
 
 
+def _is_studio_lab(path):
+    """True for labs written on moderncomms-labs/studio (they call studio.run)."""
+    with open(path, encoding="utf-8") as fh:
+        txt = fh.read()
+    return "studio.run(" in txt or "st.run(" in txt
+
+
 def main(argv):
     pats = [a for a in argv if not a.startswith("--")] or ["lab"]
     srcs = sorted({s for p in pats for s in glob.glob(os.path.join(LABS, f"{p}*.py"))})
+    # Labs converted to the interactive studio framework are plain scripts, not notebooks.
+    studio = [s for s in srcs if _is_studio_lab(s)]
+    for s in studio:
+        print(f"SKIP {os.path.basename(s)[:-3]} (studio lab: run it directly, or tests/selftest_labs.py)")
+    srcs = [s for s in srcs if s not in studio and not s.endswith("launcher.py")]
     if not srcs:
+        if studio:
+            return 0
         print("no labs match", pats)
         return 1
     failed, report = [], []

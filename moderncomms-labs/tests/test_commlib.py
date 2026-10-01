@@ -353,6 +353,29 @@ def test_rf():
     assert np.allclose(rf.eff_doherty(np.array([0.5, 1.0])), np.pi / 4)
 
 
+def test_analog():
+    from commlib import analog as an
+    fs = 400e3
+    t = np.arange(20000) / fs
+    x = (1 + 0.5 * np.sin(2 * np.pi * 500 * t)) * np.cos(2 * np.pi * 40e3 * t)
+    rc = 1e-4
+    a = np.exp(-1 / (rc * fs))
+    ref = np.empty_like(x)
+    v = 0.0
+    for i, xi in enumerate(x):                 # the recursion the vectorised detector implements
+        v = max(xi, a * v)
+        ref[i] = v
+    assert np.max(np.abs(an.envelope_detector(x, fs, rc) - ref)) < 1e-9
+    fsb = 96e3
+    tb = np.arange(96 * 100) / fsb
+    z = np.exp(1j * 3 * np.sin(2 * np.pi * 1e3 * tb))
+    f = an.fm_discriminator_hz(z, fsb)
+    assert abs(np.max(f) - 3e3) < 30            # peak deviation = beta * fm
+    L = np.sin(2 * np.pi * 1e3 * t)
+    Lh, Rh = an.stereo_decode(an.stereo_mpx(L, 0 * L, fs), fs)
+    assert 20 * np.log10(an.tone_level(Lh, 1e3, fs) / an.tone_level(Rh, 1e3, fs)) > 40
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
