@@ -94,3 +94,12 @@ describe it in your final report so the lab author can add it.
   sidecar written by fetch_image.py — never hand-edit them).
 - Final report: page count before/after, figure/photo counts, visual-coverage %, labels preserved,
   lab experiments you referenced that the lab author must provide, anything uncertain.
+
+## 7. Lessons from the pilots (Ch 8, Ch 23)
+1. fetch_image.py defaults to 1280 px (standard Wikimedia width); space searches ~10 s apart to avoid HTTP 429.
+2. Backslashes are corrupted by Bash heredocs/sed in Python too ("\beta" -> backspace). Write scripts to files with the Write tool.
+3. \mdcside/\mdcsidephoto are fragile: only inside long plain paragraphs (~16+ lines), never before a box/equation; if one misbehaves use \mdcfig[0.5] or \mdcpair.
+4. Never use [b]-only floats. Small figures may use [H] to stop text-only pages.
+5. Reach coverage by moving existing floats just before text-only stretches; re-run the checker after each move.
+6. Locate floats by their \label when scripting moves, never by a shared prefix.
+7. Narrow single-panel concept figures (~3.0 x 2.4 in) that carry a real simulated number give the best value per page.
