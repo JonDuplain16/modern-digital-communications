@@ -195,3 +195,8 @@ simulator); a lab index notebook; each chapter's `labbox` should name the exact 
   and the labs engineer -- check their files exist/build (build_chapter.sh) before re-launching.
   Requested future labs are in moderncomms-labs/LAB_QUEUE.md. Remaining chapters: 19-22, 24, 25, App A/B, references;
   then deepen Ch 1-7; then an accuracy-review pass (agents flagged numbers to verify in their reports).
+- Later same day: ALL 25 chapters + App A/B written (full build ~1140+ pp). Ch 1-4 deepened (49-53 pp each).
+  Labs 00-22, 24, 25, 28 done. In flight at usage limit: deepen Ch 5, 6, 7; labs wave 3 (23,26,27,29-35);
+  fact-check reviewers for Ch 8-16 and Ch 17-25+apps. Check their files build before relaunching.
+  Still TODO: bibliography (book/chapters/references.tex, compile from all Further Reading), final full-build
+  layout review, update Status table rows for ch14-25 (all written, 41-57 pp).

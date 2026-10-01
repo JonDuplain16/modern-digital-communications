@@ -6,13 +6,24 @@ For most of the twentieth century, radio meant analog modulation: a voice or a p
 impressed directly onto the amplitude, phase or frequency of a carrier. Analog systems are
 still on the air---AM and FM broadcasting, aviation voice, marine and land-mobile radio,
 amateur single sideband---and their ideas are everywhere inside digital radios. The
-superheterodyne receiver, the phase-locked loop, the I/Q modulator, pre-emphasis, the
-capture effect and the threshold effect were all discovered by engineers building analog
-equipment. This chapter treats the classic systems the way their designers did: as
-engineering trade-offs between power, bandwidth, receiver complexity and fidelity.
+superheterodyne receiver, the phase-locked loop, the I/Q modulator, pre-emphasis, automatic
+gain control, the capture effect and the threshold effect were all discovered by engineers
+building analog equipment, often with nothing more than vacuum tubes, coils and an
+oscilloscope. This chapter treats the classic systems the way their designers did: as
+engineering trade-offs between power, bandwidth, receiver complexity and fidelity. We build
+AM from the transmitter's modulation transformer to the crystal set's cat's whisker;
+derive single sideband three ways; work out why FM sounds so much better than AM and why it
+suddenly stops working; take apart the superheterodyne through the five-tube radio that sat in
+tens of millions of kitchens; decode the beautiful frequency arithmetic of NTSC colour
+television; and finish with the analog telephone network's frequency-division hierarchy, the
+system that digital transmission was invented to replace. Almost every idea in the digital
+chapters that follow has an ancestor here.
 \end{chapterintro}
 
+%======================================================================
 \section{Why modulate at all?}
+\label{sec:ch04:why}
+%======================================================================
 
 A microphone produces a baseband signal $m(t)$ with energy from roughly 100\,Hz to a few
 kilohertz. Radiating it directly is hopeless for three reasons. First, antennas are
@@ -20,9 +31,13 @@ efficient only when their size is comparable to a wavelength; at 1\,kHz the wave
 300\,km. Second, every station would occupy the same spectrum, so no two could operate in
 the same region. Third, the propagation of radio waves depends strongly on frequency, and
 the designer wants to choose the band that suits the service: medium waves that follow the
-ground at night, VHF that stays local, microwaves that go straight to a satellite.
+ground by day and reflect from the ionosphere at night, short waves that hop between
+continents, VHF that stays within the horizon, microwaves that go straight to a satellite.
 \term{Modulation} solves all three by translating the message to a \term{carrier} frequency
-$f_c$ chosen by the engineer and allocated by the regulator.
+$f_c$ chosen by the engineer and allocated by the regulator. A fourth benefit appears once
+many messages share one medium: by giving each its own carrier we obtain
+\term{frequency-division multiplexing}, the principle behind every broadcast band and, until
+the 1980s, the long-distance telephone network (Section~\ref{sec:ch04:fdm}).
 
 A sinusoidal carrier $A_c\cos(2\pi f_c t+\phi)$ has only two things that can be varied:
 its amplitude and its angle. Every analog scheme in this chapter varies one or both, and
@@ -35,7 +50,9 @@ s(t)=\re\{\tilde{s}(t)\,e^{j2\pi f_c t}\},
 and each modulation is nothing more than a rule for building the complex envelope
 $\tilde{s}(t)$ from $m(t)$:
 
-\begin{center}
+\begin{table}[htbp]\centering\small
+\caption{The analog modulations as rules for building the complex envelope.}
+\label{tab:ch04:envelopes}
 \begin{tabular}{lll}
 \toprule
 Scheme & Complex envelope $\tilde s(t)$ & Bandwidth \\
@@ -43,63 +60,136 @@ Scheme & Complex envelope $\tilde s(t)$ & Bandwidth \\
 AM (DSB-LC) & $A_c[1+\mu m(t)]$ & $2W$ \\
 DSB-SC & $A_c\,m(t)$ & $2W$ \\
 SSB (upper) & $A_c[m(t)+j\hat m(t)]$ & $W$ \\
+VSB & $A_c[m(t)+j m_v(t)]$, $m_v$ a filtered quadrature term & $W$ to $2W$ \\
 PM & $A_c e^{jk_p m(t)}$ & $\approx 2(\Delta f+W)$ \\
 FM & $A_c e^{j2\pi k_f\int m(\tau)d\tau}$ & $\approx 2(\Delta f+W)$ \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
 Here $W$ is the message bandwidth, $\hat m(t)$ the Hilbert transform of $m(t)$ and $\Delta f$
-the peak frequency deviation. The table is worth a moment's study, because it is the whole
-chapter in five lines: amplitude modulations have \emph{real} or \emph{analytic} envelopes and
-occupy a bandwidth tied to $W$; angle modulations have constant-magnitude envelopes and
-trade bandwidth for noise immunity.
+the peak frequency deviation. Table~\ref{tab:ch04:envelopes} is worth a moment's study, because
+it is the whole chapter in six lines: amplitude modulations have \emph{real} or \emph{analytic}
+envelopes and occupy a bandwidth tied to $W$; angle modulations have constant-magnitude
+envelopes and trade bandwidth for noise immunity. The first group is \emph{linear}: the
+modulated signal for $m_1+m_2$ is the sum of the signals for $m_1$ and $m_2$, so spectra
+simply shift. The second group is \emph{nonlinear}, and its spectrum takes Bessel functions to
+describe.
 
+\begin{history}[From spark to continuous wave: Fessenden and the first voice broadcast]
+Marconi's early wireless used spark transmitters: a high-voltage discharge rang a tuned
+circuit, which radiated a train of damped oscillations spread over a wide band. Sparks could
+send Morse code but not a voice. Reginald Fessenden, a Canadian-born engineer who had worked
+for Edison, argued from around 1900 that speech needed a \emph{continuous} wave whose
+amplitude could be varied smoothly, and he coined the idea of the \emph{heterodyne}: beating a
+received continuous wave against a local oscillator to produce an audible difference
+frequency. To get a continuous wave of tens of kilohertz he commissioned a high-frequency
+alternator from General Electric, where the young Ernst Alexanderson developed it. According to
+Fessenden's own later account, on Christmas Eve 1906 his station at Brant Rock, Massachusetts,
+transmitted speech and music that were heard by ship operators along the coast. Historians
+have debated the details, since the main source is Fessenden's recollection decades later,
+but his experiments with amplitude-modulated continuous waves in 1906 are well documented,
+and the idea---a carrier whose amplitude follows the voice---is the subject of the next
+section. Practical voice broadcasting had to wait for the triode oscillator and amplifier of
+the 1910s; KDKA in Pittsburgh began regular scheduled broadcasts in November 1920.
+\end{history}
+
+%======================================================================
 \section{Amplitude modulation}
+\label{sec:ch04:am}
+%======================================================================
 
 \subsection{The AM signal}
 
 Conventional AM, known formally as double sideband with large carrier (DSB-LC), was the
-first broadcast modulation and is still used on medium and short waves and for aviation
+first broadcast modulation and is still used on long, medium and short waves and for aviation
 voice around 118--137\,MHz. With the message normalised so that $|m(t)|\le 1$,
 \begin{equation}
 s_{\text{AM}}(t)=A_c\,[1+\mu\,m(t)]\cos(2\pi f_c t),
+\label{eq:ch04:am}
 \end{equation}
-where $0<\mu\le 1$ is the \term{modulation index}. The envelope of the RF waveform traces
-$A_c[1+\mu m(t)]$, which is always positive as long as $\mu\le1$, so a diode, a capacitor and
-a resistor can recover the message. Figure~\ref{fig:ch04_am} shows a tone-modulated carrier at
-three indices. At $\mu=1.4$ the envelope would need to go negative; it cannot, so the detector
-output folds and the audio is badly distorted. Broadcast transmitters limit negative peaks
-to prevent this \term{over-modulation}, while allowing positive peaks somewhat above 100\%
-because those do not break the envelope.
+where $0<\mu\le 1$ is the \term{modulation index} (or \emph{depth}; broadcasters quote it in
+percent). The envelope of the RF waveform traces $A_c[1+\mu m(t)]$, which is always positive as
+long as $\mu\le1$, so a diode, a capacitor and a resistor can recover the message.
+Figure~\ref{fig:ch04_am} shows a tone-modulated carrier at three indices. At $\mu=1.4$ the
+envelope would need to go negative; it cannot, so the detector output folds and the audio is
+badly distorted. Broadcast transmitters limit negative peaks to prevent this
+\term{over-modulation}, which also splatters sidebands into neighbouring channels, while
+allowing positive peaks somewhat above 100\% because those do not break the envelope (US
+rules permit positive peaks up to 125\%).
+
+On an oscilloscope the modulation index is read directly from the envelope: if $A_{\max}$ and
+$A_{\min}$ are its largest and smallest values for a tone,
+\begin{equation}
+\mu=\frac{A_{\max}-A_{\min}}{A_{\max}+A_{\min}}.
+\label{eq:ch04:muscope}
+\end{equation}
+A classic bench trick is the \emph{trapezoid} display: drive the oscilloscope's horizontal
+axis with the audio and its vertical axis with the RF. A linear modulator draws a trapezoid
+with straight sides; curvature reveals modulator nonlinearity and a pointed tip reveals
+over-modulation.
 
 \mdcfig{ch04_am}{AM with a 500\,Hz tone on a 10\,kHz carrier for three modulation indices.
 The dashed green curve is the ideal envelope $1+\mu m(t)$; the red curve is the output of a
 simulated full-wave envelope detector. Over-modulation ($\mu=1.4$) makes the envelope fold,
 and the detected audio is distorted.}
 
-Taking the Fourier transform,
+\subsection{Spectrum and sidebands}
+
+Taking the Fourier transform of~\eqref{eq:ch04:am},
 \begin{equation}
 S_{\text{AM}}(f)=\frac{A_c}{2}\big[\delta(f-f_c)+\delta(f+f_c)\big]
 +\frac{A_c\mu}{2}\big[M(f-f_c)+M(f+f_c)\big].
+\label{eq:ch04:amspec}
 \end{equation}
 The spectrum is the message spectrum copied to either side of the carrier: an
 \term{upper sideband} and a \term{lower sideband}, each a complete copy of the information, plus
-an unmodulated carrier line. The occupied bandwidth is $2W$; AM broadcast channels are
-10\,kHz wide in the Americas and 9\,kHz elsewhere, which limits the audio to about 4.5 to
-5\,kHz.
+an unmodulated carrier line. For a single tone $m(t)=\cos2\pi f_m t$ the trigonometric identity
+$\cos a\cos b=\frac12[\cos(a-b)+\cos(a+b)]$ makes it explicit:
+\begin{equation}
+s_{\text{AM}}(t)=A_c\cos2\pi f_ct+\frac{\mu A_c}{2}\cos2\pi(f_c+f_m)t+\frac{\mu A_c}{2}\cos2\pi(f_c-f_m)t.
+\end{equation}
+Three lines, the outer two at most half the height of the carrier. The phasor picture is
+illuminating: in a frame rotating at $f_c$ the carrier is a fixed phasor, and the two
+sidebands are phasors rotating in opposite directions at $\pm f_m$. Their sum always lies
+along the carrier, lengthening and shortening it; this is why AM changes amplitude but not
+phase. Keep this picture in mind---in Section~\ref{sec:ch04:nbfm} we will rotate one sideband by
+$180^\circ$ and get FM.
 
-\subsection{Power efficiency}
+The occupied bandwidth is $2W$. Medium-wave (MW) broadcast channels are spaced 10\,kHz in the
+Americas (530--1700\,kHz) and 9\,kHz in Europe, Africa, Asia and Oceania (531--1602\,kHz, with
+some countries extending higher). Because adjacent channels are not normally assigned in the
+same area, US stations may transmit audio up to 10\,kHz under the NRSC-1 standard, but typical
+receivers pass only 3--5\,kHz to keep the adjacent channels out; AM's reputation for
+``telephone quality'' is largely a receiver choice. Long-wave broadcasting (148.5--283.5\,kHz
+in Europe and Africa) and short-wave international broadcasting (bands between 2.3 and
+26\,MHz with a 5\,kHz raster) also use DSB-LC.
 
-With a tone message $m(t)=\cos 2\pi f_m t$, the carrier power is $A_c^2/2$ and each sideband
-carries $A_c^2\mu^2/8$. The fraction of the transmitted power that carries information is
+\subsection{Power and efficiency}
+\label{sec:ch04:ampower}
+
+With a tone message, the carrier power (into a 1\,$\Omega$ load) is $P_c=A_c^2/2$ and each
+sideband carries $\mu^2A_c^2/8=\mu^2P_c/4$. The total is
+\begin{equation}
+P_t=P_c\Big(1+\frac{\mu^2}{2}\Big),\qquad\text{or}\quad P_t=P_c(1+\mu^2P_m)
+\label{eq:ch04:ampower}
+\end{equation}
+for a general message of normalised power $P_m=\overline{m^2(t)}$. The fraction of the
+transmitted power that carries information is
 \begin{equation}
 \eta_{\text{AM}}=\frac{\mu^2P_m}{1+\mu^2P_m}\qquad\Longrightarrow\qquad
-\eta=\frac{1}{3}\ \text{for a tone at }\mu=1,
+\eta=\frac{1}{3}\ \text{for a tone at }\mu=1.
+\label{eq:ch04:ameff}
 \end{equation}
-where $P_m$ is the normalised message power. Speech has a high peak-to-average ratio, so with
-peaks held at 100\% modulation the average $P_m$ is often below 0.1 and $\eta$ falls to a few
-percent. A 50\,kW clear-channel station may radiate only a kilowatt or two of sidebands.
+Speech has a high peak-to-average ratio, so with peaks held at 100\% modulation the average
+$P_m$ is often below 0.1 and $\eta$ falls below 10\%. Broadcasters fight back with audio
+processing: multiband compressors and peak limiters (the Orban Optimod family is the best known)
+raise the average modulation substantially, which is why AM stations sound ``loud'' and somewhat
+squashed.
+
+A practical consequence of~\eqref{eq:ch04:ampower}: the antenna current rises with modulation
+as $\sqrt{1+\mu^2/2}$, by 22.5\% for 100\% tone modulation. Generations of broadcast engineers
+checked their modulation with nothing more than the antenna ammeter.
 
 Why accept such waste? Because in 1920 the only practical receiver was an envelope
 detector, and a large carrier makes envelope detection possible. The transmitter is
@@ -107,65 +197,421 @@ expensive but there is one of it; the receivers are cheap and there are millions
 asymmetry---put complexity where there are few units---recurs throughout the history of
 communications, from broadcast television to GPS.
 
+\begin{worked}[An AM broadcast transmitter power budget]
+A US clear-channel station runs the maximum licensed carrier power, $P_c=50$\,kW.
+\begin{itemize}
+\item \emph{Tone test at 100\%.} Each sideband carries $P_c/4=12.5$\,kW, so
+$P_t=75$\,kW and $\eta=1/3$. The peak envelope is $2A_c$, so the \term{peak envelope power}
+(PEP) is $4P_c=200$\,kW. The final amplifier, its tubes and the antenna system must all
+withstand 200\,kW peaks and twice the carrier voltage.
+\item \emph{Programme audio.} With processed audio peaking at 100\% and an average
+$P_m\approx0.15$, the sideband power is $50\times0.15=7.5$\,kW and $\eta=7.5/57.5\approx13\%$.
+More than 85\% of the radiated power is the carrier, which conveys nothing but makes the
+envelope detector work.
+\item \emph{Plate modulation (next subsection).} If the class-C final amplifier is 80\%
+efficient, its DC input at carrier is $50/0.8=62.5$\,kW. For a 100\% tone the modulator must
+add audio power equal to $\mu^2/2$ of that DC input, $31.3$\,kW---a large audio amplifier
+in its own right. With programme audio it averages about $62.5\times0.15\approx9.4$\,kW.
+\item \emph{Mains.} With a 90\%-efficient high-voltage supply, the station draws roughly
+$(62.5+9.4)/0.9\approx80$\,kW from the grid on programme, about 1.4 times the radiated power.
+Modern solid-state transmitters (below) do better still.
+\end{itemize}
+\end{worked}
+
+\subsection{Generating AM: low-level and high-level modulation}
+\label{sec:ch04:amtx}
+
+There are two places to impose the modulation. In \term{low-level modulation} the carrier is
+modulated at a small signal level, for example in a transistor mixer or an I/Q modulator, and
+then amplified to full power by \emph{linear} amplifiers (class A or AB). This is simple but
+inefficient, because linear amplifiers waste much of their DC input as heat; it is the
+standard method in low-power and software-defined transmitters.
+
+In \term{high-level modulation} the final amplifier is run as an efficient
+\emph{class-C} stage that is driven hard and behaves like a switch: its RF output amplitude is
+proportional to its supply voltage. Modulate the supply voltage, and the RF output follows.
+In the classic \term{plate modulation} circuit of Figure~\ref{fig:ch04_am_tx}, the DC supply to
+the anode (plate) of the final tube passes through the secondary winding of a large
+\emph{modulation transformer} driven by a class-B push-pull audio amplifier, the
+\emph{modulator}. The audio voltage adds to and subtracts from the DC supply; at 100\% modulation
+it swings the plate supply between zero and twice its resting value. Because the final
+amplifier's DC input power is $V_{\text{DC}}I_{\text{DC}}$ and its output follows $V^2$, the
+modulator must supply the sideband power: $\mu^2/2$ of the DC input for a tone, as in the
+worked example. The modulation transformer of a 50\,kW transmitter weighed tonnes and had to
+carry the DC plate current without saturating its core.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.45cm and 0.5cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.95cm,minimum width=1.5cm,align=center,font=\sffamily\scriptsize},
+  hot/.style={blk,draw=accent,fill=accent!6},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[blk] (xo) {Crystal\\oscillator\\$f_c$};
+\node[blk,right=of xo] (buf) {Buffer\\amplifier};
+\node[blk,right=of buf] (drv) {RF driver\\(class C)};
+\node[hot,right=of drv,minimum width=1.9cm] (pa) {Final RF\\amplifier\\(class C)};
+\node[blk,right=of pa] (match) {Matching\\network};
+\coordinate[right=0.5cm of match] (ant);
+\draw[arr] (xo) -- (buf); \draw[arr] (buf) -- (drv); \draw[arr] (drv) -- (pa); \draw[arr] (pa) -- (match);
+\draw[thick,navy] (match.east) -- (ant) -- ++(0,0.9);
+\draw[thick,navy] ($(ant)+(0,0.9)$) -- ++(-0.22,0.38) -- ++(0.44,0) -- cycle;
+\node[blk,below=1.25cm of xo] (mic) {Audio input\\(studio)};
+\node[blk,right=of mic] (proc) {Processor:\\compressor,\\limiter};
+\node[blk,right=of proc] (mod) {Class-B\\modulator\\(audio PA)};
+\node[hot,right=of mod,minimum width=1.9cm] (mt) {Modulation\\transformer};
+\node[blk,right=of mt] (hv) {HV DC\\supply};
+\draw[arr] (mic) -- (proc); \draw[arr] (proc) -- (mod); \draw[arr] (mod) -- (mt);
+\draw[arr] (hv) -- (mt);
+\draw[arr,accent] (mt) -- node[right,font=\sffamily\scriptsize,align=left,text=accent]{plate supply\\$V_{DC}[1+\mu m(t)]$} (pa);
+\end{tikzpicture}
+\caption{A high-level, plate-modulated AM broadcast transmitter of the vacuum-tube era. The
+class-C final amplifier is efficient because it operates as a switch; its output amplitude
+follows its supply voltage, which the modulation transformer varies with the audio. The
+modulator must supply all of the sideband power.}
+\label{fig:ch04_am_tx}
+\end{figure}
+
+The efficiency of the high-power AM transmitter has been a design obsession for a century.
+Raymond Heising's constant-current modulation (around 1919) was the first practical
+high-level scheme; William Doherty's 1936 amplifier, which uses a second ``peaking'' tube that
+turns on only during modulation peaks, kept efficiency high across the envelope and is now, in
+solid-state form, the standard power amplifier of 4G and 5G base stations; Leonard Kahn's
+\emph{envelope elimination and restoration} (1952) amplified a constant-envelope RF signal with
+a saturated amplifier and restored the envelope through the supply.
+
 \begin{inpractice}[title=Modern AM transmitters]
-A modern high-power AM transmitter does not use a linear amplifier. It uses \emph{pulse
-step} or \emph{digital} modulation: dozens of solid-state modules, each switched fully on or
-off, whose outputs are combined so that the number of active modules follows the audio.
-Switching amplifiers are 90\% efficient or better. The same idea, envelope tracking, is used
-in every 4G and 5G handset to power the PA efficiently while it amplifies an OFDM signal
-(Chapter~\ref{ch:sdr}).
+A modern high-power AM transmitter does not use a modulation transformer or a linear amplifier.
+Pulse-duration modulation (PDM) transmitters of the 1970s replaced the class-B modulator with a
+switching (class-D) amplifier that drives the RF stage's supply through a low-pass filter.
+Since the late 1980s the dominant design has been \emph{digital amplitude modulation}: dozens
+of solid-state RF modules, each switched fully on or off, whose outputs are summed in a
+combiner so that the number of active modules follows the sampled audio---a power DAC operating
+at RF. Switching amplifiers are 85--90\% efficient or better. The same idea, \emph{envelope
+tracking}, is used in every 4G and 5G handset to power the PA efficiently while it amplifies a
+high peak-to-average OFDM signal (Chapter~\ref{ch:sdr}). Broadcasters also save energy with
+\emph{modulation-dependent carrier level} (MDCL) control, which reduces the carrier during
+loud passages when the sidebands are strong and the listener would not notice; it can save a
+substantial fraction of the electricity bill.
 \end{inpractice}
 
 \subsection{The envelope detector}
+\label{sec:ch04:envdet}
 
-The classic detector is a diode followed by a parallel $RC$ network. On each positive
-half-cycle the diode charges the capacitor to the peak; between peaks the capacitor
+The classic detector is a diode followed by a parallel $RC$ network
+(Figure~\ref{fig:ch04_detector_circuits}b). On each positive half-cycle the diode conducts and
+charges the capacitor to the peak; between peaks the diode is reverse biased and the capacitor
 discharges through $R$. Two constraints fix the time constant:
 \begin{equation}
 \frac{1}{f_c}\ll RC\ll\frac{1}{W}.
+\label{eq:ch04:rc}
 \end{equation}
 If $RC$ is too short the output ripples at the carrier frequency. If it is too long the
-capacitor cannot follow the falling envelope, and the output shows \emph{diagonal clipping}.
-A tighter analysis for a tone at index $\mu$ gives $RC\le\sqrt{1-\mu^2}/(2\pi f_m\mu)$. For
-broadcast AM with $f_c\approx 1$\,MHz and $W=5$\,kHz there is a comfortable factor of 200
-between the limits.
+capacitor cannot follow the falling envelope, and the output shows \term{diagonal clipping}:
+it decays exponentially along a straight-looking diagonal instead of following the envelope
+down (Figure~\ref{fig:ch04_envelope_clip}).
 
-\begin{worked}[title=Designing an envelope detector]
+The diagonal-clipping limit is easy to derive for a tone. The envelope is
+$a(t)=A_c(1+\mu\cos\omega_m t)$, and the capacitor voltage, when the diode is off, falls with
+slope $-v/RC$. The detector can follow only if the envelope never falls faster than this,
+\begin{equation}
+-\frac{da}{dt}\le\frac{a(t)}{RC}\quad\Longleftrightarrow\quad
+RC\le\frac{1+\mu\cos\omega_m t}{\mu\,\omega_m\sin\omega_m t}\quad\text{for all }t.
+\end{equation}
+Minimising the right-hand side over $t$ (the minimum occurs at $\cos\omega_m t=-\mu$) gives
+\begin{equation}
+RC\le\frac{\sqrt{1-\mu^2}}{2\pi f_m\,\mu}.
+\label{eq:ch04:diagclip}
+\end{equation}
+The highest modulating frequency and the deepest modulation set the limit. As $\mu\to1$ the
+bound goes to zero: at 100\% modulation some diagonal clipping on the troughs is inevitable,
+one of several reasons broadcasters leave a little headroom on negative peaks.
+
+\mdcfig{ch04_envelope_clip}{Simulated ideal-diode envelope detector (red) on a 50\,kHz carrier
+modulated 80\% by a 1\,kHz tone; the dashed green curve is the true envelope. Too short a time
+constant leaves carrier ripple; too long a time constant produces diagonal clipping on the
+falling half of each cycle. The limit~\eqref{eq:ch04:diagclip} is 119\,$\mu$s here.}
+
+A second, subtler distortion comes from the load. The detector's DC load is $R$, but the audio
+signal is coupled through a capacitor to the next stage, whose input resistance $R_L$ appears in
+parallel at audio frequencies. The \emph{AC load} $R_{ac}=R\parallel R_L$ is smaller than the DC
+load, and the detector can then follow modulation troughs only if
+\begin{equation}
+\mu\le\frac{R_{ac}}{R_{dc}},
+\label{eq:ch04:negclip}
+\end{equation}
+or the troughs are flattened (\emph{negative-peak clipping}). Radio designers kept $R_L$ large,
+or tapped the diode load, to keep this ratio near one. Finally, a real diode has a forward drop
+and a curved characteristic at low levels; a germanium or Schottky diode with a small drop, and
+an IF level of at least a volt or so at the detector, keep the detector operating in its
+\emph{linear} (large-signal) region. At low levels any diode becomes a \emph{square-law}
+detector, whose output contains $\big(1+\mu m(t)\big)^2$, and therefore second-harmonic
+distortion of relative amplitude about $\mu/4$ for a tone---25\% at full modulation.
+
+\begin{worked}[Designing an envelope detector]
 A 455\,kHz IF carries AM with audio up to 5\,kHz at up to 90\% modulation. The diagonal
 clipping limit at 5\,kHz and $\mu=0.9$ is
 $RC\le\sqrt{1-0.81}/(2\pi\cdot 5000\cdot 0.9)=15.4\,\mu$s. The ripple condition asks for
 $RC\gg 1/455\,\text{kHz}=2.2\,\mu$s. Choosing $R=10$\,k$\Omega$ and $C=1$\,nF gives
 $RC=10\,\mu$s, which satisfies both. The remaining 455\,kHz ripple is removed by a simple
 audio low-pass filter.
+
+Now the AC load. If the audio amplifier that follows has an input resistance of 47\,k$\Omega$,
+then $R_{ac}=10\parallel47=8.25$\,k$\Omega$ and~\eqref{eq:ch04:negclip} limits clean detection to
+$\mu\le0.82$: troughs of the 90\%-modulated signal would be clipped. Raising the amplifier input
+resistance to 220\,k$\Omega$ gives $R_{ac}/R_{dc}=0.96$ and solves the problem. In the vacuum-tube
+radios of Section~\ref{sec:ch04:aa5} the volume control itself (typically 500\,k$\Omega$ to
+2\,M$\Omega$) was the detector load, with a grid resistor of several megohms after it.
 \end{worked}
 
-\subsection{Double sideband with suppressed carrier}
+\subsection{The crystal set}
+
+The simplest radio receiver ever built has no power source at all. A long-wire antenna feeds a
+tuned circuit (a coil and a variable capacitor), whose resonance selects a station; a
+\emph{crystal detector}---a fine wire, the \emph{cat's whisker}, touching a crystal of galena
+(lead sulphide) or silicon---rectifies the RF; and a pair of high-impedance headphones, with a
+small capacitor across them, acts as the $RC$ filter and transducer in one
+(Figure~\ref{fig:ch04_detector_circuits}a). All the audio power comes from the received signal
+itself, which is why crystal sets work only near strong stations and need headphones of a few
+thousand ohms. The point-contact rectifier was patented by Greenleaf Pickard (silicon, 1906)
+and others; in the early 1920s a crystal set was most people's first radio. Soldiers in the
+Second World War built ``foxhole radios'' from a razor blade and a pencil lead.
+
+The crystal set is also a lesson in selectivity. Its single tuned circuit, loaded by the
+antenna and the detector, has a loaded $Q$ of perhaps 20--50, so at 1\,MHz its bandwidth is
+20--50\,kHz, several broadcast channels. Selectivity good enough for a crowded band needs more
+tuned circuits, more gain, and eventually the superheterodyne of
+Section~\ref{sec:ch04:superhet}. The point-contact crystal itself had a second career: the
+silicon point-contact diodes of wartime radar mixers led, through the Bell Labs semiconductor
+programme, to the transistor of 1947.
+
+\begin{figure}[htbp]\centering
+\tikzset{
+  ch4diode/.pic={\draw[thick,fill=navy!25] (-0.16,-0.15) -- (-0.16,0.15) -- (0.14,0) -- cycle; \draw[thick] (0.14,-0.15) -- (0.14,0.15);},
+  ch4res/.pic={\draw[thick,fill=white] (-0.35,-0.11) rectangle (0.35,0.11);},
+  ch4cap/.pic={\draw[thick,white,fill=white] (-0.07,-0.2) rectangle (0.07,0.2); \draw[thick] (-0.07,-0.2) -- (-0.07,0.2); \draw[thick] (0.07,-0.2) -- (0.07,0.2);},
+  ch4gnd/.pic={\draw[thick] (0,0) -- (0,-0.12); \draw[thick] (-0.18,-0.12) -- (0.18,-0.12); \draw[thick] (-0.11,-0.19) -- (0.11,-0.19); \draw[thick] (-0.04,-0.26) -- (0.04,-0.26);}
+}
+\begin{tikzpicture}[line width=0.7pt,navy,font=\sffamily\scriptsize]
+% ---------------- (a) crystal set ----------------
+\begin{scope}
+\draw (0,2.6) -- (0,0);
+\draw (0,2.6) -- ++(-0.25,0.4) -- ++(0.5,0) -- cycle;
+\node[above=2pt,text=black] at (0,3.0) {antenna};
+\draw (0,2.0) -- (0.9,2.0);
+% coil
+\draw (0.9,2.0) -- (0.9,1.75);
+\foreach \k in {0,...,4} \draw (0.9,1.75-0.25*\k) arc (90:-90:0.125);
+\draw (0.9,0.5) -- (0.9,0);
+\node[left,text=black] at (0.75,1.1) {$L$};
+% variable capacitor
+\draw (0.9,2.0) -- (1.8,2.0) -- (1.8,1.12); \draw (1.8,0.88) -- (1.8,0);
+\draw[thick] (1.55,1.12) -- (2.05,1.12); \draw[thick] (1.55,0.88) -- (2.05,0.88);
+\draw[-{Stealth[length=1.5mm]}] (1.5,0.7) -- (2.15,1.35);
+\node[right,text=black] at (2.1,1.0) {$C$};
+% diode
+\draw (1.8,2.0) -- (2.6,2.0);
+\pic at (2.85,2.0) {ch4diode};
+\node[above=4pt,text=black,align=center] at (2.85,2.0) {cat's whisker\\detector};
+\draw (3.0,2.0) -- (4.0,2.0);
+% bypass cap
+\draw (3.5,2.0) -- (3.5,1.12); \draw (3.5,0.88) -- (3.5,0);
+\draw[thick] (3.27,1.12) -- (3.73,1.12); \draw[thick] (3.27,0.88) -- (3.73,0.88);
+% phones
+\draw (4.0,2.0) -- (4.0,1.4);
+\draw[fill=navy!10] (3.75,0.6) rectangle (4.25,1.4);
+\node[right,text=black,align=left] at (4.3,1.0) {headphones\\2--4\,k$\Omega$};
+\draw (4.0,0.6) -- (4.0,0);
+\draw (0,0) -- (4.0,0);
+\pic at (0,0) {ch4gnd};
+\node[text=black] at (2.0,-0.65) {(a) crystal set};
+\end{scope}
+% ---------------- (b) diode detector with AC load ----------------
+\begin{scope}[xshift=6.6cm]
+% IF transformer secondary
+\foreach \k in {0,...,4} \draw (0,1.75-0.25*\k) arc (90:-90:0.125);
+\draw (0,2.0) -- (0,1.75); \draw (0,0.5) -- (0,0);
+\foreach \k in {0,...,4} \draw (-0.45,1.75-0.25*\k) arc (90:270:0.125);
+\draw (-0.45,2.0) -- (-0.45,1.75); \draw (-0.45,0.5) -- (-0.45,0);
+\draw[thick] (-0.24,0.45) -- (-0.24,1.8); \draw[thick] (-0.21,0.45) -- (-0.21,1.8);
+\node[text=black,align=center] at (-0.25,2.45) {455 kHz IF\\transformer};
+\draw (0,2.0) -- (0.6,2.0);
+\pic at (0.85,2.0) {ch4diode};
+\draw (1.0,2.0) -- (2.6,2.0);
+% C
+\draw (1.6,2.0) -- (1.6,1.12); \draw (1.6,0.88) -- (1.6,0);
+\draw[thick] (1.37,1.12) -- (1.83,1.12); \draw[thick] (1.37,0.88) -- (1.83,0.88);
+\node[left,text=black] at (1.35,1.0) {$C$};
+% R
+\draw (2.6,2.0) -- (2.6,0);
+\pic[rotate=90] at (2.6,1.0) {ch4res};
+\node[right,text=black] at (2.75,1.0) {$R$};
+% coupling cap and load
+\draw (2.6,2.0) -- (3.3,2.0);
+\pic at (3.4,2.0) {ch4cap};
+\draw (3.47,2.0) -- (4.4,2.0) -- (4.4,0);
+\pic[rotate=90] at (4.4,1.0) {ch4res};
+\node[right,text=black,align=left] at (4.55,1.0) {$R_L$\\(next stage)};
+\node[above,text=black] at (3.4,2.2) {$C_c$};
+\draw (0,0) -- (4.4,0);
+\pic at (1.6,0) {ch4gnd};
+\node[text=accent,align=center] at (2.2,-0.65) {(b) $R_{dc}=R$, \ $R_{ac}=R\parallel R_L$};
+\end{scope}
+\end{tikzpicture}
+\caption{(a) The crystal set: antenna, tuned circuit, point-contact detector and headphones,
+with no power source. (b) The diode envelope detector of a superheterodyne receiver. The
+time constant $RC$ must satisfy~\eqref{eq:ch04:rc} and~\eqref{eq:ch04:diagclip}; the coupling
+capacitor $C_c$ makes the audio (AC) load smaller than the DC load and sets the trough-clipping
+limit~\eqref{eq:ch04:negclip}.}
+\label{fig:ch04_detector_circuits}
+\end{figure}
+
+\subsection{Synchronous detection of AM}
+
+An envelope detector has two weaknesses: it fails when the noise is comparable to the carrier
+(the AM threshold, Section~\ref{sec:ch04:noise}), and it distorts badly under
+\emph{selective fading}, common on short waves at night, where the ionosphere delivers several
+copies of the signal with different delays. Selective fading can suppress the carrier while the
+sidebands survive; the envelope then dips through zero and the detector produces the harsh
+distortion familiar to short-wave listeners. A \term{synchronous detector} regenerates a clean
+local carrier, locked to the received one by a phase-locked loop, and multiplies, exactly as for
+DSB-SC below. It is immune to carrier fades, and it can select either sideband to escape
+interference on the other. Many high-end short-wave receivers offer a ``SYNC'' mode for this
+reason, and every SDR can implement it in a few lines.
+
+%======================================================================
+\section{Double sideband with suppressed carrier}
+\label{sec:ch04:dsbsc}
+%======================================================================
+
+\subsection{The signal and coherent detection}
 
 If the receiver can regenerate the carrier, it does not need to be transmitted. Removing
 it gives DSB-SC,
 \begin{equation}
 s_{\text{DSB}}(t)=A_c\,m(t)\cos(2\pi f_c t),
+\label{eq:ch04:dsb}
 \end{equation}
-generated by a \term{balanced modulator}---a product of two signals, in practice a Gilbert
-cell or a diode ring. All transmitted power is now in the sidebands, but the envelope is
-$|m(t)|$, so an envelope detector no longer works. The receiver must multiply by a
-\emph{coherent} local carrier $\cos(2\pi f_c t+\theta)$ and low-pass filter:
+whose spectrum is~\eqref{eq:ch04:amspec} without the delta functions
+(Figure~\ref{fig:ch04_am_family}). All transmitted power is now in the sidebands, but the
+envelope is $|m(t)|$ and the phase reverses each time $m(t)$ changes sign, so an envelope
+detector no longer works. The receiver must multiply by a \emph{coherent} local carrier
+$\cos(2\pi f_c t+\theta)$ and low-pass filter:
 \begin{equation}
 \text{LPF}\{s_{\text{DSB}}(t)\cos(2\pi f_c t+\theta)\}=\tfrac{A_c}{2}m(t)\cos\theta.
 \label{eq:ch04:coh}
 \end{equation}
 A phase error $\theta$ scales the output by $\cos\theta$; at $90^\circ$ the output vanishes.
-A frequency error $\Delta f$ makes the output beat as $m(t)\cos(2\pi\Delta f t)$. Coherent
-detection therefore needs a carrier recovery loop. John Costas's 1956 answer---two
-product detectors in quadrature whose outputs multiply to give a phase error---is the
-\term{Costas loop} that Chapter~\ref{ch:sync} uses to recover the carrier of every BPSK and QPSK
-signal.
+A frequency error $\Delta f$ makes the output beat as $m(t)\cos(2\pi\Delta f t)$, a periodic
+fading at $2\Delta f$ that is intolerable for even a fraction of a hertz. Coherent detection
+therefore needs a carrier recovery loop.
 
 \mdcfig{ch04_am_family}{Spectra of the four amplitude modulations with a voice-like message
-on a 12\,kHz carrier: conventional AM carries a strong carrier line; DSB-SC removes it; SSB
-keeps only one sideband; VSB keeps one sideband plus a gradual vestige of the other.}
+on a 12\,kHz carrier: conventional AM carries a strong carrier line; DSB-SC removes it; the
+two SSB signals keep only one sideband, upper or lower.}
 
+\subsection{Balanced and ring modulators}
+\label{sec:ch04:ring}
+
+Generating~\eqref{eq:ch04:dsb} requires a multiplier. Accurate analog multipliers are hard to
+build, but a \emph{switch} is easy, and switching is enough. Multiply $m(t)$ by a square wave
+$p(t)$ that alternates between $+1$ and $-1$ at $f_c$. Its Fourier series is
+\begin{equation}
+p(t)=\frac{4}{\pi}\Big[\cos\omega_ct-\frac13\cos3\omega_ct+\frac15\cos5\omega_ct-\cdots\Big],
+\end{equation}
+so $m(t)p(t)$ contains the wanted DSB-SC term $(4/\pi)m(t)\cos\omega_ct$ plus copies around
+$3f_c$, $5f_c$, \dots, which a band-pass filter removes. Neither the carrier nor the message
+appears alone at the output: the modulator is \term{balanced}. The \term{ring modulator}
+(Figure~\ref{fig:ch04_ring}) implements the polarity-reversing switch with four diodes and two
+centre-tapped transformers. A strong carrier applied between the centre taps turns on one pair
+of diodes during its positive half-cycles, connecting the transformers ``straight'', and the
+other pair during negative half-cycles, connecting them ``crossed''. The message passing
+through is therefore multiplied by $\pm1$ at the carrier rate.
+
+\begin{figure}[htbp]\centering
+\tikzset{ch4diodeR/.pic={\draw[thick,fill=navy!25] (-0.16,-0.15) -- (-0.16,0.15) -- (0.14,0) -- cycle; \draw[thick] (0.14,-0.15) -- (0.14,0.15);}}
+\begin{tikzpicture}[line width=0.7pt,navy,font=\sffamily\scriptsize]
+% T1 primary and secondary
+\foreach \k in {0,...,5} \draw (-1.1,1.0-0.333*\k) arc (90:270:0.1667);
+\foreach \k in {0,...,5} \draw (-0.6,1.0-0.333*\k) arc (90:-90:0.1667);
+\draw[thick] (-0.87,-1.0) -- (-0.87,1.0); \draw[thick] (-0.83,-1.0) -- (-0.83,1.0);
+\draw (-1.1,1.0) -- (-1.8,1.0); \draw (-1.1,-1.0) -- (-1.8,-1.0);
+\node[left,text=black,align=right] at (-1.85,0) {message\\$m(t)$};
+% T2
+\foreach \k in {0,...,5} \draw (3.4,1.0-0.333*\k) arc (90:270:0.1667);
+\foreach \k in {0,...,5} \draw (3.9,1.0-0.333*\k) arc (90:-90:0.1667);
+\draw[thick] (3.63,-1.0) -- (3.63,1.0); \draw[thick] (3.67,-1.0) -- (3.67,1.0);
+\draw (3.9,1.0) -- (4.6,1.0); \draw (3.9,-1.0) -- (4.6,-1.0);
+\node[right,text=black,align=left] at (4.65,0) {DSB-SC out\\$\propto m(t)\cos\omega_c t$\\(+ harmonics)};
+% ring nodes
+\coordinate (A) at (0.2,1.0); \coordinate (B) at (0.2,-1.0);
+\coordinate (C) at (2.6,1.0); \coordinate (D) at (2.6,-1.0);
+\draw (-0.6,1.0) -- (A); \draw (-0.6,-1.0) -- (B);
+\draw (C) -- (3.4,1.0); \draw (D) -- (3.4,-1.0);
+% straight diodes A->C and B->D
+\draw (A) -- (C); \pic at (1.4,1.0) {ch4diodeR};
+\draw (B) -- (D); \pic at (1.4,-1.0) {ch4diodeR};
+% crossed diodes C->B and D->A
+\draw (C) -- (B); \pic[rotate=219.8] at ($(C)!0.25!(B)$) {ch4diodeR};
+\draw (D) -- (A); \pic[rotate=140.2] at ($(D)!0.25!(A)$) {ch4diodeR};
+\fill (A) circle (1.4pt); \fill (B) circle (1.4pt); \fill (C) circle (1.4pt); \fill (D) circle (1.4pt);
+% centre taps and carrier
+\draw (-0.6,0) -- (-0.3,0) -- (-0.3,-1.7) -- (0.9,-1.7);
+\draw (3.4,0) -- (3.1,0) -- (3.1,-1.7) -- (1.9,-1.7);
+\draw[fill=white] (1.4,-1.7) circle (0.27); \draw (1.25,-1.7) sin (1.32,-1.6) cos (1.4,-1.7) sin (1.48,-1.8) cos (1.55,-1.7);
+\draw (0.9,-1.7) -- (1.13,-1.7); \draw (1.67,-1.7) -- (1.9,-1.7);
+\node[below=8pt,text=black] at (1.4,-1.7) {carrier $f_c$ (large)};
+\node[above,text=black] at (1.4,1.15) {four-diode ring};
+\end{tikzpicture}
+\caption{The diode ring modulator (double-balanced mixer). The carrier, applied between the two
+centre taps, switches the outer pair or the crossed pair of diodes on alternately, so the
+message is multiplied by a $\pm1$ square wave at $f_c$. Neither the carrier nor the message
+appears at the output. The same circuit, in miniature, is the double-balanced mixer of countless
+receivers and test instruments.}
+\label{fig:ch04_ring}
+\end{figure}
+
+The ring modulator was invented in the 1930s for the carrier telephone systems of
+Section~\ref{sec:ch04:fdm}, where it generated the SSB channels of every channel bank; with
+hot-carrier (Schottky) diodes and ferrite transformers it remains the \emph{double-balanced
+mixer} found in RF test equipment and high-dynamic-range receivers, valued for its isolation
+between ports and its excellent intermodulation performance. Its integrated-circuit
+successor is the \term{Gilbert cell}, Barrie Gilbert's 1968 transistor four-quadrant
+multiplier, which is the mixer in nearly every radio chip, including the AD9364 inside the
+B200 of Chapter~\ref{ch:sdr}.
+
+\subsection{Recovering the carrier}
+\label{sec:ch04:carrierrec}
+
+How does a DSB-SC receiver obtain a coherent carrier when none is transmitted? Squaring the
+received signal gives
+\begin{equation}
+s_{\text{DSB}}^2(t)=\tfrac{A_c^2}{2}m^2(t)+\tfrac{A_c^2}{2}m^2(t)\cos(4\pi f_ct),
+\end{equation}
+and since $m^2(t)$ has a nonzero mean, the second term contains a discrete spectral line at
+$2f_c$. A narrow band-pass filter or phase-locked loop extracts it, and a divide-by-two gives the
+carrier---with a $180^\circ$ ambiguity, since squaring cannot tell $m$ from $-m$. This is the
+\term{squaring loop}. John Costas's 1956 alternative uses two product detectors driven in
+quadrature by a voltage-controlled oscillator: the in-phase arm gives $\frac12m(t)\cos\theta$,
+the quadrature arm $\frac12m(t)\sin\theta$, and their product $\frac18m^2(t)\sin2\theta$ is a
+phase-error signal that steers the oscillator, independent of the sign of $m$. The
+in-phase arm is then the demodulated output. The \term{Costas loop}, born for DSB-SC voice,
+recovers the carrier of every BPSK and QPSK signal in Chapter~\ref{ch:sync}.
+
+A further trick doubles the capacity of DSB-SC. Two independent messages can share one carrier
+frequency if one modulates $\cos\omega_ct$ and the other $\sin\omega_ct$:
+\begin{equation}
+s(t)=m_1(t)\cos\omega_ct-m_2(t)\sin\omega_ct,
+\end{equation}
+because coherent detection with $\cos$ and $\sin$ separates them exactly. This
+\term{quadrature amplitude modulation} (QAM) carried the colour information of NTSC and PAL
+television (Section~\ref{sec:ch04:tv}) and AM stereo (Section~\ref{sec:ch04:digitalradio}), and
+with discrete-valued $m_1,m_2$ it becomes the QAM of Chapter~\ref{ch:modulation}. Its weakness
+is the same as DSB-SC's: a phase error $\theta$ leaks $m_2$ into $m_1$ in proportion to
+$\sin\theta$, which is why NTSC receivers needed a ``tint'' control.
+
+%======================================================================
 \section{Single sideband}
+\label{sec:ch04:ssb}
+%======================================================================
 
 \subsection{Only half the spectrum is needed}
 
@@ -178,66 +624,244 @@ s_{\text{USB}}(t)=m(t)\cos 2\pi f_c t-\hat m(t)\sin 2\pi f_c t,
 \label{eq:ch04:ssb}
 \end{equation}
 where $\hat m$ is the Hilbert transform (Chapter~\ref{ch:signals}). Changing the sign of the
-second term gives the lower sideband. SSB occupies bandwidth $W$, puts all its power into
-information, and fades more gracefully than AM because there is no carrier to suffer
-selective fading. It has been the standard for long-haul HF voice since the 1950s: military,
-maritime, aeronautical and amateur. Its analog-telephony cousin, SSB frequency-division
-multiplexing, carried the long-distance telephone network (Chapter~\ref{ch:history}) with
-12-channel groups stacked into supergroups and mastergroups on coaxial cables and microwave
-relays.
+second term gives the lower sideband. To see why~\eqref{eq:ch04:ssb} has only an upper
+sideband, recall that the analytic signal $m+j\hat m$ has spectrum $2M(f)$ for $f>0$ and zero
+for $f<0$; multiplying by $e^{j2\pi f_ct}$ shifts this one-sided spectrum up to $f_c$, and taking
+the real part adds the mirror image at $-f_c$. Nothing lands below $f_c$.
+
+SSB occupies bandwidth $W$, puts all its power into information, and fades more gracefully than
+AM because there is no carrier to suffer selective fading. Its envelope is
+$\sqrt{m^2+\hat m^2}$, which is \emph{not} the message; an SSB signal with no modulation is
+silent, which also saves power between words. SSB has been the standard for long-haul HF
+voice since the 1950s: military, maritime, aeronautical and amateur. Its analog-telephony
+cousin, SSB frequency-division multiplexing, carried the long-distance telephone network
+(Section~\ref{sec:ch04:fdm}).
+
+\begin{history}[Carson, single sideband and the transatlantic telephone]
+Single sideband was born in the Bell System. John Renshaw Carson of AT\&T worked out in 1915
+that one sideband of a modulated carrier carried all the information, and patented the idea
+(US patent 1,449,382, granted 1923). AT\&T used it first on wire: carrier telephone systems of
+the late 1910s stacked several SSB voice channels on one open-wire pair. Its most dramatic early
+use was radio. On 7 January 1927 the first commercial transatlantic radiotelephone service
+opened between New York and London, using single sideband on a long-wave carrier of about
+60\,kHz transmitted from Rocky Point, Long Island; a three-minute call cost 75 dollars. On HF,
+SSB displaced AM in the 1950s, helped decisively by the military. Arthur Collins's company in
+Cedar Rapids, which had built SSB equipment for the US Air Force, demonstrated it to General
+Curtis LeMay's Strategic Air Command, whose bombers needed reliable voice contact across
+continents; SAC's adoption of SSB in the mid-1950s set the pattern for military HF worldwide,
+and amateurs followed within a decade.
+\end{history}
 
 \subsection{Three ways to generate SSB}
+\label{sec:ch04:ssbgen}
 
-\begin{description}
-\item[Filter method.] Generate DSB-SC at a low intermediate frequency and remove one
-sideband with a sharp crystal or mechanical filter. The filter must pass 300\,Hz and reject
-$-300$\,Hz, a transition band of 600\,Hz at, say, 9\,MHz---hence the need for crystal
-lattices and the reason voice SSB traditionally cuts off below 300\,Hz.
-\item[Phasing method.] Implement~\eqref{eq:ch04:ssb} directly: two balanced modulators driven
-in quadrature, one fed with $m(t)$ and the other with a 90$^\circ$-shifted copy. The
-unwanted sideband cancels only as well as the two paths match. Figure~\ref{fig:ch04_ssb_phase}
-shows how quickly suppression degrades: a $2^\circ$ phase error limits it to about 35\,dB.
+\paragraph{The filter method.} Generate DSB-SC at a fixed frequency and remove one sideband
+with a sharp band-pass filter. The difficulty is the gap between the sidebands: with voice
+from 300\,Hz to 3\,kHz the filter must pass $f_c+300$\,Hz and reject $f_c-300$\,Hz, a transition
+band of 600\,Hz, with perhaps 50--60\,dB of rejection. At 9\,MHz that is a fractional
+transition of $7\times10^{-5}$, which needs a crystal \emph{lattice} filter of six to ten quartz
+resonators; at 455\,kHz, Collins's \emph{mechanical filters} of the early 1950s used resonant
+nickel-alloy discs coupled by wires and driven by magnetostrictive transducers. The required
+gap is the reason voice SSB traditionally cuts off below 300\,Hz. After the filter, mixers
+translate the SSB signal to the operating frequency. Almost every SSB transceiver built from the
+1950s to the 2000s used this method, at an IF of 455\,kHz, 3--9\,MHz or (later) 8--10.7\,MHz,
+and it is the reason ``SSB filter'' remains a catalogue item.
+
+\paragraph{The phasing method.} Implement~\eqref{eq:ch04:ssb} directly
+(Figure~\ref{fig:ch04_ssb_blocks}a): two balanced modulators driven by carriers in quadrature,
+one fed with $m(t)$ and the other with a $90^\circ$-shifted copy $\hat m(t)$. Ralph Hartley
+patented the method in 1928 and it is often called the \emph{Hartley modulator}. No sharp
+filter is needed, but the unwanted sideband cancels only as well as the two paths match, and an
+analog $90^\circ$ network that is accurate over a decade of audio is hard to build (the classic
+solution is a pair of all-pass networks whose phase \emph{difference} stays near $90^\circ$
+over 300--3000\,Hz). If the paths have relative gain $g$ and a phase error $\phi$, the ratio of
+wanted to unwanted sideband power is
+\begin{equation}
+\text{SSR}=\frac{|1+g e^{j\phi}|^2}{|1-ge^{j\phi}|^2}=\frac{1+2g\cos\phi+g^2}{1-2g\cos\phi+g^2}
+\approx\frac{4}{\phi^2+(1-g)^2}
+\label{eq:ch04:ssr}
+\end{equation}
+for small errors. Figure~\ref{fig:ch04_ssb_phase} shows how quickly suppression degrades: a
+$2^\circ$ phase error alone limits it to about 35\,dB, and 1\,dB of gain error to about 25\,dB.
 This is precisely the \emph{image rejection} problem of every I/Q transmitter and
-direct-conversion receiver, including the B200 of Chapter~\ref{ch:sdr}.
-\item[Weaver method.] Shift the audio band to be centred on 0\,Hz with a quadrature
-oscillator at the band centre, low-pass filter each branch, then up-convert in quadrature.
-It avoids both the sharp filter and the wideband 90$^\circ$ network, and it is the method most
-DSP-based SSB implementations use.
-\end{description}
+direct-conversion receiver, including the B200 of Chapter~\ref{ch:sdr}, and~\eqref{eq:ch04:ssr}
+is their image-rejection ratio.
 
-\mdcfig[0.7]{ch04_ssb_phase}{Unwanted-sideband suppression of the phasing method as a
+\mdcfig[0.62]{ch04_ssb_phase}{Unwanted-sideband suppression of the phasing method as a
 function of the phase error of the 90$^\circ$ network, for three gain mismatches. The same
 curves give the image rejection of any I/Q modulator or zero-IF receiver.}
 
+\paragraph{The Weaver method.} Donald Weaver's ``third method'' (1956) avoids both the sharp
+filter and the wideband $90^\circ$ network. Shift the audio band, 300--3000\,Hz, so that its
+centre $f_0=1650$\,Hz moves to 0\,Hz by multiplying by $e^{-j2\pi f_0t}$ (two real mixers with
+quadrature audio-frequency oscillators). The positive-frequency half of the message now
+occupies $\pm1350$\,Hz around DC, and the negative-frequency half has moved down to
+$-1950$ to $-4650$\,Hz. Two identical low-pass filters with cutoff 1350\,Hz remove the latter;
+then a second quadrature mixer at $f_c+f_0$ translates the remaining complex signal to the
+output frequency, where taking the real part gives the upper sideband. Figure~\ref{fig:ch04_weaver}
+follows the spectrum through each stage. The unwanted sideband is rejected by the low-pass
+filters, which are easy to build and to match, and the quadrature oscillators need to be
+accurate only at single frequencies. The price is that any residual carrier leakage in the
+second mixer lands in the \emph{middle} of the audio band, at $f_0$, where it is audible as a
+tone. In DSP, where matching is perfect, Weaver's method and its relatives are the standard way
+of generating and demodulating SSB.
+
+\mdcfig{ch04_weaver}{The Weaver SSB modulator, simulated with a voice-band message. (a) The
+real message has both positive and negative frequencies. (b) Mixing with $e^{-j2\pi f_0t}$
+centres the positive half on DC. (c) Low-pass filters remove the negative half (the residual
+near $-2$\,kHz shows the finite filter skirt). (d) Up-conversion to $f_c+f_0$ and taking the
+real part leaves only the upper sideband above the 12\,kHz carrier frequency (dotted).}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.4cm and 0.55cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.8cm,minimum width=1.3cm,align=center,font=\sffamily\scriptsize},
+  mul/.style={draw=navy,circle,thick,minimum size=0.55cm,inner sep=0pt,font=\small},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+% (a) phasing
+\node[font=\sffamily\scriptsize] (m) at (0,0) {$m(t)$};
+\coordinate (sp) at (0.8,0);
+\node[mul] (m1) at (3.2,1.35) {$\times$};
+\node[blk] (hil) at (1.9,-1.35) {Hilbert\\$-90^\circ$};
+\node[mul] (m2) at (3.2,-1.35) {$\times$};
+\node[blk,minimum height=0.55cm] (osc) at (3.2,0.3) {Oscillator $f_c$};
+\node[blk,minimum height=0.5cm,minimum width=0.9cm] (ps) at (3.2,-0.6) {$-90^\circ$};
+\node[mul] (sum) at (5.2,0) {$\pm$};
+\draw[thick,navy] (m) -- (sp); \draw[arr] (sp) |- (m1); \draw[arr] (sp) |- (hil); \draw[arr] (hil) -- (m2);
+\draw[arr] (osc) -- node[right,font=\scriptsize]{$\cos\omega_ct$} (m1);
+\draw[arr] (osc) -- (ps); \draw[arr] (ps) -- node[right,font=\scriptsize]{$\sin\omega_ct$} (m2);
+\draw[arr] (m1) -| (sum); \draw[arr] (m2) -| (sum);
+\draw[arr] (sum) -- ++(0.9,0) node[right,font=\scriptsize]{SSB};
+\node[font=\sffamily\scriptsize\bfseries] at (3.0,2.15) {(a) Phasing (Hartley) method};
+% (b) Weaver
+\begin{scope}[yshift=-4.6cm]
+\node[font=\sffamily\scriptsize] (mw) at (0,0) {$m(t)$};
+\coordinate (sw) at (0.8,0);
+\node[mul] (w1) at (1.9,0.8) {$\times$};
+\node[mul] (w2) at (1.9,-0.8) {$\times$};
+\node[blk] (lp1) at (3.6,0.8) {LPF\\$1350$\,Hz};
+\node[blk] (lp2) at (3.6,-0.8) {LPF\\$1350$\,Hz};
+\node[mul] (w3) at (5.4,0.8) {$\times$};
+\node[mul] (w4) at (5.4,-0.8) {$\times$};
+\node[mul] (s2) at (6.9,0) {$\pm$};
+\draw[thick,navy] (mw) -- (sw); \draw[arr] (sw) |- (w1); \draw[arr] (sw) |- (w2);
+\draw[arr] (w1) -- (lp1); \draw[arr] (w2) -- (lp2); \draw[arr] (lp1) -- (w3); \draw[arr] (lp2) -- (w4);
+\draw[arr] (w3) -| (s2); \draw[arr] (w4) -| (s2);
+\draw[arr] (s2) -- ++(0.9,0) node[right,font=\scriptsize]{SSB};
+\node[font=\scriptsize] at (1.9,1.45) {$\cos\omega_0t$}; \draw[arr] (1.9,1.3) -- (w1);
+\node[font=\scriptsize] at (1.9,-1.45) {$\sin\omega_0t$}; \draw[arr] (1.9,-1.3) -- (w2);
+\node[font=\scriptsize] at (5.4,1.45) {$\cos(\omega_c+\omega_0)t$}; \draw[arr] (5.4,1.3) -- (w3);
+\node[font=\scriptsize] at (5.4,-1.45) {$\sin(\omega_c+\omega_0)t$}; \draw[arr] (5.4,-1.3) -- (w4);
+\node[font=\sffamily\scriptsize\bfseries] at (3.5,2.0) {(b) Weaver method, $f_0=1650$\,Hz};
+\end{scope}
+\end{tikzpicture}
+\caption{Two filterless SSB generators. (a) The phasing method needs a wideband $90^\circ$
+network for the audio. (b) The Weaver method needs only quadrature oscillators at two single
+frequencies and a pair of identical low-pass filters; the sign at the summer selects the
+sideband. Both are the same structure as the I/Q modulator of every digital transmitter.}
+\label{fig:ch04_ssb_blocks}
+\end{figure}
+
 \subsection{Receiving SSB}
 
-An SSB receiver is a coherent product detector with a local beat-frequency oscillator. A
-frequency error $\Delta f$ does not destroy the signal as it does for DSB-SC; it shifts every
-audio component by $\Delta f$. Speech stays intelligible up to about 50\,Hz of error, which is
-why SSB could be used with free-running oscillators, and why a mistuned SSB voice sounds
-like ``Donald Duck''. Music, whose harmonics lose their integer ratios, cannot tolerate
-even a few hertz, which is one reason SSB was never adopted for broadcasting.
+An SSB receiver is a coherent \emph{product detector} that multiplies the IF signal by a local
+\term{beat-frequency oscillator} (BFO), placed where the suppressed carrier would have been, and
+low-pass filters. With a local carrier in error by $\Delta f$ and $\theta$, the output is
+\begin{equation}
+\tfrac12\big[m(t)\cos(2\pi\Delta f\,t+\theta)\mp\hat m(t)\sin(2\pi\Delta f\,t+\theta)\big],
+\end{equation}
+which is the message with every frequency component shifted by $\Delta f$ (and its phases
+rotated by $\theta$). A pure phase error is harmless to the ear, which is insensitive to phase.
+A frequency error is a pitch shift, not the deep periodic fading of DSB-SC. Speech stays
+intelligible up to about 50--100\,Hz of error, which is why SSB could be used with free-running
+oscillators, and why a mistuned SSB voice sounds like \emph{Donald Duck}: the harmonics of the
+voice, which should be at integer multiples $kf_0$ of the pitch, land at $kf_0+\Delta f$ and lose
+their harmonic relationship. Music, whose harmonic structure carries its meaning, cannot tolerate
+even a few hertz, which is one reason SSB was never adopted for broadcasting. Tuning an SSB
+receiver is a skill: an operator adjusts the BFO (or the main tuning) until the voice sounds
+natural, and modern transceivers with synthesised oscillators accurate to a few hertz make the
+problem largely disappear.
 
-\section{Vestigial sideband and analog television}
+Variants transmit a little help. \emph{Reduced-carrier} or \emph{pilot-carrier} SSB sends the
+carrier 10--20\,dB down, so that the receiver can lock to it; it was used on point-to-point HF
+radiotelephone links and is the basis of the ``AM-equivalent'' (H3E) mode permitted on some
+maritime distress frequencies, which an ordinary AM receiver can demodulate with some distortion.
+\emph{Independent sideband} (ISB) puts different programmes on the upper and lower sidebands of
+one carrier.
+
+\begin{inpractice}[title=Who uses SSB today]
+\begin{itemize}
+\item \emph{Amateur radio.} By long convention, voice SSB uses the lower sideband below 10\,MHz
+and the upper sideband above it (an accident of 1950s filter designs and mixing schemes that
+became a standard). Digital modes such as FT8 are generated as audio and sent through an SSB
+transmitter in a 3\,kHz channel---the SSB exciter as a general-purpose up-converter.
+\item \emph{Maritime and aeronautical HF.} Ship-to-shore and oceanic air-traffic voice use upper
+sideband, on channel plans in the ITU Radio Regulations; airliners crossing oceans beyond VHF
+range use HF USB, now supplemented by satellite links and HF data link.
+\item \emph{Military HF.} Upper-sideband 3\,kHz channels carry voice and data modems
+(MIL-STD-188-110 serial-tone and wideband waveforms) with automatic link establishment
+(MIL-STD-188-141).
+\item \emph{SSB in disguise.} Every I/Q transmitter that sends a single tone offset from its
+centre frequency is an SSB modulator; every low-IF receiver relies on the same image
+cancellation.
+\end{itemize}
+\end{inpractice}
+
+\begin{worked}[The SSB power advantage over AM]
+Compare AM at 100\% tone modulation with SSB at the same \emph{peak envelope power}, the quantity
+a transmitter's tubes or transistors limit. Let the AM carrier amplitude be $A$, so AM's PEP is
+$(2A)^2/2=2A^2$. An SSB tone of amplitude $A_s$ has PEP $A_s^2/2$; equal PEP gives $A_s=2A$.
+\begin{itemize}
+\item \emph{AM:} the envelope detector output is $A\cos\omega_mt$, signal power $A^2/2$. The
+in-phase noise in the $2W$ IF bandwidth has power $2N_0W$. Output SNR $=A^2/(4N_0W)$.
+\item \emph{SSB:} the product detector (with a gain-2 reference) outputs $A_s\cos\omega_mt$,
+signal power $A_s^2/2=2A^2$, and noise $N_0W$ in the $W$-wide IF. Output SNR $=2A^2/(N_0W)$.
+\end{itemize}
+The ratio is 8, or 9\,dB: 3\,dB from halving the noise bandwidth and 6\,dB from putting the
+whole peak-power budget into one sideband rather than into a carrier. On speech, with its high
+peak-to-average ratio, the practical advantage is often quoted as larger still, because SSB
+transmits nothing in the pauses. This 9\,dB---an eightfold transmitter---is why SSB won the HF
+bands.
+\end{worked}
+
+%======================================================================
+\section{Vestigial sideband}
+\label{sec:ch04:vsb}
+%======================================================================
 
 Television video extends down to DC. A clean SSB filter with a transition at DC is
 impossible, and DSB wastes spectrum a TV channel cannot afford. \term{Vestigial sideband}
-(VSB) keeps one sideband and a gradually rolled-off \emph{vestige} of the other. If the
-filter's response is antisymmetric about $f_c$---$H(f_c+f)+H(f_c-f)=$ constant over the
-message band---coherent or envelope detection recovers the message without distortion.
-Readers who have met the Nyquist criterion for zero intersymbol interference
-(Chapter~\ref{ch:baseband}) will recognise the same symmetry condition, discovered twice.
+(VSB) keeps one sideband and a gradually rolled-off \emph{vestige} of the other. Let the
+VSB signal be DSB-SC passed through a band-pass filter $H(f)$. Coherent detection shifts the
+spectrum back to baseband, where the two halves overlap, and the output spectrum is
+\begin{equation}
+Y(f)=\tfrac{A_c}{4}M(f)\big[H(f+f_c)+H(f-f_c)\big],\qquad |f|<W.
+\label{eq:ch04:vsb}
+\end{equation}
+The message is recovered without distortion if
+\begin{equation}
+H(f+f_c)+H(f-f_c)=\text{constant},\qquad |f|\le W:
+\label{eq:ch04:vsbcond}
+\end{equation}
+the filter's response must be antisymmetric about $f_c$, passing exactly half amplitude at the
+carrier and trading the vestige of one sideband against the missing part of the other. Readers
+who have met the Nyquist criterion for zero intersymbol interference
+(Chapter~\ref{ch:baseband}) will recognise the same symmetry condition, discovered twice; and
+indeed television engineers called the receiver's sloping IF response around the picture
+carrier the \emph{Nyquist slope}.
 
-NTSC television, used in North America from 1941 to 2009, put a VSB video carrier 1.25\,MHz
-above the lower edge of a 6\,MHz channel, with 4.2\,MHz of luminance bandwidth, an FM
-audio carrier 4.5\,MHz above the video carrier, and colour information on a 3.58\,MHz
-subcarrier using \emph{quadrature} amplitude modulation of two colour-difference signals.
-The colour subcarrier frequency was chosen as an odd multiple of half the line rate so that
-its energy interleaved between the harmonics of the luminance spectrum---a frequency-domain
-multiplexing trick of real elegance. The digital ATSC standard that replaced NTSC kept VSB,
-now as 8-VSB carrying 19.39\,Mb/s in the same 6\,MHz.
+Analog TV used VSB in a particular, pragmatic way. The transmitter sent the full upper sideband
+and only 0.75\,MHz of the lower, with a flat response; the \emph{receiver}'s IF filter then
+applied the Nyquist slope, $-6$\,dB at the picture carrier, to satisfy~\eqref{eq:ch04:vsbcond},
+and an envelope detector demodulated the result. With a large carrier, envelope detection of VSB
+is nearly distortion-free; the small \emph{quadrature distortion} it introduces was acceptable for
+pictures. The digital ATSC standard that replaced NTSC kept VSB, as 8-level VSB carrying
+19.39\,Mb/s in 6\,MHz with a small pilot at the old carrier position, a direct descendant of this
+analog design.
 
+%======================================================================
 \section{Angle modulation}
+\label{sec:ch04:angle}
+%======================================================================
 
 \subsection{Phase and frequency modulation}
 
@@ -245,107 +869,412 @@ Angle modulation keeps the amplitude constant and varies the phase:
 \begin{equation}
 s(t)=A_c\cos\big(2\pi f_c t+\phi(t)\big).
 \end{equation}
-In \term{phase modulation} (PM), $\phi(t)=k_p m(t)$. In \term{frequency modulation} (FM), the
-instantaneous frequency $f_i(t)=f_c+\frac{1}{2\pi}\dot\phi(t)$ follows the message,
+The \term{instantaneous frequency} of such a signal is the rate of change of its total
+phase, divided by $2\pi$:
+\begin{equation}
+f_i(t)=\frac{1}{2\pi}\frac{d}{dt}\big[2\pi f_ct+\phi(t)\big]=f_c+\frac{1}{2\pi}\dot\phi(t).
+\label{eq:ch04:finst}
+\end{equation}
+This definition generalises the frequency of a sinusoid in exactly the way a car's speedometer
+generalises ``distance divided by time''. In \term{phase modulation} (PM), $\phi(t)=k_p m(t)$. In
+\term{frequency modulation} (FM), the instantaneous frequency follows the message,
 \begin{equation}
 f_i(t)=f_c+k_f\,m(t),\qquad \phi(t)=2\pi k_f\int_{-\infty}^t m(\tau)\,d\tau.
+\label{eq:ch04:fm}
 \end{equation}
-FM of $m$ is PM of the integral of $m$; the two differ only by a filter in front of the
-modulator. The \term{peak frequency deviation} is $\Delta f=k_f\max|m(t)|$, and for a tone
-of frequency $f_m$ the \term{modulation index} is $\beta=\Delta f/f_m$, the peak phase
-excursion in radians.
+FM of $m$ is PM of the integral of $m$, and PM of $m$ is FM of its derivative; the two differ
+only by a filter in front of the modulator. The \term{peak frequency deviation} is
+$\Delta f=k_f\max|m(t)|$, and for a tone $m(t)=\cos2\pi f_mt$ the phase is
+$\phi(t)=\beta\sin2\pi f_mt$, with \term{modulation index}
+\begin{equation}
+\beta=\frac{\Delta f}{f_m},
+\end{equation}
+the peak phase excursion in radians. For a general message the analogous quantity is the
+\emph{deviation ratio} $D=\Delta f/W$. Note the inverse dependence on $f_m$: with a fixed
+deviation, low audio frequencies produce large phase swings and high audio frequencies small
+ones. In PM the phase swing is the same for all audio frequencies, and the frequency deviation
+grows with $f_m$. Broadcast FM with pre-emphasis (Section~\ref{sec:ch04:preemph}) is, in fact,
+PM at high audio frequencies and FM at low ones.
+
+Because the amplitude of an angle-modulated signal is constant, it can be amplified by
+saturated, highly efficient class-C power amplifiers without distortion, and a receiver can
+remove amplitude noise with a \emph{limiter} before demodulating. Both properties were central
+to FM's adoption, and both reappear in the constant-envelope digital modulations (GMSK in GSM,
+FSK in Bluetooth and LoRa's chirps) of later chapters.
+
+\subsection{Narrowband FM and the phasor picture}
+\label{sec:ch04:nbfm}
+
+If the peak phase deviation is small, $|\phi(t)|\ll1$ rad, then
+$\cos(\omega_ct+\phi)\approx\cos\omega_ct-\phi(t)\sin\omega_ct$, and
+\begin{equation}
+s_{\text{NBFM}}(t)\approx A_c\cos\omega_ct-A_c\phi(t)\sin\omega_ct.
+\label{eq:ch04:nbfm}
+\end{equation}
+This is \term{narrowband FM} (or PM): a carrier plus a DSB-SC signal in \emph{quadrature} with it.
+Compare AM, $A_c\cos\omega_ct+A_c\mu m(t)\cos\omega_ct$, where the DSB-SC term is \emph{in phase}
+with the carrier. For a tone the difference is a single sign: narrowband FM has the same three
+spectral lines as AM, at $f_c$ and $f_c\pm f_m$, but the lower sideband is inverted. In the
+rotating phasor picture the two sideband phasors now sum to a vector \emph{perpendicular} to the
+carrier, so the resultant swings back and forth in angle while its length stays (nearly)
+constant. Narrowband FM occupies $2W$, like AM, and~\eqref{eq:ch04:nbfm} is also how Armstrong
+generated FM (Section~\ref{sec:ch04:fmgen}).
 
 \subsection{The spectrum of FM: Bessel functions}
 
-FM is nonlinear: the spectrum of an FM signal is not a shifted copy of the message spectrum.
-For a tone,
+For larger deviations the approximation fails and FM becomes genuinely nonlinear: the
+spectrum of an FM signal is not a shifted copy of the message spectrum. For a tone,
 \begin{equation}
 s(t)=A_c\cos\big(2\pi f_c t+\beta\sin 2\pi f_m t\big)=A_c\sum_{n=-\infty}^{\infty}J_n(\beta)\cos\big(2\pi(f_c+nf_m)t\big),
 \label{eq:ch04:bessel}
 \end{equation}
-where $J_n$ is the Bessel function of the first kind. A single tone produces an infinite
-set of sidebands spaced $f_m$ apart, with amplitudes $J_n(\beta)$
-(Figure~\ref{fig:ch04_fm_bessel}). Three facts follow.
+where $J_n$ is the Bessel function of the first kind of order $n$. The derivation is short: the
+complex envelope $e^{j\beta\sin\omega_mt}$ is periodic with period $1/f_m$, so it has a Fourier
+series, and its coefficients
+$c_n=\frac{1}{2\pi}\int_{-\pi}^{\pi}e^{j(\beta\sin x-nx)}dx$ are, by definition, $J_n(\beta)$.
+A single tone thus produces an infinite set of sidebands spaced $f_m$ apart, with amplitudes
+$J_n(\beta)$ (Figure~\ref{fig:ch04_fm_bessel}). Several facts follow.
 \begin{itemize}
-\item The total power is constant, $\sum J_n^2(\beta)=1$: modulation redistributes power
-from the carrier to the sidebands.
-\item The carrier amplitude $J_0(\beta)$ vanishes at $\beta=2.405, 5.520, \dots$. Engineers use
-these \emph{Bessel nulls} to calibrate deviation: raise the audio level until the carrier
-disappears on a spectrum analyser, and the index is exactly 2.405.
-\item For small $\beta$, $J_1(\beta)\approx\beta/2$ and higher orders are negligible:
-\term{narrowband FM} looks like AM with the carrier in quadrature, and its bandwidth is $2f_m$.
+\item The total power is constant, $\sum J_n^2(\beta)=1$: modulation does not add power, it
+redistributes power from the carrier to the sidebands. (Contrast AM, where sidebands add to the
+carrier.)
+\item The carrier amplitude $J_0(\beta)$ vanishes at $\beta=2.405, 5.520, 8.654,\dots$. Engineers
+use these \emph{Bessel nulls} to calibrate deviation: modulate with a tone of known frequency,
+raise the audio level until the carrier disappears on a spectrum analyser, and the index is
+exactly 2.405. With a 31.19\,kHz tone the first null corresponds to 75\,kHz deviation; with
+1\,kHz, to 2.405\,kHz.
+\item $J_{-n}(\beta)=(-1)^nJ_n(\beta)$: the odd-order lower sidebands are inverted, generalising the
+narrowband case.
+\item For small $\beta$, $J_0(\beta)\approx1$, $J_1(\beta)\approx\beta/2$, and higher orders are
+negligible: \term{narrowband FM} is recovered, with bandwidth $2f_m$.
+\item For $|n|>\beta+1$ the amplitudes fall off very quickly (faster than exponentially), which
+is the basis of Carson's rule below.
 \end{itemize}
 
 \mdcfig{ch04_fm_bessel}{Top: Bessel functions $J_0$ to $J_4$ versus modulation index. Bottom:
 line spectra of tone-modulated FM for four indices, including the first carrier null at
 $\beta=2.405$.}
 
+For messages that are not tones the spectrum has no closed form, but there is a beautiful
+large-deviation result, \term{Woodward's theorem} (1952): as the deviation ratio grows, the
+power spectrum of an FM signal tends to the \emph{probability density} of the instantaneous
+frequency $f_c+k_fm(t)$. The intuition is that with a slowly varying message the signal spends a
+fraction of its time near each frequency equal to the probability that $k_fm(t)$ takes that
+value, and so deposits that fraction of its power there. Figure~\ref{fig:ch04_fm_spectra}
+verifies both results by simulation: the FFT of a tone-modulated signal lands exactly on the
+Bessel predictions, and a Gaussian message with 10\,kHz rms deviation produces a Gaussian
+spectrum of 10\,kHz standard deviation, while with only 1\,kHz deviation (deviation ratio near one)
+the spectrum is a narrow peak bearing no resemblance to the pdf. The theorem is why
+wideband FM's occupied bandwidth is governed by the \emph{peak deviation} rather than the
+message bandwidth.
+
+\mdcfig{ch04_fm_spectra}{Left: FFT of a simulated tone-modulated FM signal with $\beta=5$
+(lines) against $|J_n(5)|$ (circles); the shaded region is the Carson bandwidth. Right:
+Woodward's theorem. With a Gaussian message of 1\,kHz bandwidth and 10\,kHz rms deviation, the
+FM spectrum (blue) matches the Gaussian density of the instantaneous frequency (dashed); with
+1\,kHz rms deviation (orange) it does not.}
+
 \subsection{Carson's rule}
 
 In theory FM bandwidth is infinite; in practice sideband amplitudes fall rapidly once
-$|n|>\beta+1$. John Carson's 1922 rule of thumb---ironically from a paper arguing that FM
-could not reduce bandwidth, which is true---estimates the band containing about 98\% of the
-power:
+$|n|>\beta+1$. The rule of thumb that bears John Carson's name estimates the band containing
+about 98\% of the power:
 \begin{equation}
 B_T\approx 2(\Delta f+W)=2(\beta+1)W.
 \label{eq:ch04:carson}
 \end{equation}
-Figure~\ref{fig:ch04_carson} compares it with the exact 98\% bandwidth. FM broadcasting
-uses $\Delta f=75$\,kHz and $W=15$\,kHz ($\beta=5$), so $B_T=180$\,kHz, which fits the
-200\,kHz channel raster. Two-way land-mobile radio uses $\Delta f=2.5$ or 5\,kHz and $W=3$\,kHz,
-fitting 12.5 or 25\,kHz channels.
+It interpolates sensibly between the two extremes: for $\beta\ll1$ it gives $2W$ (narrowband
+FM), and for $\beta\gg1$ it gives $2\Delta f$ (Woodward: the signal sweeps over $\pm\Delta f$).
+Figure~\ref{fig:ch04_carson} compares it with the exact 98\% bandwidth for a tone. For
+specifications where adjacent-channel interference matters, a more conservative estimate
+$2(\Delta f+2W)$ is sometimes used, and regulators define occupied bandwidth by measurement.
 
-\mdcfig[0.7]{ch04_carson}{Carson's rule (dashed) against the exact bandwidth containing
+\mdcfig[0.62]{ch04_carson}{Carson's rule (dashed) against the exact bandwidth containing
 98\% of the power of tone-modulated FM (steps). The rule is accurate across the range of
 practical modulation indices.}
 
-\subsection{Generating FM}
+\begin{worked}[Carson bandwidths of real FM services]
+\begin{itemize}
+\item \emph{Mono broadcast FM}: $\Delta f=75$\,kHz, $W=15$\,kHz, so $D=5$ and
+$B_T=2(75+15)=180$\,kHz, which fits the 200\,kHz channel raster of the Americas.
+\item \emph{Stereo broadcast FM}: the baseband now extends to 53\,kHz (Section~\ref{sec:ch04:stereo}),
+so Carson gives $2(75+53)=256$\,kHz, more than a channel. In practice the stereo signal's
+energy at 53\,kHz is small and the peak deviation is shared among the components, so the
+measured occupied bandwidth is close to 200--240\,kHz; regulators protect stations by not
+assigning adjacent channels in the same area. Carson's rule is an estimate, not a law.
+\item \emph{Land-mobile FM}: $\Delta f=5$\,kHz, $W=3$\,kHz gives 16\,kHz in a 25\,kHz channel;
+\emph{narrowband} land-mobile with $\Delta f=2.5$\,kHz gives 11\,kHz in a 12.5\,kHz channel.
+\item \emph{AMPS cellular} (Section~\ref{sec:ch04:amps}): $\Delta f=12$\,kHz, $W=3$\,kHz gives
+30\,kHz, exactly the AMPS channel spacing.
+\item \emph{Analog satellite TV} (C-band, 1980s): video of $W=4.2$\,MHz with a peak deviation of
+roughly 10\,MHz gives $2(10+4.2)\approx28$\,MHz, which is why one TV channel filled one 36\,MHz
+transponder.
+\end{itemize}
+\end{worked}
 
-The obvious FM modulator is a voltage-controlled oscillator (VCO) whose frequency follows
-the message, typically an LC oscillator tuned by a varactor diode. Its centre frequency
-drifts, so the VCO is enclosed in a phase-locked loop whose bandwidth is below the lowest
-audio frequency: the loop holds the average frequency while the modulation passes through.
-Armstrong's original \emph{indirect} method generated narrowband PM of the integrated audio
-with a crystal-stable oscillator and then multiplied the frequency many times, which
-multiplied the deviation by the same factor. Today most FM is generated digitally: an NCO
-in an FPGA or DSP accumulates $2\pi k_f m[n]/f_s$ each sample and an I/Q modulator translates
-the result to RF. A software-defined radio produces broadcast-quality stereo FM in a few
-lines of code.
+\subsection{Generating FM}
+\label{sec:ch04:fmgen}
+
+\paragraph{Direct FM.} The obvious FM modulator is an oscillator whose frequency follows the
+message: a \term{voltage-controlled oscillator} (VCO). In tube equipment, a \emph{reactance-tube
+modulator} was connected across the oscillator's tank circuit; feedback through a small RC phase
+shifter made the tube's plate current lead its plate voltage by $90^\circ$, so the tube looked
+like a capacitance whose value depended on its grid bias, and the audio on the grid varied the
+oscillator frequency. In solid-state equipment a \emph{varactor} diode, whose junction
+capacitance varies with reverse bias, does the same job directly. For an LC oscillator,
+$f=1/(2\pi\sqrt{LC})$, so a small capacitance change $\delta C$ gives
+$\delta f/f\approx-\frac12\delta C/C$: to deviate a 100\,MHz oscillator by 75\,kHz needs a
+capacitance change of only 0.15\%. The problem is stability: the same sensitivity makes the
+centre frequency drift with temperature and supply voltage, far beyond the $\pm2$\,kHz that FM
+broadcast rules allow. The cure is to enclose the VCO in a phase-locked loop referenced to a
+crystal, with a loop bandwidth below the lowest audio frequency, so the loop holds the average
+frequency while the audio modulation passes through unhindered.
+
+\paragraph{Indirect FM (the Armstrong method).} Armstrong, who could not get a sufficiently
+stable direct modulator in the early 1930s, started instead from a crystal oscillator, whose
+frequency is extremely stable but cannot be pulled far. He integrated the audio and generated
+\emph{narrowband} PM with a balanced modulator, using~\eqref{eq:ch04:nbfm}: a DSB-SC signal in
+quadrature, added to the carrier. The resulting deviation is tiny---to keep the distortion of the
+approximation small, $\beta$ must stay below about 0.5 at the lowest audio frequency---so he then
+\emph{multiplied} the frequency. A frequency multiplier (a class-C amplifier rich in harmonics,
+followed by a filter tuned to the $n$th harmonic) turns $\cos\theta(t)$ into $\cos n\theta(t)$,
+multiplying both carrier and deviation by $n$. A mixer translates the carrier frequency without
+changing the deviation, which gives the designer a second degree of freedom.
+Figure~\ref{fig:ch04_armstrong} shows a representative design.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.32cm and 0.38cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.95cm,minimum width=1.15cm,align=center,font=\sffamily\scriptsize},
+  hot/.style={blk,draw=accent,fill=accent!6},
+  arr/.style={-{Stealth[length=2mm]},thick,navy},
+  ann/.style={font=\sffamily\tiny,text=accent,align=center}]
+\node[blk] (aud) {Audio\\$m(t)$};
+\node[blk,right=of aud] (int) {Integ-\\rator};
+\node[hot,right=of int,minimum width=1.4cm] (nb) {Narrowband\\phase\\modulator};
+\node[blk,below=0.55cm of nb] (xo) {Crystal\\osc.};
+\node[blk,right=of nb] (x1) {$\times64$};
+\node[blk,right=of x1] (mix) {Mixer};
+\node[blk,below=0.55cm of mix] (lo) {Crystal\\osc.};
+\node[blk,right=of mix] (x2) {$\times48$};
+\node[blk,right=of x2] (pa) {Power\\amplifier};
+\draw[arr] (aud) -- (int); \draw[arr] (int) -- (nb); \draw[arr] (xo) -- (nb); \draw[arr] (nb) -- (x1);
+\draw[arr] (x1) -- (mix); \draw[arr] (lo) -- (mix); \draw[arr] (mix) -- (x2); \draw[arr] (x2) -- (pa);
+\draw[arr] (pa.east) -- ++(0.35,0) node[right,font=\sffamily\scriptsize]{RF};
+\node[ann,below=0.08cm of xo] {200 kHz};
+\node[ann,below=0.08cm of lo] {10.925 MHz};
+\node[ann,above=0.1cm of nb] {$f_1=200$ kHz\\$\Delta f_1=25$ Hz};
+\node[ann,above=0.1cm of x1] {12.8 MHz\\1.6 kHz};
+\node[ann,above=0.1cm of mix] {1.875 MHz\\1.6 kHz};
+\node[ann,above=0.1cm of x2] {90.0 MHz\\76.8 kHz};
+\end{tikzpicture}
+\caption{An Armstrong indirect FM transmitter. Narrowband phase modulation of a crystal
+oscillator (with the audio integrated first, to make it FM) produces a tiny deviation, which a
+chain of frequency multipliers raises by a factor of $64\times48=3072$. The mixer lowers the
+carrier frequency without changing the deviation so that the final carrier and deviation can be
+chosen independently. Red labels give carrier frequency and peak deviation at each point.}
+\label{fig:ch04_armstrong}
+\end{figure}
+
+\begin{worked}[Designing an Armstrong transmitter]
+We need a 90.0\,MHz carrier with about 75\,kHz deviation, and audio down to 50\,Hz. At 50\,Hz
+the narrowband modulator's index must stay below about 0.5, so its deviation is at most
+$0.5\times50=25$\,Hz. Starting from a 200\,kHz crystal with $\Delta f_1=25$\,Hz, the total
+multiplication needed is $75\,000/25=3000$; we use $64\times48=3072$, giving 76.8\,kHz.
+Multiplying the carrier directly by 3072 would give $200\,\text{kHz}\times3072=614.4$\,MHz, far
+too high. So after the first multiplier ($\times64$: 12.8\,MHz, 1.6\,kHz) we mix with a
+10.925\,MHz crystal oscillator, taking the difference frequency, 1.875\,MHz, which still carries
+1.6\,kHz of deviation. The second multiplier ($\times48$) gives $1.875\times48=90.0$\,MHz and
+$1.6\times48=76.8$\,kHz. The price of the method is visible in the arithmetic: twelve or so
+multiplier stages, each a tuned amplifier, and any phase noise on the crystal oscillators is
+multiplied by 3072 too (by $20\log_{10}3072\approx70$\,dB), a lesson every frequency-synthesiser
+designer relearns.
+\end{worked}
+
+Today most FM is generated digitally: an NCO in an FPGA or DSP accumulates $2\pi k_f m[n]/f_s$
+each sample, and an I/Q modulator or a direct digital synthesiser translates the result to RF.
+A software-defined radio produces broadcast-quality stereo FM in a few lines of code.
 
 \subsection{Demodulating FM}
+\label{sec:ch04:fmdemod}
 
-A demodulator must output a voltage proportional to instantaneous frequency. The
-historical sequence of solutions is a tour of analog circuit ingenuity:
-\begin{description}
-\item[Slope detector] Tune a resonant circuit so the carrier sits on its skirt; frequency
-variations become amplitude variations, which an envelope detector recovers.
-\item[Foster--Seeley discriminator and ratio detector] Balanced versions using a
-centre-tapped transformer; the ratio detector adds built-in amplitude limiting. These
-dominated radios from the 1930s to the 1970s.
-\item[Quadrature detector] Multiply the signal by a copy delayed through a phase-shift
-network whose phase varies linearly with frequency; used in countless FM IF chips.
-\item[PLL demodulator] Lock a VCO to the incoming signal; the VCO's control voltage is
-the demodulated audio. PLL demodulators extend the threshold (below).
-\item[Digital] With complex baseband samples $z[n]$, the phase difference between successive
-samples is the instantaneous frequency:
+A demodulator must output a voltage proportional to instantaneous frequency. It should also
+ignore amplitude variations, which carry only noise and interference; classic FM receivers
+therefore precede the detector with one or more \term{limiter} stages that clip the IF signal
+hard, leaving a constant-amplitude square wave whose zero crossings carry the information. The
+historical sequence of detectors is a tour of analog circuit ingenuity, and
+Figure~\ref{fig:ch04_discriminators} compares their transfer characteristics, the famous
+\emph{S-curves}.
+
+\paragraph{Slope detector.} Tune a resonant circuit so that the carrier sits on the skirt of its
+response. Frequency variations become amplitude variations, which an envelope detector recovers.
+This is FM-to-AM conversion by a frequency-dependent filter, and any filter with a sloping
+response will do it---including, by accident, the IF filter of an AM receiver, which is how
+early listeners received FM on AM sets. The slope of a single tuned circuit is not straight,
+so the slope detector is badly nonlinear, and it responds fully to amplitude noise.
+
+\paragraph{Foster--Seeley discriminator and ratio detector.} Two tuned circuits, one above and
+one below the carrier, feed two envelope detectors whose outputs are subtracted. The result is
+zero at the centre frequency and, for a well-chosen spacing, close to linear over the deviation
+range: the S-curve of Figure~\ref{fig:ch04_discriminators}. Dudley Foster and Stuart Seeley of RCA
+(1937) achieved the same response with a single tuned transformer: the voltages across the two
+halves of a centre-tapped secondary are the vector sum and difference of the primary voltage and
+a secondary voltage that is $90^\circ$ out of phase at resonance, and the phase shift varies with
+frequency on either side. The \term{ratio detector} (Seeley and Avins, 1947) rearranged the diodes
+and added a large capacitor that holds the \emph{sum} of the two rectified voltages constant, so
+that the output depends only on their \emph{ratio}: built-in limiting, which saved a tube.
+Between them, these two circuits demodulated almost every FM broadcast and TV sound signal from
+the 1940s to the 1970s.
+
+\paragraph{Quadrature detector.} Multiply the limited IF signal by a copy passed through a
+network whose phase shift is $90^\circ$ at the centre frequency and varies linearly with
+frequency around it. With a tuned quadrature network of loaded quality factor $Q_L$ the phase
+is $\theta(f)\approx\arctan[2Q_L(f-f_0)/f_0]$, and the product's average is proportional to
+$\sin\theta$, which is linear in $f-f_0$ near the centre. A pure delay $\tau$ chosen so that
+$2\pi f_0\tau=\pi/2$ works too: the output is then $\propto\sin(2\pi(f-f_0)\tau)$. Because the
+multiplier is an easily integrated Gilbert cell, the quadrature detector became the FM detector
+of integrated FM IF chips from the 1970s onward, in broadcast receivers, TV sound and two-way
+radios alike.
+
+\mdcfig[0.75]{ch04_discriminators}{Discriminator characteristics (S-curves) for a 10.7\,MHz IF,
+each normalised to unit slope at the centre. A single tuned circuit used as a slope detector is
+badly nonlinear; a balanced pair of stagger-tuned circuits (the response of the Foster--Seeley
+and ratio detectors) and a tuned quadrature detector are close to linear over the $\pm75$\,kHz
+broadcast deviation (shaded) and turn over beyond it.}
+
+\paragraph{PLL demodulator.} Lock a VCO to the incoming signal with a phase-locked loop. When the
+loop tracks, the VCO's instantaneous frequency equals the input's, so the VCO's control voltage
+is proportional to the instantaneous frequency: it \emph{is} the demodulated audio. For a
+first-order view, a loop with VCO gain $K_v$ (Hz per volt) tracking an input of frequency
+$f_c+k_fm(t)$ settles at a control voltage $v(t)=k_fm(t)/K_v$, within the loop bandwidth. The
+loop bandwidth must accommodate the message bandwidth and the deviation; because the loop rejects
+noise outside its bandwidth, PLL demodulators extend the threshold by a few decibels
+(Section~\ref{sec:ch04:threshold}). PLL theory is developed in Chapter~\ref{ch:sync}.
+
+\paragraph{Digital.} With complex baseband samples $z[n]=I[n]+jQ[n]$, the phase difference
+between successive samples is the instantaneous frequency:
 \begin{equation}
 \hat f[n]=\frac{f_s}{2\pi}\arg\big(z[n]\,z^*[n-1]\big).
 \label{eq:ch04:digfm}
 \end{equation}
-This single line of code is the FM demodulator in GNU Radio's \texttt{Quadrature Demod} block
-and in almost every SDR.
-\end{description}
+Since $z[n]z^*[n-1]=|z[n]||z[n-1]|e^{j(\theta[n]-\theta[n-1])}$, the amplitude drops out
+completely---the limiter is built in---and the angle is unambiguous as long as the phase changes
+by less than $\pi$ per sample, that is $|f|<f_s/2$. This single line of code is the FM
+demodulator in GNU Radio's \texttt{Quadrature Demod} block and in almost every SDR. A variant
+that avoids the arctangent computes $(I\dot Q-Q\dot I)/(I^2+Q^2)$ with discrete derivatives; it is
+the digital twin of the quadrature detector.
 
+\begin{history}[Armstrong, FM and the war with RCA]
+Edwin Howard Armstrong is the central figure of this chapter. As a Columbia undergraduate in
+1912 he discovered \emph{regeneration}---positive feedback around a triode---which turned the
+feeble audion into a sensitive amplifier and, pushed further, into an oscillator. As a Signal
+Corps officer in Paris in 1918 he invented the superheterodyne. In 1922 he added the
+super-regenerative receiver. Then he spent a decade on the problem every listener complained
+of, static. The prevailing view, stated in Carson's influential 1922 paper, was that FM offered
+no bandwidth advantage over AM and was inherently inferior; Carson was right about
+\emph{narrowband} FM. Armstrong's insight was to go the other way: use a deviation much
+\emph{larger} than the audio bandwidth, and trade that bandwidth for noise immunity. He received
+four FM patents on 26 December 1933, demonstrated the system to RCA engineers on the Empire State
+Building, and presented it to the Institute of Radio Engineers in November 1935, with
+dramatically quiet demonstrations; his paper appeared in 1936.
+
+RCA, run by Armstrong's former friend David Sarnoff, was then investing in television and
+declined to back FM. Armstrong built his own high-power station, W2XMN, at Alpine, New Jersey
+(1939), and by 1941 there were dozens of FM stations and several hundred thousand receivers on the
+original 42--50\,MHz band. In 1945 the FCC moved FM to 88--106\,MHz (later 108\,MHz), making
+every existing receiver and transmitter obsolete; the decision also allocated the old spectrum to
+television. When RCA and others built FM sets and FM television sound without licensing his
+patents, Armstrong sued (1948). The litigation outlasted his patents and his savings, and in
+January 1954 he took his own life. His widow, Marion, pursued the cases and won or settled all of
+them by 1967. Every FM radio, and the principle that bandwidth can buy signal-to-noise ratio, is
+his monument.
+\end{history}
+
+%======================================================================
 \section{Noise in analog systems}
+\label{sec:ch04:noise}
+%======================================================================
 
 \subsection{The figure of merit}
 
-To compare modulations fairly, define the received carrier power $P_R$, the noise
-density $N_0$, and the message bandwidth $W$. The reference is baseband transmission,
-with output SNR $\gamma=P_R/(N_0W)$. For each scheme we compute the output SNR relative to
-$\gamma$. The results for a tone message are the classic table:
+To compare modulations fairly we use the framework of Chapter~\ref{ch:noise}: white Gaussian
+noise of one-sided density $N_0$ added at the receiver input, a received power $P_R$, and a message
+bandwidth $W$. The reference is \emph{baseband} transmission of the message itself through an
+ideal low-pass filter of bandwidth $W$, whose output SNR is
+\begin{equation}
+\gamma=\frac{P_R}{N_0W}.
+\label{eq:ch04:gamma}
+\end{equation}
+For each modulation we compute the output SNR after an ideal pre-detection filter of the
+modulation's bandwidth and the appropriate demodulator, and express it as a multiple of
+$\gamma$. Bandpass noise of bandwidth $B$ centred on $f_c$ is written
+$n(t)=n_c(t)\cos\omega_ct-n_s(t)\sin\omega_ct$, where the in-phase and quadrature components are
+independent baseband Gaussian processes, each of power $N_0B$ (Chapter~\ref{ch:noise}).
 
-\begin{center}
+\paragraph{DSB-SC.} The received signal $A_cm(t)\cos\omega_ct$ has power $P_R=A_c^2P_m/2$.
+Coherent detection (multiplying by $2\cos\omega_ct$ and low-pass filtering) gives
+$A_cm(t)+n_c(t)$, with signal power $A_c^2P_m$ and noise power $N_0\cdot2W$. The ratio is
+$A_c^2P_m/(2N_0W)=P_R/(N_0W)=\gamma$. DSB-SC is exactly as good as baseband: it doubles both the
+noise bandwidth and the coherent signal amplitude, and these cancel.
+
+\paragraph{SSB.} Signal power after detection is $P_R$-equivalent and the noise bandwidth is $W$;
+the output SNR is again $\gamma$. SSB matches baseband with half the bandwidth of DSB.
+
+\paragraph{AM with envelope detection.} When the carrier is much larger than the noise, the
+envelope of $A_c[1+\mu m(t)]\cos\omega_ct+n(t)$ is approximately $A_c[1+\mu m(t)]+n_c(t)$; the
+quadrature noise only rotates the phasor slightly. The useful output is $A_c\mu m(t)$ and the
+noise is $n_c$, of power $2N_0W$. With $P_R=\frac{A_c^2}{2}(1+\mu^2P_m)$,
+\begin{equation}
+\text{SNR}_{\text{AM}}=\frac{A_c^2\mu^2P_m}{2N_0W}=\frac{\mu^2P_m}{1+\mu^2P_m}\,\gamma.
+\label{eq:ch04:amsnr}
+\end{equation}
+AM pays the carrier's power out of the SNR, exactly the efficiency~\eqref{eq:ch04:ameff}: at best
+(tone, $\mu=1$) it is 4.8\,dB worse than DSB-SC, and with real speech perhaps 10--15\,dB worse.
+When the noise is comparable to the carrier the approximation fails: the envelope is then
+dominated by the noise, the message appears only multiplied by noise, and the output SNR falls
+much faster than the input. This is the \emph{AM threshold}, at roughly 10\,dB carrier-to-noise
+ratio; a coherent (synchronous) detector has no threshold.
+
+\subsection{FM noise: the parabolic spectrum}
+\label{sec:ch04:fmnoise}
+
+FM noise analysis is the most important calculation of this chapter. Write the received signal
+as $A_c\cos(\omega_ct+\phi(t))+n(t)$ and assume the carrier-to-noise ratio is high. Because the
+demodulator responds only to phase, we can resolve the noise into components parallel and
+perpendicular to the signal phasor; only the perpendicular component $n_\perp(t)$ moves the phase,
+by approximately $n_\perp(t)/A_c$ radians. For the statistics it does not matter that the signal
+phase is moving (to a good approximation $n_\perp$ is statistically the same as $n_s$), so the
+phase noise is
+\begin{equation}
+\theta_n(t)\approx\frac{n_s(t)}{A_c},\qquad S_{\theta}(f)=\frac{N_0}{A_c^2},\quad|f|<B_T/2.
+\end{equation}
+The discriminator outputs instantaneous frequency, the derivative of phase divided by $2\pi$.
+Differentiation multiplies a spectrum by $(2\pi f)^2$, so the output frequency noise has PSD
+\begin{equation}
+S_{f_n}(f)=\frac{1}{(2\pi)^2}(2\pi f)^2\frac{N_0}{A_c^2}=\frac{N_0f^2}{A_c^2},\qquad |f|<B_T/2.
+\label{eq:ch04:parabolic}
+\end{equation}
+This is the famous \term{parabolic noise spectrum} of FM: the noise rises with frequency, quiet
+at low audio frequencies and loud at high ones. After the audio low-pass filter of bandwidth $W$,
+the output noise power is
+\begin{equation}
+N_o=\int_{-W}^{W}\frac{N_0f^2}{A_c^2}\,df=\frac{2N_0W^3}{3A_c^2}.
+\end{equation}
+The signal at the discriminator output is $k_fm(t)$, of power $k_f^2P_m$. With $P_R=A_c^2/2$,
+\begin{equation}
+\text{SNR}_{\text{FM}}=\frac{3A_c^2k_f^2P_m}{2N_0W^3}=3\Big(\frac{k_f}{W}\Big)^2P_m\,\gamma
+=3D^2P_m\,\gamma,
+\label{eq:ch04:fmsnr}
+\end{equation}
+where for a normalised message ($|m|\le1$) $k_f=\Delta f$ and $D=\Delta f/W$ is the deviation
+ratio. For a tone, $P_m=\frac12$ and $D=\beta$, giving $\frac32\beta^2\gamma$. Note what
+\emph{did not} appear: the carrier amplitude cancelled between signal and noise in such a way
+that only the received power and the deviation matter. Doubling the deviation quadruples the
+output SNR---6\,dB---at the cost of roughly doubling the bandwidth.
+
+\begin{table}[htbp]\centering\small
+\caption{Output SNR of the analog modulations above threshold, relative to baseband
+$\gamma=P_R/(N_0W)$. $P_m$ is the normalised message power, $D$ the deviation ratio.}
+\label{tab:ch04:snr}
 \begin{tabular}{lcc}
 \toprule
 System & Output SNR & Transmission bandwidth \\
@@ -353,225 +1282,1205 @@ System & Output SNR & Transmission bandwidth \\
 Baseband & $\gamma$ & $W$ \\
 DSB-SC (coherent) & $\gamma$ & $2W$ \\
 SSB (coherent) & $\gamma$ & $W$ \\
-AM, envelope detector (above threshold) & $\dfrac{\mu^2P_m}{1+\mu^2P_m}\gamma\ \le\ \gamma/3$ & $2W$ \\
-FM (above threshold) & $3\beta^2P_m\,\gamma$ & $2(\beta+1)W$ \\
+AM, envelope detector & $\dfrac{\mu^2P_m}{1+\mu^2P_m}\gamma\ \le\ \gamma/3$ & $2W$ \\
+PM & $k_p^2P_m\,\gamma$ & $\approx2(k_p+1)W$ \\
+FM & $3D^2P_m\,\gamma$ & $2(D+1)W$ \\
+FM with de-emphasis & $3D^2P_m\,\gamma\times I_{\text{de}}$ (Eq.~\ref{eq:ch04:deemph}) & $2(D+1)W$ \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
-DSB-SC and SSB tie with baseband: coherent linear modulation neither gains nor loses. AM
-loses at least 4.8\,dB to the carrier. FM is different in kind: its output SNR grows as
-$\beta^2$, so every doubling of deviation (and roughly of bandwidth) buys 6\,dB. This is the
-first appearance in this book of a principle that information theory
+Table~\ref{tab:ch04:snr} collects the results. DSB-SC and SSB tie with baseband: coherent linear
+modulation neither gains nor loses. AM loses at least 4.8\,dB to the carrier. FM is different in
+kind: its output SNR grows as $D^2$, so every doubling of deviation (and roughly of bandwidth)
+buys 6\,dB. This is the first appearance in this book of a principle that information theory
 (Chapter~\ref{ch:infotheory}) makes exact: \emph{bandwidth can be exchanged for signal-to-noise
-ratio}. For broadcast FM with $\beta=5$ and $P_m=1/2$, the improvement is $37.5$, or
-15.7\,dB, before pre-emphasis.
+ratio}. FM's exchange is, however, a poor one by Shannon's standard: the output SNR grows only
+quadratically with bandwidth, whereas an ideal system's SNR grows \emph{exponentially} with the
+bandwidth expansion factor. Digital coding gets much closer to the ideal.
 
-\subsection{Why FM noise rises with frequency}
+\begin{worked}[FM's advantage at 75\,kHz deviation]
+Broadcast FM: $\Delta f=75$\,kHz, $W=15$\,kHz, $D=5$.
+\begin{itemize}
+\item \emph{Tone test} ($P_m=\frac12$): $\text{SNR}=3\cdot25\cdot\frac12\gamma=37.5\gamma$, a gain of
+15.7\,dB over baseband and, since AM gives at best $\gamma/3$, of $37.5\times3=112.5$, or
+20.5\,dB, over 100\%-modulated AM in the same noise.
+\item \emph{De-emphasis} (next subsection) adds about 13.2\,dB for the North American 75\,$\mu$s
+standard, for a total of about 29\,dB over baseband and 34\,dB over AM.
+\item \emph{What received power does high fidelity need?} For an output SNR of 60\,dB,
+$\gamma$ must be $60-15.7-13.2\approx31$\,dB. In $W=15$\,kHz with a receiver noise figure of
+7\,dB, $N_0W=-174+7+41.8=-125.2$\,dBm, so $P_R\approx-94$\,dBm---about 5\,$\mu$V across
+75\,$\Omega$. This is close to the ``50\,dB quieting'' sensitivity that receiver data sheets
+quote. Stereo needs roughly 20\,dB more (Section~\ref{sec:ch04:stereo}).
+\item \emph{Check the threshold.} The carrier-to-noise ratio in the 180\,kHz Carson band is
+$\gamma W/B_T=31-10.8\approx20$\,dB, comfortably above the 10\,dB threshold.
+\end{itemize}
+\end{worked}
 
-In the demodulator, additive noise perturbs the phase by an amount inversely proportional
-to the carrier amplitude, and the discriminator differentiates phase. Differentiation
-multiplies the noise spectrum by $f^2$, so FM's output noise PSD is \emph{parabolic}: low
-audio frequencies are quiet and high frequencies are noisy. Both broadcast FM and analog
-TV sound exploit this with \term{pre-emphasis}: the transmitter boosts high audio
-frequencies with a first-order high-pass shelf of time constant 75\,$\mu$s (Americas, Korea)
-or 50\,$\mu$s (Europe and most of the world), and the receiver applies the matching
-de-emphasis. Because speech and music have little energy at high frequencies, the boost
-hardly increases the deviation, while de-emphasis cuts the parabolic noise by a further
-10 to 13\,dB. Dolby noise reduction in cassette recorders used the same idea.
+\subsection{Pre-emphasis and de-emphasis}
+\label{sec:ch04:preemph}
+
+The parabolic noise spectrum invites an obvious fix. Speech and music have most of their energy
+at low frequencies and comparatively little above a few kilohertz, exactly where FM noise is
+worst. So boost the high audio frequencies before modulation with a \term{pre-emphasis} filter
+$H_{\text{pe}}(f)=1+jf/f_1$, and cut them by the same amount after demodulation with a
+\term{de-emphasis} filter $H_{\text{de}}(f)=1/(1+jf/f_1)$. The message passes unchanged; the
+noise above $f_1$ is attenuated. The standards specify the time constant
+$\tau=1/(2\pi f_1)$: 75\,$\mu$s ($f_1=2122$\,Hz) in the Americas and South Korea, 50\,$\mu$s
+($f_1=3183$\,Hz) in Europe and most of the rest of the world (Figure~\ref{fig:ch04_preemphasis}).
+The circuit is a single RC network---a 75\,k$\Omega$ resistor and a 1\,nF capacitor make a
+75\,$\mu$s de-emphasis.
+
+\mdcfig{ch04_preemphasis}{Left: the standard broadcast emphasis curves. Right: the parabolic FM
+output noise spectrum and its shape after de-emphasis. Integrated over $W=15$\,kHz, de-emphasis
+reduces the noise by 13.2\,dB (75\,$\mu$s) or 10.2\,dB (50\,$\mu$s).}
+
+The improvement is the ratio of output noise without and with de-emphasis:
+\begin{equation}
+I_{\text{de}}=\frac{\int_0^W f^2\,df}{\int_0^W\dfrac{f^2}{1+(f/f_1)^2}\,df}
+=\frac{(W/f_1)^3}{3\big[W/f_1-\arctan(W/f_1)\big]}.
+\label{eq:ch04:deemph}
+\end{equation}
+For $W=15$\,kHz and $\tau=75\,\mu$s, $W/f_1=7.07$, and $I_{\text{de}}=353/[3(7.07-1.43)]=20.9$, or
+13.2\,dB; for 50\,$\mu$s, 10.2\,dB. The improvement is not free: if the programme has strong
+high-frequency content (cymbals, sibilants, modern heavily processed pop music), pre-emphasis
+increases the peak deviation and the station must turn its audio down, or limit the treble. FM
+broadcast audio processors contain dedicated high-frequency limiters for exactly this reason.
+Analog TV sound, FM satellite links and two-way radio use the same idea (two-way radio
+typically with a 750\,$\mu$s characteristic over 300--3000\,Hz, a $6$\,dB/octave rise that makes it
+effectively PM). Dolby noise reduction in cassette recorders was a cousin: boost quiet high
+frequencies before the noisy medium, and cut them afterwards.
 
 \subsection{The threshold effect}
+\label{sec:ch04:threshold}
 
 The FM advantage holds only above a carrier-to-noise ratio of about 10\,dB in the IF
-bandwidth. Below it, the noise occasionally drives the received phasor around the origin,
-adding a full $2\pi$ to the phase. The discriminator turns each of these \term{clicks} into
-an impulse, and the output SNR collapses. Figure~\ref{fig:ch04_fm_threshold} shows a Monte
-Carlo simulation: above threshold, the curves follow the $3\beta^2P_m\gamma$ theory and higher
-deviation wins; below it, the curves bend sharply down, and the wider-band signal crosses
-threshold first because it collects more noise. The threshold is the analog ancestor of the
-``cliff effect'' of digital systems: a good FM link sounds perfect until it suddenly does
-not. PLL and feedback demodulators lower the threshold by a few decibels by effectively
-narrowing the noise bandwidth; they were developed for the space programme, where every
-decibel of a deep-space link mattered.
+bandwidth. Below it the high-CNR assumption fails, and something dramatic happens.
+Occasionally the noise phasor becomes larger than the signal phasor and sweeps around the
+origin, so the total phase gains or loses a full $2\pi$ in a short time. The discriminator,
+which differentiates phase, turns each of these encirclements into an impulse of area
+$\pm1$ cycle. In the loudspeaker each one is a sharp \term{click}, and as the CNR falls further
+the clicks merge into a crackling roar that swamps the programme. Figure~\ref{fig:ch04_fm_clicks}
+shows the effect in simulation: at 16\,dB CNR the output is clean, at 4\,dB it is peppered with
+clicks, and the phase error of the received signal has wandered by whole cycles.
 
-\mdcfig{ch04_fm_threshold}{Output SNR versus carrier-to-noise ratio for FM with
+\mdcfig{ch04_fm_clicks}{FM clicks (simulation, $\beta=5$ tone, Carson bandwidth IF). Top:
+demodulated audio at 16\,dB CNR follows the message (dashed). Middle: at 4\,dB CNR, impulses
+appear. Bottom: the phase error of the received signal at 4\,dB, showing whole-cycle slips;
+each slip is one click.}
+
+S.~O.~Rice's analysis (1963) gives the average click rate for an unmodulated carrier with an
+ideal rectangular IF filter of bandwidth $B$ and carrier-to-noise ratio $\rho$ as
+\begin{equation}
+\nu\approx\frac{B}{\sqrt{12}}\,\operatorname{erfc}\sqrt{\rho}\quad\text{clicks per second},
+\label{eq:ch04:rice}
+\end{equation}
+and modulation increases it. For $B=180$\,kHz the rate is about 0.4 clicks per second at
+$\rho=10$\,dB, about 80 at 7\,dB, about 600 at 5\,dB and about 2400 at 3\,dB: a steep wall. Each click carries
+energy spread across the audio band, so the output SNR collapses.
+Figure~\ref{fig:ch04_fm_threshold} shows a Monte Carlo simulation of the whole curve: above
+threshold the output SNR follows~\eqref{eq:ch04:fmsnr} and higher deviation wins; below it the
+curves bend sharply down, and the wider-band signal crosses threshold first because it collects
+more noise. The \term{threshold effect} is the analog ancestor of the ``cliff effect'' of digital
+systems: a good FM link sounds perfect until it suddenly does not.
+
+\mdcfig[0.8]{ch04_fm_threshold}{Output SNR versus carrier-to-noise ratio for FM with
 $\beta=2$ and $\beta=5$ (Monte Carlo with a tone), compared with AM and baseband. Above
 threshold FM beats AM by up to 20\,dB; below about 10\,dB CNR the ``clicks'' take over.}
 
+The threshold sets a practical limit on how much deviation is useful. In terms of $\gamma$, the
+CNR in the Carson band is $\rho=\gamma W/B_T=\gamma/[2(D+1)]$, so a threshold at
+$\rho\approx10$ needs $\gamma\ge20(D+1)$. Raising $D$ improves the above-threshold SNR as $D^2$
+but raises the threshold as $D$. For a given received power there is an optimum deviation: the
+largest that keeps the link above threshold with margin. Designers of FM satellite and
+microwave links (in the 1960s--1980s, when both carried FM) chose deviations precisely this way.
+
+\emph{Threshold extension} lowers the knee by reducing the noise bandwidth the demodulator
+sees. The \emph{FM feedback} (FMFB) demodulator, proposed by J.~G.~Chaffee in 1939, uses the
+demodulated output to steer the receiver's local oscillator so that the IF signal's deviation is
+compressed and a narrower IF filter can be used; the PLL demodulator achieves a similar effect.
+Gains of 3--7\,dB were obtained, and they mattered enormously for early satellite TV and for
+the space programme, where telemetry and television from distant spacecraft lived close to
+threshold.
+
 \subsection{The capture effect}
+\label{sec:ch04:capture}
 
 When two FM signals arrive on the same channel, the demodulator output is dominated by the
 stronger one, and the weaker is suppressed almost completely once the ratio exceeds a few
-decibels (the \emph{capture ratio}, 1 to 2\,dB in a good receiver). AM has no such effect: an
-interferer 20\,dB weaker is still clearly heard. Capture is why FM made VHF mobile radio
-practical: co-channel stations could be reused much closer together. It is also why aircraft
-still use AM on VHF: two pilots transmitting simultaneously produce an audible heterodyne on
-AM, whereas FM would silently hide the weaker transmission.
+decibels. The reason is the same phasor geometry as the threshold: the phase of the sum of two
+phasors follows the larger one, with only a bounded wobble from the smaller. If the weaker has
+relative amplitude $r<1$, the resultant phase deviates from the stronger signal's phase by at
+most $\arcsin r$, and the net phase never slips; the weaker signal's \emph{frequency modulation}
+appears in the output only through this wobble, and is suppressed further by the audio filter.
+Figure~\ref{fig:ch04_capture} shows a simulation. As the input ratio passes through 0\,dB, the
+FM output switches abruptly from one programme to the other, by more than 70\,dB; the AM output
+changes only gradually, in proportion to the input.
 
-\section{FM broadcasting in detail}
+\mdcfig[0.72]{ch04_capture}{The capture effect (simulation). Two co-channel signals carry
+different tones with a 500\,Hz carrier offset; the horizontal axis is the power ratio of the
+wanted to the unwanted carrier and the vertical axis the output signal-to-interference ratio. FM
+switches sharply from one programme to the other at 0\,dB; AM changes only gradually, and its
+envelope detector adds the 500\,Hz heterodyne whistle.}
 
-\subsection{Stereo multiplex}
+A receiver's \term{capture ratio}---the input ratio needed to suppress the weaker signal by a
+specified amount (30\,dB in the classic IHF tuner measurement standard)---is about 1--2\,dB for a good
+broadcast tuner and depends on the linearity of the limiter and the flatness of the IF filter's
+phase response. Capture is why FM made VHF mobile radio practical: co-channel stations could be
+reused much closer together, and the cellular systems of Chapter~\ref{ch:multipleaccess} began
+with FM for this reason (Section~\ref{sec:ch04:amps}). It is also why aircraft still use AM on
+VHF: if two pilots transmit at once, AM produces an audible heterodyne and garbled speech that
+tells the controller something is wrong, whereas FM would silently deliver the stronger and hide
+the weaker transmission.
 
-FM stereo, standardised in the USA in 1961, had to remain compatible with millions of mono
-receivers. The solution (Figure~\ref{fig:ch04_stereo_mpx}) builds a \term{multiplex} (MPX)
-baseband that frequency-modulates the carrier:
+%======================================================================
+\section{Broadcasting in detail}
+\label{sec:ch04:broadcast}
+%======================================================================
+
+\subsection{The broadcast standards}
+
+Table~\ref{tab:ch04:bcast} collects the parameters of the principal analog voice services. The
+numbers are worth knowing by heart; they appear constantly in receiver design, interference
+analysis and spectrum planning, and digital systems were usually designed to fit into the same
+channels.
+
+\begin{table}[htbp]\centering\small
+\caption{Principal analog voice services. Frequencies and spacings follow the ITU Radio
+Regulations and national rules (FCC Part 73 in the US); values are typical.}
+\label{tab:ch04:bcast}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Service & Band & Spacing & Modulation & Audio, emphasis \\
+\midrule
+MW AM, Americas & 530--1700\,kHz & 10\,kHz & DSB-LC & to 10\,kHz (NRSC-1) \\
+MW AM, elsewhere & 531--1602\,kHz & 9\,kHz & DSB-LC & about 4.5\,kHz \\
+LW AM & 148.5--283.5\,kHz & 9\,kHz & DSB-LC & about 4.5\,kHz \\
+SW broadcast & bands 2.3--26\,MHz & 5\,kHz & DSB-LC & about 4.5\,kHz \\
+FM, Americas & 88--108\,MHz & 200\,kHz & FM $\pm75$\,kHz & 15\,kHz, 75\,$\mu$s \\
+FM, Europe & 87.5--108\,MHz & 100\,kHz raster & FM $\pm75$\,kHz & 15\,kHz, 50\,$\mu$s \\
+FM, Japan & 76--95\,MHz & 100\,kHz & FM $\pm75$\,kHz & 15\,kHz, 50\,$\mu$s \\
+NTSC TV sound & $+4.5$\,MHz & 6\,MHz & FM $\pm25$\,kHz & 15\,kHz, 75\,$\mu$s \\
+Aviation voice & 118--137\,MHz & 25 or 8.33\,kHz & DSB-LC & about 3\,kHz \\
+Marine VHF & 156--162\,MHz & 25\,kHz & FM $\pm5$\,kHz & 3\,kHz, 6\,dB/oct \\
+Land mobile & VHF/UHF & 12.5\,kHz & FM $\pm2.5$\,kHz & 3\,kHz, 6\,dB/oct \\
+HF voice & 1.8--30\,MHz & 3\,kHz & SSB & 2.7\,kHz \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{FM stereo multiplex}
+\label{sec:ch04:stereo}
+
+FM stereo, standardised in the USA in 1961 (the Zenith--General Electric pilot-tone system, which
+most of the world then adopted), had to remain compatible with millions of mono receivers. The
+solution (Figure~\ref{fig:ch04_stereo_mpx}) builds a \term{multiplex} (MPX) baseband that
+frequency-modulates the carrier:
+\begin{equation}
+m_{\text{MPX}}(t)=a\,\big[L(t)+R(t)\big]+a\,\big[L(t)-R(t)\big]\cos(2\omega_pt)+b\cos(\omega_pt),
+\label{eq:ch04:mpx}
+\end{equation}
+with $\omega_p=2\pi\times19$\,kHz, $a\approx0.45$ and $b\approx0.09$. It contains
 \begin{itemize}
 \item the sum signal $L+R$ from 30\,Hz to 15\,kHz, which a mono receiver plays as usual;
-\item a 19\,kHz \term{pilot} tone at 8 to 10\% of deviation;
+\item a 19\,kHz \term{pilot} tone ($\pm2$\,Hz) at 8 to 10\% of the peak deviation;
 \item the difference $L-R$ as DSB-SC on a suppressed 38\,kHz subcarrier, occupying 23 to
-53\,kHz.
+53\,kHz, phase-locked to the pilot so that both cross zero together.
 \end{itemize}
-The stereo decoder doubles the pilot to regenerate the 38\,kHz carrier coherently, recovers
-$L-R$, and forms $L=\frac12[(L+R)+(L-R)]$ and $R=\frac12[(L+R)-(L-R)]$. Because the $L-R$ channel
-sits high in the MPX spectrum where FM noise is parabolic, stereo reception is about 20\,dB
-noisier than mono, which is why receivers blend to mono on weak signals.
+A clever detail limits the deviation. When $L$ and $R$ are equal, $L-R=0$; when one channel is
+silent, the sum and difference have equal amplitudes, and their peaks interleave in time
+(where the 38\,kHz subcarrier is $+1$, the MPX equals $2aL$; where it is $-1$, $2aR$). The total
+peak is therefore no larger than for mono, and the $L+R$ and $L-R$ components can each be given
+45\% of the deviation without overmodulating.
 
-Above the stereo band, the \term{Radio Data System} (RDS, or RBDS in North America) carries
-station names, programme type and traffic information as differentially encoded BPSK at
-1187.5\,b/s on a 57\,kHz subcarrier, the third harmonic of the pilot. Older subsidiary
-carriers at 67 and 92\,kHz carried background music and reading services. The MPX spectrum is
-a compact lesson in frequency-division multiplexing, coherent carrier regeneration, and
-backward compatibility.
-
-\mdcfig{ch04_stereo_mpx}{The FM stereo multiplex baseband: mono-compatible $L+R$, the 19\,kHz
+\mdcfig[0.88]{ch04_stereo_mpx}{The FM stereo multiplex baseband: mono-compatible $L+R$, the 19\,kHz
 pilot, the $L-R$ DSB-SC signal around a suppressed 38\,kHz subcarrier, and RDS at 57\,kHz.}
 
-\subsection{HD Radio and DAB}
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.35cm and 0.42cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.8cm,minimum width=1.2cm,align=center,font=\sffamily\scriptsize},
+  hot/.style={blk,draw=accent,fill=accent!6},
+  mul/.style={draw=navy,circle,thick,minimum size=0.5cm,inner sep=0pt,font=\small},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+% encoder
+\node[font=\sffamily\scriptsize] (L) at (0,0.35) {$L$};
+\node[font=\sffamily\scriptsize] (R) at (0,-0.35) {$R$};
+\node[blk,minimum height=1.1cm] (pe) at (1.3,0) {Pre-\\emphasis\\(both)};
+\node[blk,minimum height=1.1cm] (mx) at (3.0,0) {Matrix};
+\node[mul] (m38) at (4.9,-0.3) {$\times$};
+\node[blk,minimum width=0.7cm,minimum height=0.5cm] (dbl) at (4.9,-1.15) {$\times2$};
+\node[blk,minimum height=0.55cm] (osc) at (4.9,-2.0) {19\,kHz oscillator};
+\node[mul] (sum) at (6.8,-0.3) {$+$};
+\node[hot] (fm) at (8.4,-0.3) {FM\\exciter};
+\draw[arr] (L) -- (pe.west|-L); \draw[arr] (R) -- (pe.west|-R);
+\draw[arr] (pe) -- (mx);
+\draw[arr] ($(mx.east)+(0,0.3)$) -| node[above,pos=0.3,font=\scriptsize]{$L+R$} (sum.north);
+\draw[arr] ($(mx.east)+(0,-0.3)$) -- node[above,font=\scriptsize]{$L-R$} (m38.west);
+\draw[arr] (osc) -- (dbl); \draw[arr] (dbl) -- node[left,font=\scriptsize]{38\,kHz} (m38);
+\draw[arr] (osc.east) -| node[right,pos=0.75,font=\scriptsize,text=accent]{19\,kHz pilot} (sum.south);
+\draw[arr] (m38) -- (sum);
+\draw[arr] (sum) -- node[above,font=\scriptsize]{MPX} (fm);
+\draw[arr] (fm) -- ++(1.0,0) node[right,font=\sffamily\scriptsize]{RF};
+\node[font=\sffamily\scriptsize\bfseries] at (4.3,1.1) {(a) Stereo encoder};
+% decoder
+\begin{scope}[yshift=-5.0cm]
+\node[hot] (dm) at (0.2,0) {FM\\demod.};
+\coordinate (sp) at (1.3,0);
+\node[blk] (lp) at (2.7,1.0) {LPF\\15\,kHz};
+\node[blk] (bp) at (2.7,0) {BPF\\23--53\,kHz};
+\node[blk] (pl) at (2.7,-1.2) {PLL on\\19\,kHz};
+\node[blk,minimum width=0.7cm,minimum height=0.5cm] (d2) at (4.4,-1.2) {$\times2$};
+\node[mul] (mm) at (4.4,0) {$\times$};
+\node[blk] (lp2) at (5.9,0) {LPF\\15\,kHz};
+\node[blk,minimum height=1.6cm] (mt) at (8.1,0.5) {Matrix};
+\node[blk] (de) at (9.8,0.5) {De-\\emphasis};
+\draw[arr] (dm) -- (sp) |- (lp); \draw[arr] (sp) -- (bp); \draw[arr] (sp) |- (pl);
+\draw[arr] (bp) -- (mm); \draw[arr] (pl) -- (d2); \draw[arr] (d2) -- node[right,font=\scriptsize]{38\,kHz} (mm);
+\draw[arr] (mm) -- (lp2);
+\draw[arr] (lp.east) -- node[above,font=\scriptsize]{$L+R$} (mt.west|-lp.east);
+\draw[arr] (lp2.east) -- node[above,font=\scriptsize]{$L-R$} (mt.west|-lp2.east);
+\draw[arr] (mt) -- (de);
+\draw[arr] ($(de.east)+(0,0.2)$) -- ++(0.5,0) node[right,font=\scriptsize]{$L$};
+\draw[arr] ($(de.east)+(0,-0.2)$) -- ++(0.5,0) node[right,font=\scriptsize]{$R$};
+\node[font=\sffamily\scriptsize\bfseries] at (4.6,1.85) {(b) Stereo decoder};
+\end{scope}
+\end{tikzpicture}
+\caption{The pilot-tone FM stereo system. (a) The encoder forms sum and difference signals, puts
+$L-R$ on a 38\,kHz DSB-SC subcarrier derived by doubling the 19\,kHz pilot, and adds the pilot.
+(b) The decoder recovers the pilot with a PLL, doubles it to regenerate the 38\,kHz carrier
+coherently, demodulates $L-R$, and dematrixes. A mono receiver simply low-pass filters the MPX
+and hears $L+R$.}
+\label{fig:ch04_stereo_codec}
+\end{figure}
 
-Digital radio arrived in two philosophies. Europe's DAB (1995) and its successor DAB+ use
-OFDM in new VHF spectrum, multiplexing a dozen services in a 1.5\,MHz ensemble with
-single-frequency networks. The US HD Radio system instead places low-power OFDM sidebands on
-either side of existing AM and FM analog carriers (``in-band on-channel''), allowing a
-gradual transition without new spectrum. Both use the OFDM and coding machinery of
-Part~V.
+The stereo decoder (Figure~\ref{fig:ch04_stereo_codec}b) doubles the pilot to regenerate the
+38\,kHz carrier coherently---an early, and very successful, example of \emph{pilot-aided carrier
+recovery}, the technique that synchronises OFDM in Chapter~\ref{ch:ofdm}---recovers $L-R$, and forms
+$L=\frac12[(L+R)+(L-R)]$ and $R=\frac12[(L+R)-(L-R)]$. Many integrated decoders use an
+equivalent \emph{switching} decoder that samples the MPX alternately at the peaks and troughs of
+the 38\,kHz carrier, which by the interleaving argument above deliver $L$ and $R$ directly.
 
+Channel \emph{separation} depends on how accurately the decoder reconstructs $L-R$. If the
+regenerated 38\,kHz carrier has phase error $\theta$, the recovered difference signal is scaled by
+$\cos\theta$, and the leakage of one channel into the other gives a separation of
+\begin{equation}
+\text{separation}=20\log_{10}\frac{1+\cos\theta}{1-\cos\theta}\ \text{dB},
+\end{equation}
+which is 42\,dB for $\theta=10^\circ$ and 63\,dB for $3^\circ$. A gain error $g$ in the $L-R$
+path has the same effect, with $\cos\theta$ replaced by $g$: a 1\% gain error limits separation to
+46\,dB. Broadcast specifications ask for 30--40\,dB, and the ear needs only 20--25\,dB to perceive a
+full stereo image.
+
+The price of stereo is noise. Because the $L-R$ channel sits high in the MPX spectrum, where
+FM noise is parabolic, the decoded stereo signal is about 20\,dB noisier than mono at the same
+carrier-to-noise ratio (Problem~\ref{prob:ch04:stereonoise}). Every car radio therefore blends
+progressively to mono as the signal weakens; a station that sounds clean in mono can hiss in
+stereo.
+
+\subsection{RDS and subsidiary carriers}
+
+Above the stereo band, the \term{Radio Data System} (RDS; RBDS in North America, standardised as
+IEC 62106 and NRSC-4) carries station names, programme type, alternative frequencies, clock time
+and traffic information. Its subcarrier is at 57\,kHz, the third harmonic of the pilot, so the
+decoder can lock to it coherently, and its bit rate is $57\,000/48=1187.5$\,b/s. The data are
+differentially encoded and biphase (Manchester) coded before BPSK modulation, which removes energy
+at the subcarrier frequency so the signal does not disturb receivers' pilot loops, and confines it
+to about $\pm2.4$\,kHz. Data travel in groups of four 26-bit blocks, each with 16 information bits
+and a 10-bit check word from a shortened cyclic code that supports both error detection and burst
+correction and also provides block synchronisation (Chapter~\ref{ch:classiccodes}). It is a complete
+digital modem riding inside an analog broadcast---and a useful lab project, since a
+software-defined radio can decode it in real time.
+
+Before RDS, US stations leased \emph{Subsidiary Communications Authorization} (SCA) subcarriers at
+67 and 92\,kHz, typically narrowband FM, for background music services, radio reading services for
+the blind and paging. In Europe, the German ARI system (1974) put a 57\,kHz unmodulated carrier on
+the air to flag traffic announcements, the ancestor of RDS's TA/TP flags.
+
+\subsection{AM stereo, HD Radio and DAB}
+\label{sec:ch04:digitalradio}
+
+\emph{AM stereo} is a cautionary tale. In 1982 the FCC declined to choose among competing systems
+and left the choice to the ``marketplace''; receiver makers, faced with incompatible standards,
+largely ignored all of them. Motorola's \term{C-QUAM} (compatible QAM) eventually prevailed and was
+adopted as the US standard in 1993, by which time AM listeners had moved to FM for music. C-QUAM is
+elegant: it starts from analog QAM, $(1+L+R)\cos\omega_ct+(L-R)\sin\omega_ct$, whose envelope would
+distort a mono envelope detector, and then \emph{replaces} the envelope by $1+L+R$, leaving only the
+phase to carry $L-R$. A mono receiver hears $L+R$ undistorted; a stereo receiver reconstructs the
+QAM signal and demodulates coherently, identifying stereo by a 25\,Hz pilot tone. It is an early
+example of designing a modulation around a legacy receiver.
+
+Digital radio arrived in two philosophies. Europe's \term{DAB} (Eureka-147, ETSI EN 300 401; on air
+from 1995) and its successor DAB+ (HE-AAC audio coding, Chapter~\ref{ch:sourcecoding}) use OFDM in a
+1.5\,MHz ensemble, usually in VHF Band III (174--240\,MHz), multiplexing a dozen or more services
+and operating in \emph{single-frequency networks} where every transmitter sends the same signal on
+the same frequency---possible only because OFDM's guard interval absorbs the echoes
+(Chapter~\ref{ch:ofdm}). The US \term{HD Radio} system (NRSC-5, approved by the FCC in 2002) instead
+places low-power OFDM sidebands on either side of existing AM and FM analog carriers
+(``in-band on-channel'', IBOC), allowing a gradual transition without new spectrum; a hybrid FM
+station carries roughly 100--150\,kb/s of digital audio and data alongside its analog signal.
+\emph{Digital Radio Mondiale} (DRM, ETSI ES 201 980) brings OFDM to the long, medium and short-wave
+bands in the same 9 or 10\,kHz channels as AM. Some countries have begun switching national FM
+networks off in favour of DAB+: Norway in 2017, and Switzerland's public broadcaster at the end of
+2024.
+
+%======================================================================
+\section{Radio receivers before the superheterodyne}
+\label{sec:ch04:earlyrx}
+%======================================================================
+
+\subsection{Detectors and the tuned radio-frequency receiver}
+
+The first receivers detected the bursts of spark transmitters with the \emph{coherer}, a glass tube
+of metal filings whose resistance dropped when RF arrived and which had to be tapped to reset---a
+one-bit threshold detector. Magnetic and electrolytic detectors, the crystal of 1906, John Ambrose
+Fleming's thermionic diode of 1904 and Lee de Forest's three-electrode \emph{audion} of 1906 followed.
+The audion, little understood by its inventor, became a true amplifier once better vacuums were
+achieved around 1912--1913, and the race was on to build sensitive, selective receivers.
+
+The natural architecture was the \term{tuned radio-frequency} (TRF) receiver: several stages of RF
+amplification, each with its own tuned circuit, followed by a detector. A 1920s TRF set might have
+three tuned stages, each tuned by a separate dial that the listener set to the same logged numbers,
+until manufacturers learned to gang the capacitors on one shaft. TRF receivers suffered from two
+problems. Every stage had to be \emph{tracked} across the whole band, and the triodes' grid-to-plate
+capacitance fed energy back and made the stages oscillate unless \emph{neutralised} (Hazeltine's
+\emph{Neutrodyne}, 1923). More fundamentally, a tuned circuit's bandwidth is $f/Q$: with $Q=100$ a
+stage is 5.5\,kHz wide at 550\,kHz but 15\,kHz wide at 1500\,kHz, so selectivity varied across the dial
+and was poorest exactly where the stations were most crowded.
+
+\subsection{Regeneration and super-regeneration}
+
+Armstrong's 1912 \term{regenerative receiver} fed a fraction of the amplified signal back in phase
+to the input tuned circuit. Positive feedback with loop gain $G\beta<1$ multiplies the gain by
+$1/(1-G\beta)$ and, equivalently, cancels part of the circuit's loss so its effective $Q$ rises in
+the same proportion. With the feedback (``tickler'' coil or ``regeneration'' control) advanced to just
+below oscillation, a single triode gave the gain and selectivity of several stages. Advanced past
+the edge, the circuit oscillated, and the beat between the oscillation and an incoming CW
+telegraph signal produced an audible tone: the regenerative receiver was also the first practical
+heterodyne receiver for Morse. Its drawbacks were twofold: it was touchy, demanding a skilled hand
+on the regeneration control, and an oscillating regenerative receiver radiated through its antenna,
+filling the band with whistles that neighbours' sets heard.
+
+Armstrong's 1922 \term{super-regenerative} receiver turned this instability into a feature. A
+\emph{quench} oscillator, typically at tens to hundreds of kilohertz, repeatedly pushes the stage
+into oscillation and then kills it. Each time the oscillation starts it grows exponentially from
+whatever signal is present in the tuned circuit, so the time it takes to reach a given amplitude
+(and hence the average output over a quench cycle) depends on the input signal level. A single
+active device then provides gains of a million or more. Super-regenerative receivers are broad,
+noisy and radiate, but they are astonishingly cheap: until recently many garage-door openers,
+wireless doorbells, toy radio controls and remote key fobs at 27, 49, 315 and 433\,MHz used one
+transistor in this circuit.
+
+\begin{inpractice}[title=Regeneration in court]
+Lee de Forest claimed to have discovered regeneration in 1912 too, and the dispute between him and
+Armstrong became one of the longest patent fights in American history, running from 1914 through
+the 1920s and reaching the Supreme Court, which ruled for de Forest in 1934 on largely procedural
+grounds. Most engineers thought the court wrong. When Armstrong attempted to return the Medal of
+Honor the Institute of Radio Engineers had awarded him in 1917, largely for regeneration, the IRE's board
+refused to take it back and reaffirmed the award. Patent battles over radio fundamentals---regeneration,
+the superheterodyne, FM---shaped the industry, encouraged the formation of RCA as a patent pool in
+1919, and foreshadowed the standard-essential-patent disputes of the cellular industry
+(Chapter~\ref{ch:cellular}).
+\end{inpractice}
+
+%======================================================================
 \section{The superheterodyne receiver}
+\label{sec:ch04:superhet}
+%======================================================================
 
 \subsection{Armstrong's architecture}
 
-Early receivers amplified directly at the signal frequency in several tuned stages
-(the tuned radio-frequency, or TRF, receiver). Tracking several tuned circuits across a
-band was hard, and selectivity and gain varied with tuning. Edwin Armstrong's
-\term{superheterodyne}, conceived in France in 1918, mixes every incoming station down to a
-single fixed \term{intermediate frequency} (IF), where all the selectivity and most of the
-gain can be designed once and for all. Nearly every radio receiver built since 1930 is a
-superheterodyne or a direct descendant of one.
+Edwin Armstrong's \term{superheterodyne}, conceived in France in 1918, mixes every incoming
+station down to a single fixed \term{intermediate frequency} (IF), where all the selectivity and
+most of the gain can be designed once and for all. The IF filter does not need to tune, so it can
+be made with many coupled resonators, or later with ceramic, crystal or SAW elements, and its
+bandwidth is the same for every station. Only the input preselector and the local oscillator need
+to tune, and they need not be sharp. Nearly every radio receiver built from 1930 to 2000 was a
+superheterodyne, and the architecture lives on in spectrum analysers, satellite receivers and the
+IF sections of base stations.
 
 A mixer multiplies the input with a local oscillator (LO). An input at $f_{RF}$ and an LO at
 $f_{LO}$ produce $|f_{RF}\pm f_{LO}|$; the IF filter selects $f_{IF}=|f_{RF}-f_{LO}|$. With
-\emph{high-side injection}, $f_{LO}=f_{RF}+f_{IF}$, so tuning the receiver means tuning the LO.
+\term{high-side injection}, $f_{LO}=f_{RF}+f_{IF}$; with \term{low-side injection},
+$f_{LO}=f_{RF}-f_{IF}$. Either way, tuning the receiver means tuning the LO. High-side injection
+inverts the spectrum (the upper sideband of the RF becomes the lower sideband of the IF), which
+matters for SSB and for digital signals and must be remembered in software radios.
 
 \subsection{The image problem}
+\label{sec:ch04:image}
 
 The mixer cannot tell whether the input is above or below the LO: an input at
-$f_{\text{image}}=f_{LO}+f_{IF}$, two IFs away from the wanted signal, produces the same
-IF. Figure~\ref{fig:ch04_superhet} illustrates an FM receiver tuned to 98.1\,MHz with a
-10.7\,MHz IF: the image is at 119.5\,MHz, which falls in the aeronautical band. A tuned
-\term{preselector} ahead of the mixer must attenuate the image before mixing; once mixed, the
-image is indistinguishable from the wanted station. This sets the first rule of IF
-selection: \emph{the IF must be high enough that the preselector can reject the image}.
-The second rule is its opposite: \emph{the IF must be low enough that the IF filter can
-provide adjacent-channel selectivity}. At 455\,kHz, a ceramic filter easily makes a 10\,kHz
-AM channel; at 10.7\,MHz, a ceramic filter makes a 200\,kHz FM channel.
+$f_{\text{image}}=f_{LO}+f_{IF}$ for high-side injection, two IFs away from the wanted signal,
+produces the same IF. Figure~\ref{fig:ch04_superhet} illustrates an FM receiver tuned to
+98.1\,MHz with a 10.7\,MHz IF: the image is at 119.5\,MHz, which falls in the aeronautical band. A
+tuned \term{preselector} ahead of the mixer must attenuate the image before mixing; once mixed, the
+image is indistinguishable from the wanted station. This sets the first rule of IF selection:
+\emph{the IF must be high enough that the preselector can reject the image}. The second rule is its
+opposite: \emph{the IF must be low enough that the IF filter can provide adjacent-channel
+selectivity}. At 455\,kHz, a few tuned transformers or a ceramic filter easily make a 10\,kHz AM
+channel; at 10.7\,MHz, a ceramic filter makes a 200\,kHz FM channel.
 
 \mdcfig{ch04_superhet}{Frequency plan of an FM superheterodyne with a 10.7\,MHz IF and
 high-side LO. The preselector must suppress the image two IFs above the wanted station before
 the mixer.}
 
+A single tuned circuit of loaded quality factor $Q$, resonant at the wanted frequency $f_s$,
+attenuates a signal at $f_i$ by
+\begin{equation}
+\text{IRR}=\sqrt{1+Q^2\rho^2},\qquad \rho=\frac{f_i}{f_s}-\frac{f_s}{f_i},
+\label{eq:ch04:irr}
+\end{equation}
+and $n$ identical, isolated tuned circuits give the $n$th power. Figure~\ref{fig:ch04_image_rejection}
+plots~\eqref{eq:ch04:irr} across the two broadcast bands. Image rejection is easy on medium waves,
+where the image is far away in relative terms ($f_i/f_s$ is 1.5--2.7), and hard at VHF, where it is
+only about 20\% away.
+
+\mdcfig{ch04_image_rejection}{Image rejection of tuned preselectors computed
+from~\eqref{eq:ch04:irr}. Left: a 455\,kHz IF puts the medium-wave image 910\,kHz away, and a single
+tuned circuit gives 30--40\,dB; the older 262\,kHz IF does worse. Right: at VHF the 10.7\,MHz IF image is
+only 21.4\,MHz away, and two tuned circuits are needed for 40\,dB.}
+
+\begin{worked}[The image rejection a superhet needs]
+\emph{Medium wave.} A receiver tuned to 1000\,kHz with a 455\,kHz IF and high-side LO (1455\,kHz) has
+its image at 1910\,kHz. Then $\rho=1.910-0.524=1.386$. A loop-antenna preselector with loaded
+$Q=40$ gives $\text{IRR}=\sqrt{1+55.4^2}=55$, or 35\,dB. Image signals on medium waves are other
+broadcast stations (1910\,kHz is above the band, so in fact there are none for this setting; but tuned
+to 600\,kHz the image is at 1510\,kHz, squarely in the band). If a strong local station at the image
+frequency is 30\,dB stronger than a weak wanted station that needs 20\,dB protection, the requirement
+is 50\,dB, which needs a second tuned circuit---an RF amplifier stage, which better radios had and
+the cheapest did not.
+
+\emph{VHF FM.} Tuned to 98.1\,MHz, the image is at 119.5\,MHz: $\rho=1.218-0.821=0.397$. With
+$Q=30$, one tuned circuit gives $\sqrt{1+11.9^2}=11.9$, or 21.5\,dB. If an aeronautical
+transmitter at 119.5\,MHz arrives 40\,dB stronger than the wanted station, and we want it at least
+20\,dB below the wanted station at the IF so that capture holds firmly, we need 60\,dB: three tuned circuits, or a higher IF. This is why good FM tuners
+had three- and four-gang tuning capacitors, and why many modern designs use a much higher first IF.
+\end{worked}
+
+\subsection{Choosing the IF, and tracking the oscillator}
+
+Standard IFs reflect these compromises and the history of filter technology: 175 and 262\,kHz in
+early sets; 455\,kHz for AM broadcast in North America and Japan (450--470\,kHz in Europe); 10.7\,MHz
+for FM broadcast, because it is above half the 20\,MHz width of the FM band (so no FM station can be
+another's image) and below the band itself; about 45\,MHz for analog television (picture IF
+45.75\,MHz in the US); 70 and 140\,MHz for satellite and microwave links; and 950--2150\,MHz as the
+first IF of satellite TV, generated by the LNB on the dish (Chapter~\ref{ch:satellite}). A further
+practical rule is that the IF must not lie inside a band the receiver tunes, or a strong station
+at the IF leaks straight through; this is why the AM band's lower edge, 530\,kHz, sits a comfortable
+distance above 455\,kHz.
+
+The choice between high-side and low-side injection is made by the oscillator's tuning range. For
+the medium-wave band 530--1700\,kHz (a ratio of 3.21, so the preselector capacitor must vary by
+$3.21^2=10.3$:1), a high-side LO tunes 985--2155\,kHz, a ratio of 2.19 needing only a 4.8:1
+capacitance change; a low-side LO would need 75--1245\,kHz, a ratio of 16.6 and a capacitance change
+of 276:1, which is impossible with a ganged capacitor. So broadcast receivers use high-side
+injection. The two sections of the ganged capacitor must keep the LO exactly 455\,kHz above the RF
+across the band---\term{tracking}. Designers achieved it with a smaller-capacity oscillator section
+(``cut plates'') or with a series \emph{padder} capacitor and a parallel \emph{trimmer}, which give
+exact tracking at three points in the band (\emph{three-point tracking}) and small errors in between.
+Every radio service manual began its alignment procedure with these adjustments.
+
 \subsection{Double conversion and the path to zero IF}
 
-When one IF cannot satisfy both rules, use two. Communications receivers convert first to
-a high IF (often above the tuning range, so the image is far away and a fixed low-pass
-filter rejects it) and then to a low IF where the channel filtering is done. Cellular
-receivers of the 1990s followed this pattern. The logical end point is to convert directly
-to an IF of zero: the \term{direct-conversion} or zero-IF receiver, in which the ``image'' is
-the signal's own negative-frequency half and is rejected not by a filter but by I/Q
-balance. That architecture, with its DC-offset and image-rejection problems, is the subject
-of Chapter~\ref{ch:sdr}.
+When one IF cannot satisfy both rules, use two. \term{Double-conversion} communications receivers
+convert first to a high IF and then to a low IF where the channel filtering is done. A modern HF
+receiver covering 0--30\,MHz typically \emph{up-converts} to a first IF of 45 or 70\,MHz, above the
+entire tuning range; the image is then 90--140\,MHz away, and a fixed 30\,MHz low-pass filter rejects
+it completely without any tracking. A crystal \emph{roofing filter} at the first IF limits the bandwidth
+seen by later stages, and a second conversion to 455\,kHz or 10.7\,MHz, or to an ADC, does the fine
+selection. Cellular handsets of the 1990s followed the same pattern. The logical end point is to
+convert directly to an IF of zero: the \term{direct-conversion} or zero-IF receiver, in which the
+``image'' is the signal's own negative-frequency half and is rejected not by a filter but by I/Q
+balance (Equation~\ref{eq:ch04:ssr} again). That architecture, with its DC-offset and image-rejection
+problems, is the subject of Chapter~\ref{ch:sdr}.
 
 \subsection{Automatic gain control}
+\label{sec:ch04:agc}
 
 Received signal strengths span more than 100\,dB, from a station across town to one at the
-edge of coverage, and fading adds rapid swings of tens of decibels. \term{Automatic gain
-control} (AGC) measures the IF level and adjusts the gain of the RF and IF stages to keep the
-detector input constant. AGC time constants encode a compromise: fast enough to follow
-fading, slow enough not to flatten the speech envelope of AM. In digital receivers the same
-loop protects the ADC from clipping and is the first block in every receive chain.
+edge of coverage, and fading adds rapid swings of tens of decibels. \term{Automatic gain control}
+(AGC; in broadcast receivers, \emph{automatic volume control}, AVC) measures the signal level after
+the IF and adjusts the gain of the RF and IF stages to keep the detector input constant. Harold
+Wheeler of Hazeltine introduced it in the mid-1920s, and it transformed radio listening: before AVC
+a fading station had to be chased with the volume control.
 
+In an AM receiver the detector already provides the measurement: the DC component of the
+envelope-detector output is proportional to the carrier amplitude. Filtered by a time constant of
+a tenth of a second or so, it becomes a negative bias applied to the grids of the RF and IF tubes,
+whose \emph{remote-cutoff} (variable-mu) design makes their gain depend smoothly on bias. The loop
+then holds the carrier at the detector roughly constant. Two refinements are universal. \emph{Delayed}
+AGC applies no gain reduction to the RF amplifier until the signal is well above the noise floor, so
+weak signals keep the full RF gain and the best noise figure. And the time constants encode a
+compromise: fast enough to follow fading, slow enough not to flatten the modulation itself.
+Figure~\ref{fig:ch04_agc} simulates a feedback AGC with level steps of $+30$, $-40$ and $+15$\,dB.
+With a detector that averages over many audio cycles and an asymmetric loop---\emph{fast attack} so a
+sudden strong signal does not overload the detector, \emph{slow decay} so the gain does not pump up
+in speech pauses---the output level is restored within tenths of a second while the modulation
+survives. A loop that is too fast removes the modulation along with the fading.
+
+\mdcfig{ch04_agc}{AGC on an AM envelope (simulation). Top: input envelope with steps of $+30$,
+$-40$ and $+15$\,dB and slow fading (log scale; a 40\,Hz tone stands in for the audio so it is
+visible). Middle: a well-designed loop restores the output level after each step while preserving
+the modulation; note the brief overshoot after the upward step (attack) and the slower recovery after
+the downward step (decay). Bottom: a loop with millisecond time constants follows the envelope too
+closely and flattens the modulation.}
+
+SSB receivers need a different AGC, because there is no carrier to measure: the loop must be
+derived from the speech peaks themselves, with fast attack and a slow ``hang'' decay that holds the
+gain constant through syllables. Digital receivers implement AGC in firmware, and it is the first loop
+to converge in every receive chain: in an SDR its job is to keep the signal inside the ADC's range
+without clipping (Chapter~\ref{ch:sdr}), and in an LTE or Wi-Fi receiver it must settle within the
+first few microseconds of a packet's preamble.
+
+\subsection{Sensitivity, selectivity and dynamic range}
+\label{sec:ch04:dynrange}
+
+A receiver is judged by how weak a signal it can hear, how well it rejects signals on other
+frequencies, and how strong those other signals can be before they cause trouble. Its
+\emph{sensitivity} is set by its noise figure $F$ (Chapter~\ref{ch:noise}): the noise floor
+referred to the input, the \term{minimum discernible signal}, is
+\begin{equation}
+\text{MDS}=-174\,\text{dBm/Hz}+10\log_{10}B+\text{NF}\quad\text{(dBm)}.
+\label{eq:ch04:mds}
+\end{equation}
+For an SSB receiver with $B=2.4$\,kHz and $\text{NF}=10$\,dB, $\text{MDS}=-130$\,dBm, about
+0.07\,$\mu$V in 50\,$\Omega$. Below about 20\,MHz this is more than good enough, because atmospheric
+and man-made noise picked up by the antenna exceeds the receiver's own noise by tens of decibels; the
+first stage of an HF receiver is chosen for its linearity rather than its noise figure. At VHF and
+above the receiver's noise figure dominates, and the Friis formula of Chapter~\ref{ch:noise} says it
+is set by the first stages.
+
+The upper end is set by nonlinearity. Any amplifier or mixer has a transfer characteristic
+$y=a_1x+a_2x^2+a_3x^3+\cdots$. Two strong signals at $f_1$ and $f_2$, neither of them on the wanted
+channel, produce through the cubic term \term{third-order intermodulation} products at $2f_1-f_2$ and
+$2f_2-f_1$. These lie close to the original pair and can fall right on the wanted channel; a
+filter cannot remove them because they are created inside the receiver. Their amplitude grows as the
+\emph{cube} of the input, three decibels for every decibel of input, while the wanted output grows
+one-for-one, so on a log--log plot the two lines meet at the \term{third-order intercept point}
+(IP3), Figure~\ref{fig:ch04_ip3}. For $y=a_1x+a_3x^3$ the input intercept amplitude is
+$A_{\text{IIP3}}=\sqrt{\tfrac43|a_1/a_3|}$. Referred to the input, the IM3 power at input level
+$P_{\text{in}}$ (per tone) is
+\begin{equation}
+P_{\text{IM3}}=3P_{\text{in}}-2\,\text{IIP3}\quad\text{(dB quantities)}.
+\label{eq:ch04:im3}
+\end{equation}
+The \term{spurious-free dynamic range} is the range of input levels between the noise floor and the
+level at which IM3 products just reach it:
+\begin{equation}
+\text{SFDR}=\tfrac23\big(\text{IIP3}-\text{MDS}\big).
+\label{eq:ch04:sfdr}
+\end{equation}
+
+\mdcfig[0.75]{ch04_ip3}{Two-tone test of a compressive cubic nonlinearity (simulation; markers) and
+the straight-line asymptotes that define the third-order intercept. The IM3 products rise three
+decibels per decibel of input; the spurious-free dynamic range is the input range over which they
+stay below the noise floor.}
+
+\begin{worked}[Dynamic range of an HF receiver]
+A contest-grade HF receiver has $\text{NF}=12$\,dB and a 500\,Hz CW filter, so
+$\text{MDS}=-174+27+12=-135$\,dBm. Its front end has $\text{IIP3}=+30$\,dBm. Then
+$\text{SFDR}=\frac23(30+135)=110$\,dB. Two signals at $-25$\,dBm each (strong but common from nearby
+stations on a crowded band) create IM3 at $3(-25)-60=-135$\,dBm, just at the noise floor. A cheap
+receiver with $\text{IIP3}=0$\,dBm would have $\text{SFDR}=90$\,dB, and the same two signals would
+produce IM3 at $-75$\,dBm, an S9 signal that is not really there. Published receiver tests (for
+example in the ARRL's product reviews) report exactly these numbers, along with \emph{blocking}
+(desensitisation by a single strong signal) and \emph{reciprocal mixing}, in which a strong nearby
+signal mixes with the LO's phase noise and spreads noise onto the wanted channel. Chapter~\ref{ch:sdr}
+extends these ideas to direct-sampling receivers, where the ADC's own nonlinearity and clipping set the
+limits.
+\end{worked}
+
+\subsection{Case study: the All American Five}
+\label{sec:ch04:aa5}
+
+From the mid-1930s to the mid-1960s the most common radio in North America was a small
+table-top AM superheterodyne with five tubes and no power transformer, known to collectors as the
+\term{All American Five} (AA5). Tens of millions were built by dozens of manufacturers, and nearly
+all followed the same design---a remarkable example of an industry converging on an optimum. Its
+block diagram (Figure~\ref{fig:ch04_aa5}) is the superheterodyne in its most economical form, and its
+tube lineup (Table~\ref{tab:ch04:aa5}) shows how each function was squeezed into one glass envelope.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.38cm and 0.38cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=1.15cm,minimum width=1.45cm,align=center,font=\sffamily\scriptsize},
+  hot/.style={blk,draw=accent,fill=accent!6},
+  flt/.style={draw=practc,fill=practc!8,thick,minimum height=1.15cm,minimum width=0.95cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[flt] (ant) {Loop\\antenna\\+ tuning};
+\node[hot,right=of ant] (conv) {12BE6\\converter\\(mixer + LO)};
+\node[flt,right=of conv] (if1) {IF\\xfmr\\455k};
+\node[blk,right=of if1] (ifa) {12BA6\\IF\\amplifier};
+\node[flt,right=of ifa] (if2) {IF\\xfmr\\455k};
+\node[blk,right=of if2] (det) {12AV6\\detector,\\AVC, audio};
+\node[blk,below=1.0cm of det] (out) {50C5\\audio\\output};
+\node[blk,right=0.6cm of out,minimum width=1.0cm] (spk) {Speaker};
+\node[blk,below=1.0cm of conv,minimum width=1.9cm] (rect) {35W4\\half-wave\\rectifier};
+\node[blk,left=0.5cm of rect,minimum width=1.2cm] (mains) {120\,V\\AC mains};
+\draw[arr] (ant) -- (conv); \draw[arr] (conv) -- (if1); \draw[arr] (if1) -- (ifa); \draw[arr] (ifa) -- (if2); \draw[arr] (if2) -- (det);
+\draw[arr] (det) -- node[right,font=\scriptsize]{audio} (out); \draw[arr] (out) -- (spk);
+\draw[arr] (mains) -- (rect);
+\draw[arr,practc] (rect.east) -- node[above,font=\scriptsize,text=practc]{B+ about 120\,V DC to all stages} ++(3.4,0);
+\draw[arr,accent,dashed] (det.north) -- ++(0,0.45) -| node[above,pos=0.25,font=\scriptsize,text=accent]{AVC bias (negative DC from the detector)} (conv.north);
+\draw[arr,accent,dashed] ($(det.north)+(0,0.45)$) -| (ifa.north);
+\draw[thick,densely dotted,navy] ($(ant.north)+(0.15,0)$) -- ++(0,0.28) -| node[above,pos=0.25,font=\scriptsize]{ganged tuning capacitor} ($(conv.north)+(-0.45,0)$);
+\end{tikzpicture}
+\caption{The All American Five: a transformerless AM superheterodyne. The pentagrid converter
+combines the local oscillator and mixer; a single IF stage between two double-tuned 455\,kHz
+transformers provides the selectivity; one duo-diode triode serves as envelope detector, AVC
+rectifier and first audio amplifier; a beam power tube drives the speaker; and a rectifier tube
+supplies the high voltage directly from the mains. The heaters of all five tubes are wired in
+series across the 120\,V line.}
+\label{fig:ch04_aa5}
+\end{figure}
+
+\begin{table}[htbp]\centering\small
+\caption{A typical All American Five tube lineup (miniature version of the 1950s). The first number of
+each type is its heater voltage; all have 150\,mA heaters.}
+\label{tab:ch04:aa5}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Tube & Type & Function \\
+\midrule
+12BE6 & pentagrid converter & local oscillator and mixer in one envelope \\
+12BA6 & remote-cutoff pentode & 455\,kHz IF amplifier, gain controlled by AVC \\
+12AV6 & duo-diode high-mu triode & diode detector, AVC rectifier, first audio amplifier \\
+50C5 & beam power tetrode & audio output, about 1--2\,W to the speaker \\
+35W4 & half-wave rectifier & B+ supply directly from the AC line \\
+\midrule
+\multicolumn{3}{@{}l}{Heater string: $12+12+12+50+35=121$\,V at 150\,mA, matching the 117--120\,V mains.} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Every detail rewards study. The \emph{loop antenna}, a flat spiral of wire on the back cover, is also
+the preselector's inductor: one tuned circuit, giving the 30--35\,dB of image rejection computed
+above, which is adequate on medium waves. The \emph{pentagrid converter} uses its first grids as
+the triode of a Hartley oscillator and its signal grid to modulate the electron stream, so a single
+tube multiplies RF by LO; its output, a mixture of sum and difference frequencies, goes to the first
+IF transformer. The two \emph{IF transformers} are double-tuned, each a pair of coupled resonant
+circuits adjusted by slugs or trimmer capacitors to give a flat-topped passband about 6--8\,kHz wide;
+together with one stage of gain they set the radio's selectivity and much of its sensitivity. The
+\emph{12AV6} contains two diodes and a triode: one diode is the envelope detector whose load is the
+volume control, the AVC voltage is taken from the same point through a large RC filter, and the
+triode amplifies the audio. The 50C5 delivers a watt or two into a small speaker.
+
+The heater string is the design's signature and its hazard. Wiring the five heaters in series makes
+their voltages add to the line voltage, eliminating the expensive, heavy power transformer; the 35W4
+rectifier supplies about 120\,V of B+ directly from the line. But with no transformer the chassis is
+connected to one side of the mains: depending on which way the plug went in, the metal chassis could
+be at 120\,V. The knobs and cabinet were insulating for that reason, and generations of repair
+technicians learned to use an isolation transformer. The AA5 is the superheterodyne reduced to its
+essence---one conversion, one IF stage, one detector, one audio stage---and every receiver since,
+including the RFIC in a phone, solves the same problems with the same blocks.
+
+\begin{history}[The All American Five and the transistor radio]
+The transformerless five-tube superhet appeared in the early 1930s, spread rapidly with the
+octal tubes introduced in 1935 (the original lineup was 12SA7, 12SK7, 12SQ7, 50L6, 35Z5) and was
+redesigned around seven-pin miniature tubes after the Second World War. Its replacement came from the
+transistor. The Regency TR-1, released in time for Christmas 1954, was the first commercial
+transistor radio: four germanium transistors made by Texas Instruments in a superheterodyne that,
+apart from the transistors and a 22.5\,V battery, followed the AA5 block diagram, with a 262\,kHz IF.
+Sony's TR-55 followed in 1955. Within a decade the transistor portable had made radio personal and
+mobile, and the AA5 retreated to the kitchen and then to collectors' shelves. Its block diagram did
+not retreat at all.
+\end{history}
+
+%======================================================================
+\section{Analog television}
+\label{sec:ch04:tv}
+%======================================================================
+
+Analog television was the most complex consumer signal ever designed without a computer, and the
+most ingenious. In a 6\,MHz channel it carried a moving picture, its synchronisation, colour, and
+FM sound, using AM, VSB, QAM, FM and frequency interleaving at once, and it did so compatibly with
+receivers designed before colour existed. Every engineer should understand it at least once.
+
+\subsection{Scanning and synchronisation}
+
+A camera tube or CRT turns a two-dimensional image into a one-dimensional signal by
+\term{raster scanning}: an electron beam sweeps across the picture in horizontal \emph{lines}, left to
+right, and steps down the picture between lines; the signal voltage at each instant is the brightness
+at the beam's position. The US monochrome standard adopted in 1941 by the first National Television
+System Committee (NTSC), later called System M, uses 525 lines per frame and 30 frames per second, a
+4:3 aspect ratio, and \term{interlace}: each frame is sent as two \emph{fields} of 262.5 lines, the
+first carrying the odd lines and the second the even lines, so the screen is refreshed 60 times a
+second (fast enough to avoid flicker at the brightness levels of the day) while the bandwidth is that of
+30 full frames. The 60\,Hz field rate was chosen to match the mains frequency, so that hum bars and
+ripple in the receiver's power supply would stand still on the screen rather than crawl through it;
+Europe's 50\,Hz mains gave 50 fields and 625 lines.
+
+The line rate is $525\times30=15\,750$\,Hz, a line period of 63.5\,$\mu$s, of which about 52.6\,$\mu$s
+carry picture and the rest is \emph{horizontal blanking}, during which the beam flies back. At the start
+of each blanking interval a \emph{horizontal sync pulse}, more negative than black (``blacker than
+black''), tells the receiver's line oscillator when to start a new line; a longer, serrated
+\emph{vertical sync} interval of several lines, with equalising pulses to keep the interlace accurate,
+starts each field. About 483 of the 525 lines carry picture; the rest form the \emph{vertical blanking
+interval}, later used to carry closed captions (line 21) and teletext. Figure~\ref{fig:ch04_ntsc_line}
+shows one line of a colour-bar test signal. The amplitude scale is in \emph{IRE units}: blanking is 0,
+peak white 100, sync tip $-40$, and in NTSC black is set up at 7.5.
+
+\mdcfig{ch04_ntsc_line}{One line of NTSC composite video carrying 75\% colour bars (synthesised from
+the standard's equations). Left: the whole 63.56\,$\mu$s line: front porch, sync tip at $-40$\,IRE,
+colour burst on the back porch, then eight bars whose average level is the luminance and whose
+superimposed 3.58\,MHz oscillation is the chrominance. Right: the sync pulse and the nine-cycle colour
+burst.}
+
+How much bandwidth does a picture need? If horizontal resolution is to match vertical resolution,
+a line should carry as many picture elements across $4/3$ of the picture height as there are lines.
+With about 483 active lines and a \emph{Kell factor} of about 0.7 (the effective vertical resolution of
+a scanned raster is less than the line count), that is about $0.7\times483\times\frac43\approx450$
+elements per line, or 225 cycles of a black-white pattern, in 52.6\,$\mu$s: about 4.3\,MHz. The 1941
+standard chose 4.2\,MHz of video bandwidth. The arithmetic shows why television was a VHF
+service: a single channel needed 600 times the bandwidth of an AM radio station.
+
+\subsection{The 6\,MHz channel}
+
+The video signal amplitude-modulates the picture carrier with \emph{negative} modulation in System M:
+sync tips produce maximum carrier power and white produces about 12.5\%. Negative modulation makes
+impulse noise appear as dark rather than bright specks, gives the sync pulses the strongest signal,
+and gives the receiver's AGC a stable reference (the sync tip level). VSB (Section~\ref{sec:ch04:vsb})
+fits the 4.2\,MHz video into the channel: the picture carrier sits 1.25\,MHz above the lower channel
+edge, the full upper sideband extends 4.2\,MHz above it, and a vestige of the lower sideband extends
+0.75\,MHz below it. The sound is a separate FM carrier 4.5\,MHz above the picture carrier, with
+$\pm25$\,kHz deviation and 75\,$\mu$s pre-emphasis (Figure~\ref{fig:ch04_ntsc_spectrum}, top).
+
+Receivers exploited the fixed 4.5\,MHz spacing in the \emph{intercarrier} sound system: the video
+detector, being a nonlinear device, produces a 4.5\,MHz beat between the picture and sound carriers,
+which carries the sound's FM (the picture carrier's AM is removed by limiting). The sound IF is then
+4.5\,MHz regardless of the tuner's drift, since both carriers drift together. That design decision,
+made for cheap receivers in the 1940s, became a constraint that shaped the colour standard.
+
+\mdcfig{ch04_ntsc_spectrum}{Top: the 6\,MHz System M channel: vestigial-sideband picture with its
+carrier 1.25\,MHz above the lower edge, the colour subcarrier 3.58\,MHz above the picture carrier and
+the FM sound carrier at $+4.5$\,MHz. Bottom (schematic): near the colour subcarrier, luminance energy is
+concentrated at harmonics of the line rate, and the chrominance, modulated on a subcarrier at an odd
+multiple of half the line rate, falls between them.}
+
+\subsection{Compatible colour}
+
+Colour television had to transmit three signals---red, green and blue---in the same 6\,MHz, and the
+second NTSC (1953) insisted that existing monochrome receivers display a good picture from a colour
+broadcast, and colour receivers from a monochrome one. The solution has three ideas.
+
+\paragraph{Luminance and chrominance.} Transmit, in place of the monochrome signal, the
+\term{luminance} $Y$, a weighted sum of the gamma-corrected primaries matched to the eye's brightness
+sensitivity:
+\begin{equation}
+Y=0.299R+0.587G+0.114B.
+\label{eq:ch04:luma}
+\end{equation}
+A monochrome receiver displays $Y$ and sees a normal picture. Colour is carried by two
+colour-difference signals, which vanish for grey: NTSC used rotated versions of $R-Y$ and $B-Y$ called
+$I$ (in-phase, roughly the orange--cyan axis) and $Q$ (quadrature, roughly green--purple), because the
+eye resolves fine detail better along the $I$ axis. $I$ was given about 1.3\,MHz of bandwidth and $Q$
+about 0.5\,MHz; the eye cannot see fine colour detail, so the colour information needs far less
+bandwidth than the luminance.
+
+\paragraph{QAM on a subcarrier.} $I$ and $Q$ are sent as quadrature DSB-SC on a \term{colour
+subcarrier} of about 3.58\,MHz, inside the luminance band:
+\begin{equation}
+v(t)=Y(t)+I(t)\cos(\omega_{sc}t+33^\circ)+Q(t)\sin(\omega_{sc}t+33^\circ).
+\end{equation}
+The amplitude of the chroma signal is the colour's saturation and its phase is the hue. Because the
+subcarrier is suppressed, the receiver needs a phase reference: a \term{colour burst} of 8 to 10
+cycles of the subcarrier is sent on the back porch of every line (Figure~\ref{fig:ch04_ntsc_line}), and
+a crystal oscillator in the receiver is phase-locked to it, the most widespread PLL application before
+the FM stereo decoder. A phase error rotates every hue, which is why NTSC sets had a ``tint'' control
+and why engineers joked that NTSC stood for ``Never Twice the Same Colour''.
+
+\paragraph{Frequency interleaving.} A picture is highly correlated from line to line, so the
+luminance spectrum is not smooth: its energy is concentrated in clusters at harmonics of the line rate
+$f_H$ (each split further by the frame rate). If the subcarrier is placed at an \emph{odd multiple of
+half the line rate}, the chroma spectrum's clusters fall halfway between the luminance clusters
+(Figure~\ref{fig:ch04_ntsc_spectrum}, bottom). The two signals share the band with little mutual
+interference, and on a monochrome receiver the chroma appears as a fine dot pattern whose phase
+reverses from line to line and frame to frame, so it largely cancels visually. Later receivers used
+\emph{comb filters}, line-delay filters with nulls at the luminance harmonics, to separate the two
+almost perfectly.
+
+\begin{worked}[Deriving 3.579545\,MHz and 29.97\,Hz]
+The colour subcarrier should be (i) high in the video band, where luminance energy is weak, but low
+enough to leave room for chroma sidebands below 4.2\,MHz; (ii) an odd multiple of $f_H/2$ for
+interleaving; and (iii) such that its beat with the 4.5\,MHz sound carrier, which the nonlinear video
+detector inevitably produces at about 920\,kHz, is \emph{also} an odd multiple of $f_H/2$, so that this
+visible interference pattern interleaves too.
+
+With the monochrome line rate $f_H=15\,750$\,Hz, the sound carrier $4.5\,\text{MHz}=285.714f_H$ is not a
+multiple of $f_H/2$ at all, so condition (iii) fails. The committee chose to make the sound carrier an
+\emph{even} harmonic of $f_H/2$, $4.5\,\text{MHz}=286f_H$, and the subcarrier the odd harmonic
+$455\times f_H/2$. Then the sound--chroma beat is $(572-455)f_H/2=117f_H/2$, odd, as required. Keeping
+the sound at exactly 4.5\,MHz preserved every intercarrier-sound receiver; so the \emph{line rate}
+changed instead:
+\begin{equation}
+f_H=\frac{4.5\,\text{MHz}}{286}=15\,734.27\,\text{Hz},\qquad
+f_{sc}=\frac{455}{2}f_H=\frac{315}{88}\,\text{MHz}=3.579545\,\text{MHz}.
+\end{equation}
+The frame rate became $f_H/525=29.97$\,Hz and the field rate 59.94\,Hz: both reduced by the factor
+$15\,734.27/15\,750=1000/1001$. The 0.1\% change was small enough for every monochrome receiver's line
+and field oscillators to follow. Its consequences outlived analog television: digital video standards
+kept 29.97 and 59.94 frames per second in the Americas, and editors still wrestle with
+\emph{drop-frame time code}, which skips two frame numbers every minute except every tenth to keep
+time code aligned with the clock.
+\end{worked}
+
+\begin{history}[The colour war: CBS versus RCA]
+Two incompatible visions of colour television fought for the US market from 1940 to 1953. CBS, under
+engineer Peter Goldmark, developed a \emph{field-sequential} system: a spinning colour wheel in front of
+camera and receiver showed successive fields in red, green and blue. It gave excellent colour but was
+incompatible with the existing 525-line monochrome sets, which could not display it without an
+adapter, and its mechanical wheel limited screen size. RCA, under David Sarnoff, insisted on an
+\emph{all-electronic, compatible} system, but its early demonstrations were poor. In 1950 the FCC
+adopted the CBS system. RCA sued and lost in the Supreme Court in 1951, but few CBS sets were made:
+the Korean War restricted materials for consumer electronics, and the industry, owning millions of
+monochrome sets' worth of goodwill, waited. Meanwhile the second NTSC, drawing on work at RCA,
+Hazeltine, Philco, General Electric and others, refined the compatible approach described here. On 17
+December 1953 the FCC reversed itself and adopted the NTSC compatible colour standard. The lesson
+that a new system must coexist with the installed base---which FM stereo, C-QUAM, HD Radio and the
+GSM-to-5G migrations all relearned---has rarely been taught more expensively.
+\end{history}
+
+\subsection{PAL and SECAM}
+
+Europe adopted colour a decade later and improved on NTSC's phase sensitivity. Walter Bruch's
+\term{PAL} (Phase Alternating Line, Telefunken, 1963) reverses the phase of the $V$ ($R-Y$) component
+on alternate lines. A phase error that rotates hue one way on one line rotates it the other way on the
+next; a one-line delay in the receiver averages the two and converts the hue error into a slight,
+much less visible loss of saturation. No tint control is needed. Henri de France's \term{SECAM}
+(Séquentiel couleur à mémoire, France, 1967) avoided QAM altogether: it sends the two colour-difference
+signals on alternate lines as \emph{FM} subcarriers, and a delay-line memory supplies the missing one.
+FM made SECAM robust to phase errors and amplitude distortion, at the cost of visible subcarrier
+patterns and difficult studio processing. Table~\ref{tab:ch04:tvstd} compares the systems.
+
+\begin{table}[htbp]\centering\small
+\caption{The three analog colour television systems (typical broadcast variants).}
+\label{tab:ch04:tvstd}
+\begin{tabular}{@{}llll@{}}
+\toprule
+ & NTSC (System M) & PAL (B/G, I) & SECAM (L, D/K) \\
+\midrule
+Lines / fields & 525 / 59.94\,Hz & 625 / 50\,Hz & 625 / 50\,Hz \\
+Line rate & 15\,734.27\,Hz & 15\,625\,Hz & 15\,625\,Hz \\
+Channel & 6\,MHz & 7--8\,MHz & 8\,MHz \\
+Video bandwidth & 4.2\,MHz & 5--5.5\,MHz & 6\,MHz \\
+Sound carrier & $+4.5$\,MHz, FM & $+5.5$ or $+6.0$\,MHz, FM & $+6.5$\,MHz, AM or FM \\
+Colour subcarrier & 3.579545\,MHz & 4.43361875\,MHz & 4.25 / 4.40625\,MHz \\
+Chroma modulation & QAM ($I$, $Q$) & QAM, $V$ alternating & FM, line-sequential \\
+Hue error & tint control & averaged by delay line & immune \\
+Used in & Americas, Japan, & most of Europe, & France, USSR, \\
+ & South Korea & Asia, Africa & parts of Africa \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{inpractice}[title=Ghosts, snow and the 2009 transition]
+Analog TV made radio propagation visible. A reflection from a building or hill arriving $\Delta\tau$
+after the direct signal drew a displaced copy of the picture---a \emph{ghost}---shifted right by
+$\Delta\tau/52.6\,\mu\text{s}$ of the picture width: a 1\,$\mu$s echo, with 300\,m of extra path, moved
+the ghost about 2\% of the screen. This was multipath (Chapter~\ref{ch:channels}) displayed directly,
+and ghost-cancelling reference signals and equalisers appeared in the 1990s just as analog's end
+approached. Thermal noise appeared as \emph{snow}, a direct picture of white Gaussian noise; a viewer
+judged signal strength by its density. In the United States full-power analog broadcasting ended on
+12 June 2009, replaced by ATSC digital television (8-VSB, 19.39\,Mb/s in the same 6\,MHz channels,
+carrying one HD or several SD programmes), and the spectrum freed above 698\,MHz became the 700\,MHz LTE
+band (Chapter~\ref{ch:cellular}). Europe's switch-overs to DVB-T ran from the mid-2000s to 2012, and
+the ATSC~3.0 standard now brings OFDM (Chapter~\ref{ch:ofdm}) to US broadcasting.
+\end{inpractice}
+
+%======================================================================
+\section{Analog cellular: AMPS}
+\label{sec:ch04:amps}
+%======================================================================
+
+The first-generation cellular systems were analog FM. The Advanced Mobile Phone System (AMPS),
+developed at Bell Labs in the 1970s and launched commercially in Chicago in October 1983, gave each
+call a pair of 30\,kHz channels, one in 824--849\,MHz (mobile to base) and one 45\,MHz higher in
+869--894\,MHz (base to mobile)---832 duplex channels after the band expansion of the late 1980s, split
+between two competing carriers in each market. The voice was narrowband FM with $\pm12$\,kHz peak
+deviation, so Carson's rule gives exactly the 30\,kHz channel. To improve the dynamic range of speech over
+a noisy, fading channel, AMPS used a 2:1 \emph{syllabic compandor} (compressing the speech level range
+by half in decibels before transmission and expanding it after) together with pre-emphasis.
+
+Two features show how analog systems handled control. Each base station added a \emph{supervisory
+audio tone} (SAT) at 5970, 6000 or 6030\,Hz above the voice band, which the phone transponded back; a
+wrong SAT told the network it was hearing a co-channel call from another cell. Signalling during a
+call (handover commands, for example) used \emph{blank-and-burst}: the voice was muted for about a
+tenth of a second while 10\,kb/s Manchester-coded FSK data were sent on the voice channel. Dedicated
+control channels carried call set-up with the same 10\,kb/s FSK.
+
+The system relied on frequency reuse: the same channels were reused in cells far enough apart, in a
+pattern of seven cells, that co-channel interference stayed about 18\,dB below the wanted signal, which
+FM's capture effect (Section~\ref{sec:ch04:capture}) turned into acceptable voice quality.
+Chapters~\ref{ch:multipleaccess} and~\ref{ch:cellular} develop the cellular concept and its 18\,dB
+design target. Analog cellular had well-known weaknesses: anyone with a scanner could listen to
+calls, which led US law to ban receivers covering the cellular bands; phones could be \emph{cloned} by
+copying their serial numbers over the air; and capacity was limited to one call per 30\,kHz. Digital
+AMPS (IS-54/IS-136) put three TDMA calls into the same 30\,kHz channel, and GSM and CDMA displaced it
+entirely; the FCC allowed US carriers to switch AMPS off from February 2008. Similar analog systems---NMT
+in the Nordic countries (1981), TACS in the UK (1985)---followed the same course.
+
+%======================================================================
+\section{Analog multiplexing: the FDM telephone network}
+\label{sec:ch04:fdm}
+%======================================================================
+
+Before digital transmission, long-distance telephony was a vast application of single sideband. A
+voice channel is band-limited to 300--3400\,Hz and allocated a 4\,kHz slot. In a \term{channel bank},
+twelve voice channels modulate carriers at 64, 68, \dots, 108\,kHz in ring modulators; crystal filters
+keep the lower sidebands, and the sum forms a \term{group} occupying 60--108\,kHz
+(Figure~\ref{fig:ch04_fdm}). Five groups, translated again with SSB by carriers at 420, 468, 516, 564 and
+612\,kHz, form a 60-channel \term{supergroup} at 312--552\,kHz. Supergroups combine into
+\emph{mastergroups}---the CCITT basic mastergroup of 300 channels at 812--2044\,kHz, or the Bell
+System's 600-channel mastergroup at 564--3084\,kHz---and those into still larger assemblies for
+coaxial cable and microwave radio (Table~\ref{tab:ch04:fdm}). The hierarchy is standardised in the
+CCITT (now ITU-T) G.230 series of Recommendations.
+
+\mdcfig{ch04_fdm}{The first two levels of the FDM hierarchy. Each wedge is a 300--3400\,Hz voice
+channel; the tall edge marks its 3.4\,kHz end, showing whether the channel is upright or inverted.
+Top: a basic group of twelve inverted channels (lower sidebands) in 60--108\,kHz. Bottom: a basic
+supergroup of five groups in 312--552\,kHz; taking the lower sideband a second time turns each channel
+upright again.}
+
+\begin{table}[htbp]\centering\small
+\caption{The FDM telephony hierarchy (CCITT and Bell System).}
+\label{tab:ch04:fdm}
+\begin{tabular}{@{}lrll@{}}
+\toprule
+Level & Channels & Band & Composition \\
+\midrule
+Channel & 1 & 0.3--3.4\,kHz in a 4\,kHz slot & \\
+Group & 12 & 60--108\,kHz & 12 channels \\
+Supergroup & 60 & 312--552\,kHz & 5 groups \\
+Mastergroup (CCITT) & 300 & 812--2044\,kHz & 5 supergroups \\
+Mastergroup (Bell, U600) & 600 & 564--3084\,kHz & 10 supergroups \\
+Jumbogroup (Bell) & 3600 & about 0.5--17.5\,MHz & 6 mastergroups (L4 coax) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each level of the hierarchy carried \emph{pilot} tones that let automatic gain regulators in the
+repeaters compensate for the temperature-dependent loss of cables. The Bell System's coaxial
+\emph{L-carrier} systems grew from a few hundred circuits per coaxial pair in the L1 system of 1946 to
+10\,800 in L5 (1974), with repeaters about every mile; a cable of 22 coaxial tubes, ten working pairs plus
+a spare, carried over 100\,000 simultaneous conversations. On microwave radio relay, such as AT\&T's
+TD-2 system that opened the first transcontinental route in 1951, the FDM baseband
+frequency-modulated a microwave carrier: \emph{FDM-FM}, the same arrangement used on the first
+generation of communications satellites (Chapter~\ref{ch:satellite}). FDM systems were marvels of
+analog engineering: intermodulation in thousands of repeaters, pilot regulation, crystal filters
+by the million.
+
+\begin{keyidea}[Why digital transmission won]
+An analog repeater amplifies whatever arrives, signal and noise together, so noise and distortion
+\emph{accumulate} along a route: a link of $N$ identical repeater sections has $N$ times the noise
+of one section, and long FDM circuits were engineered to tight per-kilometre noise budgets (the
+CCITT's objectives for a 2500\,km hypothetical reference circuit). A digital repeater
+\emph{regenerates}: it decides each bit and sends a fresh pulse, so as long as each section's error rate
+is tiny, the end-to-end quality is independent of distance. This, together with the falling cost of
+digital logic and the ease of switching time slots, is why the Bell System began installing T1 PCM
+carrier in 1962 (Chapter~\ref{ch:pcm}), why the long-haul network was digital by the late 1980s, and
+why the FDM hierarchy is now history. During the transition, \emph{transmultiplexers} converted between
+the two worlds digitally---two FDM groups (24 channels) to one 24-channel T1 stream---using the
+polyphase filter banks of Chapter~\ref{ch:dsp}, an early triumph of multirate signal processing and the
+direct ancestor of OFDM.
+\end{keyidea}
+
+%======================================================================
 \section{Analog systems that survive}
+\label{sec:ch04:survive}
+%======================================================================
 
 Analog modulation is not only history. In 2026 it remains in service where simplicity,
 backward compatibility or graceful degradation matter:
 \begin{itemize}
 \item AM broadcasting on long, medium and short waves, and aviation VHF voice (AM), for the
-capture-effect reason above and for decades of installed equipment.
-\item FM broadcasting worldwide, although some countries (Norway in 2017, Switzerland by
-2026) have switched national FM networks off in favour of DAB+.
-\item Narrowband FM in marine VHF and amateur radio, although professional land-mobile radio
-has largely moved to digital systems such as P25, TETRA and DMR.
-\item SSB on HF for maritime, military and amateur long-distance links, increasingly
-alongside digital HF modems.
-\item Analog FM links inside satellite transponder tests, in some wireless microphones and in
-radio astronomy calibration.
+capture-effect reason above and for decades of installed equipment worldwide. Aviation is
+unlikely to change soon: every aircraft and control tower would have to be re-equipped at once.
+\item FM broadcasting worldwide, which remains the most-listened-to radio platform in most countries,
+although some (Norway in 2017, Switzerland's public broadcaster in 2024) have switched national FM
+networks off in favour of DAB+.
+\item Narrowband FM in marine VHF, amateur radio, family radio services and much of the world's
+low-cost two-way radio, although professional land-mobile radio has largely moved to digital
+systems such as P25, TETRA and DMR, whose 12.5\,kHz channel plans were inherited from analog FM.
+\item SSB on HF for maritime, military and amateur long-distance links, increasingly alongside
+digital HF modems that use the SSB transceiver as a 3\,kHz pipe.
+\item Analog FM in wireless microphones and in-ear monitors, baby monitors and the cheapest
+wireless audio links, and analog video in some low-latency drone (FPV) links, where FM's graceful
+degradation and zero latency are prized.
 \end{itemize}
 
-\begin{keyidea}[title=What analog radio teaches the digital engineer]
+\begin{keyidea}[What analog radio teaches the digital engineer]
 \begin{itemize}
 \item \textbf{Everything is a complex envelope.} AM, SSB, PM and FM differ only in how
 $\tilde{s}(t)$ is built. So do QPSK, QAM and OFDM.
 \item \textbf{Coherent detection needs a carrier reference.} The Costas loop was invented
-for DSB-SC voice.
+for DSB-SC voice; the FM stereo pilot and the NTSC colour burst were the first pilot-aided
+synchronisation schemes.
 \item \textbf{Bandwidth buys noise immunity}, but only above a threshold. Shannon made both
 statements exact.
 \item \textbf{Image rejection and I/Q balance are the same problem}, from the phasing SSB
 exciter of 1950 to the zero-IF RFIC of today.
+\item \textbf{Compatibility shapes standards.} FM stereo, NTSC colour and HD Radio were designed around
+receivers already in people's homes; 29.97 frames per second is the scar.
 \end{itemize}
 \end{keyidea}
 
-\begin{labbox}[title=Lab: analog modulation in Python]
-The notebook \lab{labs/ch04\_analog\_modulation.ipynb} builds AM, DSB-SC, SSB (phasing and
-Weaver) and FM modulators and demodulators on complex baseband samples; lets you vary
-modulation index and noise with sliders while listening-free metrics (SINAD, THD) update;
-reproduces the FM threshold curve; and decodes a synthetic FM stereo MPX signal with
-pilot-based 38\,kHz regeneration. With the B200, \lab{gnuradio/gr01\_spectrum\_iq\_capture.py}
-records a real broadcast FM station that the notebook can demodulate.
+%======================================================================
+\section{Summary}
+\label{sec:ch04:summary}
+%======================================================================
+
+\begin{itemize}
+\item Modulation translates a message to a carrier chosen for antenna size, propagation and
+multiplexing. Every analog modulation is a rule for building the complex envelope.
+\item AM (DSB-LC) spends most of its power on the carrier so that a diode envelope detector, whose
+$RC$ time constant must lie between the carrier and message periods and below the diagonal-clipping
+limit $\sqrt{1-\mu^2}/(2\pi f_m\mu)$, can demodulate it. High-power transmitters modulate an efficient
+class-C or switching amplifier's supply.
+\item DSB-SC and SSB put all power in the sidebands but need coherent detection. Ring modulators and
+Gilbert cells multiply; squaring and Costas loops recover the carrier. SSB is generated by filtering,
+by phasing (Hartley) or by the Weaver method; a mistuned SSB voice is pitch-shifted, not destroyed.
+VSB, with its Nyquist-symmetric vestige, carried television video.
+\item FM spectra are given by Bessel functions; Carson's rule $2(\Delta f+W)$ estimates the bandwidth.
+FM is generated by VCOs in PLLs or by Armstrong's narrowband-modulation-and-multiplication, and
+demodulated by discriminators, quadrature detectors, PLLs or the one-line digital
+$\arg(z[n]z^*[n-1])$.
+\item Above threshold FM's output SNR is $3D^2P_m\gamma$ thanks to the parabolic noise spectrum, which
+de-emphasis reduces by a further 10--13\,dB. Below about 10\,dB CNR, clicks cause a threshold. The
+capture effect suppresses weaker co-channel FM signals.
+\item FM stereo multiplexes $L+R$, a 19\,kHz pilot and $L-R$ on a coherent 38\,kHz DSB-SC subcarrier;
+RDS adds data at 57\,kHz.
+\item The superheterodyne converts every station to a fixed IF. The IF is a compromise between image
+rejection and selectivity; double conversion and zero-IF are the escapes. AGC holds the level;
+noise figure sets sensitivity and IP3 sets dynamic range. The All American Five is the design at its
+leanest.
+\item NTSC television combined VSB-AM video, FM sound and QAM colour with frequency interleaving, and
+derived its 3.579545\,MHz subcarrier and 29.97\,Hz frame rate from a compatibility constraint.
+\item AMPS cellular used FM in 30\,kHz channels; the FDM telephone network stacked SSB channels into
+groups and supergroups until digital regeneration replaced it.
+\end{itemize}
+
+\begin{labbox}[Analog modulation and the superheterodyne in Python]
+Two notebooks accompany this chapter:
+\begin{itemize}
+\item \lab{moderncomms-labs/labs/lab14\_analog\_am\_fm.py}
+\item \lab{moderncomms-labs/labs/lab15\_superhet\_receiver.py}
+\end{itemize}
+Lab~14 builds a band-limited voice-like test message and modulates it with each scheme of this chapter.
+It implements a diode envelope detector with adjustable modulation index and $RC$ (interactive), so you
+can produce the ripple and diagonal clipping of Figure~\ref{fig:ch04_envelope_clip} yourself; compares the
+spectra of AM, DSB-SC and SSB and the effect of carrier phase errors on DSB-SC and SSB; checks
+tone-FM spectra against Bessel functions and Carson's rule (interactive); demodulates narrowband FM with
+both the discriminator~\eqref{eq:ch04:digfm} and a second-order PLL; reproduces the FM threshold
+curve of Figure~\ref{fig:ch04_fm_threshold} by Monte Carlo; and builds a complete FM stereo transmitter
+and pilot-locked decoder at 480\,kS/s, measuring the left--right separation. Its exercises add
+75\,$\mu$s pre-emphasis, a Weaver SSB modulator and an RDS subcarrier.
+
+Lab~15 simulates the medium-wave band at 8\,MS/s with a wanted AM station at 1000\,kHz, a 20\,dB stronger
+neighbour in the adjacent channel at 1010\,kHz and another at 1910\,kHz---its image. You follow the signal
+through preselector, mixer, 455\,kHz IF filter, AGC and detector, watching the spectrum at each stage;
+measure image rejection against preselector $Q$ (compare with Figure~\ref{fig:ch04_image_rejection}) and
+adjacent-channel SINAD against IF filter order (both interactive); watch an AGC loop's attack and decay;
+and finally compare zero-IF and low-IF receivers, quantifying how I/Q imbalance turns a strong neighbour
+into in-band interference, the bridge to Chapter~\ref{ch:sdr}. With the B200,
+\lab{gnuradio/gr01\_spectrum\_iq\_capture.py} records a real broadcast FM station that Lab~14's stereo
+decoder can demodulate.
 \end{labbox}
 
 \problems
 \begin{enumerate}[label=\thechapter.\arabic*]
-\item An AM transmitter radiates 10\,kW of carrier. With tone modulation at $\mu=0.8$, what is
-the total power and the power in each sideband? What is the efficiency?
-\item Show that the envelope detector's diagonal-clipping condition for a tone is
-$RC\le\sqrt{1-\mu^2}/(2\pi f_m\mu)$.
+\item An AM transmitter radiates 10\,kW of carrier. With tone modulation at $\mu=0.8$, find the total
+power, the power in each sideband, the efficiency and the PEP. An oscilloscope shows an envelope with
+$A_{\max}=1.6$\,V and $A_{\min}=0.4$\,V: what is $\mu$, and by what percentage has the antenna current
+risen above its unmodulated value?
+\item Derive the diagonal-clipping condition~\eqref{eq:ch04:diagclip}, showing that the worst case
+occurs at $\cos\omega_mt=-\mu$. Then show that with an AC load $R_{ac}<R_{dc}$ the detector clips the
+troughs unless $\mu\le R_{ac}/R_{dc}$.
+\item A square-law detector produces $y=x^2$ followed by a low-pass filter. For tone-modulated AM,
+find the ratio of the second-harmonic to the fundamental at the output and show that it is $\mu/4$.
+What modulation index keeps this distortion below 5\%?
 \item A DSB-SC signal is demodulated with a local carrier having a phase error that drifts
-linearly at 1\,Hz. Describe the output. Repeat for SSB.
+linearly at 1\,Hz. Describe the output. Repeat for SSB, and explain the difference in terms of the
+analytic signal.
 \item Derive the Bessel expansion~\eqref{eq:ch04:bessel} from the generating function
-$e^{j\beta\sin\theta}=\sum_n J_n(\beta)e^{jn\theta}$.
+$e^{j\beta\sin\theta}=\sum_n J_n(\beta)e^{jn\theta}$. Use it to show that $\sum_nJ_n^2(\beta)=1$.
+\item You must set the deviation of a land-mobile transmitter to exactly 5\,kHz using the first
+Bessel null. What tone frequency should you use? Which tone frequency would set a broadcast exciter to
+75\,kHz at the \emph{second} carrier null ($\beta=5.520$)?
 \item Using Carson's rule, how many 12.5\,kHz land-mobile FM channels ($\Delta f=2.5$\,kHz, $W=3$\,kHz)
-fit in the bandwidth of one broadcast FM channel? Compare the output SNR advantage over AM
-of each system.
+fit in the bandwidth of one broadcast FM channel? Compare the output SNR advantage over AM of each
+system, above threshold.
+\item Design an Armstrong transmitter for a 100.1\,MHz carrier with at least 75\,kHz deviation, starting
+from a 100\,kHz crystal oscillator whose narrowband modulator gives 20\,Hz deviation. Use only doublers
+and triplers, and one mixer. By how many decibels is the crystal's phase noise multiplied?
+\item Show that for PM the output noise PSD is flat rather than parabolic, and derive the output SNR
+$k_p^2P_m\gamma$. For a message with a flat spectrum, compare FM and PM with the same peak frequency
+deviation. Why does broadcast FM with pre-emphasis behave like PM at high audio frequencies?
+\item Evaluate the de-emphasis improvement~\eqref{eq:ch04:deemph} for 50\,$\mu$s and $W=15$\,kHz, and for
+a two-way radio with $W=3$\,kHz and a 750\,$\mu$s characteristic. Why does the improvement depend so
+strongly on $W/f_1$?
+\item An FM link has $P_R/N_0=70$\,dB-Hz and carries audio with $W=15$\,kHz. Assuming a threshold at 10\,dB
+CNR in the Carson bandwidth and a 3\,dB margin, find the largest usable deviation and the resulting
+output SNR for a tone. Use Rice's formula~\eqref{eq:ch04:rice} to estimate the click rate at threshold.
 \item An FM receiver has IF 10.7\,MHz and high-side LO. It is tuned to 88.1\,MHz. Find the
 image frequency. What preselector attenuation is needed if an image signal is 40\,dB stronger
-than the wanted one and the demodulator needs 20\,dB of protection?
+than the wanted one and the demodulator needs 20\,dB of protection? How many tuned circuits of $Q=30$
+provide it? Repeat for a receiver with a 150\,MHz first IF.
 \item Show that the digital FM demodulator~\eqref{eq:ch04:digfm} is unbiased for any carrier
-amplitude and explain what happens when $|\hat f|>f_s/2$.
-\item Explain why FM stereo is about 20\,dB noisier than mono at the same carrier-to-noise
-ratio. (\emph{Hint:} integrate the parabolic noise PSD over 23--53\,kHz and over 0--15\,kHz.)
+amplitude and explain what happens when $|\hat f|>f_s/2$. What minimum sample rate does a broadcast FM
+stereo signal need?
+\item\label{prob:ch04:stereonoise} Explain why FM stereo is about 20\,dB noisier than mono at the same
+carrier-to-noise ratio. (\emph{Hint:} integrate the parabolic noise PSD over 23--53\,kHz and over
+0--15\,kHz, and account for the 45\% injection levels and the dematrixing.)
+\item The PAL colour subcarrier is $f_{sc}=(1135/4+1/625)f_H$ with $f_H=15\,625$\,Hz. Compute it, and
+explain why PAL uses a quarter-line rather than half-line offset. For NTSC, verify that the chroma--sound
+beat is an odd multiple of $f_H/2$, and compute the drop-frame time-code error that would accumulate
+in one hour without dropping frame numbers.
+\item A receiver has a noise figure of 8\,dB, a 3\,kHz IF bandwidth and an input IP3 of $+10$\,dBm. Find
+its MDS and SFDR. Two interfering carriers at $-40$\,dBm each, 20 and 40\,kHz above the wanted
+channel, are present. Where do the IM3 products fall, and how strong are they?
 \item \emph{(Simulation)} Generate an FM stereo MPX signal with different tones in $L$ and $R$,
 frequency-modulate it with 75\,kHz deviation at 400\,kS/s, add noise, and write a decoder.
-Plot left-right separation versus pilot phase error.
+Plot left--right separation versus pilot phase error and compare with the formula in
+Section~\ref{sec:ch04:stereo}. Then reproduce the 20\,dB stereo noise penalty by measuring the output SNR
+in mono and stereo modes.
+\item \emph{(Simulation)} Implement the Weaver SSB modulator of Figure~\ref{fig:ch04_ssb_blocks}b and a
+matching Weaver demodulator. Measure the unwanted-sideband suppression as a function of the low-pass
+filter order, and as a function of a gain imbalance between the two branches. Compare the latter with
+the phasing-method curve of Figure~\ref{fig:ch04_ssb_phase}.
 \end{enumerate}
 
 \furtherreading
 \begin{itemize}
-\item B.~P.~Lathi and Z.~Ding, \emph{Modern Digital and Analog Communication Systems}, 5th ed.,
-Oxford, 2019, Ch.~4--5. A clear textbook treatment of AM and FM with noise analysis.
-\item S.~Haykin and M.~Moher, \emph{Communication Systems}, 5th ed., Wiley, 2009.
+\item J.~R.~Carson, ``Notes on the theory of modulation,'' \emph{Proceedings of the IRE}, vol.~10, no.~1,
+pp.~57--64, 1922. The first analysis of FM bandwidth; it concluded, correctly for narrowband FM, that FM
+offered no bandwidth saving over AM. Read it alongside Armstrong.
 \item E.~H.~Armstrong, ``A method of reducing disturbances in radio signaling by a system of
-frequency modulation,'' \emph{Proc. IRE}, 24(5), 1936. The paper that launched FM.
-\item J.~R.~Carson, ``Notes on the theory of modulation,'' \emph{Proc. IRE}, 10, 1922.
+frequency modulation,'' \emph{Proceedings of the IRE}, vol.~24, no.~5, pp.~689--740, 1936. The paper that
+launched wideband FM, with field-test data from the Empire State Building experiments.
+\item S.~Haykin and M.~Moher, \emph{Communication Systems}, 5th ed., Wiley, 2009. A standard textbook
+treatment of amplitude and angle modulation, VSB, the superheterodyne and noise in analog systems,
+including the FM threshold.
+\item B.~P.~Lathi and Z.~Ding, \emph{Modern Digital and Analog Communication Systems}, 5th ed.,
+Oxford University Press, 2019. Clear derivations of AM and FM noise performance and of Armstrong's
+indirect method.
+\item \emph{The ARRL Handbook for Radio Communications}, American Radio Relay League (annual). Practical
+SSB, FM and receiver circuits, filter design and receiver measurements (MDS, IP3, blocking, reciprocal
+mixing), updated every year.
+\item T.~Lewis, \emph{Empire of the Air: The Men Who Made Radio}, HarperCollins, 1991. A gripping
+history of de Forest, Armstrong and Sarnoff, the regeneration and FM patent wars, and the birth of
+broadcasting.
+\item F.~E.~Terman, \emph{Radio Engineers' Handbook}, McGraw-Hill, 1943. The definitive compendium of
+vacuum-tube-era radio engineering: tuned circuits, modulators, detectors, superheterodynes and
+transmitters, by the Stanford professor who taught a generation of radio engineers.
 \item U.~L.~Rohde, J.~C.~Whitaker and H.~Zahnd, \emph{Communications Receivers: Principles and
-Design}, 4th ed., McGraw-Hill, 2017. The practitioner's reference on superheterodynes.
-\item \emph{The ARRL Handbook for Radio Communications} (annual). Practical SSB, FM and receiver
-circuits, updated every year.
+Design}, 4th ed., McGraw-Hill, 2017. The practitioner's reference on superheterodynes, AGC, dynamic range
+and modern receiver architectures.
+\item D.~K.~Weaver, ``A third method of generation and detection of single-sideband signals,''
+\emph{Proceedings of the IRE}, vol.~44, no.~12, 1956; and J.~P.~Costas, ``Synchronous communications,''
+in the same issue. Two short classics from the IRE's single-sideband special issue.
+\item S.~O.~Rice, ``Noise in FM receivers,'' in M.~Rosenblatt (ed.), \emph{Time Series Analysis},
+Wiley, 1963. The click analysis behind the FM threshold.
+\item Members of the Technical Staff, Bell Telephone Laboratories, \emph{Transmission Systems for
+Communications}, 5th ed., 1982. The Bell System's own account of FDM channel banks, the L-carrier and
+microwave radio, alongside the early digital systems that replaced them.
+\item K.~B.~Benson (ed.), \emph{Television Engineering Handbook}, McGraw-Hill, 1986. NTSC, PAL and SECAM
+in full engineering detail, from scanning standards to colour encoding and RF transmission.
 \end{itemize}
