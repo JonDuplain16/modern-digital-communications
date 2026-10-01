@@ -41,7 +41,6 @@ B|gersho 1992|16|A.~Gersho and R.~M.~Gray, \emph{Vector Quantization and Signal 
 B|gertner 2012|1|J.~Gertner, \emph{The Idea Factory: Bell Labs and the Great Age of American Innovation}, Penguin, 2012
 B|gleick 2011|1|J.~Gleick, \emph{The Information: A History, a Theory, a Flood}, Pantheon, 2011
 B|gradshteyn 2014|A|I.~S.~Gradshteyn and I.~M.~Ryzhik, \emph{Table of Integrals, Series, and Products}, 8th ed., Academic Press, 2014
-B|gu 2005|7|Q.~Gu, \emph{RF System Design of Transceivers for Wireless Communications}, Springer, 2005
 B|haenggi 2012|20|M.~Haenggi, \emph{Stochastic Geometry for Wireless Networks}, Cambridge University Press, 2012
 B|hafner 1996|1|K.~Hafner and M.~Lyon, \emph{Where Wizards Stay Up Late: The Origins of the Internet}, Simon \& Schuster, 1996
 B|harris 2021|6|f.~j.~harris, \emph{Multirate Signal Processing for Communication Systems}, 2nd ed., River Publishers, 2021
@@ -94,12 +93,14 @@ B|parsons 2000|11|J.~D.~Parsons, \emph{The Mobile Radio Propagation Channel}, 2n
 B|paul 2006|2|C.~R.~Paul, \emph{Introduction to Electromagnetic Compatibility}, 2nd ed., Wiley, 2006
 B|paulraj 2003|19|A.~Paulraj, R.~Nabar and D.~Gore, \emph{Introduction to Space--Time Wireless Communications}, Cambridge University Press, 2003
 B|perahia 2013|22|E.~Perahia and R.~Stacey, \emph{Next Generation Wireless LANs: 802.11n and 802.11ac}, 2nd ed., Cambridge University Press, 2013
+B|pozar 2001|7|D.~M.~Pozar, \emph{Microwave and RF Design of Wireless Systems}, Wiley, 2001
+B|reed 2002|7|J.~H.~Reed, \emph{Software Radio: A Modern Approach to Radio Engineering}, Prentice Hall, 2002
 B|pozar 2012|3|D.~M.~Pozar, \emph{Microwave Engineering}, 4th ed., Wiley, 2012
 B|pratt 2020|23|T.~Pratt and J.~E.~Allnutt, \emph{Satellite Communications}, 3rd ed., Wiley, 2020
 B|proakis 2008|8 9 12|J.~G.~Proakis and M.~Salehi, \emph{Digital Communications}, 5th ed., McGraw-Hill, 2008
 B|rabiner 2011|16|L.~R.~Rabiner and R.~W.~Schafer, \emph{Theory and Applications of Digital Speech Processing}, Pearson, 2011
 B|rappaport 2002|11 20 21|T.~S.~Rappaport, \emph{Wireless Communications: Principles and Practice}, 2nd ed., Prentice Hall, 2002
-B|razavi 2012|7|B.~Razavi, \emph{RF Microelectronics}, 2nd ed., Pearson, 2012
+B|razavi 2012|7|B.~Razavi, \emph{RF Microelectronics}, 2nd ed., Prentice Hall, 2012
 B|rice 2009|10|M.~Rice, \emph{Digital Communications: A Discrete-Time Approach}, Pearson, 2009
 B|richardson 2008|15|T.~Richardson and R.~Urbanke, \emph{Modern Coding Theory}, Cambridge University Press, 2008
 B|rohde 2017|4|U.~L.~Rohde, J.~C.~Whitaker and H.~Zahnd, \emph{Communications Receivers: Principles and Design}, 4th ed., McGraw-Hill, 2017
@@ -233,7 +234,10 @@ P|metcalfe 1976|20|R.~M.~Metcalfe and D.~R.~Boggs, ``Ethernet: Distributed packe
 P|mitola 1995|7|J.~Mitola, ``The software radio architecture,'' \emph{IEEE Communications Magazine}, vol.~33, no.~5, 1995
 P|mo 2000|20|J.~Mo and J.~Walrand, ``Fair end-to-end window-based congestion control,'' \emph{IEEE/ACM Transactions on Networking}, vol.~8, no.~5, 2000
 P|morello 2006|23|A.~Morello and V.~Mignone, ``DVB-S2: The second generation standard for satellite broad-band services,'' \emph{Proceedings of the IEEE}, vol.~94, no.~1, 2006
-P|morgan 2006|7|D.~R.~Morgan \emph{et al.}, ``A generalized memory polynomial model for digital predistortion of RF power amplifiers,'' \emph{IEEE Transactions on Signal Processing}, vol.~54, no.~10, 2006
+P|abidi 1995|7|A.~A.~Abidi, ``Direct-conversion radio transceivers for digital communications,'' \emph{IEEE Journal of Solid-State Circuits}, vol.~30, no.~12, 1995
+P|leeson 1966|7|D.~B.~Leeson, ``A simple model of feedback oscillator noise spectrum,'' \emph{Proceedings of the IEEE}, vol.~54, no.~2, 1966
+P|doherty 1936|7|W.~H.~Doherty, ``A new high efficiency power amplifier for modulated waves,'' \emph{Proceedings of the IRE}, vol.~24, no.~9, 1936
+P|morgan 2006|7|D.~R.~Morgan, Z.~Ma, J.~Kim, M.~G.~Zierdt and J.~Pastalan,``A generalized memory polynomial model for digital predistortion of RF power amplifiers,'' \emph{IEEE Transactions on Signal Processing}, vol.~54, no.~10, 2006
 P|mueller 1976|10|K.~H.~Mueller and M.~M\"uller, ``Timing recovery in digital synchronous data receivers,'' \emph{IEEE Transactions on Communications}, vol.~24, no.~5, 1976
 P|murota 1981|9|K.~Murota and K.~Hirade, ``GMSK modulation for digital mobile radio telephony,'' \emph{IEEE Transactions on Communications}, vol.~29, no.~7, 1981
 P|nyquist 1924|1|H.~Nyquist, ``Certain factors affecting telegraph speed,'' \emph{Bell System Technical Journal}, vol.~3, 1924
@@ -305,7 +309,8 @@ S|3gpp ts 36.101|11|3GPP TS~36.101, E-UTRA user equipment radio transmission and
 S|3gpp ts 36.211|21 22|3GPP TS~36.211, E-UTRA physical channels and modulation (Clause~10: NB-IoT)
 S|3gpp ts 36.212|15 21|3GPP TS~36.212, E-UTRA multiplexing and channel coding (the LTE turbo code)
 S|3gpp ts 36.213|21|3GPP TS~36.213, E-UTRA physical layer procedures
-S|3gpp ts 38.104|9|3GPP TS~38.104, NR base station radio transmission and reception (EVM requirements)
+S|3gpp ts 38.101-1|7|3GPP TS~38.101-1, NR user equipment radio transmission and reception
+S|3gpp ts 38.104|7 9|3GPP TS~38.104, NR base station radio transmission and reception (sensitivity, blocking, ACLR and EVM requirements)
 S|3gpp ts 38.211|9 10 17 21|3GPP TS~38.211, NR physical channels and modulation (numerology, modulation mapping, PSS/SSS/SSB)
 S|3gpp ts 38.212|15 21|3GPP TS~38.212, \emph{NR; Multiplexing and channel coding}
 S|3gpp ts 38.213|19 21|3GPP TS~38.213, NR physical layer procedures for control (SSB, beam failure recovery)
@@ -375,7 +380,7 @@ S|oif 400zr|24|OIF, 400ZR implementation agreement
 S|us 47 cfr 15|B|US Code of Federal Regulations, 47 CFR Part~15 (radio frequency devices: licence-exempt operation)
 S|us 47 cfr 97|B|US Code of Federal Regulations, 47 CFR Part~97 (amateur radio service)
 # ------------------------------------------------------------------ OTHER
-O|analog devices ug-570|6 7|Analog Devices, \emph{AD9361 Reference Manual} (UG-570), also covering the AD9364
+O|analog devices ug-570|6 7|Analog Devices, \emph{AD9361/AD9364 Reference Manual} (UG-570), and the AD9364 data sheet
 O|ettus uhd|7 B|Ettus Research, \emph{USRP Hardware Driver and USRP Manual}, \url{https://files.ettus.com/manual/}, and the USRP B200/B210 documentation and product data sheet
 O|gnu radio wiki|B|The GNU Radio project, \emph{GNU Radio Wiki and Tutorials}, \url{https://wiki.gnuradio.org}
 O|jupytext|B|The jupytext documentation, \url{https://jupytext.readthedocs.io}
