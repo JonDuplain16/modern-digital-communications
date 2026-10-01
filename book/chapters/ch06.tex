@@ -7,36 +7,169 @@ running at different sample rates. Channel selection, pulse shaping, matched fil
 interpolation for timing recovery, decimation after the ADC and interpolation before the DAC
 are all filtering problems, and the efficiency with which they are solved determines whether
 a design fits in a phone, an FPGA or a satellite. This chapter is the working engineer's
-guide to digital filters: how to specify them, design them, implement them in fixed and
-floating point, and above all how to change sample rates efficiently with polyphase
-structures, half-band filters, CIC decimators and filter-bank channelizers. It closes with the
-oscillators and rotation engines---NCOs and CORDIC---that do the mixing in every digital
-radio.
+guide to digital filters. It starts with the $z$-transform as a tool for intuition rather
+than for contour integrals: poles, zeros and the geometry that turns a pole-zero plot into a
+frequency response. It then covers how to specify a filter and estimate its cost before
+designing it; the FIR design methods (windows, frequency sampling, least squares and the
+Parks--McClellan equiripple algorithm) and the special filters every radio uses (half-band,
+Nyquist, Hilbert); the classical IIR families and the bilinear transform; and the
+implementation questions that decide whether a design works in silicon: structures,
+coefficient quantization, limit cycles, overflow, scaling and fixed-point word lengths. The
+second half is about changing the sample rate efficiently: decimation and interpolation, the
+noble identities, polyphase decomposition, multistage design, half-band chains,
+Hogenauer's multiplier-free CIC filter, the polyphase DFT filter bank that channelizes a
+satellite payload, and arbitrary resampling. It closes with the oscillators and rotation
+engines---the NCO and CORDIC---and assembles everything into the digital down- and
+up-converters inside every modern radio, from a GC4016 to the AD9361 in a USRP B200.
 \end{chapterintro}
 
-\section{Discrete-time systems in one page}
+%======================================================================
+\section{Discrete-time systems and the \texorpdfstring{$z$}{z}-transform}
+\label{sec:ch06:ztrans}
+%======================================================================
 
-A discrete-time linear time-invariant (LTI) system is characterised by its impulse response
-$h[n]$ and computes the convolution $y[n]=\sum_k h[k]\,x[n-k]$. Its \term{z-transform}
-$H(z)=\sum_n h[n]z^{-n}$ turns convolution into multiplication, and its frequency response is
-$H(e^{j\omega})$, the z-transform on the unit circle, with $\omega=2\pi f/f_s$. Most practical
-systems are described by a difference equation,
+Chapter~\ref{ch:signals} introduced linear time-invariant (LTI) systems, the DTFT and the DFT.
+This section adds the one tool that chapter used only in passing and that a filter designer
+uses every day: the $z$-transform, read not as a branch of complex analysis but as a picture.
+
+\subsection{Difference equations and transfer functions}
+
+A discrete-time LTI system is characterised by its impulse response $h[n]$ and computes the
+convolution $y[n]=\sum_k h[k]\,x[n-k]$. Its \term{z-transform}
 \begin{equation}
-y[n]=\sum_{k=0}^{M}b_k\,x[n-k]-\sum_{k=1}^{N}a_k\,y[n-k]
-\quad\Longleftrightarrow\quad
-H(z)=\frac{\sum_{k=0}^{M}b_kz^{-k}}{1+\sum_{k=1}^{N}a_kz^{-k}}.
+H(z)=\sum_{n=-\infty}^{\infty}h[n]\,z^{-n}
+\label{eq:ch06:ztrans}
 \end{equation}
-The roots of the numerator are the \term{zeros} and those of the denominator the
-\term{poles}. A causal system is stable if and only if all its poles lie strictly inside the
-unit circle. The magnitude response dips near zeros and peaks near poles; with a little practice
-you can sketch a frequency response from a pole-zero plot, and every experienced DSP engineer
-does.
+turns convolution into multiplication, $Y(z)=H(z)X(z)$, and its frequency response is
+$H(e^{j\omega})$, the $z$-transform evaluated on the unit circle, with $\omega=2\pi f/f_s$ in
+radians per sample. The only property of $z^{-1}$ you need is that it is a one-sample delay: if
+$x[n]$ has transform $X(z)$, then $x[n-1]$ has transform $z^{-1}X(z)$. Every block diagram in this
+chapter is drawn with $z^{-1}$ boxes for that reason.
 
-If $a_k=0$ for all $k$, the filter has only zeros and a finite impulse response: it is an
-\term{FIR} filter. Otherwise feedback makes the impulse response infinite: an \term{IIR}
-filter. Which to use is the first decision in any filter design.
+Almost every practical filter is described by a linear constant-coefficient difference equation,
+\begin{equation}
+\begin{aligned}
+y[n]&=\sum_{k=0}^{M}b_k\,x[n-k]-\sum_{k=1}^{N}a_k\,y[n-k]\\
+\Longleftrightarrow\quad
+H(z)&=\frac{\sum_{k=0}^{M}b_kz^{-k}}{1+\sum_{k=1}^{N}a_kz^{-k}}
+=b_0\,z^{N-M}\frac{\prod_{k=1}^{M}(z-z_k)}{\prod_{k=1}^{N}(z-p_k)}.
+\end{aligned}
+\label{eq:ch06:diffeq}
+\end{equation}
+The roots $z_k$ of the numerator are the \term{zeros} and the roots $p_k$ of the denominator the
+\term{poles}. With real coefficients they are real or occur in complex-conjugate pairs. If
+$a_k=0$ for all $k$, the filter has only zeros (apart from poles at the origin, which are pure
+delays) and a finite impulse response: it is an \term{FIR} filter. Otherwise the feedback makes
+the impulse response infinitely long: an \term{IIR} filter. Choosing between them is the first
+decision in any filter design, and most of this chapter is about making it well.
 
-\begin{center}
+\subsection{Stability and the region of convergence}
+
+The sum~\eqref{eq:ch06:ztrans} converges only for some values of $z$, its \emph{region of
+convergence} (ROC). For a causal sequence ($h[n]=0$ for $n<0$) the ROC is the outside of a circle
+that passes through the outermost pole. A system is bounded-input bounded-output (BIBO) stable if
+and only if $\sum_n|h[n]|<\infty$, which is the same as requiring the unit circle to lie inside the
+ROC. Combining the two statements gives the rule every engineer memorises: \emph{a causal system
+is stable if and only if all its poles lie strictly inside the unit circle}. A pole at radius $r$
+contributes a term $r^n$ to the impulse response, so $r=0.99$ decays by a factor $e$ in about 100
+samples and $r=0.999$ in about 1000: the closer a pole is to the circle, the longer the filter
+rings, the narrower the feature it produces in the frequency response, and---as
+Section~\ref{sec:ch06:iirnum} shows---the more sensitive it is to arithmetic errors. FIR filters
+have no poles outside the origin and are unconditionally stable, which is one of their great
+practical virtues.
+
+\subsection{Frequency response from pole-zero geometry}
+
+Evaluate the factored form of~\eqref{eq:ch06:diffeq} at a point $z=e^{j\omega}$ on the unit circle.
+Each factor $e^{j\omega}-z_k$ is a vector from the zero $z_k$ to that point, and each
+$e^{j\omega}-p_k$ a vector from a pole. Therefore
+\begin{equation}
+\begin{aligned}
+|H(e^{j\omega})|&=|b_0|\,\frac{\prod_k|e^{j\omega}-z_k|}{\prod_k|e^{j\omega}-p_k|},\\
+\angle H(e^{j\omega})&=\angle b_0+\sum_k\angle(e^{j\omega}-z_k)-\sum_k\angle(e^{j\omega}-p_k)+(N-M)\omega.
+\end{aligned}
+\label{eq:ch06:geometry}
+\end{equation}
+As $\omega$ sweeps from $0$ to $\pi$, the point travels counter-clockwise around the upper half of
+the circle. When it passes close to a zero, one vector in the numerator becomes short and the
+response dips---to zero if the zero lies on the circle. When it passes close to a pole, a vector in
+the denominator becomes short and the response peaks. That is all there is to it, and with a
+little practice you can sketch the magnitude response of any low-order filter from its pole-zero
+plot in a few seconds. Every experienced DSP engineer does.
+
+\mdcfig{ch06_pz_geometry}{Reading a frequency response from the pole-zero plot. Left: a notch filter
+with zeros on the unit circle at $\pm0.15$ cycles/sample and poles just inside at radius $r$. The
+magnitude response at the point $e^{j\omega}$ is the product of the zero-vector lengths divided by
+the product of the pole-vector lengths. Right: far from the notch the two vectors of each pair are
+almost equal and the response is flat; near it, the zero vector shrinks to nothing. The closer the
+poles are to the circle, the narrower the notch.}
+
+Figure~\ref{fig:ch06_pz_geometry} shows the idea at work in a \term{notch filter}, the classic
+two-pole, two-zero section
+\begin{equation}
+H(z)=\frac{1-2\cos\omega_0\,z^{-1}+z^{-2}}{1-2r\cos\omega_0\,z^{-1}+r^2z^{-2}}.
+\label{eq:ch06:notch}
+\end{equation}
+The zeros sit on the circle at $e^{\pm j\omega_0}$, so the response is exactly zero at $\omega_0$.
+The poles sit at the same angles but at radius $r<1$. Away from $\omega_0$ each pole vector is
+almost the same length as its zero vector, so they cancel and the response is close to unity.
+Only within a distance of about $1-r$ of the zero does the zero vector become much shorter than the
+pole vector. The $-3$\,dB width of the notch is therefore about $2(1-r)$ radians per sample, or
+$(1-r)/\pi$ cycles per sample, a result worth remembering because it applies to any isolated
+pole: a pole at radius $r$ produces a resonance whose $-3$\,dB bandwidth is about $(1-r)f_s/\pi$\,Hz.
+
+\begin{worked}[A notch for a narrowband interferer]
+A receiver sampled at $f_s=48$\,kHz suffers from a spur at 1\,kHz, and the designer wants to remove
+it with a notch whose $-3$\,dB width is 20\,Hz. The notch frequency is $\omega_0=2\pi\cdot1000/48000=
+0.1309$\,rad/sample, so $2\cos\omega_0=1.9829$. The width condition gives
+$1-r=\pi\cdot20/48000=1.31\times10^{-3}$, so $r=0.99869$, and~\eqref{eq:ch06:notch} becomes
+\[
+H(z)=\frac{1-1.9829z^{-1}+z^{-2}}{1-1.9803z^{-1}+0.99738z^{-2}}.
+\]
+Five multiplications per sample remove the spur and leave the rest of the band within a small
+fraction of a decibel. The poles at radius 0.9987 also tell you the cost: the filter's impulse
+response decays as $0.9987^n$, a time constant of about 760 samples or 16\,ms, so the notch
+needs that long to settle when the interferer appears. Narrow in frequency means long in time,
+whatever the structure. Note also that the denominator coefficients differ from the numerator's
+in the fourth significant figure; Section~\ref{sec:ch06:iirnum} explains why such filters need
+care in fixed point.
+\end{worked}
+
+The same reasoning designs a \emph{resonator} (poles near the circle, zeros at $z=\pm1$ to suppress
+DC and $f_s/2$), the \emph{DC blocker} $H(z)=(1-z^{-1})/(1-\alpha z^{-1})$ that removes the
+residual offset of every direct-conversion receiver (a zero at $z=1$ with a pole just inside it),
+and the \emph{comb filter} $1-z^{-R}$, whose $R$ zeros are spread evenly around the circle. The
+comb filter will reappear as half of the CIC decimator in Section~\ref{sec:ch06:cic}.
+
+\subsection{Minimum phase, maximum phase and all-pass}
+
+Chapter~\ref{ch:signals} showed that the magnitude response does not determine the phase. The
+$z$-plane makes the reason visible. Reflect a zero $z_k$ to its conjugate reciprocal $1/z_k^*$:
+by elementary geometry the distance from every point on the unit circle to $1/z_k^*$ is
+$1/|z_k|$ times the distance to $z_k$, so the magnitude response changes only by a constant while
+the phase changes. A filter can therefore have any of $2^M$ zero configurations with the same
+magnitude shape. The one with all zeros inside the circle is \term{minimum phase}: it has the
+smallest phase lag and the most compact energy distribution of the family, and it has a stable
+causal inverse. The one with all zeros outside is maximum phase. A linear-phase FIR filter has its
+zeros in reciprocal pairs (or on the circle) and sits in between.
+
+The factor that does the reflecting is the first-order \term{all-pass} section
+\begin{equation}
+A(z)=\frac{z^{-1}-a^*}{1-a\,z^{-1}},\qquad |A(e^{j\omega})|=1,\qquad
+\tau_A(\omega)=\frac{1-|a|^2}{|1-a\,e^{-j\omega}|^2}>0,
+\label{eq:ch06:allpass}
+\end{equation}
+which has a pole at $a$ and a zero at $1/a^*$. Its group delay $\tau_A$ is positive at every
+frequency and peaks at the angle of the pole. Any rational $H(z)$ factors as $H(z)=H_{\min}(z)
+A(z)$, a minimum-phase filter times an all-pass. All-pass filters are the tools for three jobs in
+this chapter: equalising the group delay of an IIR filter (Section~\ref{sec:ch06:gdeq}), building
+fractional-delay elements, and constructing very efficient half-band and Hilbert filters from
+pairs of all-pass branches.
+
+\subsection{FIR or IIR?}
+
+\begin{table}[htbp]\centering\small
+\caption{FIR and IIR filters compared.}\label{tab:ch06:firiir}
 \begin{tabular}{p{3.2cm}p{5.3cm}p{5.3cm}}
 \toprule
 & FIR & IIR \\
@@ -46,289 +179,1981 @@ Stability & Always stable & Must be ensured; sensitive to quantization \\
 Order for a sharp filter & High (tens to hundreds of taps) & Low (4 to 10) \\
 Multirate efficiency & Excellent (polyphase) & Limited \\
 Fixed-point behaviour & Benign & Limit cycles, overflow, scaling \\
-Typical use in radios & Pulse shaping, channel filters, decimators & DC blockers, AGC loops, audio \\
+Latency & At least half the length for linear phase & Low \\
+Typical use in radios & Pulse shaping, channel filters, decimators & DC blockers, AGC and loop filters, audio, notches \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
-In communications, the need for linear phase (a filter with nonlinear phase smears pulses
-in time, which is intersymbol interference; Chapter~\ref{ch:baseband}) and for efficient
-rate changes makes FIR filters the default. IIR filters earn their place where phase does not
-matter or where a very low order is essential.
+In communications, the need for linear phase (a filter with nonlinear phase smears pulses in time,
+which is intersymbol interference; Chapter~\ref{ch:baseband}) and for efficient rate changes makes
+FIR filters the default (Table~\ref{tab:ch06:firiir}). IIR filters earn their place where phase
+does not matter, where very low order or very low latency is essential, or where the filter is
+inside a feedback loop. A DC blocker, a notch, the loop filter of a PLL (Chapter~\ref{ch:sync})
+and the smoothing filter of an AGC are all IIR, and so is the 1-bit $\Sigma\Delta$ modulator's
+noise-shaping loop of Chapter~\ref{ch:pcm}.
 
-\section{Specifying a filter}
+\begin{history}[How filters became digital]
+The digital filter was born as a simulation tool. In the early 1960s engineers at Bell
+Laboratories and MIT Lincoln Laboratory wanted to test speech coders---vocoders---without
+building every candidate in hardware, so they simulated the analog filter banks on computers.
+Doing that faithfully forced them to work out how to turn a continuous-time filter into a
+difference equation, and it gradually became clear that the difference equation was a filter in
+its own right, with properties no analog circuit could match. James Kaiser at Bell Labs wrote the
+first systematic treatment, the chapter on digital filters in Kuo and Kaiser's \emph{System Analysis
+by Digital Computer} (1966), including the bilinear transform and a frank discussion of coefficient
+sensitivity; his adjustable window, based on the modified Bessel function $I_0$, followed in the
+early 1970s and is still the first thing most engineers reach for. Bernard Gold and Charles Rader at
+Lincoln Laboratory published \emph{Digital Processing of Signals} in 1969, the first textbook of
+the field. When the fast Fourier transform arrived in 1965 (Chapter~\ref{ch:signals}) and integrated
+multipliers followed in the 1970s, the simulation tool became the implementation, and the
+modem, the vocoder and eventually the whole radio moved into arithmetic.
+\end{history}
 
-A low-pass specification has four numbers: the passband edge $f_p$, the stopband edge $f_{st}$,
-the maximum passband ripple $\delta_p$ (or $A_p$ in dB) and the minimum stopband attenuation
-$A_s$ in dB. The transition width $\Delta f=f_{st}-f_p$ and $A_s$ largely determine the cost. A
-useful estimate of the number of taps of an optimal FIR filter is fred harris's rule of thumb,
+%======================================================================
+\section{Specifying a filter and estimating its cost}
+\label{sec:ch06:spec}
+%======================================================================
+
+A design starts with a specification, and a surprising amount of engineering judgement goes into
+writing a good one. A low-pass specification has four numbers: the passband edge $f_p$, the stopband
+edge $f_{st}$, the maximum passband ripple $\delta_p$ (or $A_p$ in dB, peak to peak) and the minimum
+stopband attenuation $A_s=-20\log_{10}\delta_s$ in dB. The transition width $\Delta f=f_{st}-f_p$
+and $A_s$ largely determine the cost. Converting between the two passband descriptions,
+\begin{equation}
+\delta_p=\frac{10^{A_p/20}-1}{10^{A_p/20}+1},\qquad A_s=-20\log_{10}\delta_s,
+\end{equation}
+so $A_p=0.1$\,dB is $\delta_p=0.0058$ and $A_s=60$\,dB is $\delta_s=0.001$.
+
+Where do the numbers come from? In a receiver channel filter, the passband edge is the edge of the
+wanted signal (for a root-raised-cosine signal, $(1+\beta)R_s/2$); the stopband edge is where the
+nearest interferer begins, or, in a decimator, the frequency that will alias into the band; the
+stopband attenuation is set by the strongest adjacent-channel signal the standard requires the
+receiver to tolerate plus the SNR it must then achieve; and the passband ripple is set by how much
+in-band distortion (EVM) the modem budget allows. A transmit filter is driven instead by the
+spectral emission mask and the adjacent-channel leakage ratio (Chapter~\ref{ch:signals}).
+
+\subsection{Order estimates}
+
+Before designing anything, estimate the cost. For an optimal (equiripple) linear-phase FIR
+low-pass, three formulas are in common use. fred harris's rule of thumb is the easiest to
+remember,
 \begin{equation}
 N\approx\frac{A_s}{22\,(\Delta f/f_s)},
 \label{eq:ch06:harris}
 \end{equation}
 so a filter with 60\,dB of attenuation and a transition width of 1\% of the sample rate needs
-about 270 taps. Two lessons follow. Halving the transition doubles the cost. And the transition
-width is relative to the sample rate at which the filter runs, which is the key to the
-multirate savings later in this chapter: \emph{run sharp filters at low rates}.
+about 270 taps. Bellanger's formula brings in the passband ripple,
+\begin{equation}
+N\approx\frac{2}{3}\log_{10}\!\left(\frac{1}{10\,\delta_p\delta_s}\right)\frac{f_s}{\Delta f},
+\label{eq:ch06:bellanger}
+\end{equation}
+and Kaiser's formula gives the length of a \emph{Kaiser-window} design,
+\begin{equation}
+N\approx\frac{A-7.95}{14.36\,\Delta f/f_s}+1,\qquad A=-20\log_{10}\min(\delta_p,\delta_s).
+\label{eq:ch06:kaiserN}
+\end{equation}
+(The more elaborate Herrmann--Rabiner--Chan formula, used by MATLAB's \texttt{firpmord}, is a
+refinement of the same idea.) All three agree on the two lessons that drive the rest of this
+chapter. First, cost is inversely proportional to the transition width: halving the transition
+doubles the length. Second, the transition width is measured \emph{relative to the sample rate at
+which the filter runs}. A 10\,kHz transition is 1\% of a 1\,MS/s sample rate but 10\% of a
+100\,kS/s rate, where the same filter costs a tenth as many taps, each running ten times less often.
+That is the key to the multirate savings of Section~\ref{sec:ch06:multirate}: \emph{run sharp
+filters at low rates}.
 
+\begin{keyidea}[Cost is attenuation divided by relative transition width]
+The length of an FIR filter grows linearly with the stopband attenuation in dB, only
+logarithmically with the passband accuracy, and inversely with the transition width as a fraction
+of the sample rate. Asking for 20\,dB more attenuation costs about a third more taps; asking for a
+transition twice as sharp costs twice as many. And the multiplication rate is the length times the
+rate at which outputs are computed, so the cheapest place for a sharp filter is the lowest sample
+rate in the system.
+\end{keyidea}
+
+\begin{worked}[Sizing a channel filter]
+A 1.4\,MHz LTE carrier occupies 1.08\,MHz (six resource blocks of 180\,kHz), and a receiver
+delivers it at 1.92\,MS/s. The channel filter must pass $\pm540$\,kHz with no more than 0.1\,dB of
+ripple and attenuate everything beyond $\pm700$\,kHz by 60\,dB. So $\Delta f/f_s=160/1920=0.0833$,
+$\delta_p=0.0058$ and $\delta_s=0.001$.
+\begin{itemize}
+\item harris: $N\approx60/(22\times0.0833)=33$ taps.
+\item Bellanger: $\log_{10}\bigl(1/(10\times0.0058\times0.001)\bigr)=4.24$, so
+$N\approx\frac23\times4.24/0.0833=34$ taps.
+\item Kaiser window: $A=60$\,dB (the stopband is the tighter requirement), so
+$N\approx(60-7.95)/(14.36\times0.0833)+1=44.5$, i.e.\ 45 taps with $\beta=0.1102(60-8.7)=5.65$.
+\end{itemize}
+Running the Parks--McClellan algorithm with the error weighted by $\delta_p/\delta_s=5.8$ and
+increasing the length until the specification is met gives 35 taps, as the first two estimates
+predicted. The Kaiser design meets the specification with 45 taps, but its passband ripple is only
+$\pm0.008$\,dB, far better than required: a window design cannot trade passband accuracy for
+length, because the window controls both bands with one parameter
+(Figure~\ref{fig:ch06_kaiser_pm}). The 22\% saving matters: at 1.92\,MS/s on complex samples,
+35 taps cost $2\times35\times1.92\times10^6=134$ million multiplications per second, or about half
+that if the coefficient symmetry is exploited (Section~\ref{sec:ch06:firimpl}).
+\end{worked}
+
+%======================================================================
 \section{FIR filter design}
+\label{sec:ch06:fir}
+%======================================================================
+
+\subsection{Linear phase and the four types}
+
+An FIR filter of length $N$ whose coefficients are symmetric, $h[n]=h[N-1-n]$, or antisymmetric,
+$h[n]=-h[N-1-n]$, has \term{linear phase}. For odd $N=2L+1$ and symmetric coefficients, pair the
+taps around the centre:
+\begin{equation}
+H(e^{j\omega})=e^{-j\omega L}\Bigl[h[L]+2\sum_{k=1}^{L}h[L-k]\cos(k\omega)\Bigr]
+=e^{-j\omega L}A(\omega),
+\label{eq:ch06:linphase}
+\end{equation}
+where the \emph{amplitude} $A(\omega)$ is real (it may be negative, which is a phase jump of $\pi$
+that does no harm). Every frequency is delayed by exactly $L=(N-1)/2$ samples, so a pulse passing
+through the filter emerges delayed but undistorted. This is the property that makes FIR filters
+the default in data transmission, and the reason a root-raised-cosine pair
+(Chapter~\ref{ch:baseband}) can be Nyquist end to end. Symmetry also halves the multiplier count:
+add $x[n-k]$ and $x[n-N+1+k]$ first, then multiply once.
+
+There are four types, according to whether the length is odd or even and the coefficients
+symmetric or antisymmetric (Table~\ref{tab:ch06:types}). The types differ in the zeros they are
+\emph{forced} to have. An even-length symmetric filter always has a zero at $z=-1$ ($f_s/2$),
+because $A(\omega)$ is then a sum of $\cos\bigl((k-\tfrac12)\omega\bigr)$ terms, all of which vanish at
+$\omega=\pi$; it therefore cannot be a high-pass. Antisymmetric filters have $A(\omega)$ built
+from sines and are forced to zero at DC, which is exactly right for a differentiator or a Hilbert
+transformer, both of which must have zero response at DC, and exactly wrong for a low-pass.
+
+\begin{table}[htbp]\centering\small
+\caption{The four types of linear-phase FIR filter. The group delay is $(N-1)/2$ samples in every
+case; the antisymmetric types add a constant $90^\circ$ phase shift.}\label{tab:ch06:types}
+\begin{tabular}{lllll}
+\toprule
+Type & Length & Symmetry & Forced zeros & Suitable for \\
+\midrule
+I & odd & symmetric & none & any: low-, high-, band-pass, half-band \\
+II & even & symmetric & $z=-1$ ($f_s/2$) & low-pass, band-pass; not high-pass \\
+III & odd & antisymmetric & $z=\pm1$ (DC and $f_s/2$) & Hilbert transformer (band-limited) \\
+IV & even & antisymmetric & $z=1$ (DC) & differentiator, Hilbert, high-pass \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Even-length filters have a group delay of a half-integer number of samples. That is occasionally
+useful (an interpolator that must produce samples midway between inputs) and occasionally a trap
+(a filter in one branch of a system whose other branch has an integer delay).
 
 \subsection{The window method}
 
-The ideal low-pass filter has the infinite impulse response $h_d[n]=2f_c\sinc(2f_cn)$.
-Truncating it to $N$ taps is the same as multiplying by a rectangular window, which convolves
-the ideal response with the window's spectrum and produces the \emph{Gibbs} ripple of about 9\%
-(21\,dB stopband) no matter how long the filter. Tapering the truncation with a smooth
-\term{window}---Hann, Hamming, Blackman, Kaiser---trades a wider transition for lower
-sidelobes. The \term{Kaiser window} has an adjustable parameter $\beta$ and an empirical design
-formula that gives $\beta$ and $N$ directly from $A_s$ and $\Delta f$. Windowed designs are quick
-and robust, and adequate for many tasks, but not optimal: their ripple is largest near the band
-edge and decays away from it, wasting attenuation where it is not needed.
+The ideal low-pass filter with cutoff $f_c$ (in cycles/sample) has the infinite impulse response
+$h_d[n]=2f_c\sinc(2f_cn)$. Truncating it to $N$ taps is the same as multiplying by a rectangular
+window, which convolves the ideal response with the window's spectrum and produces the \emph{Gibbs}
+ripple of about 9\% (21\,dB stopband) no matter how long the filter
+(Chapter~\ref{ch:signals}). Tapering the truncation with a smooth \term{window} $w[n]$,
+\begin{equation}
+h[n]=h_d\bigl[n-\tfrac{N-1}{2}\bigr]\,w[n],\qquad
+H(e^{j\omega})=\frac{1}{2\pi}\int_{-\pi}^{\pi}H_d(e^{j\theta})\,W\bigl(e^{j(\omega-\theta)}\bigr)\,d\theta,
+\end{equation}
+trades a wider transition for lower sidelobes: the main lobe of $W$ sets the transition width and
+its sidelobes set the stopband ripple. The windows themselves---Hann, Hamming, Blackman,
+Blackman--Harris---are the same ones used for spectral analysis in Chapter~\ref{ch:signals}, and
+for the same reasons.
 
-\subsection{Optimal designs}
+The \term{Kaiser window},
+\begin{equation}
+w[n]=\frac{I_0\Bigl(\beta\sqrt{1-\bigl(\tfrac{2n}{N-1}-1\bigr)^2}\Bigr)}{I_0(\beta)},
+\label{eq:ch06:kaiserwin}
+\end{equation}
+with the shape parameter chosen from the required attenuation $A$ in dB as
+\begin{equation}
+\beta=\begin{cases}0.1102(A-8.7), & A>50,\\ 0.5842(A-21)^{0.4}+0.07886(A-21), & 21\le A\le 50,\\
+0, & A<21,\end{cases}
+\label{eq:ch06:kaiser}
+\end{equation}
+is a near-optimal approximation to the prolate spheroidal sequence, the window that concentrates the
+most energy in a given main-lobe width. Its single parameter $\beta$ trades main-lobe width
+against sidelobe level continuously, and Kaiser's empirical formulas~\eqref{eq:ch06:kaiser}
+and~\eqref{eq:ch06:kaiserN} give $\beta$ and $N$ directly from the attenuation and transition width.
+That makes it the quickest route from a specification to a working filter, and it is entirely
+adequate for many tasks. It is not optimal: the window controls passband and stopband ripple
+together ($\delta_p=\delta_s$, although $\delta_p$ is often far tighter than needed), and the
+ripple is largest near the band edge and decays away from it, wasting attenuation where it is not
+needed.
 
-The \term{Parks--McClellan} algorithm (1972), based on the Remez exchange, designs the FIR filter
-that minimises the maximum weighted error over the specified bands. The result is
-\emph{equiripple}: the error oscillates with equal amplitude across each band, and for a given
-length no other filter has lower peak error. \emph{Least-squares} designs instead minimise the
-integrated squared error; they have slightly higher peaks but less total stopband energy, which
-can be better when the stopband contains broadband noise rather than a single interferer.
+\subsection{Frequency sampling}
+
+A second classical method specifies the desired response at $N$ equally spaced frequencies
+$\omega_k=2\pi k/N$ and takes the inverse DFT to get the $N$ taps. The resulting filter matches the
+specification exactly at those frequencies and interpolates smoothly between them. With samples that
+jump from 1 to 0 at the band edge it suffers the same Gibbs ripple as a truncated sinc, but
+Rabiner, Gold and McGonegal showed in 1970 that letting one, two or three \emph{transition samples}
+take optimised intermediate values raises the stopband attenuation dramatically: one transition
+sample gives roughly 40--50\,dB, three give 80--100\,dB. Frequency sampling is the natural method
+when the response is specified point by point (an arbitrary equaliser, a measured channel
+inverse, the inverse-sinc of a CIC compensator), and \texttt{scipy.signal.firwin2} is a
+windowed version of it. It also has a structural interpretation: the filter can be implemented as
+a comb $1-z^{-N}$ followed by a bank of resonators, one per nonzero frequency sample, which is
+efficient when only a few samples are nonzero and is the conceptual ancestor of the CIC filter.
+
+\subsection{Least-squares design}
+
+The \emph{least-squares} method chooses the coefficients to minimise the weighted integrated
+squared error
+\begin{equation}
+\varepsilon_2=\int_{\text{bands}}W(\omega)\bigl[A(\omega)-D(\omega)\bigr]^2\,d\omega,
+\end{equation}
+where $D(\omega)$ is the desired amplitude (1 in the passband, 0 in the stopband) and $W(\omega)$ a
+weight. Because $A(\omega)$ is linear in the coefficients, setting the gradient to zero gives a set
+of linear equations---one matrix solve, no iteration. The result has slightly higher peak error
+than the equiripple design of the same length but much less total stopband energy, because its
+stopband ripples decay away from the edge. That is the right trade when the stopband contains
+broadband noise rather than a single strong interferer at the worst frequency: the noise power
+leaking through the stopband is what matters, and that is precisely what least squares minimises.
+Least-squares designs (\texttt{scipy.signal.firls}) are also robust for arbitrary multiband shapes
+where the equiripple algorithm can fail to converge.
+
+\subsection{Optimal equiripple design: Parks--McClellan}
+
+The \term{Parks--McClellan} algorithm designs the linear-phase FIR filter that minimises the
+maximum weighted error,
+\begin{equation}
+\delta=\min_{h}\;\max_{\omega\in\text{bands}}\;W(\omega)\bigl|A(\omega)-D(\omega)\bigr|.
+\end{equation}
+The key observation is that the amplitude~\eqref{eq:ch06:linphase} of a type I filter is a
+polynomial of degree $L$ in $x=\cos\omega$, because $\cos(k\omega)$ is the Chebyshev polynomial
+$T_k(\cos\omega)$. The problem is therefore the classical one of the best uniform (Chebyshev)
+approximation of a function by a polynomial, and the \term{alternation theorem} characterises the
+answer completely: \emph{a polynomial of degree $L$ is the unique best weighted approximation on a
+set of bands if and only if its weighted error attains its maximum magnitude $\delta$, with
+alternating signs, at no fewer than $L+2$ frequencies}. The optimum is therefore
+\emph{equiripple}: the error oscillates with equal amplitude across each band, and the ripple
+heights in the two bands are in the ratio $\delta_p/\delta_s=W_s/W_p$ set by the weights.
+
+The intuition is worth having. Suppose the error peaked at only $L+1$ alternating points. Then one
+could find a polynomial of degree $L$ that has the same sign as the error at each of those peaks
+(a polynomial of degree $L$ can be made to pass through any $L+1$ values) and subtract a small
+multiple of it, lowering every peak at once. Only when there are too many alternations for any
+degree-$L$ correction to follow them is the error irreducible.
+
+The \emph{Remez exchange algorithm} turns the theorem into a procedure. Guess $L+2$ extremal
+frequencies. Solve the $L+2$ linear equations that force the weighted error to be $\pm\delta$ with
+alternating signs at those frequencies (unknowns: the $L+1$ coefficients and $\delta$). Evaluate
+the error on a dense grid, find its actual $L+2$ largest alternating peaks, move the guesses
+there, and repeat. Each iteration increases $\delta$ toward the minimax value, and convergence
+typically takes a handful of iterations. In practice the algorithm is run through barycentric
+Lagrange interpolation on a dense grid of about $16N$ points, which is what the 1973 FORTRAN
+program by McClellan, Parks and Rabiner did and what \texttt{scipy.signal.remez} still does.
+
 Figure~\ref{fig:ch06_fir_design} compares window, least-squares and equiripple designs of the
-same length. At 41 taps the equiripple filter gains about 15\,dB of minimum stopband
-attenuation over a Hamming window with a similar transition.
+same length. At 41 taps the equiripple filter gains about 15\,dB of minimum stopband attenuation
+over a Hamming window with a similar transition, and Figure~\ref{fig:ch06_kaiser_pm} shows the
+other way of seeing the same advantage: for a fixed specification, the equiripple filter is
+about 20\% shorter than the Kaiser-window design.
 
 \mdcfig{ch06_fir_design}{Four 41-tap low-pass designs with a transition band from 0.10 to 0.15
 cycles/sample (shaded). The Parks--McClellan filter's stopband is equiripple; the windowed
 designs have ripples that decay away from the band edge. Right: the equiripple impulse
 response, symmetric and therefore exactly linear phase.}
 
-\subsection{Linear phase}
+\mdcfig{ch06_kaiser_pm}{The LTE channel-filter specification of the worked example (pass
+$\pm540$\,kHz with $\pm0.05$\,dB ripple, reject beyond $\pm700$\,kHz by 60\,dB, $f_s=1.92$\,MS/s)
+met two ways. The Kaiser window needs 45 taps and wastes accuracy: its passband ripple (right) is far
+inside the specification and its stopband ripple decays away from the edge. The 35-tap
+Parks--McClellan design spends its error budget exactly, touching both limits with equal ripples.}
 
-An FIR filter with symmetric coefficients, $h[n]=h[N-1-n]$, has frequency response
-$H(e^{j\omega})=A(\omega)e^{-j\omega(N-1)/2}$ with $A(\omega)$ real. Every frequency is delayed by
-exactly $(N-1)/2$ samples, so pulse shapes pass undistorted. Symmetry also halves the multiplier
-count: add $x[n-k]$ and $x[n-N+1+k]$ first, then multiply once. The four types of linear-phase
-FIR (odd or even length, symmetric or antisymmetric) differ in whether they can have zeros at
-DC and $f_s/2$; an antisymmetric filter is required for a Hilbert transformer or
-differentiator.
+\begin{history}[Parks, McClellan and an old Russian theorem]
+In 1971 Thomas Parks, a young professor at Rice University, set his graduate student James McClellan
+the problem of designing optimal linear-phase FIR filters. Earlier approaches had used linear
+programming or had fixed the band edges in awkward ways. Parks and McClellan realised that the
+problem was exactly the one Evgeny Remez had solved in 1934 for polynomial approximation in the
+Chebyshev sense, and that the alternation theorem guaranteed a unique, equiripple optimum. Their
+paper ``Chebyshev approximation for nonrecursive digital filters with linear phase'' appeared in
+the \emph{IEEE Transactions on Circuit Theory} in March 1972. The following year McClellan, Parks
+and Lawrence Rabiner of Bell Labs published the FORTRAN program that implemented it, and it
+became one of the most widely copied pieces of software in engineering; its algorithm survives
+almost unchanged in \texttt{scipy.signal.remez}, MATLAB's \texttt{firpm} and GNU Radio's
+\texttt{optfir}. More than half a century later, ``remez'' is still a verb in DSP labs.
+\end{history}
 
-\section{IIR filter design}
+\subsection{Half-band filters}
 
-\subsection{From analog prototypes}
-
-IIR filters are usually designed by transforming classic analog prototypes. The
-\term{bilinear transform}
+A \term{half-band filter} is a type I low-pass whose amplitude satisfies
 \begin{equation}
-s=\frac{2}{T_s}\,\frac{1-z^{-1}}{1+z^{-1}}
+A(\omega)+A(\pi-\omega)=1,
+\label{eq:ch06:halfband}
 \end{equation}
-maps the entire $j\Omega$ axis onto the unit circle once, so there is no aliasing, but it warps
-frequency as $\Omega=\frac{2}{T_s}\tan(\omega/2)$. The designer \emph{pre-warps} the critical
-frequencies before designing the analog prototype. The prototypes are the classical families:
-\begin{itemize}
-\item \textbf{Butterworth}: maximally flat passband, monotonic, gentlest roll-off.
-\item \textbf{Chebyshev type I}: equiripple passband, monotonic stopband, sharper.
-\item \textbf{Chebyshev type II}: flat passband, equiripple stopband.
-\item \textbf{Elliptic (Cauer)}: equiripple in both bands; the sharpest transition for a given
-order, with zeros on the unit circle in the stopband.
-\item \textbf{Bessel}: maximally flat group delay; nearly linear phase, very gentle magnitude
-roll-off (and the bilinear transform spoils its phase property, so digital designs usually
-approximate it directly).
-\end{itemize}
-Figure~\ref{fig:ch06_iir_compare} contrasts three sixth-order designs. The elliptic filter
-reaches 60\,dB of attenuation in a small fraction of the transition the Butterworth needs, but
-its group delay peaks sharply at the band edge---exactly the kind of phase distortion that would
-cause intersymbol interference in a data receiver.
+so its response is antisymmetric about the quarter sampling rate $f_s/4$: the transition band is
+centred on $f_s/4$, the passband and stopband edges are $f_p$ and $f_s/2-f_p$, and the passband and
+stopband ripples are equal. The striking consequence is in the time domain. Index the taps from the
+centre, $n=-L,\dots,L$. Replacing $\omega$ by $\pi-\omega$ multiplies $h[n]$ by $(-1)^n$, so the
+left side of~\eqref{eq:ch06:halfband} is the transform of $h[n]+(-1)^nh[n]$ (times a linear phase
+term), which is $2h[n]$ for even $n$ and zero for odd $n$. For that to equal 1 at every frequency,
+\begin{equation}
+h[0]=\tfrac12,\qquad h[n]=0\ \text{for even } n\ne0.
+\end{equation}
+Every second coefficient, except the centre, is exactly zero (Figure~\ref{fig:ch06_halfband}). A
+half-band filter of length $N=4K-1$ therefore has only $K$ distinct nonzero non-central
+coefficients, and the centre tap is a shift by one bit. Combined with symmetry, a half-band
+decimator costs about $N/4$ multiplications per input sample pair---roughly a quarter of a general
+filter of the same length.
+
+\mdcfig{ch06_halfband}{A 23-tap equiripple half-band filter. Left: every even-offset coefficient
+except the centre is exactly zero (open circles). Centre: the response is antisymmetric about
+$f_s/4$, with equal passband and stopband ripple. Right: the zero-phase amplitude and its mirror
+image sum to exactly one, which is the defining property~\eqref{eq:ch06:halfband}.}
+
+Half-band filters are designed with Parks--McClellan using symmetric band edges (the algorithm
+lands on a half-band solution automatically, to within rounding, and the near-zero taps are then
+set exactly to zero), or exactly by designing a filter of half the length for a single band and
+interleaving it with zeros. Their natural job is decimation or interpolation by two, where the
+image or alias band that must be rejected is the mirror of the passband about $f_s/4$. Cascades of
+them, each decimating by two, are the standard way to decimate by powers of two
+(Section~\ref{sec:ch06:multistage}).
+
+\subsection{Nyquist (\texorpdfstring{$M$}{M}th-band) filters}
+
+The half-band filter is the $M=2$ member of a family. An \term{$M$th-band} or \term{Nyquist filter}
+has
+\begin{equation}
+h[0]=\frac1M,\qquad h[kM]=0\ \text{for } k\ne0
+\quad\Longleftrightarrow\quad
+\sum_{k=0}^{M-1}H\bigl(e^{j(\omega-2\pi k/M)}\bigr)=1.
+\end{equation}
+The time-domain statement is the Nyquist zero-ISI criterion of Chapter~\ref{ch:baseband} in
+discrete time: a raised-cosine filter sampled at $M$ samples per symbol is an $M$th-band filter.
+In multirate systems, Nyquist filters have two valuable properties. In an interpolator by $M$ the
+original samples pass through unchanged (the filter only fills in the missing ones), and one of
+the $M$ polyphase branches is a pure delay. And their frequency-domain property---the $M$ shifted
+copies sum to a constant---is exactly what a filter bank needs for its channels to tile the band
+without gaps (Section~\ref{sec:ch06:filterbanks}).
+
+\subsection{Differentiators and Hilbert transformers}
+
+Two non-low-pass FIR filters appear constantly in radio receivers. A \emph{differentiator} has
+$D(\omega)=j\omega$: it computes the derivative of the band-limited signal underlying the samples,
+used in FM discriminators (Chapter~\ref{ch:analog}), in the derivative matched filter of
+maximum-likelihood timing recovery (Chapter~\ref{ch:sync}) and in edge detectors. A
+\emph{Hilbert transformer} has $D(\omega)=-j\operatorname{sgn}\omega$: it shifts every positive
+frequency by $-90^\circ$ and is the classical route from a real signal to the analytic signal and
+single-sideband modulation (Chapter~\ref{ch:analog}).
+
+Both need antisymmetric coefficients (types III or IV), since both have zero response at DC. A
+type IV (even-length) differentiator is best, because it is not forced to zero at $f_s/2$ where
+$|D|=\pi$ is largest; its half-sample delay is the price. An odd-length (type III) Hilbert
+transformer has a forced zero at $f_s/2$ as well as DC, which is acceptable because the Hilbert
+transformer only has to work over a band excluding both. It also has a beautiful connection to the
+half-band filter: shift a half-band low-pass up by $f_s/4$ by multiplying its taps by $j^n$. The
+result passes positive frequencies and rejects negative ones---a complex filter that produces the
+analytic signal directly---and its imaginary part is a type III Hilbert transformer with every
+second tap zero. Designing one is designing the other.
+
+\subsection{Design in practice with \texttt{scipy.signal}}
+
+All of the methods above are a few lines of Python. The listing below designs the LTE channel
+filter of the worked example three ways and a half-band filter, and shows the two traps that catch
+everyone: the frequency normalisation (always pass \texttt{fs} explicitly; without it,
+\texttt{firwin} measures frequencies relative to the Nyquist rate but \texttt{remez} relative to
+the sample rate in older code), and the weight convention (the ratio of the weights is the
+\emph{inverse} of the ratio of the ripples).
+\begin{lstlisting}
+import numpy as np
+from scipy import signal as sg
+
+fs, fp, fst = 1.92e6, 540e3, 700e3          # LTE 1.4 MHz channel filter
+dp = (10**(0.1/20) - 1) / (10**(0.1/20) + 1) # 0.1 dB p-p ripple -> 0.0058
+ds = 10**(-60/20)                           # 60 dB
+
+# 1. Kaiser window: length and beta from the specification
+N, beta = sg.kaiserord(60, (fst - fp) / (fs / 2))   # width relative to Nyquist!
+h_kai = sg.firwin(N, (fp + fst) / 2, window=("kaiser", beta), fs=fs)
+
+# 2. Parks-McClellan: weight = inverse ripple ratio
+h_pm = sg.remez(35, [0, fp, fst, fs/2], [1, 0], weight=[1, dp/ds], fs=fs)
+
+# 3. Least squares, same length
+h_ls = sg.firls(35, [0, fp, fst, fs/2], [1, 1, 0, 0], weight=[1, dp/ds], fs=fs)
+
+# Half-band (23 taps): symmetric band edges, then force the zeros exactly
+h_hb = sg.remez(23, [0, 0.2, 0.3, 0.5], [1, 0])
+k = np.arange(23) - 11
+h_hb[(k % 2 == 0) & (k != 0)] = 0.0
+
+w, H = sg.freqz(h_pm, worN=8192, fs=fs)      # always check the result
+print(N, 20*np.log10(abs(H[w >= fst]).max()))
+\end{lstlisting}
+The last line is the most important. Always plot or measure the designed response against the
+specification: the Remez algorithm can fail silently to converge on difficult multiband problems,
+and a design that is one tap too short misses the specification by a few decibels with no warning.
+
+\begin{pitfall}[Specifying more than you need]
+The most expensive mistake in filter design is not a bad algorithm but a bad specification. A
+stopband requirement of 100\,dB when the ADC's own spurious-free dynamic range is 75\,dB, a passband
+ripple of 0.01\,dB in front of a demodulator that tolerates 0.5\,dB, a transition band drawn from
+the edge of the occupied bandwidth rather than from the edge of the RRC roll-off: each inflates the
+filter by tens of percent, and the inflation compounds through every stage of a multirate chain.
+Derive every number from the system budget and write down where it came from.
+\end{pitfall}
+
+%======================================================================
+\section{Implementing FIR filters}
+\label{sec:ch06:firimpl}
+%======================================================================
+
+\subsection{Direct, transposed and folded structures}
+
+The difference equation $y[n]=\sum_kh[k]x[n-k]$ can be drawn in several ways that compute the same
+numbers but behave very differently in hardware (Figure~\ref{fig:ch06_fir_structures}). The
+\emph{direct form} is a tapped delay line: the input shifts along a chain of registers, each tap is
+multiplied by its coefficient, and an adder tree (or a chain of adders) sums the products. It is
+the natural structure for software, where a loop over the taps is a dot product that SIMD
+instructions accelerate. Its weakness in hardware is the long combinational path through the adder
+chain: every output waits for $N$ additions.
+
+The \emph{transposed form} is obtained by reversing every arrow, swapping inputs and outputs and
+replacing branch points with adders (the transposition theorem guarantees the same transfer
+function). The input is now broadcast to all multipliers at once, and the delays sit
+\emph{between} the adders, so each adder adds one product to a partial sum that arrived from its
+neighbour one clock earlier. The critical path is one multiplier and one adder regardless of the
+length, so a transposed FIR filter runs at the full clock rate of the device. Its weakness is the
+high fan-out of the input.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  dl/.style={draw=navy,fill=navy!6,thick,minimum height=0.6cm,minimum width=0.75cm,font=\sffamily\scriptsize},
+  mul/.style={draw=navy,thick,circle,inner sep=0.3pt,minimum size=0.48cm,font=\scriptsize},
+  add/.style={draw=accent,thick,circle,inner sep=0.3pt,minimum size=0.48cm,font=\scriptsize},
+  arr/.style={-{Stealth[length=1.6mm]},thick,navy}]
+% ---- direct form
+\node[font=\sffamily\small\bfseries,text=navy,anchor=west] at (-0.4,1.3) {(a) Direct form};
+\node (x) at (-0.4,0) {\small $x[n]$};
+\foreach \i/\xx in {0/0.6,1/2.6,2/4.6,3/6.6} {\coordinate (t\i) at (\xx,0);}
+\node[dl] (d1) at (1.6,0) {$z^{-1}$};
+\node[dl] (d2) at (3.6,0) {$z^{-1}$};
+\node[dl] (d3) at (5.6,0) {$z^{-1}$};
+\draw[thick,navy] (x) -- (t0); \draw[arr] (t0) -- (d1); \draw[arr] (d1) -- (d2); \draw[arr] (d2) -- (d3); \draw[thick,navy] (d3) -- (t3);
+\foreach \i in {0,1,2,3} {
+  \node[mul] (m\i) at ($(t\i)+(0,-0.9)$) {$\times$};
+  \node[font=\scriptsize,anchor=east] at ($(m\i)+(-0.25,0)$) {$h_\i$};
+  \draw[arr] (t\i) -- (m\i);
+  \fill[navy] (t\i) circle (1.3pt);
+}
+\foreach \i in {1,2,3} {\node[add] (a\i) at ($(t\i)+(0,-1.8)$) {$+$}; \draw[arr] (m\i) -- (a\i);}
+\draw[arr] (m0) |- (a1); \draw[arr] (a1) -- (a2); \draw[arr] (a2) -- (a3);
+\draw[arr] (a3) -- ++(1.0,0) node[right,font=\small] {$y[n]$};
+\node[font=\sffamily\scriptsize,text=accent,anchor=west] at (0.2,-2.45) {critical path: one multiplier and $N-1$ adders};
+% ---- transposed form
+\begin{scope}[yshift=-4.2cm]
+\node[font=\sffamily\small\bfseries,text=navy,anchor=west] at (-0.4,1.1) {(b) Transposed form};
+\node (x2) at (-0.4,0) {\small $x[n]$};
+\draw[thick,navy] (x2) -- (6.6,0);
+\foreach \i/\xx/\hh in {0/0.6/3,1/2.6/2,2/4.6/1,3/6.6/0} {
+  \coordinate (u\i) at (\xx,0);
+  \node[mul] (n\i) at ($(u\i)+(0,-0.9)$) {$\times$};
+  \node[font=\scriptsize,anchor=east] at ($(n\i)+(-0.25,0)$) {$h_\hh$};
+  \draw[arr] (u\i) -- (n\i);
+  \fill[navy] (u\i) circle (1.3pt);
+}
+\foreach \i in {1,2,3} {\node[add] (b\i) at ($(u\i)+(0,-1.8)$) {$+$}; \draw[arr] (n\i) -- (b\i);}
+\node[dl] (e1) at (1.6,-1.8) {$z^{-1}$};
+\node[dl] (e2) at (3.6,-1.8) {$z^{-1}$};
+\node[dl] (e3) at (5.6,-1.8) {$z^{-1}$};
+\draw[arr] (n0) |- (e1); \draw[arr] (e1) -- (b1); \draw[arr] (b1) -- (e2); \draw[arr] (e2) -- (b2);
+\draw[arr] (b2) -- (e3); \draw[arr] (e3) -- (b3);
+\draw[arr] (b3) -- ++(1.0,0) node[right,font=\small] {$y[n]$};
+\node[font=\sffamily\scriptsize,text=accent,anchor=west] at (0.2,-2.45) {critical path: one multiplier and one adder; input broadcast to all taps};
+\end{scope}
+% ---- folded (6 taps, 3 multipliers)
+\begin{scope}[xshift=9.6cm,yshift=0.3cm]
+\node[font=\sffamily\small\bfseries,text=navy,anchor=west] at (-1.0,1.0) {(c) Folded (symmetric, 6 taps)};
+\node[font=\small] (xf) at (-0.9,0) {$x[n]$};
+\foreach \k/\xx in {0/0,1/1.4,2/2.8} {
+  \coordinate (T\k) at ($(\xx,0)+(-0.25,0)$);
+  \coordinate (B\k) at ($(\xx,-1.2)+(0.25,0)$);
+  \node[add] (P\k) at (\xx,-2.15) {$+$};
+  \node[mul] (Q\k) at (\xx,-3.0) {$\times$};
+  \node[font=\scriptsize,anchor=east] at ($(Q\k)+(-0.25,0)$) {$h_\k$};
+  \draw[arr] (P\k) -- (Q\k);
+}
+\node[dl] (D1) at (0.7,0) {$z^{-1}$}; \node[dl] (D2) at (2.1,0) {$z^{-1}$};
+\node[dl] (D3) at (3.55,-0.6) {$z^{-1}$};
+\node[dl] (D4) at (2.1,-1.2) {$z^{-1}$}; \node[dl] (D5) at (0.7,-1.2) {$z^{-1}$};
+\draw[thick,navy] (xf) -- (T0); \draw[arr] (T0) -- (D1); \draw[arr] (D1) -- (D2); \draw[thick,navy] (D2) -- (T2);
+\draw[arr] (T2) -- (3.55,0) -- (D3); \draw[arr] (D3) -- (3.55,-1.2) -- (D4.east);
+\draw[arr] (D4) -- (D5); \draw[thick,navy] (D5.west) -- (B0);
+\draw[thick,navy] (D4.east) -- (B2); \draw[thick,navy] (D5.east) -- (B1);
+\foreach \k in {0,1,2} {
+  \fill[navy] (T\k) circle (1.3pt); \fill[navy] (B\k) circle (1.3pt);
+  \draw[arr] (T\k) -- (T\k |- P\k.north west);
+  \draw[arr] (B\k) -- (B\k |- P\k.north east);
+}
+\node[add] (S1) at (1.4,-3.85) {$+$}; \node[add] (S2) at (2.8,-3.85) {$+$};
+\draw[arr] (Q0) |- (S1); \draw[arr] (Q1) -- (S1); \draw[arr] (Q2) -- (S2); \draw[arr] (S1) -- (S2);
+\draw[arr] (S2) -- ++(0.9,0) node[right,font=\small] {$y[n]$};
+\node[font=\sffamily\scriptsize,text=accent,align=left,anchor=north west] at (-1.0,-4.35)
+  {pre-add the two samples that share a\\coefficient, multiply once: $N/2$\\multipliers (the DSP-slice pre-adder)};
+\end{scope}
+\end{tikzpicture}
+\caption{FIR filter structures (four taps in (a) and (b), six in (c)). (a) The direct form is a tapped delay line
+followed by an adder chain. (b) The transposed form broadcasts the input and pipelines the sum
+through registers between the adders, so it runs at the full clock rate however long the filter
+is. (c) For a symmetric filter, the folded form adds the two samples that share a coefficient
+before multiplying, halving the number of multipliers; FPGA DSP slices include a pre-adder for
+exactly this purpose.}
+\label{fig:ch06_fir_structures}
+\end{figure}
+
+For a symmetric (linear-phase) filter, the \emph{folded} form adds the two delayed samples that
+share a coefficient before the multiplication, halving the multiplier count. A half-band filter in
+folded form needs only about a quarter of the multipliers of a general filter of the same length.
+Hardware designers then decide how much to \emph{parallelise} or \emph{serialise}. If the clock is
+much faster than the sample rate, one multiplier can be time-shared across many taps (a
+\emph{serial} or \emph{semi-parallel} FIR); if the sample rate exceeds the clock, the filter must
+process several samples per clock in parallel, which is how 4\,GS/s RF-sampling converters are
+filtered in FPGAs running at 500\,MHz.
+
+\begin{inpractice}[The systolic FIR in an FPGA]
+Every modern FPGA contains hundreds to thousands of hard \emph{DSP slices}. A Xilinx DSP48E2 (the
+UltraScale family) has a $27\times18$-bit multiplier, a 27-bit pre-adder in front of it and a
+48-bit accumulator after it, with pipeline registers at every stage and a dedicated cascade path
+that carries a partial sum from one slice to its neighbour without using general routing. A
+\emph{systolic} FIR filter is a chain of these slices: each one pre-adds the two symmetric input
+samples, multiplies by its coefficient, adds the partial sum arriving on the cascade input and
+passes the result on. It is the transposed form with extra pipeline registers distributed along the
+input delay line, and it runs at the slice's maximum clock rate---several hundred megahertz---with
+no general-fabric logic in the datapath. The 48-bit accumulator means the products can be summed at
+full precision and rounded once at the end. Vendor FIR compiler IP generates these structures
+automatically, including serialised variants that share one slice among many taps when the clock is
+much faster than the sample rate. The older Spartan-6 DSP48A1 used in the USRP B200 has the same
+architecture with an $18\times18$ multiplier and an 18-bit pre-adder.
+\end{inpractice}
+
+\subsection{Counting the cost}
+
+The cost of a filter is measured in multiplications (or multiply--accumulates, MACs) per second:
+taps times the rate at which outputs are computed, times four for a complex filter on complex data
+or two for a real filter on complex data.
+
+\begin{worked}[A MAC budget]
+A receiver must filter a 20\,MHz LTE carrier sampled at 30.72\,MS/s (complex) with a 127-tap real,
+symmetric channel filter. Directly, that is $127\times2\times30.72\times10^6=7.8\times10^9$
+multiplications per second (two because I and Q are filtered separately). With folding, the
+multipliers halve to 64 per output per rail, $3.9\times10^9$ per second. On an FPGA clocked at
+491.52\,MHz (16 times the sample rate), each DSP slice can be time-shared across 16 taps, so the
+filter needs $\lceil64/16\rceil\times2=8$ slices. On a CPU core with 256-bit AVX2 vectors (eight
+single-precision multiply--adds per fused instruction, two such units per core), the direct form
+needs about $10^9$ vector instructions per second, enough to keep both units of one core busy half
+the time, which is why GNU Radio's VOLK library selects the best SIMD kernel for each processor at
+run time. Had the same channel filter been applied at a sample rate four times higher, every one of
+these numbers would have quadrupled---and the filter would have needed four times as many taps for
+the same absolute transition width, so the true cost would have risen sixteen-fold. This is the
+argument for decimating before sharp filtering, developed in Section~\ref{sec:ch06:multirate}.
+\end{worked}
+
+\subsection{Fast convolution: overlap-add and overlap-save}
+
+For long filters on processors, convolution via the FFT is cheaper. Multiplying DFTs computes
+\emph{circular} convolution, so the trick is to process the stream in blocks and arrange that the
+circular wrap-around does no harm (Chapter~\ref{ch:signals}). With an $N$-tap filter and an FFT of
+size $L\ge N$:
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Overlap-add.] Cut the input into non-overlapping blocks of $L-N+1$ samples, zero-pad each to
+$L$, multiply its FFT by the (precomputed) FFT of the zero-padded filter, inverse transform, and
+add the overlapping $N-1$-sample tails of consecutive output blocks.
+\item[Overlap-save.] Cut the input into blocks of $L$ samples that overlap by $N-1$, transform,
+multiply and inverse transform without padding, and discard the first $N-1$ outputs of each block,
+which are corrupted by wrap-around. The remaining $L-N+1$ are exactly the linear convolution.
+\end{description}
+Each block costs two FFTs of size $L$ plus $L$ complex multiplications and produces $L-N+1$
+outputs, so the cost per output is about
+\begin{equation}
+C_{\text{FFT}}\approx\frac{2\cdot\frac{L}{2}\log_2L+L}{L-N+1}\ \text{complex multiplications,}
+\end{equation}
+minimised for $L$ around four to eight times $N$, giving roughly $2\log_2(4N)$ complex (about
+$8\log_2(4N)$ real) operations per output against $N$ real MACs for the direct form. The crossover is
+typically between 32 and 128 taps, depending on how well each method vectorises; above a few
+hundred taps fast convolution wins by an order of magnitude. Its costs are latency (a whole block
+must arrive before any output leaves) and memory. GNU Radio's \texttt{fft\_filter} blocks use
+overlap-save. OFDM is, in a sense, fast convolution built into the waveform: the cyclic prefix
+makes the channel's linear convolution circular so that one FFT multiplication undoes it
+(Chapter~\ref{ch:ofdm}).
+
+%======================================================================
+\section{IIR filter design}
+\label{sec:ch06:iir}
+%======================================================================
+
+\subsection{Analog prototypes}
+
+IIR filters are usually designed by transforming the classical analog prototypes, which were
+perfected for LC ladder filters long before digital filters existed. Each family is defined by its
+squared magnitude response, normalised to a cutoff of 1\,rad/s:
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Butterworth.] $|H(j\Omega)|^2=1/(1+\Omega^{2n})$. Maximally flat at DC (the first $2n-1$
+derivatives vanish), monotonic, and the gentlest roll-off of the family: $-20n$\,dB per decade
+asymptotically. Poles equally spaced on a semicircle.
+\item[Chebyshev type I.] $|H|^2=1/(1+\varepsilon^2T_n^2(\Omega))$, with $T_n$ the Chebyshev
+polynomial. Equiripple in the passband, monotonic in the stopband, considerably sharper than
+Butterworth for the same order. Poles on an ellipse.
+\item[Chebyshev type II] (inverse Chebyshev). Flat passband, equiripple stopband, with zeros on
+the $j\Omega$ axis in the stopband.
+\item[Elliptic (Cauer).] Equiripple in both bands, using Jacobi elliptic functions. For a given
+order and ripple it has the narrowest transition of any filter---the IIR analogue of the
+equiripple FIR---with zeros on the axis that produce deep stopband notches.
+\item[Bessel (Thomson).] Maximally flat \emph{group delay} at DC; nearly linear phase in the
+passband but a very gentle magnitude roll-off. The bilinear transform spoils its phase property,
+so digital designs that need it are usually done directly or replaced by an FIR filter.
+\end{description}
+The orders needed for a given specification differ dramatically. For a passband ripple of 0.5\,dB,
+60\,dB attenuation and a stopband edge 1.5 times the passband edge, a Butterworth filter needs
+order 20, a Chebyshev filter order 9 and an elliptic filter order 6. Figure~\ref{fig:ch06_iir_compare}
+contrasts three sixth-order designs. The elliptic filter reaches 60\,dB of attenuation in a small
+fraction of the transition the Butterworth needs, but its group delay peaks sharply at the band
+edge---exactly the kind of phase distortion that causes intersymbol interference in a data
+receiver.
 
 \mdcfig{ch06_iir_compare}{Sixth-order IIR low-pass filters with cutoff 0.1 cycles/sample.
 Left: magnitude. Centre: group delay, which peaks at the band edge, most severely for the sharpest
 design. Right: the elliptic filter's poles cluster near the unit circle and its zeros lie on it.}
 
-\subsection{Implementation structures}
+\subsection{The bilinear transform}
 
-An $N$th-order IIR filter can be implemented as one difference equation (\emph{direct form})
-or as a cascade of second-order sections (\term{biquads}). Mathematically they are equivalent.
-Numerically they are not. The poles of a high-order polynomial are extremely sensitive to its
-coefficients when they are clustered, as they are in any sharp filter. Figure~\ref{fig:ch06_coef_quant}
-shows an eighth-order elliptic filter: rounding the direct-form coefficients to 16 or 12 bits
-moves poles outside the unit circle and the filter becomes unstable, while the same filter as
-four biquads with 12-bit coefficients is almost indistinguishable from the ideal. \emph{Always
-implement IIR filters of order above two as cascaded biquads}, with poles paired to their
-nearest zeros and sections ordered by increasing pole radius to control internal gain.
+The \term{bilinear transform} maps an analog transfer function $H_a(s)$ to a digital one by the
+substitution
+\begin{equation}
+s=\frac{2}{T_s}\,\frac{1-z^{-1}}{1+z^{-1}}.
+\label{eq:ch06:bilinear}
+\end{equation}
+It comes from approximating the integrator $1/s$ by the trapezoidal rule, $y[n]=y[n-1]+
+\tfrac{T_s}{2}(x[n]+x[n-1])$, whose transfer function is $\tfrac{T_s}{2}(1+z^{-1})/(1-z^{-1})$.
+Replace every integrator of an analog filter by its trapezoidal approximation and you have the
+bilinear transform. It maps the left half of the $s$-plane onto the inside of the unit circle, so
+stable analog filters give stable digital ones, and it maps the entire $j\Omega$ axis onto the unit
+circle exactly once, so there is no aliasing: the analog response from $0$ to $\infty$ is squeezed
+into $0$ to $f_s/2$. Setting $z=e^{j\omega}$ in~\eqref{eq:ch06:bilinear} gives the price of the
+squeezing, a nonlinear \emph{frequency warping},
+\begin{equation}
+\Omega=\frac{2}{T_s}\tan\frac{\omega}{2}.
+\label{eq:ch06:warp}
+\end{equation}
+At low frequencies $\Omega\approx\omega/T_s$ and the mapping is nearly linear; near $f_s/2$ it
+compresses an infinite range of analog frequencies into a finite one. Ripple heights, which are
+magnitudes, are preserved exactly; band edges are not. The designer therefore \emph{pre-warps}:
+compute the analog band edges from the desired digital ones with~\eqref{eq:ch06:warp}, design the
+analog prototype for those edges, and transform. The digital edges then land exactly where they
+were wanted.
+
+\begin{worked}[Pre-warping an audio de-emphasis filter]
+FM broadcasting in Europe uses a 50\,$\mu$s de-emphasis network, a first-order low-pass
+$H_a(s)=1/(1+s\tau)$ with corner $f_c=1/(2\pi\tau)=3183$\,Hz (Chapter~\ref{ch:analog}). A
+receiver implements it digitally at $f_s=48$\,kHz. Without pre-warping, the bilinear transform maps
+the analog corner $\Omega_c=2\pi\cdot3183$ to the digital frequency
+$\omega=2\arctan(\Omega_cT_s/2)=2\arctan(0.2083)=0.4108$\,rad, or 3138\,Hz: a 1.4\% error that
+shifts the response by about 0.1\,dB at high audio frequencies. Pre-warping computes
+$\Omega_c'=(2/T_s)\tan(\pi\cdot3183/48000)=2\pi\cdot3230$\,rad/s, designs the analog filter for that,
+and the digital corner lands exactly at 3183\,Hz. The resulting filter is
+\[
+H(z)=\frac{0.1745\,(1+z^{-1})}{1-0.6510\,z^{-1}}.
+\]
+For a corner at a twentieth of the sample rate the error is small; for a filter whose band edges
+approach $f_s/4$ or above, ignoring pre-warping produces errors of tens of percent.
+\end{worked}
+
+\subsection{Impulse invariance and other mappings}
+
+The alternative classical mapping, \term{impulse invariance}, samples the analog impulse response:
+$h[n]=T_sh_a(nT_s)$. Each analog pole $s_k$ becomes a digital pole $e^{s_kT_s}$, and the frequency
+axis maps linearly, so the shape of the response is preserved without warping---but the digital
+response is the aliased sum of shifted copies of the analog one, so the method works only for
+filters that are already well band-limited (low-pass and band-pass, never high-pass). Impulse
+invariance is the right tool when the time-domain behaviour matters more than the frequency
+response, as in simulating an analog control loop or a resonator. The \emph{matched-$z$} transform
+maps poles and zeros alike by $z=e^{sT_s}$; it is simple and useful for quick conversions but
+offers no guarantee on the frequency response. Finally, IIR filters can be designed directly in the
+digital domain by optimisation (least-squares or minimax fits of a rational function), which is
+how filters with simultaneous magnitude and group-delay specifications are usually obtained.
+
+\subsection{Biquad cascades}
+\label{sec:ch06:biquads}
+
+An $N$th-order IIR filter could be implemented as one difference equation~\eqref{eq:ch06:diffeq}
+(the \emph{direct form}). Mathematically, a cascade of second-order sections---\term{biquads}---is
+identical:
+\begin{equation}
+H(z)=g\prod_{k=1}^{\lceil N/2\rceil}\frac{1+b_{1k}z^{-1}+b_{2k}z^{-2}}{1+a_{1k}z^{-1}+a_{2k}z^{-2}}.
+\label{eq:ch06:sos}
+\end{equation}
+Numerically they are not identical, and the difference is the most important practical fact about
+IIR filters. Building the cascade involves three choices:
+\begin{enumerate}
+\item \textbf{Pairing.} Each complex pole pair is grouped with the zero pair nearest to it, so that
+each section's peak gain is moderated by its own zeros. The standard procedure starts with the pole
+pair closest to the unit circle (highest $Q$) and pairs it with the nearest zeros, then continues
+outwards.
+\item \textbf{Ordering.} The sections are ordered by pole radius, conventionally with the
+high-$Q$ sections last (to minimise their noise contribution, which the following low-$Q$
+sections would otherwise amplify) or first (to minimise the risk of overflow inside the cascade,
+because the high-$Q$ sections' peaks are then followed by attenuating ones). Jackson's classic
+analysis shows that the choice depends on whether the scaling is by the $L_\infty$ or the $L_2$
+norm (Section~\ref{sec:ch06:fixed}); good tools try both.
+\item \textbf{Scaling.} Gain is distributed between sections so that no internal node overflows
+(Section~\ref{sec:ch06:fixed}).
+\end{enumerate}
+\texttt{scipy.signal} returns second-order sections directly (\texttt{output="sos"}) and filters
+with \texttt{sosfilt}; the transfer-function form \texttt{(b, a)} should be avoided for anything
+above fourth order, even in double precision.
+
+\subsection{Numerical behaviour}
+\label{sec:ch06:iirnum}
+
+The poles of a high-order polynomial are extremely sensitive to its coefficients when they are
+clustered, as they are in any sharp filter. The sensitivity of a root $p_i$ to a coefficient $a_k$
+is
+\begin{equation}
+\frac{\partial p_i}{\partial a_k}=-\frac{p_i^{N-k}}{\prod_{j\ne i}(p_i-p_j)},
+\end{equation}
+and the product of pole differences in the denominator is tiny when poles are close together.
+Figure~\ref{fig:ch06_coef_quant} shows an eighth-order elliptic filter: rounding the direct-form
+coefficients to 16 or 12 bits moves poles outside the unit circle and the filter becomes unstable,
+while the same filter as four biquads with 12-bit coefficients is almost indistinguishable from the
+ideal. \emph{Always implement IIR filters of order above two as cascaded biquads}, with poles paired
+to their nearest zeros and sections ordered as above.
 
 \mdcfig[0.72]{ch06_coef_quant}{Coefficient quantization of an eighth-order elliptic filter.
 The direct form becomes unstable with 16-bit and 12-bit coefficients; the cascade of biquads
 tolerates 12 bits with negligible change.}
 
-\section{Fixed-point implementation}
+Even within a single biquad, the structure matters. In the direct form the coefficients are
+$a_1=-2r\cos\theta$ and $a_2=r^2$. Quantizing $a_2$ uniformly quantizes $r^2$, and quantizing $a_1$
+quantizes $r\cos\theta$, so the realisable poles lie on the intersections of circles and vertical
+lines, which are sparse near $z=1$ (Figure~\ref{fig:ch06_pole_grid}). Narrowband low-pass filters,
+whose poles lie exactly there, are the hardest to realise accurately. The \emph{coupled} (Gold--Rader)
+form uses the real and imaginary parts of the pole, $r\cos\theta$ and $r\sin\theta$, as coefficients,
+giving a uniform grid at the cost of four multipliers instead of two. Lattice and wave digital
+structures go further.
 
-Floating point is standard on CPUs and GPUs, but FPGAs and ASICs, where most radio DSP at high
-sample rates lives, favour fixed point for its cost and power. A number in \term{Q-format}
-$Q m.n$ has $m$ integer bits (including sign) and $n$ fractional bits; a 16-bit word in $Q1.15$
-represents $[-1,1)$ with resolution $2^{-15}$. Four issues dominate fixed-point design:
-\begin{description}
-\item[Coefficient quantization] changes the response, as above. FIR filters degrade
-gracefully: each bit of coefficient precision buys roughly 6\,dB of achievable stopband.
-\item[Product rounding] adds noise at every multiplier. A $b\times b$ product has $2b$ bits,
-and keeping only $b$ adds error of variance $2^{-2b}/12$. Accumulating products at full
-precision and rounding once at the output---as FPGA DSP slices with 48-bit accumulators do---is
-far better than rounding each product.
-\item[Overflow] must be prevented by scaling or handled by saturation. Two's-complement
-wrap-around is catastrophic in IIR filters (it can sustain large oscillations) but harmless in
-intermediate FIR sums as long as the final result fits, a useful property.
-\item[Limit cycles] are small self-sustained oscillations in IIR filters with zero input,
-caused by rounding in the feedback path. Magnitude truncation or careful structure choice
-suppresses them.
+\mdcfig{ch06_pole_grid}{Every pole position a second-order section can realise with 5-bit
+coefficients. Left: the direct form quantizes $r^2$ and $r\cos\theta$, so the grid is sparse near
+$z=1$, exactly where the poles of a narrowband low-pass filter (or a high-$Q$ notch at low frequency)
+must go. Right: the coupled form quantizes the real and imaginary parts directly and gives a
+uniform grid.}
+
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Lattice filters.] An all-pole or pole-zero filter can be realised as a cascade of lattice
+stages parameterised by \emph{reflection coefficients} $k_m$, the same coefficients that the
+Levinson--Durbin recursion produces in linear-predictive speech coding (Chapter~\ref{ch:sourcecoding}).
+The filter is stable if and only if every $|k_m|<1$, a condition that is trivially checked and
+preserved under quantization, and the structure has excellent sensitivity properties.
+\item[Wave digital filters.] Alfred Fettweis's wave digital filters (1971 onwards) simulate a
+passive LC ladder using wave variables. Because the prototype is passive, the digital filter
+inherits its insensitivity to component values and, with suitable rounding, freedom from limit
+cycles and overflow oscillations. They are the most robust IIR structures known, at the price of
+design complexity.
+\item[All-pass decompositions.] Many odd-order elliptic and Butterworth low-pass filters can be
+written as the average of two all-pass filters, $H(z)=\tfrac12[A_0(z)+A_1(z)]$. All-pass sections
+are structurally lossless and need only one multiplier per order, so these
+\emph{polyphase IIR} or \emph{lattice wave digital} half-band filters are among the cheapest
+sharp filters there are, and are used for decimation by two in audio converters.
 \end{description}
 
-\begin{inpractice}[title=Counting the cost]
-The cost of a filter in hardware is measured in multiply-accumulates per second (MAC/s). A
-100-tap FIR filter at 100\,MS/s needs $10^{10}$\,MAC/s: about 25 DSP slices of an FPGA
-clocked at 400\,MHz, or a large fraction of a CPU core using SIMD instructions. GNU Radio's
-VOLK library selects the best SIMD kernel for each CPU at run time. The multirate techniques
-below routinely reduce such budgets by factors of 10 to 100.
-\end{inpractice}
+\subsection{Limit cycles and overflow oscillations}
 
-\subsection{Fast convolution}
+IIR filters in fixed-point arithmetic exhibit two nonlinear phenomena that FIR filters cannot.
+A \term{limit cycle} is a small self-sustained oscillation with zero input, caused by rounding
+in the feedback path. Consider a biquad with poles at radius $r=0.98$ whose output has decayed to a
+few least-significant bits (LSBs). The ideal output keeps shrinking by 2\% per sample, but when the
+products are rounded to integers the decrease of 2\% of a value of 10 LSBs is rounded away: the
+effective pole radius becomes 1 and the filter oscillates indefinitely at an amplitude of several
+LSBs (Figure~\ref{fig:ch06_limit_cycle}, left). The amplitude of this \emph{granular} limit cycle
+is bounded---Jackson's effective-value estimate gives about $0.5/(1-a_2)=0.5/(1-r^2)$ LSBs, or
+13 LSBs for $r=0.98$, just what the figure shows---so it matters most in high-$Q$ sections and in applications, such as audio, where a faint
+tone in silence is audible. Remedies are magnitude truncation (rounding toward zero, which makes the
+effective pole radius smaller rather than larger), extra internal precision, a small dither, or
+structures that are provably free of limit cycles.
 
-For long filters on processors, convolution via the FFT is cheaper. An $N$-tap filter costs $N$
-MACs per sample directly, but only about $2\log_2(2N)$ complex operations per sample with the
-FFT, using the \emph{overlap-add} or \emph{overlap-save} method to process a stream in blocks.
-The crossover is typically between 32 and 128 taps. GNU Radio's \texttt{fft\_filter} blocks use
-overlap-save; OFDM receivers are, in a sense, a fast convolution built into the waveform.
+\mdcfig{ch06_limit_cycle}{Nonlinear behaviour of a fixed-point biquad with zero input. Left: with
+products rounded to integers, the decay stalls at a few LSBs and becomes a permanent oscillation
+(granular limit cycle). Right: a stable section ($a_1=-1.6$, $a_2=0.9$) started from a large state
+oscillates at full scale for ever if its adder wraps around in two's complement, but decays
+normally if the adder saturates.}
 
+The second phenomenon is far more dangerous. If an adder inside the feedback loop overflows and
+\emph{wraps around}---two's-complement arithmetic turns a large positive number into a large negative
+one---the wrap acts as a huge error injected into the loop, and for many coefficient values the
+filter then settles into a full-scale \emph{overflow oscillation} that never decays
+(Figure~\ref{fig:ch06_limit_cycle}, right). The cure is \emph{saturation arithmetic} in the
+recursive part, which clips to the largest representable value instead of wrapping, and is provably
+sufficient to prevent overflow oscillations in second-order direct-form sections. Note the contrast
+with FIR filters: in a non-recursive sum, intermediate wrap-around is harmless as long as the
+final result fits, a property of modular arithmetic that the CIC filter
+(Section~\ref{sec:ch06:cic}) exploits deliberately.
+
+\subsection{Group-delay equalisation}
+\label{sec:ch06:gdeq}
+
+When a sharp IIR filter is unavoidable---because its latency must be low, or because it is an
+analog filter in front of the ADC whose phase must be corrected digitally---its group delay can be
+flattened by following it with an all-pass filter whose group delay is the complement of the
+filter's. Because $|A(e^{j\omega})|=1$, the magnitude response is untouched, and because every
+all-pass section~\eqref{eq:ch06:allpass} adds positive delay, the equalised filter has a larger,
+flatter delay than the original. Figure~\ref{fig:ch06_gd_equalize} shows a fifth-order elliptic
+filter whose passband group delay varies by about six samples, equalised to a variation of less than
+half a sample over 90\% of the passband by three all-pass biquads chosen by numerical optimisation.
+The total delay rises from about 6 to about 30 samples, and the cost has risen from three biquads to
+six. That is the usual outcome: an elliptic filter plus its delay equaliser is no longer much cheaper
+than a linear-phase FIR filter, which is one more reason data receivers usually use FIR filters from
+the start.
+
+\mdcfig{ch06_gd_equalize}{Group-delay equalisation. A fifth-order elliptic low-pass (left) has a
+group delay that varies by about six samples across the passband and peaks at the band edge (right,
+navy). Three all-pass biquads (dotted) add the complementary delay; the total (red) is flat to
+within about 0.35 samples over 90\% of the passband, with the magnitude response unchanged. The
+price is a larger total delay and twice the arithmetic.}
+
+\begin{pitfall}[IIR filters in the data path]
+An elliptic channel filter looks wonderful on a magnitude plot---a sixth-order filter doing the work
+of a 60-tap FIR. But a QAM receiver sees the group-delay peak at the band edge as intersymbol
+interference that no amount of SNR removes, and an equaliser downstream must spend its taps undoing
+it. Before choosing an IIR filter for a digital modem, simulate the EVM it causes, not just its
+attenuation. Reserve IIR filters for places where phase does not matter (power detectors, AGC,
+spectrum displays), where latency dominates (control loops), or where an all-pass equaliser is
+part of the plan.
+\end{pitfall}
+
+%======================================================================
+\section{Fixed-point arithmetic}
+\label{sec:ch06:fixed}
+%======================================================================
+
+Floating point is standard on CPUs and GPUs, but FPGAs and ASICs, where most radio DSP at high sample
+rates lives, favour fixed point for its cost and power: a fixed-point multiplier is a fraction of
+the area and energy of a floating-point one, and an adder is almost free. The price is that the
+designer must manage word lengths and scaling explicitly. This section collects what an FPGA or
+ASIC designer needs to know.
+
+\subsection{Q formats}
+
+A number in \term{Q-format} $Qm.n$ is a two's-complement integer interpreted with $n$ fractional
+bits: $m$ integer bits (including the sign) and $n$ fractional bits, $m+n$ in total. A 16-bit word
+in $Q1.15$ represents $[-1,1)$ with resolution $2^{-15}$; a $Q3.13$ word represents $[-4,4)$ with
+resolution $2^{-13}$. The rules of the arithmetic follow from integer arithmetic:
+\begin{itemize}
+\item \textbf{Addition} requires aligned binary points, and the sum of two $Qm.n$ numbers needs
+$Q(m{+}1).n$ to be safe from overflow. Adding $K$ numbers needs $\lceil\log_2K\rceil$ extra
+integer bits.
+\item \textbf{Multiplication} of $Qm_1.n_1$ by $Qm_2.n_2$ gives an exact $Q(m_1{+}m_2).(n_1{+}n_2)$
+product. A $16\times16$ product is 32 bits; keeping 16 of them is a quantization.
+\item \textbf{Quantization} back to fewer bits is done by \emph{truncation} (dropping the low bits,
+which in two's complement rounds toward $-\infty$) or \emph{rounding}.
+\end{itemize}
+
+\subsection{Rounding, truncation and quantization noise}
+
+Quantizing to a step $q=2^{-n}$ adds an error $e$ that, for signals large and busy compared with
+$q$, behaves like independent uniform noise (Chapter~\ref{ch:pcm}). The three common choices differ
+in its mean:
+\begin{center}
+\begin{tabular}{llp{5.2cm}l}
+\toprule
+Method & Error range & Mean & Variance \\
+\midrule
+Truncation (floor) & $(-q,0]$ & $-q/2$ & $q^2/12$ \\
+Round half up & $(-q/2,q/2]$ & $\approx0$ (bias $q/2^{k+1}$ when $k$ bits are dropped) & $q^2/12$ \\
+Convergent (round half to even) & $[-q/2,q/2]$ & 0 & $q^2/12$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Truncation is free in hardware but adds a DC offset of half an LSB at every quantization point, and
+in a receiver that offset appears as a spur at the carrier or at DC after the mixer. Rounding
+costs one adder. Convergent rounding removes the residual bias of rounding exact halves upward, which
+matters when the same values are rounded millions of times (in an accumulator, or in the long chains
+of a decimator); DSP slices implement it with a pattern detector at almost no cost.
+
+In an FIR filter, quantizing each of $N$ products adds $N$ independent noise sources, an output
+noise power of $Nq^2/12$. Accumulating at full precision and rounding once at the output adds only
+$q^2/12$---a gain of $10\log_{10}N$\,dB, 20\,dB for a 100-tap filter. That is what the wide
+accumulators of DSP slices are for. In an IIR filter, the rounding noise injected inside the loop is
+shaped by the transfer function from the injection point to the output, so the output noise power
+is $\frac{q^2}{12}\sum_n h_e^2[n]$, where $h_e$ is that impulse response; high-$Q$ poles amplify
+it by a factor of order $1/(1-r)$, another reason high-$Q$ sections need extra internal bits.
+
+\subsection{Scaling: \texorpdfstring{$L_1$}{L1}, \texorpdfstring{$L_2$}{L2} and \texorpdfstring{$L_\infty$}{L-infinity} norms}
+
+To avoid overflow, the designer chooses a scale factor at each node so that the signal there fits
+the word. Three rules are in use, based on three norms of the impulse response $h_k[n]$ from the
+input to node $k$:
+\begin{equation}
+\|h\|_1=\sum_n|h[n]|,\qquad
+\|H\|_\infty=\max_\omega|H(e^{j\omega})|,\qquad
+\|h\|_2=\Bigl(\sum_nh^2[n]\Bigr)^{1/2},
+\end{equation}
+which satisfy $\|h\|_2\le\|H\|_\infty\le\|h\|_1$.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[$L_1$ scaling] guarantees no overflow for \emph{any} input bounded by 1, since
+$|y[n]|\le\sum|h[k]||x[n-k]|\le\|h\|_1$. It is safe and pessimistic: the worst-case input (the sign
+pattern of the time-reversed impulse response) almost never occurs.
+\item[$L_\infty$ scaling] guarantees no overflow for any sinusoidal input of unit amplitude. It is
+the natural choice for narrowband signals.
+\item[$L_2$ scaling] keeps the output \emph{power} of a white input no larger than the input power;
+it is a statistical rule that allows occasional overflow (which saturation then handles) in
+exchange for better SNR. It suits wideband, noise-like signals---OFDM, for instance.
+\end{description}
+For a decimation filter in a receiver, a common compromise is to scale for the $L_\infty$ norm of
+the passband (the filter's DC gain, usually 1) and add one or two guard bits, relying on saturation
+for the rare peaks.
+
+\subsection{Word growth}
+
+The full-precision output of an FIR filter with $B_x$-bit inputs and $B_h$-bit coefficients needs
+\begin{equation}
+B_y=B_x+B_h+\bigl\lceil\log_2\|h\|_1\bigr\rceil\ \text{bits}
+\end{equation}
+(with $h$ in integer units), which is at most $B_x+B_h+\lceil\log_2N\rceil$. A 64-tap filter with
+16-bit data and 18-bit coefficients needs at most 40 bits---comfortably inside a 48-bit
+accumulator. The output is then rounded back to the width the next stage needs, which is set by the
+signal-to-noise ratio required there: each bit is worth 6\,dB of dynamic range, and after a
+decimation by $M$ that removes out-of-band noise, the in-band SNR has improved by
+$10\log_{10}M$\,dB, so the output word can be about $\tfrac12\log_2M$ bits wider than the input
+without wasting anything. Coefficient word length is set by the stopband: each coefficient bit buys
+roughly 6\,dB of achievable attenuation (Figure~\ref{fig:ch06_coef_bits}), so an 80\,dB filter
+needs about 15--16-bit coefficients, and 18-bit coefficients (the native width of most DSP
+slices) are good for about 90--100\,dB.
+
+\mdcfig[0.75]{ch06_coef_bits}{Minimum stopband attenuation of a 95-tap equiripple low-pass filter
+(designed for about 81\,dB) when its coefficients are rounded to $B$ bits. Each bit is worth about
+6\,dB until the design's own attenuation is reached at about 16 bits; beyond that, extra bits buy
+nothing.}
+
+\begin{pitfall}[Bit-true simulation]
+A filter designed in double precision and implemented in fixed point is a different filter. Before
+writing any HDL, simulate the fixed-point implementation \emph{bit-true}---integer arithmetic with
+the exact word lengths, rounding modes and saturation of the hardware---and compare its output
+against the floating-point model for test vectors that include full-scale tones, full-scale noise
+and the worst-case $L_1$ pattern. The comparison catches overflow, bias from truncation and
+spurs from coefficient quantization long before they become an FPGA debugging session. NumPy's
+integer types (with explicit right shifts), or fixed-point libraries, make this straightforward.
+\end{pitfall}
+
+\subsection{A pointer to adaptive filters}
+
+Every filter in this chapter has fixed coefficients. When the coefficients must track an unknown or
+changing channel---an equaliser, an echo canceller, an interference canceller, a beamformer---they
+are adjusted continuously by an adaptive algorithm such as LMS or RLS. The structures are the same
+FIR filters, often in transposed or systolic form, with a coefficient-update loop added; the
+fixed-point issues are the same, with the extra hazards of coefficient drift and stalling when the
+update is smaller than an LSB. Chapter~\ref{ch:equalization} develops adaptive filtering in full.
+
+%======================================================================
 \section{Multirate signal processing}
+\label{sec:ch06:multirate}
+%======================================================================
 
-\subsection{Decimation and interpolation}
+A radio's sample rate is chosen at the ADC for the convenience of the analog front end: wide enough
+to capture every channel of interest with room for the anti-aliasing filter's transition band. The
+demodulator wants something quite different---a few samples per symbol of one channel. Between the
+two, the sample rate must change, often by factors of hundreds, and doing that cheaply is the
+subject of \emph{multirate} signal processing. Its tools are only two operations, downsampling and
+upsampling, plus a handful of identities that let filters be moved past them.
 
-To \term{decimate} by an integer $M$ is to keep every $M$th sample. It divides the sample rate
-by $M$ and, as Chapter~\ref{ch:pcm} warned, aliases everything between the new Nyquist
-frequency $f_s/2M$ and the old one into the band. A decimator is therefore a low-pass filter
-followed by a downsampler (Figure~\ref{fig:ch06_decimation}). To \term{interpolate} by $L$ is to
-insert $L-1$ zeros between samples, which creates $L-1$ images of the spectrum, followed by a
-low-pass filter that removes them. A rational rate change by $L/M$ interpolates by $L$ and then
-decimates by $M$ with a single filter whose cutoff is the smaller of the two Nyquist frequencies.
+\subsection{Downsampling and aliasing}
+
+To \term{downsample} by an integer $M$ is to keep every $M$th sample, $x_d[m]=x[mM]$. In the
+frequency domain,
+\begin{equation}
+X_d(e^{j\omega})=\frac{1}{M}\sum_{k=0}^{M-1}X\bigl(e^{j(\omega-2\pi k)/M}\bigr).
+\label{eq:ch06:downsample}
+\end{equation}
+The derivation is short: write $x[mM]$ as $x_s[mM]$ where $x_s[n]=x[n]\cdot\frac1M\sum_kW_M^{-kn}$ zeros
+every sample except multiples of $M$ (the sum of roots of unity is $M$ at multiples of $M$ and 0
+otherwise); multiplying by $W_M^{-kn}=e^{j2\pi kn/M}$ shifts the spectrum by $2\pi k/M$; and
+discarding the zeros stretches the frequency axis by $M$. The result is $M$ stretched copies of
+the original spectrum, shifted by multiples of $2\pi$. If $X$ is confined to $|\omega|<\pi/M$, the
+copies do not overlap and nothing is lost. Otherwise everything between the new Nyquist frequency
+$f_s/2M$ and the old one folds into the band, as Chapter~\ref{ch:pcm} warned for the ADC.
+
+A \term{decimator} is therefore a low-pass filter followed by a downsampler
+(Figure~\ref{fig:ch06_decimation}). Note what the filter must reject: not everything above
+$f_s/2M$, but only what would alias onto the band \emph{that will be used}. If the wanted signal
+occupies $|f|<f_p$, the filter's stopband need only begin at $f_s/M-f_p$, because content between
+$f_s/2M$ and $f_s/M-f_p$ aliases into the transition region between $f_p$ and $f_s/2M$, where a
+later filter can remove it. This ``alias into the transition band'' freedom is what makes half-band
+and CIC decimators work.
 
 \mdcfig{ch06_decimation}{Decimation by 4. Downsampling without filtering folds an out-of-band
 tone at 0.27 cycles/sample into the band of interest; filtering first removes it.}
 
-\subsection{The noble identities and polyphase decomposition}
+\subsection{Upsampling and imaging}
 
-The naive decimator is wasteful: it computes $M$ filter outputs and throws $M-1$ away. The
-\term{noble identities} state that filtering by $H(z^M)$ and then downsampling by $M$ equals
-downsampling and then filtering by $H(z)$ (and dually for upsampling). Combined with the
-\term{polyphase decomposition}
+To \term{upsample} by $L$ is to insert $L-1$ zeros between samples, $x_u[n]=x[n/L]$ when $n$ is a
+multiple of $L$ and 0 otherwise. Then
+\begin{equation}
+X_u(e^{j\omega})=X(e^{j\omega L}):
+\end{equation}
+the spectrum is compressed by $L$, so that the band $|\omega|<\pi$ now contains $L$ copies---the
+original at baseband and $L-1$ \emph{images}. An \term{interpolator} is an upsampler followed by a
+low-pass filter with cutoff $\pi/L$ that removes the images, with a passband gain of $L$ to restore
+the amplitude lost by inserting zeros (a frequent bug: an interpolation filter designed with unit
+DC gain produces an output $L$ times too small). A rational rate change by $L/M$ interpolates by
+$L$ and then decimates by $M$ with a single filter in between whose cutoff is the smaller of
+$\pi/L$ and $\pi/M$.
+
+\subsection{The noble identities}
+
+The two \term{noble identities} let a filter be moved across a rate changer:
+\begin{equation}
+\underbrace{H(z^M)\ \text{then}\ \downarrow M}_{\text{filter at the high rate}}
+\;\equiv\;
+\underbrace{\downarrow M\ \text{then}\ H(z)}_{\text{filter at the low rate}},
+\qquad
+\underbrace{\uparrow L\ \text{then}\ H(z^L)}_{\text{filter at the high rate}}
+\;\equiv\;
+\underbrace{H(z)\ \text{then}\ \uparrow L}_{\text{filter at the low rate}}.
+\label{eq:ch06:noble}
+\end{equation}
+The first is easy to see in the time domain. $H(z^M)$ is the filter $h$ with $M-1$ zeros inserted
+between its taps, so its output at time $mM$ is $\sum_kh[k]x[mM-kM]=\sum_kh[k]x_d[m-k]$, which is
+the output of $h$ applied to the downsampled signal. A filter whose taps are spaced $M$ samples
+apart only ever sees every $M$th input, so it may as well run at the low rate. The noble
+identities apply only to filters that are functions of $z^M$ (or $z^L$); an arbitrary filter
+cannot be moved across a rate changer. The trick is to \emph{make} it a function of $z^M$, which
+is what polyphase decomposition does.
+
+\subsection{Polyphase decomposition}
+
+Any filter can be split into $M$ interleaved subsequences of its taps,
 \begin{equation}
 H(z)=\sum_{p=0}^{M-1}z^{-p}E_p(z^M),\qquad e_p[k]=h[kM+p],
+\label{eq:ch06:polyphase}
 \end{equation}
-they turn a decimating filter into $M$ short subfilters, each running at the \emph{output} rate
-and fed by a commutator that deals input samples to them in turn. The computation drops by a
-factor of $M$ with no change in the result. The same trick applies to interpolation: the $L$
-polyphase subfilters produce the $L$ output phases, and the zeros are never multiplied.
-Polyphase structures are the foundation of efficient DSP, and GNU Radio's
-\texttt{pfb\_} (polyphase filter bank) blocks, used in Chapter~\ref{ch:sync} for symbol timing
+because the taps $h[p],h[p+M],h[p+2M],\dots$ contribute $z^{-p}\bigl(e_p[0]+e_p[1]z^{-M}+\dots\bigr)$.
+The $E_p$ are the \term{polyphase components}. Put~\eqref{eq:ch06:polyphase} in front of a
+downsampler: the output is the sum of $M$ branches, branch $p$ being $z^{-p}$, then $E_p(z^M)$,
+then $\downarrow M$. By the first noble identity, each $E_p(z^M)$ followed by $\downarrow M$ becomes
+$\downarrow M$ followed by $E_p(z)$. The delays and downsamplers together act as a
+\emph{commutator} that deals input samples to the branches in turn: branch $p$ receives
+$x[mM-p]$. The decimator becomes $M$ short subfilters, each of length $N/M$, each running at the
+\emph{output} rate (Figure~\ref{fig:ch06_polyphase_dec}). The total computation is $N$
+multiplications per output sample instead of $N$ per input sample---a reduction by a factor of $M$
+with no change in the result. The naive decimator computed $M$ outputs and threw $M-1$ away; the
+polyphase decimator never computes them.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.62cm,minimum width=1.35cm,font=\sffamily\scriptsize},
+  add/.style={draw=accent,thick,circle,inner sep=0.3pt,minimum size=0.5cm,font=\scriptsize},
+  arr/.style={-{Stealth[length=1.6mm]},thick,navy}]
+\node[font=\sffamily\small\bfseries,text=navy,anchor=west] at (-1.2,1.0) {(a) Polyphase decimator};
+\node[font=\small] (x) at (-1.0,-1.35) {$x[n]$};
+\coordinate (pivot) at (0.15,-1.35);
+\foreach \p/\yy/\lab in {0/0/{E_0(z)},1/-0.9/{E_1(z)},2/-1.8/{\vdots},3/-2.7/{E_{M-1}(z)}} {
+  \ifnum\p=2
+    \node at (2.2,\yy) {$\vdots$};
+  \else
+    \node[blk] (E\p) at (2.2,\yy) {$\lab$};
+    \fill[navy] (0.95,\yy) circle (1.5pt);
+    \draw[arr] (1.0,\yy) -- (E\p);
+  \fi
+}
+\draw[thick,navy] (x) -- (pivot); \fill[navy] (pivot) circle (1.5pt);
+\draw[-{Stealth[length=1.6mm]},thick,accent] (pivot) -- (0.88,-0.1);
+\node[font=\scriptsize,text=accent,align=center] at (-0.35,-2.3) {commutator\\at $f_s$};
+\node[add] (S) at (4.0,-1.35) {$+$};
+\draw[arr] (E0) -| (S); \draw[arr] (E1.east) -- (S); \draw[arr] (E3) -| (S);
+\draw[arr] (S) -- ++(0.9,0) node[right,font=\small] {$y[m]$};
+\node[font=\scriptsize,text=navy,align=center] at (2.2,-3.45) {each branch: $N/M$ taps, runs at $f_s/M$};
+% ---- interpolator
+\begin{scope}[xshift=8.0cm]
+\node[font=\sffamily\small\bfseries,text=navy,anchor=west] at (-1.0,1.0) {(b) Polyphase interpolator};
+\node[font=\small] (xi) at (-0.8,-1.35) {$x[m]$};
+\coordinate (sp) at (0.0,-1.35); \fill[navy] (sp) circle (1.5pt);
+\draw[thick,navy] (xi) -- (sp);
+\foreach \p/\yy/\lab in {0/0/{E_0(z)},1/-0.9/{E_1(z)},3/-2.7/{E_{L-1}(z)}} {
+  \node[blk] (F\p) at (1.4,\yy) {$\lab$};
+  \fill[navy] (2.8,\yy) circle (1.5pt);
+  \draw[arr] (F\p) -- (2.75,\yy);
+}
+\node at (1.4,-1.8) {$\vdots$};
+\draw[arr] (sp) |- (F0); \draw[arr] (sp) |- (F1); \draw[arr] (sp) |- (F3);
+\coordinate (piv2) at (3.65,-1.35); \fill[navy] (piv2) circle (1.5pt);
+\draw[-{Stealth[length=1.6mm]},thick,accent] (2.88,-0.1) -- (piv2);
+\node[font=\scriptsize,text=accent,align=center] at (4.1,-2.3) {commutator\\at $Lf_s$};
+\draw[arr] (piv2) -- ++(0.8,0) node[right,font=\small] {$y[n]$};
+\node[font=\scriptsize,text=navy,align=center] at (1.6,-3.45) {branch $p$ computes output phase $p$};
+\end{scope}
+\end{tikzpicture}
+\caption{Polyphase rate changers. (a) A decimator by $M$: a commutator deals successive input samples to
+$M$ subfilters $E_p(z)$, whose outputs are summed once per output sample. (b) An interpolator by
+$L$: every subfilter sees every input sample, and a commutator collects their outputs in turn, so the
+inserted zeros are never multiplied.}
+\label{fig:ch06_polyphase_dec}
+\end{figure}
+
+The same trick applies to interpolation, using the second noble identity: the $L$ polyphase
+subfilters of the interpolation filter each compute one of the $L$ output phases, and the inserted
+zeros are never multiplied. This is exactly how a pulse-shaping filter at $L$ samples per symbol is
+implemented in a modem: the RRC filter is split into $L$ polyphase branches, and each symbol is
+multiplied by each branch once. Polyphase structures are the foundation of efficient DSP, and GNU
+Radio's \texttt{pfb\_} (polyphase filter bank) blocks, used in Chapter~\ref{ch:sync} for symbol timing
 recovery, are named after them.
 
-\subsection{Half-band filters}
+\subsection{Rational resampling}
 
-A \term{half-band filter} has its transition centred on $f_s/4$ with symmetric passband and
-stopband ripples. Every second coefficient except the centre one is exactly zero, so it costs
-about a quarter of a general filter of the same length. Cascades of half-band filters, each
-decimating by 2, are the standard way to decimate by powers of two: the AD9364 in the B200
-contains a chain of them (HB1, HB2, HB3) before its programmable FIR, and so does every digital
-down-converter IC.
+To change the rate by $L/M$, imagine interpolating by $L$ and then decimating by $M$ with one filter
+$h$ at the intermediate rate $Lf_s$. Combining the two polyphase tricks, output sample $m$
+corresponds to intermediate-rate index $mM$, which lies in input interval $\lfloor mM/L\rfloor$ at
+phase $(mM)\bmod L$. So each output is computed by \emph{one} polyphase branch, the one with index
+$(mM)\bmod L$, applied to the input samples ending at $\lfloor mM/L\rfloor$. The cost per output is
+$N/L$ multiplications, the length of one branch, no matter how large $L$ and $M$ are.
 
-\subsection{CIC filters}
+Converting CD audio at 44.1\,kHz to the 48\,kHz of professional and broadcast audio is the classic
+case: $48000/44100=160/147$, so $L=160$ and $M=147$. The intermediate rate would be 7.056\,MHz
+and the anti-imaging filter, with a transition from 20 to 22.05\,kHz at that rate, needs thousands
+of taps. But split into 160 branches of perhaps 30 taps each, the converter costs about 30
+multiplications per output sample. \texttt{scipy.signal.resample\_poly} and GNU Radio's
+\texttt{rational\_resampler} blocks implement exactly this.
 
-When the decimation ratio is large---hundreds or thousands---even polyphase FIR filters become
-expensive. Eugene Hogenauer's \term{cascaded integrator-comb} (CIC) filter (1981) needs no
-multipliers at all. $N$ integrators run at the high input rate, the signal is downsampled by $R$,
-and $N$ comb stages $y[n]=x[n]-x[n-1]$ run at the low rate. The overall response is
+\subsection{Arbitrary and fractional resampling}
+
+Many ratios are irrational or awkward: a 61.44\,MS/s LTE clock to a 56\,MS/s processing rate, a
+symbol rate unrelated to the converter clock, or the continuous tracking of a clock that drifts by
+parts per million (an \emph{asynchronous} sample-rate converter). Three methods cover these cases.
+\begin{itemize}
+\item A \emph{polyphase resampler with many phases}---32, 128 or 1024---picks, for each output
+sample, the branch nearest to the required fractional delay. With $P$ phases the timing error is at
+most $1/2P$ of a sample, which bounds the error at frequency $f$ to roughly $\pi f/P$ relative;
+harris's arbitrary resampler (GNU Radio's \texttt{pfb\_arb\_resampler}) adds linear interpolation
+between adjacent branches to reach any ratio with 32 phases.
+\item A \term{Farrow} structure computes the interpolating filter as a polynomial in the
+fractional delay $\mu$, so any delay is synthesised from a few fixed subfilters combined by Horner's
+rule. The cubic Lagrange interpolator used for timing recovery in Chapter~\ref{ch:sync} and in
+\texttt{commlib} is a four-tap Farrow structure. Its quality depends strongly on oversampling: at
+four samples per symbol a cubic interpolator is nearly perfect, at two it is a measurable noise
+source.
+\item In practice the two are combined: an efficient polyphase stage first interpolates by a
+modest factor (say 2 to 4), so that the signal occupies only a small fraction of the band, and a
+short Farrow interpolator then does the fine fractional adjustment, where its imperfections are
+negligible.
+\end{itemize}
+
+\begin{history}[Crochiere, Rabiner, Bellanger and the polyphase idea]
+Changing sample rates digitally was well understood in principle by the early 1970s, but doing it
+efficiently required a conceptual step. Maurice Bellanger and his colleagues at the French
+telecommunications laboratories (TRT) published ``Digital filtering by polyphase network'' in
+1976, introducing the polyphase decomposition and showing how it reduces both rate changers and
+filter banks for frequency-division-multiplexed telephone channels to banks of short filters and
+an FFT---the transmultiplexers that converted between FDM analog groups and TDM digital trunks
+(Chapter~\ref{ch:pcm}). At Bell Laboratories, Ronald Crochiere and Lawrence Rabiner developed the
+systematic theory of interpolation and decimation, including the optimisation of multistage
+designs, in a series of papers culminating in their 1981 \emph{Proceedings of the IEEE} tutorial and
+their 1983 book \emph{Multirate Digital Signal Processing}. P.~P.~Vaidyanathan's work on
+perfect-reconstruction filter banks in the late 1980s, and his 1993 book, completed the theory.
+The ideas spread into every SDR and, through subband coding and the MDCT, into every audio codec
+(Chapter~\ref{ch:sourcecoding}).
+\end{history}
+
+%======================================================================
+\section{Multistage decimation and half-band chains}
+\label{sec:ch06:multistage}
+%======================================================================
+
+\subsection{Why stages win}
+
+Because FIR cost scales as $A_s/(\Delta f/f_s)$, one large decimation is best done in stages. The
+argument is simple. A single-stage decimator by $M$ must have the final, narrow transition band
+$\Delta f$ at the full input rate $f_s$, so it needs $N_1\approx K f_s/\Delta f$ taps, where $K$
+depends on the ripples; computing one output per $M$ inputs in polyphase form costs
+$N_1/M=K f_s/(M\Delta f)$ multiplications per input sample. Now split the decimation into a first
+stage by $M_1$ and a second by $M_2=M/M_1$. The first stage only has to protect the band that will
+survive the second stage, so its transition can be very wide---from $f_p$ to almost $f_s/M_1$---and
+it needs only a handful of taps. The second stage, which must provide the narrow $\Delta f$, runs
+at $f_s/M_1$, so it needs $M_1$ times fewer taps for the same absolute transition width, and those
+taps are evaluated $M_1$ times less often relative to the input. The sharp filter has moved to the
+low rate.
+
+\mdcfig[0.92]{ch06_multistage}{Estimated multiplication rate (per input sample) of a decimate-by-64
+filter with 80\,dB of alias protection and a passband to 0.4 of the output sample rate, using
+Bellanger's estimate~\eqref{eq:ch06:bellanger} for each stage and polyphase implementation throughout.
+A single stage (red) needs about 2100 taps. Splitting into two stages cuts the cost by up to a factor
+of five, with the best splits putting the larger factor first; three stages do slightly better, and a
+chain of five half-bands followed by a final decimate-by-2 filter (orange) is best of all, and also the
+simplest to build.}
+
+Figure~\ref{fig:ch06_multistage} quantifies this for a decimation by 64 with a passband to 0.4
+of the output rate and 80\,dB of rejection. A single stage needs about 2100 taps and 33
+multiplications per input sample. The best two-stage split ($16\times4$) needs 7; the best
+three-stage ones about 6; a chain of half-bands about 5. Two features are typical. First, the
+optimum puts the larger factor first, because the first stage's transition is wide anyway and
+grows only slowly with its factor, while the last stage's cost is dominated by the narrow final
+transition. Crochiere and Rabiner derived closed-form approximations for the optimal factors, but
+the cost surface is flat near the optimum, and practical considerations (powers of two, reusable
+half-band designs, the clock rate of the hardware) usually decide. Second, the gains saturate after
+two or three stages: most of the saving comes from getting the sharp filter off the high-rate
+input.
+
+\subsection{Half-band chains}
+
+When the decimation is a power of two, a cascade of half-band decimators is the classic solution,
+because each half-band costs roughly a quarter of a general filter and the early ones, with very wide
+transitions, are tiny. A half-band decimator in polyphase form has one branch containing only the
+centre tap (a delay and a shift) and the other containing the nonzero odd taps, which are
+symmetric---so a 4K$-$1-tap half-band costs about $K$ multiplications per \emph{output} sample.
+
+\begin{worked}[A half-band chain from 61.44 to 1.92\,MS/s]
+An LTE receiver samples at 61.44\,MS/s (the AD9361's maximum data rate, and a multiple of the
+LTE basic rate) but wants the 1.4\,MHz carrier of the earlier worked example at 1.92\,MS/s, a
+decimation of $32=2^5$. The wanted signal occupies $\pm540$\,kHz, and we require 80\,dB of
+alias protection at each stage. A half-band stage with input rate $F$ must pass $f_p=0.54$\,MHz and
+reject from $F/2-f_p$, so its normalised transition is $(F/2-2f_p)/F$. Designing each stage with the
+Parks--McClellan algorithm (the shortest length $4K-1$ that achieves 80\,dB) gives:
+\begin{center}\small
+\begin{tabular}{lcccc}
+\toprule
+Stage & Rate in $\to$ out (MS/s) & Transition (of $F$) & Taps & Mult./output \\
+\midrule
+HB1 & $61.44\to30.72$ & 0.482 & 7 & 2 \\
+HB2 & $30.72\to15.36$ & 0.465 & 7 & 2 \\
+HB3 & $15.36\to7.68$ & 0.430 & 7 & 2 \\
+HB4 & $7.68\to3.84$ & 0.359 & 11 & 3 \\
+HB5 & $3.84\to1.92$ & 0.219 & 23 & 6 \\
+\bottomrule
+\end{tabular}
+\end{center}
+The multiplication rate is $2\times30.72+2\times15.36+2\times7.68+3\times3.84+6\times1.92=131$
+million per second per rail---68 per output sample. The 35-tap channel filter of the earlier
+example then runs at 1.92\,MS/s and removes what HB5 let alias into the transition region. A
+single-stage decimate-by-32 filter with the same 80\,dB rejection and its stopband at
+$1.92-0.54=1.38$\,MHz has a relative transition of $0.84/61.44=0.0137$, so~\eqref{eq:ch06:harris}
+predicts about 270 taps and about 270 multiplications per output sample in polyphase form: four
+times the cost, and one large, awkward filter instead of five small, reusable ones. Notice also that
+the first three stages are identical 7-tap filters with two distinct coefficients each; in an ASIC
+they can share one design.
+\end{worked}
+
+\begin{inpractice}[The AD9361 and the B200's decimation chain]
+The AD9361 and AD9364 RF transceivers (the latter in the USRP B200) implement this architecture in
+silicon. On the receive side the ADC runs at up to 640\,MS/s, and its output passes through a chain
+of fixed decimators---HB3 (which can instead decimate by three, ``DEC3''), HB2 and HB1, each a
+half-band decimate-by-two---and then a programmable FIR filter of up to 128 taps that can decimate
+by 1, 2 or 4. The transmit side mirrors it: a programmable FIR interpolating by 1, 2 or 4, then HB1,
+HB2 and HB3/INT3 into the DAC. The programmable FIR's taps are designed by Analog Devices' filter
+wizard for each sample rate, and include compensation for the droop of the analog filters. In the
+B200, the FPGA adds a second decimation chain on top: a CORDIC frequency shifter, a CIC decimator and
+two half-band filters (Section~\ref{sec:ch06:ddc}). Because the half-bands can be used only when the
+FPGA decimation is even, UHD warns when the requested rate implies an odd decimation, and the best
+practice is to choose a master clock rate that makes the FPGA decimation a power of two---or one.
+\end{inpractice}
+
+%======================================================================
+\section{Cascaded integrator-comb filters}
+\label{sec:ch06:cic}
+%======================================================================
+
+When the decimation ratio is large---hundreds or thousands---even polyphase half-band chains become
+expensive, because their early stages run at the full input rate, which may be hundreds of
+megahertz. Eugene Hogenauer's \term{cascaded integrator-comb} (CIC) filter (1981) needs no
+multipliers and no coefficient storage at all.
+
+\subsection{From moving average to CIC}
+
+Start with the moving average of length $R$, which has the transfer function
 \begin{equation}
-H(e^{j\omega})=\left[\frac{\sin(\omega R/2)}{R\sin(\omega/2)}\right]^N,
+H_{\text{MA}}(z)=\sum_{k=0}^{R-1}z^{-k}=\frac{1-z^{-R}}{1-z^{-1}}.
+\label{eq:ch06:ma}
 \end{equation}
-whose nulls fall exactly at the frequencies that alias onto DC after decimation
-(Figure~\ref{fig:ch06_cic}). The price is passband droop, corrected by a short compensation FIR
-at the low rate, and bit growth of $N\log_2R$ bits in the integrators, which relies on
-two's-complement wrap-around being harmless. CIC decimators are the first stage in the B200's
-FPGA and in almost every wideband digital receiver.
+The right-hand form is a recursive implementation: an \emph{integrator} $1/(1-z^{-1})$ (an
+accumulator) followed by a \emph{comb} $1-z^{-R}$. Its $R$ zeros are evenly spaced around the unit
+circle, one of them cancelling the integrator's pole at $z=1$, so the frequency response has nulls
+at every multiple of $f_s/R$. Those are precisely the frequencies that alias onto DC after
+decimation by $R$. A moving average followed by decimation by $R$ is therefore a natural, if
+crude, anti-aliasing decimator: the integrator runs at the input rate, and by the first noble
+identity the comb $1-z^{-R}$ followed by $\downarrow R$ is equivalent to $\downarrow R$ followed by
+$1-z^{-1}$. The comb now runs at the \emph{output} rate and needs only one delay element.
+
+One stage gives too little attenuation (the first sidelobe of a $\sinc$ is only 13\,dB down), so
+Hogenauer cascaded $N$ of them, putting all $N$ integrators at the high rate, then the downsampler,
+then all $N$ combs at the low rate (Figure~\ref{fig:ch06_cic_structure}). Allowing a
+\emph{differential delay} $D$ (usually 1 or 2) in each comb, the transfer function referred to the
+input rate is
+\begin{equation}
+H(z)=\left(\frac{1-z^{-RD}}{1-z^{-1}}\right)^N,\qquad
+|H(e^{j\omega})|=\left|\frac{\sin(\omega RD/2)}{\sin(\omega/2)}\right|^N,
+\label{eq:ch06:cic}
+\end{equation}
+with DC gain $(RD)^N$. Normalised by that gain, the response is approximately $|\sinc(fRD)|^N$
+for frequencies small compared with $f_s$: nulls at every multiple of $f_s/RD$, sidelobes falling
+as $1/f^N$ (Figure~\ref{fig:ch06_cic}).
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.7cm,minimum width=0.9cm,font=\sffamily\scriptsize},
+  add/.style={draw=accent,thick,circle,inner sep=0.3pt,minimum size=0.46cm,font=\scriptsize},
+  arr/.style={-{Stealth[length=1.6mm]},thick,navy}]
+\node[font=\small] (x) at (-0.4,0) {$x[n]$};
+% integrator 1
+\node[add] (a1) at (0.7,0) {$+$};
+\node[blk] (d1) at (0.7,-1.05) {$z^{-1}$};
+\draw[arr] (x) -- (a1); \draw[arr] (a1.east) -- ++(0.35,0) |- (d1.east); \draw[arr] (d1.north) -- (a1.south);
+\node[add] (a2) at (2.2,0) {$+$};
+\node[blk] (d2) at (2.2,-1.05) {$z^{-1}$};
+\draw[arr] (a1) -- (a2); \draw[arr] (a2.east) -- ++(0.35,0) |- (d2.east); \draw[arr] (d2.north) -- (a2.south);
+\node at (3.25,0) {$\cdots$};
+\draw[decorate,decoration={brace,amplitude=5pt},navy!70] (0.3,0.45) -- (3.0,0.45)
+  node[midway,above=5pt,font=\sffamily\scriptsize,text=navy]{$N$ integrators at $f_s$};
+\node[draw=accent,thick,circle,minimum size=0.75cm,font=\scriptsize] (ds) at (4.4,0) {$\downarrow R$};
+\draw[arr] (3.55,0) -- (ds);
+% comb 1
+\node[add] (c1) at (6.4,0) {$+$};
+\node[blk] (e1) at (5.6,-1.05) {$z^{-D}$};
+\coordinate (b1) at (5.6,0); \fill[navy] (b1) circle (1.4pt);
+\draw[arr] (ds) -- (c1); \draw[arr] (b1) -- (e1); \draw[arr] (e1.east) -| node[pos=0.8,right,font=\scriptsize]{$-$} (c1.south);
+\node[add] (c2) at (8.2,0) {$+$};
+\node[blk] (e2) at (7.4,-1.05) {$z^{-D}$};
+\coordinate (b2) at (7.4,0); \fill[navy] (b2) circle (1.4pt);
+\draw[arr] (c1) -- (c2); \draw[arr] (b2) -- (e2); \draw[arr] (e2.east) -| node[pos=0.8,right,font=\scriptsize]{$-$} (c2.south);
+\node at (9.0,0) {$\cdots$};
+\draw[arr] (9.3,0) -- (10.2,0) node[right,font=\small] {$y[m]$};
+\draw[decorate,decoration={brace,amplitude=5pt},navy!70] (5.3,0.45) -- (8.9,0.45)
+  node[midway,above=5pt,font=\sffamily\scriptsize,text=navy]{$N$ combs at $f_s/R$};
+\node[font=\sffamily\scriptsize,text=accent,align=center] at (3.75,-1.25) {registers of\\$B_{\text{in}}+N\log_2(RD)$\\bits};
+\end{tikzpicture}
+\caption{A CIC decimator: $N$ integrators (accumulators) at the input rate, a downsampler by $R$, and $N$
+combs with differential delay $D$ at the output rate. There are no multipliers. Every register must be
+wide enough for the full gain $(RD)^N$; wrap-around in the integrators is then harmless.}
+\label{fig:ch06_cic_structure}
+\end{figure}
 
 \mdcfig[0.72]{ch06_cic}{CIC decimator magnitude response for decimation $R=16$ and one, three
 and five stages, plotted against the output sample rate. The nulls sit on the bands that alias to
 DC; more stages give deeper nulls and more droop.}
 
-\subsection{Multistage design}
+The CIC's strengths are that it needs only $2N$ adders and $N(1+D)$ registers regardless of $R$,
+that $R$ can be changed at run time simply by changing the downsampling count, and that the
+integrators---the only parts running at the high rate---are the simplest possible circuits. Its
+weaknesses are the shape of the response. The attenuation near the nulls is enormous, but the band
+that aliases is not a single frequency: when the wanted signal occupies $|f|<f_p$ at the output, the
+bands $kf_s/R\pm f_p$ all alias onto it, and the attenuation at the edges of those bands is limited.
+For large $R$, the attenuation at the inner edge of the first alias band is about
+$\bigl[\sin(\pi b)/\pi(1-b)\bigr]^N$, where $b=f_p/f_{\text{out}}$: with $N=5$, roughly 52\,dB for
+$b=\tfrac14$ but 96\,dB for $b=\tfrac1{10}$. That is why a CIC is used for the large, early part of a
+decimation, leaving the output still oversampled by four or more, and a conventional FIR filter does
+the final, sharp filtering.
 
-Because FIR cost scales as $A_s/(\Delta f/f_s)$, one large decimation is best done in stages:
-first a cheap filter with a wide transition (a CIC or half-band) at the high rate, then sharper
-filters at progressively lower rates, where their relative transition width is larger. Designing
-a decimate-by-64 channel filter as $2\times2\times16$ rather than one 64 can cut the computation
-by an order of magnitude. This is the architecture of the digital down-converter:
-NCO mixer, CIC, half-band cascade, final channel FIR.
+\subsection{Droop and its compensation}
 
-\subsection{Arbitrary and fractional resampling}
+The second weakness is \emph{passband droop}: the $\sinc^N$ response falls gradually across the
+band of interest. For $R=16$ and $N=4$ the droop at 0.2 of the output rate is 2.3\,dB, far more
+than a modem can tolerate. It is corrected by a short FIR \emph{compensation filter} (CFIR) at the
+CIC's output rate, designed to have an inverse-$\sinc^N$ passband and usually also to decimate by
+two (Figure~\ref{fig:ch06_cic_comp}). Because the compensator runs at the low rate, it is cheap,
+and because it can also serve as the first half of the final channel filtering, it is rarely an
+additional cost at all. Designing it is a natural job for least squares or frequency sampling
+(\texttt{firls} or \texttt{firwin2} with the inverse droop as the desired response), as in the lab.
 
-Real systems often need irrational or awkward ratios: 48\,kHz audio to 44.1\,kHz ($147/160$), a
-61.44\,MS/s LTE clock to a 56\,MS/s processing rate, or continuous tracking of a clock that drifts
-by parts per million. Two methods cover these cases. A \emph{polyphase resampler} with many phases
-(say 32 or 128) picks, for each output sample, the subfilter nearest to the required fractional
-delay. A \term{Farrow} structure computes the interpolating filter as a polynomial in the
-fractional delay $\mu$, so any delay can be synthesised from a few fixed subfilters and a
-Horner evaluation. The cubic Lagrange interpolator used for timing recovery in
-Chapter~\ref{ch:sync} and in \texttt{commlib} is a Farrow structure.
+\mdcfig{ch06_cic_comp}{CIC droop compensation. Left: a CIC ($R=16$, $N=4$) followed by a 31-tap
+least-squares compensator that also decimates by two; the cascade is flat to 0.2 of the CIC output rate
+and rejects from 0.3 onwards (the band above 0.25, shaded, aliases after the second decimation).
+Right: the 2.3\,dB droop is reduced to a ripple of less than 0.07\,dB.}
 
+An alternative is \emph{sharpening}: Kaiser and Hamming showed in 1977 that a filter $H$ with a
+nearly flat passband can be improved by the polynomial $3H^2-2H^3$, and applied to a CIC this gives a
+\emph{sharpened CIC} with a much flatter passband and deeper alias rejection, at the cost of three
+CIC copies and a few shifts and adds---still multiplier-free.
+
+\subsection{Register growth}
+
+The CIC's DC gain is $(RD)^N$, so with $B_{\text{in}}$-bit inputs the output needs
+\begin{equation}
+B_{\text{out}}=B_{\text{in}}+\bigl\lceil N\log_2(RD)\bigr\rceil
+\label{eq:ch06:cicgrowth}
+\end{equation}
+bits to represent every possible result. The integrators, however, have poles on the unit circle:
+their contents grow without bound for any input with a nonzero mean. Hogenauer's key observation was
+that this does not matter. Two's-complement arithmetic is arithmetic modulo $2^B$, and the
+\emph{overall} CIC is an FIR filter whose output fits in $B_{\text{out}}$ bits. If every register is
+$B_{\text{out}}$ bits wide and wraps around on overflow, every intermediate result is correct
+modulo $2^{B_{\text{out}}}$, and since the true output fits in that range, the final result is
+exactly right. The combs undo the integrators' wrap-arounds. This works only if every stage uses
+the same modulus (no saturation anywhere in the CIC) and the registers are at least
+$B_{\text{out}}$ bits wide.
+
+Hogenauer also showed that the registers need not all be that wide. Truncating low-order bits at
+each stage adds noise, but noise added early is attenuated by the filtering that follows, so the
+number of bits that can be discarded (\emph{pruned}) increases from stage to stage. His paper gives
+the formulas for choosing the discarded bits so that the total truncation noise at the output is
+no more than the output quantization noise; for long decimations the savings are substantial,
+often a quarter or more of the register bits.
+
+\begin{worked}[CIC register growth]
+A wideband receiver digitises at 245.76\,MS/s with a 14-bit ADC and uses a five-stage CIC ($N=5$,
+$D=1$) programmable from $R=8$ to $R=64$ to reach output rates from 30.72\,MS/s down to 3.84\,MS/s.
+The register width is set by the largest decimation: $B=14+5\log_2 64=14+30=44$ bits. At $R=8$ the
+gain is only $8^5=2^{15}$, so the useful output then lies in the bottom $14+15=29$ bits of the
+44-bit word, and the output must be shifted left by $5\log_2(64/8)=15$ bits before rounding to the
+output width; for values of $R$ that are not powers of two, $N\log_2R$ is not an integer and the
+gain $R^5$ must be normalised by a multiplier (or a shift plus a fine-gain multiplier) after the
+combs. Each integrator runs at 245.76\,MHz with a 44-bit adder, which a modern FPGA's carry chains
+handle comfortably; the combs run at the output rate and could be time-shared. If the output is
+kept to 18 bits, Hogenauer's pruning allows the later integrators and the combs to drop low-order
+bits progressively, so that the last comb is only a little wider than the output.
+\end{worked}
+
+\subsection{CIC interpolators}
+
+Transposing the CIC gives an interpolator: $N$ combs at the low rate, an upsampler by $R$ (zero
+insertion), and $N$ integrators at the high rate. It suppresses the images at multiples of the input
+rate with the same $\sinc^N$ shape, and its passband droop is usually pre-compensated by an
+inverse-sinc FIR at the low rate. The register-growth analysis is different---the gain from input to
+output is $(RD)^N/R$, and the growth happens in the combs---but the wrap-around argument is the same.
+CIC interpolators are the last stage of digital up-converters in transmitters, where they raise the
+sample rate to the DAC clock.
+
+\begin{history}[Hogenauer's economical filters]
+Eugene Hogenauer's paper ``An economical class of digital filters for decimation and interpolation''
+appeared in the \emph{IEEE Transactions on Acoustics, Speech, and Signal Processing} in April 1981.
+In eight pages it introduced the cascaded integrator-comb structure, derived its frequency response
+and alias rejection, proved that integrator overflow is harmless in modular arithmetic, and gave the
+register-pruning rules still used today. The timing was perfect. Within a decade, digital receivers
+with ADCs sampling at tens of megahertz needed exactly what the CIC offered: a decimator whose
+high-rate part was nothing but adders, at a time when a multiplier was an expensive piece of silicon.
+The dedicated digital down-converter chips of the 1990s, such as Analog Devices' AD6620 and
+Graychip's GC4016, used CIC front ends, and so has almost every DDC since---including the FPGA image
+of every USRP. Rarely
+has so short a paper been so widely implemented.
+\end{history}
+
+%======================================================================
 \section{Filter banks and channelizers}
+\label{sec:ch06:filterbanks}
+%======================================================================
 
-A bank of $M$ bandpass filters that splits a wideband input into $M$ adjacent channels would
-naively cost $M$ times one filter. The \term{polyphase DFT filter bank} computes all of them for
-roughly the cost of one polyphase decimator plus an $M$-point FFT per output sample: the polyphase
-subfilters of a common low-pass prototype feed an FFT, whose outputs are the $M$ channels
-(Figure~\ref{fig:ch06_polyphase}). Channelizers built this way sit inside satellite payloads
-that route hundreds of carriers, in spectrum-monitoring receivers, in radio telescopes, and in
-software base stations that process many narrowband carriers from one wideband ADC.
-Oversampled and non-maximally decimated variants avoid the aliasing at channel edges; the
-perfect-reconstruction synthesis banks that recombine channels are the ancestors of the
-filter-bank multicarrier (FBMC) waveforms studied for 5G.
+\subsection{The polyphase DFT filter bank}
+
+A bank of $M$ band-pass filters that splits a wideband input into $M$ adjacent channels, each
+decimated to its own bandwidth, would naively cost $M$ times one polyphase decimator. The
+\term{polyphase DFT filter bank} computes all of them for roughly the cost of one, plus an FFT. The
+derivation takes four lines. Let all channels be frequency-shifted copies of one low-pass
+\emph{prototype} $h[n]$ with bandwidth about $f_s/M$: channel $k$ uses $h_k[n]=h[n]W_M^{-kn}$, with
+$W_M=e^{-j2\pi/M}$, so $H_k(z)=H(zW_M^{k})$. Substituting the polyphase
+decomposition~\eqref{eq:ch06:polyphase},
+\begin{equation}
+H_k(z)=\sum_{p=0}^{M-1}\bigl(zW_M^{k}\bigr)^{-p}E_p\bigl(z^MW_M^{kM}\bigr)
+=\sum_{p=0}^{M-1}W_M^{-kp}\;z^{-p}E_p(z^M),
+\label{eq:ch06:dftbank}
+\end{equation}
+because $W_M^{kM}=1$. The polyphase branches $z^{-p}E_p(z^M)$ are \emph{the same for every
+channel}; only the complex weights $W_M^{-kp}$ differ, and the sum over $p$ with those weights is an
+$M$-point inverse DFT. After the noble identity moves the downsamplers to the front, the whole bank
+is a commutator, $M$ polyphase subfilters running at the output rate, and one $M$-point FFT per output
+time step (Figure~\ref{fig:ch06_pfb_struct}). The cost per input sample is the prototype length
+divided by $M$ plus $\tfrac12\log_2M$ complex multiplications for the FFT, against $M$ times as
+much for separate filters. For $M=1024$ channels the saving is nearly a thousandfold.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.55cm,minimum width=1.3cm,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=1.6mm]},thick,navy}]
+\node[font=\small] (x) at (-1.2,-1.2) {$x[n]$};
+\coordinate (pv) at (0,-1.2); \fill[navy] (pv) circle (1.5pt); \draw[thick,navy] (x) -- (pv);
+\draw[-{Stealth[length=1.6mm]},thick,accent] (pv) -- (0.75,-0.05);
+\node[font=\scriptsize,text=accent,align=center] at (-0.5,-2.25) {commutator\\(input rate $f_s$)};
+\foreach \p/\yy/\lab in {0/0/{E_0(z)},1/-0.8/{E_1(z)},3/-2.4/{E_{M-1}(z)}} {
+  \fill[navy] (0.85,\yy) circle (1.4pt);
+  \node[blk] (E\p) at (2.0,\yy) {$\lab$};
+  \draw[arr] (0.9,\yy) -- (E\p);
+  \draw[arr] (E\p) -- (3.7,\yy);
+}
+\node at (2.0,-1.55) {$\vdots$};
+\node[draw=navy,fill=accent!8,thick,minimum width=1.4cm,minimum height=3.0cm,align=center,font=\sffamily\scriptsize] (F) at (4.4,-1.2) {$M$-point\\IFFT};
+\foreach \k/\yy/\lab in {0/0/{channel 0},1/-0.8/{channel 1},3/-2.4/{channel $M{-}1$}} {
+  \draw[arr] (5.1,\yy) -- (6.3,\yy) node[right,font=\scriptsize] {\lab};
+}
+\node at (6.9,-1.55) {$\vdots$};
+\draw[decorate,decoration={brace,amplitude=5pt},navy!70] (1.3,0.45) -- (2.7,0.45)
+  node[midway,above=5pt,font=\sffamily\scriptsize,text=navy]{prototype split $M$ ways};
+\node[font=\sffamily\scriptsize,text=navy,align=center] at (4.4,0.75) {one per $M$ inputs};
+\node[font=\sffamily\scriptsize,text=navy,align=center] at (7.0,0.75) {each at $f_s/M$};
+\end{tikzpicture}
+\caption{A critically sampled polyphase DFT channelizer. One commutator, $M$ short subfilters (the
+polyphase components of a single prototype low-pass) and one FFT per output time step produce all $M$
+channels, each decimated by $M$ and shifted to baseband.}
+\label{fig:ch06_pfb_struct}
+\end{figure}
+
+Figure~\ref{fig:ch06_polyphase} shows the channel responses of an 8-channel bank, and
+Figure~\ref{fig:ch06_channelizer} shows one at work: a wideband input carrying five carriers of
+different powers on an 8-channel grid is split into eight baseband outputs, each at an eighth of the
+input rate. (The figure script checks the channelizer against brute-force mixing, filtering and
+downsampling of each channel; they agree to within rounding error.)
 
 \mdcfig[0.72]{ch06_polyphase}{An 8-channel uniform filter bank: every channel is a frequency-shifted
 copy of one prototype low-pass filter, and a polyphase-plus-FFT structure computes them all at once.}
 
-\section{Oscillators and rotations}
+\mdcfig{ch06_channelizer}{A polyphase DFT channelizer at work. Top: a wideband input with five
+QPSK carriers of different power on an 8-channel grid (channels 0, 4 and 7 are empty). Bottom: the
+eight outputs, each brought to baseband and decimated by 8 by one polyphase filter bank and one
+8-point FFT per output sample. Because this bank is critically sampled, the carriers' roll-off
+regions fold back at the edges of each output band.}
 
-\subsection{The numerically controlled oscillator}
+\subsection{Critically sampled and oversampled banks}
 
-Digital mixing multiplies samples by $e^{-j2\pi f_0 n/f_s}$. A \term{numerically controlled
-oscillator} (NCO), or direct digital synthesiser (DDS), keeps a $B$-bit phase accumulator that
-adds a frequency word $F$ each clock, giving output frequency $f_0=F f_s/2^B$ with resolution
-$f_s/2^B$---millihertz at 100\,MS/s with a 32-bit accumulator. The top $P$ bits address a sine
-look-up table. Truncating the phase to $P$ bits creates periodic phase errors and hence spurs,
-about $6P$\,dB below the carrier (Figure~\ref{fig:ch06_nco_spurs}); phase dithering converts the
-spurs into a noise floor. Amplitude quantization in the table adds its own floor. NCOs tune every
-digital down-converter and generate the chirps of FMCW radars and the carriers of many
-transmitters.
+The bank of Figure~\ref{fig:ch06_pfb_struct} is \emph{critically sampled}: $M$ channels, each
+decimated by $M$, so the total output rate equals the input rate. Its weakness is the channel
+edges. The prototype's transition band must lie somewhere, and in a critically sampled bank
+whatever lies in it aliases into the neighbouring channel's output (visible at the band edges in
+Figure~\ref{fig:ch06_channelizer}). A signal that straddles two channels is damaged in both.
+\emph{Oversampled} banks avoid this by decimating each channel by $M/2$ (or $M/4$) instead of $M$:
+the output rate per channel is then twice the channel spacing, the transition band can fall in the
+spare spectrum, and a signal anywhere in the band can be recovered, if necessary by recombining two
+adjacent channels with a small synthesis bank. The price is a doubled output rate and a slightly
+more complex commutator, which must also apply a circular shift to the FFT input on alternate
+steps. harris's book gives the full recipe. Channel \emph{stacking} (whether the channel centres
+fall on $kf_s/M$ or on $(k+\tfrac12)f_s/M$) is the other design choice; the latter, implemented
+with a pre-rotation by $W_{2M}^{n}$, avoids a channel straddling DC.
+
+\subsection{Synthesis and perfect reconstruction}
+
+The transpose of an analysis bank is a \emph{synthesis} bank: an IFFT, polyphase subfilters and an
+output commutator that combine $M$ low-rate channels into one wideband signal. A transmitter that
+must generate many carriers at once---a multicarrier base station, a cable headend, a satellite
+gateway---uses one. An analysis bank followed by a synthesis bank is a \emph{transmultiplexer} in
+reverse: it splits a signal into subbands and reassembles it, and with suitably designed prototypes
+the output can be a perfect delayed copy of the input. The theory of such \emph{perfect
+reconstruction} filter banks---quadrature mirror filters, paraunitary banks, cosine-modulated
+banks---was developed in the 1980s by Smith and Barnwell, Vaidyanathan, Vetterli and others. It
+underpins subband audio coding and the MDCT of every modern audio codec (Chapter~\ref{ch:sourcecoding}),
+the wavelet transform, and the filter-bank multicarrier (FBMC) waveforms studied as alternatives to
+OFDM (Chapter~\ref{ch:ofdm}).
+
+\begin{inpractice}[Channelizers in orbit, in telescopes and in base stations]
+Polyphase channelizers sit wherever many narrowband signals share one wide band. Satellite
+\emph{digital transparent processors} (Chapter~\ref{ch:satellite}) digitise each uplink beam,
+channelize it into many sub-channels, route each sub-channel to any downlink beam and frequency, and
+resynthesise the downlink with a synthesis bank; the Inmarsat-4 satellites launched from 2005 were
+early large-scale examples, and modern high-throughput and software-defined payloads have taken
+the idea much further. Spectrum-monitoring and signals-intelligence receivers channelize an entire
+band at once to detect and record every transmission in it. Radio telescopes use polyphase filter
+banks as their spectrometers and as the first stage of their correlators; the open-source CASPER
+FPGA libraries made polyphase filter-bank spectrometers standard equipment at observatories around
+the world. And a software base station that serves many narrowband carriers---GSM, or narrowband IoT
+channels---from one wideband ADC uses a channelizer instead of one DDC per carrier.
+\end{inpractice}
+
+\subsection{Spectral analysis: Welch and the polyphase FFT}
+
+The DFT itself is a filter bank: each bin is the output of a filter whose impulse response is the
+window, modulated to the bin frequency and decimated by the FFT length (Chapter~\ref{ch:signals}).
+With a window of length $M$---one FFT block---the bin filter has the window's transform as its
+response: a main lobe one to four bins wide and sidelobes that leak strong signals into distant bins.
+\emph{Welch's method} averages the squared magnitudes of many overlapping windowed FFTs to reduce the
+variance of the estimate, but does nothing for the shape of each bin's response.
+
+A \emph{polyphase FFT}, or polyphase filter-bank spectrometer, uses a prototype $T$ times longer than
+the FFT---typically $T=4$ to 16 taps per branch---and folds it onto the FFT with the polyphase
+structure of Figure~\ref{fig:ch06_pfb_struct}. Each bin then has the response of a properly designed
+low-pass filter: flat across the bin, with steep skirts and low sidelobes
+(Figure~\ref{fig:ch06_pfb_spectrum}). Scalloping loss nearly disappears, and leakage from a strong
+signal into distant bins drops by tens of decibels, for an extra cost of only $T$ multiplications per
+input sample. For the price of a slightly more complicated front end, every bin becomes a good
+channel filter, which is why radio astronomers and spectrum monitors prefer the polyphase FFT to the
+windowed FFT.
+
+\mdcfig[0.82]{ch06_pfb_spectrum}{The response of one spectrometer channel as a function of frequency
+offset from its centre. A rectangular-window FFT has $-13$\,dB sidelobes and 4\,dB of scalloping at the
+bin edges (dotted); a Hann window lowers the sidelobes but widens the main lobe. A polyphase FFT with
+four taps per branch (a 256-tap windowed-sinc prototype for a 64-point FFT) gives a flat-topped bin with
+steep skirts and sidelobes below $-75$\,dB.}
+
+%======================================================================
+\section{Numerically controlled oscillators}
+\label{sec:ch06:nco}
+%======================================================================
+
+\subsection{The phase accumulator}
+
+Digital mixing multiplies samples by $e^{-j2\pi f_0n/f_s}$. A \term{numerically controlled
+oscillator} (NCO), or direct digital synthesiser (DDS) when its output drives a DAC, generates that
+complex exponential with three components: a $B$-bit \emph{phase accumulator} that adds a
+\emph{frequency tuning word} (FTW) $F$ every clock, a \emph{phase-to-amplitude converter} (a sine
+look-up table or a CORDIC), and, in a DDS, a DAC. The accumulator wraps around modulo $2^B$, which is
+exactly the modulo-$2\pi$ behaviour of phase, so the output frequency and its resolution are
+\begin{equation}
+f_0=\frac{F}{2^B}\,f_s,\qquad \Delta f=\frac{f_s}{2^B}.
+\label{eq:ch06:nco}
+\end{equation}
+A 32-bit accumulator clocked at 245.76\,MHz has a resolution of 0.057\,Hz; a 48-bit accumulator, used
+in precision synthesisers, reaches micro-hertz. Frequency changes are \emph{phase-continuous}---the
+accumulator simply starts adding a different number---and take effect within one clock, which is
+why NCOs generate the frequency hops of military radios and Bluetooth, the chirps of FMCW radars and
+the carriers of many transmitters, and why every DDC uses one as its local oscillator. A frequency
+that is not an integer multiple of $\Delta f$ cannot be represented exactly; a 1\,MHz tone from a
+245.76\,MHz clock has a fractional tuning word, and the residual error ($\le\Delta f/2$) accumulates
+as a slow phase drift that matters in coherent systems. Some DDS chips offer a programmable modulus to
+make such frequencies exact.
+
+\subsection{The look-up table and phase truncation}
+
+The phase-to-amplitude converter cannot use all $B$ accumulator bits: a $2^{32}$-entry table is
+absurd. Only the top $P$ bits address the table, and the discarded $B-P$ bits are a \emph{phase
+truncation} error. For most tuning words that error is a periodic sawtooth (the discarded bits form
+a periodic sequence), and a periodic phase error produces \emph{spurs}---discrete spectral lines---
+rather than noise. Their worst-case level relative to the carrier is approximately
+\begin{equation}
+\text{SFDR}\approx6.02\,P\ \text{dBc}
+\label{eq:ch06:ncosfdr}
+\end{equation}
+(Figure~\ref{fig:ch06_nco_spurs}), and the actual level and the spur positions depend on the tuning
+word: if the low $B-P$ bits of $F$ are zero there is no truncation error at all, while words whose
+low bits are a small fraction of $2^{B-P}$ produce the largest spurs. Amplitude quantization of the
+table entries to $A$ bits adds its own error, which behaves like noise at about $6.02A+1.76$\,dB below
+full scale for most tuning words but can also concentrate into harmonics when the output period is
+short.
 
 \mdcfig{ch06_nco_spurs}{Output spectra of an NCO with a 32-bit accumulator when the phase is
 truncated to 8 and to 14 bits before the sine look-up. Each additional phase bit lowers the spurs
 by about 6\,dB.}
 
-\subsection{CORDIC}
+Three techniques reduce the cost of a large table. \emph{Quarter-wave symmetry} stores only the first
+quadrant of the sine and derives the others by inverting the address and the sign, cutting the table
+by four. \emph{Sine--cosine sharing} reads both outputs from the same table offset by a quarter
+period. And \emph{interpolation} (Taylor-series correction) uses the discarded phase bits with a
+small multiplier to refine the table output, so that a table of $2^{10}$ entries can deliver the
+accuracy of one of $2^{16}$. Alternatively, a CORDIC (Section~\ref{sec:ch06:cordic}) replaces the
+table altogether.
 
-Jack Volder's \term{CORDIC} algorithm (1959), invented for the B-58 bomber's navigation computer,
-rotates a vector by an arbitrary angle using only shifts and adds: at stage $i$ it rotates by
-$\pm\arctan 2^{-i}$, choosing the sign to drive the residual angle toward zero. After $b$ stages
-the result is accurate to about $b$ bits, scaled by a known constant $K\approx1.6468$. Run in
-\emph{rotation mode} it is a mixer or an NCO; in \emph{vectoring mode} it computes magnitude and
-phase ($\sqrt{I^2+Q^2}$ and $\arctan(Q/I)$), which is exactly what AM and FM demodulators,
-AGC loops and phase detectors need. CORDIC engines appear in FPGA IP libraries and in the
-digital front ends of most radio chips.
+\subsection{Phase dithering}
 
-\subsection{Two more useful tools}
+If the spurs, rather than the total error power, are the problem---as they are in a receiver where a
+spur can mask a weak signal or in a transmitter with a spectral mask---the periodicity of the
+truncation error can be broken by adding a small random number to the accumulator output before
+truncation. The \emph{phase dither}, uniform over one LSB of the truncated phase, turns the
+periodic error into white noise: the total error power rises slightly but is spread across the whole
+band, and the spurs drop into a noise floor (Figure~\ref{fig:ch06_nco_dither}). With 10 phase bits,
+dithering trades $-60$\,dBc spurs for a floor some 25\,dB lower in each FFT bin. The same idea, in the
+form of noise shaping, is used in fractional-$N$ synthesisers (Chapter~\ref{ch:sync}).
 
-The \emph{Goertzel algorithm} computes a single DFT bin with one second-order recursion per
-sample; it is the classic detector for dual-tone multi-frequency (DTMF) telephone signalling and
-is cheaper than an FFT when only a few bins are needed. The \emph{DC blocker}
-$H(z)=(1-z^{-1})/(1-\alpha z^{-1})$ with $\alpha$ close to 1 is a single-pole high-pass that removes
-the residual DC offset of a direct-conversion receiver; it is one of the few IIR filters found
-in almost every SDR data path.
+\mdcfig{ch06_nco_dither}{Phase dithering. Left: with the phase truncated to 10 bits, the error is
+periodic and produces spurs up to about $-60$\,dBc. Right: adding a random value below one phase LSB
+before truncation converts the spurs into a noise floor; the worst remaining peak is a noise peak
+about 25\,dB lower.}
+
+\begin{worked}[An NCO for a 75\,dB receiver]
+A digital receiver needs a local oscillator whose spurs are at least 70\,dB below the carrier,
+running at 245.76\,MS/s with 0.1\,Hz resolution. Resolution: $f_s/2^B\le0.1$\,Hz requires
+$2^B\ge2.46\times10^9$, so $B=32$ (0.057\,Hz). Spurs: by~\eqref{eq:ch06:ncosfdr}, $P=12$ phase bits
+give about $6.02\times12=72$\,dBc, just meeting the requirement. The table then has $2^{12}=4096$
+entries; with quarter-wave symmetry, 1024 entries of the first quadrant. For the amplitude, $A=14$
+bits gives a quantization floor near $6.02\times14+1.76=86$\,dB below full scale, comfortably below
+the phase spurs. The table is $1024\times13$ bits (the sign is handled by the symmetry logic), about
+13\,kbit, which fits in a single 18\,kbit FPGA block RAM; with sine and cosine read from two ports
+of the same memory, the complete quadrature NCO costs one block RAM and a 32-bit adder. If the system
+later needs 90\,dBc, three more phase bits would multiply the table by eight, and phase dithering
+or Taylor correction becomes the cheaper option.
+\end{worked}
+
+\begin{inpractice}[DDS chips and NCOs everywhere]
+Stand-alone DDS chips put the whole structure---a 32- or 48-bit accumulator, a phase-to-amplitude
+converter and a high-speed DAC---on one die. Analog Devices' AD9910, for example, clocks at up to
+1\,GS/s with a 32-bit tuning word and a 14-bit DAC, and can sweep, hop and modulate under external
+control; such parts generate the clocks of test equipment, the chirps of laboratory radars and
+the agile local oscillators of frequency-hopping radios. Inside an RF-sampling data converter, such as
+the ADCs and DACs of Xilinx RFSoC devices or the AD9081, NCOs with 48-bit accumulators and phase
+dithering tune each digital down- or up-converter. In software, GNU Radio's \texttt{sig\_source}
+and \texttt{rotator} blocks are NCOs whose phase is a floating-point number---a reminder that a
+floating-point phase accumulator loses resolution as its value grows, which is why careful software
+keeps the phase as an integer or wraps it every sample.
+\end{inpractice}
+
+%======================================================================
+\section{CORDIC}
+\label{sec:ch06:cordic}
+%======================================================================
+
+\subsection{Rotation by shifts and adds}
+
+Rotating a vector $(x,y)$ by an angle $\theta$,
+\[
+\begin{pmatrix}x'\\y'\end{pmatrix}=\cos\theta\begin{pmatrix}1&-\tan\theta\\ \tan\theta&1\end{pmatrix}
+\begin{pmatrix}x\\y\end{pmatrix},
+\]
+needs four multiplications and the sine and cosine of $\theta$. Jack Volder's \term{CORDIC} (COordinate
+Rotation DIgital Computer) algorithm does it with shifts and adds by rotating through a fixed
+sequence of \emph{elementary angles} $\theta_i=\arctan2^{-i}$, $i=0,1,2,\dots$, each in the
+direction $d_i=\pm1$ that brings the result closer to the target. Because $\tan\theta_i=2^{-i}$, each
+elementary rotation is
+\begin{equation}
+x_{i+1}=x_i-d_i\,2^{-i}y_i,\qquad y_{i+1}=y_i+d_i\,2^{-i}x_i,\qquad z_{i+1}=z_i-d_i\theta_i,
+\label{eq:ch06:cordic}
+\end{equation}
+where multiplication by $2^{-i}$ is an arithmetic right shift and $z_i$ tracks the remaining angle
+(the $\theta_i$ are a small table of constants). Omitting the factor $\cos\theta_i$ from each step
+makes every iteration stretch the vector by $1/\cos\theta_i=\sqrt{1+2^{-2i}}$, independent of the
+direction chosen, so after $n$ iterations the total gain is a constant,
+\begin{equation}
+\frac1K=\prod_{i=0}^{n-1}\sqrt{1+2^{-2i}}\;\longrightarrow\;1.64676,\qquad K\approx0.60725,
+\end{equation}
+which is removed by one multiplication at the end, or folded into the initial value or a later
+gain stage.
+
+The algorithm has two modes:
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Rotation mode] chooses $d_i=\operatorname{sgn}(z_i)$, driving the residual angle $z$ to zero.
+Starting from $(x_0,y_0,z_0=\theta)$, it ends with the input vector rotated by $\theta$ (and scaled by
+$1/K$). Starting from $(K,0,\theta)$ it produces $\cos\theta$ and $\sin\theta$: an NCO without a
+table. Applied to each sample with $\theta$ from a phase accumulator, it is a complete digital mixer.
+\item[Vectoring mode] chooses $d_i=-\operatorname{sgn}(y_i)$, driving $y$ to zero: it rotates the
+vector onto the $x$ axis. It ends with $x_n=\sqrt{x_0^2+y_0^2}/K$ and $z_n=z_0+\arctan(y_0/x_0)$,
+computing magnitude and phase in one pass. That is exactly what AM and FM demodulators
+(Chapter~\ref{ch:analog}), AGC loops and the phase detectors of synchronisers (Chapter~\ref{ch:sync})
+need.
+\end{description}
+The elementary angles sum to $\sum_i\arctan2^{-i}\approx1.7433$\,rad (about $99.9^\circ$), so the
+basic algorithm converges for $|\theta|<99.9^\circ$; a preliminary rotation by $\pm90^\circ$ (swap
+$x$ and $y$ and negate one) extends it to the full circle. Generalisations by John Walther of
+Hewlett-Packard (1971) use the same iteration in linear and hyperbolic coordinates to compute
+multiplication, division, exponentials, logarithms and square roots.
+
+\subsection{Accuracy and cost}
+
+Each iteration halves the size of the elementary rotation, so the residual angle after $n$
+iterations is bounded by $\theta_{n-1}=\arctan2^{-(n-1)}\approx2^{-(n-1)}$\,rad: CORDIC delivers
+roughly \emph{one bit of accuracy per iteration} (Figure~\ref{fig:ch06_cordic}). The datapath must be
+wider than the desired accuracy, because each iteration's right shift discards bits and the rounding
+errors of $n$ iterations accumulate; the usual rule is $\log_2n+2$ guard bits. In hardware the
+iterations are unrolled into a pipeline of $n$ identical stages, each with three adders and fixed
+shifts, producing one result per clock with a latency of $n$ clocks; or a single stage is reused
+$n$ times when throughput is low.
+
+\mdcfig{ch06_cordic}{CORDIC. Left: rotation-mode trajectory for a target of $57^\circ$, starting from
+$(1,0)$; each step rotates by $\pm\arctan2^{-i}$ and stretches the vector, so the path spirals out to
+radius $1/K\approx1.647$. Right: maximum phase error over 4000 random angles as a function of the
+number of iterations, for 24-bit and 18-bit integer datapaths. The error halves with each iteration
+until the datapath's resolution is reached.}
+
+\begin{worked}[How many iterations for 16-bit accuracy?]
+A DDC needs a CORDIC mixer whose phase error is below one LSB of a 16-bit output, about
+$2^{-15}=3.1\times10^{-5}$\,rad. The residual angle after $n$ iterations is at most
+$\arctan2^{-(n-1)}$, so $n-1\ge15$, i.e.\ $n=16$ iterations. With the guard-bit rule, the internal
+datapath needs about $16+\log_216+2=22$ bits. The simulation behind Figure~\ref{fig:ch06_cordic}
+confirms it: with a 24-bit datapath, 16 iterations give a maximum error of $3.2\times10^{-5}$\,rad,
+while an 18-bit datapath stalls near $1.5\times10^{-4}$\,rad no matter how many iterations are run.
+The pipelined implementation is 16 stages of three 22-bit adders---48 adders and no multipliers, one
+output per clock at several hundred megahertz in an FPGA---plus a final multiplication by
+$K=0.60725$ if the gain must be exactly one (or none, if the following stage can absorb it). A
+look-up-table NCO with a complex multiplier needs about the same logic, which is why both
+appear in practice; UHD's FPGA DDC uses a CORDIC.
+\end{worked}
+
+\begin{history}[Volder's navigation computer]
+In the mid-1950s Jack Volder, an engineer at Convair's aeronautics division in Fort Worth, was asked to
+replace the analog resolver in the navigation system of the B-58 Hustler, the first supersonic
+bomber, with a digital computer. Navigation by dead reckoning required continuous conversion between
+polar and rectangular coordinates---headings and distances to north and east components and back---and
+the transistor computers of the day had no fast multiplier. Volder found an iteration, which he related to an
+old method for computing trigonometric tables, that needed only shifts and additions, and described it in
+``The CORDIC trigonometric computing technique'' in the \emph{IRE Transactions on Electronic Computers}
+in September 1959. John Walther's 1971 unification extended it to the full range of elementary
+functions, and shift-and-add methods of this family computed the transcendental functions of early
+scientific pocket calculators. Today CORDIC lives on wherever multipliers are scarce or rotations are
+the natural operation: in FPGA IP libraries, in the digital front ends of radio chips, and in
+the phase detectors of countless synchronisers.
+\end{history}
+
+%======================================================================
+\section{Digital down- and up-converters}
+\label{sec:ch06:ddc}
+%======================================================================
+
+\subsection{The DDC architecture}
+
+Everything in this chapter comes together in the \term{digital down-converter} (DDC), the block that
+takes a wideband stream of samples from an ADC and delivers one channel at baseband at a low sample
+rate (Figure~\ref{fig:ch06_ddc}). Its stages are now familiar:
+\begin{enumerate}
+\item A \textbf{complex mixer}, driven by an NCO or a CORDIC, shifts the wanted channel to 0\,Hz. If the
+ADC samples a real IF, the mixer produces I and Q from one real input; if the front end is already
+zero-IF, the mixer fine-tunes by a few megahertz.
+\item A \textbf{CIC decimator} provides the bulk of the decimation, from the ADC rate down to four or
+eight times the final rate, with no multipliers.
+\item A \textbf{compensating FIR} (CFIR) corrects the CIC droop and decimates by two.
+\item A \textbf{programmable channel FIR} (PFIR) sets the final channel shape---often a root-raised
+cosine matched filter---and decimates by two again.
+\item Optionally, a \textbf{fractional resampler} converts to an exact symbol-related rate, and an
+\textbf{AGC} scales the output word.
+\end{enumerate}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.32cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=1.0cm,minimum width=1.25cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]},thick,navy}]
+\node[blk,fill=accent!6,draw=accent] (adc) {ADC\\14 bit};
+\node[draw=navy,thick,circle,minimum size=0.6cm,right=0.5cm of adc,font=\small] (mix) {$\times$};
+\node[blk,below=0.55cm of mix] (nco) {NCO /\\CORDIC};
+\node[blk,right=0.5cm of mix] (cic) {CIC\\$\downarrow R$\\($N=5$)};
+\node[blk,right=of cic] (cfir) {CFIR\\$\downarrow2$\\droop corr.};
+\node[blk,right=of cfir] (pfir) {PFIR\\$\downarrow2$\\channel/RRC};
+\node[blk,right=of pfir] (rs) {resampler\\$\times L/M$\\(Farrow)};
+\node[blk,right=of rs] (agc) {AGC};
+\draw[arr] (adc) -- (mix); \draw[arr] (nco) -- (mix); \draw[arr] (mix) -- node[above,font=\scriptsize]{I/Q} (cic);
+\draw[arr] (cic) -- (cfir); \draw[arr] (cfir) -- (pfir); \draw[arr] (pfir) -- (rs); \draw[arr] (rs) -- (agc);
+\draw[arr] (agc.east) -- ++(0.5,0) node[right,font=\scriptsize,align=left]{baseband\\out};
+\node[font=\sffamily\scriptsize,text=accent,below=0.12cm of adc] {$f_s$};
+\node[font=\sffamily\scriptsize,text=accent,below=0.12cm of cic] {$\to f_s/R$};
+\node[font=\sffamily\scriptsize,text=accent,below=0.12cm of cfir] {$\to f_s/2R$};
+\node[font=\sffamily\scriptsize,text=accent,below=0.12cm of pfir] {$\to f_s/4R$};
+\node[font=\sffamily\scriptsize,text=accent,below=0.12cm of rs] {exact rate};
+\draw[decorate,decoration={brace,amplitude=5pt},navy!70] ([yshift=4pt]mix.north west) -- ([yshift=4pt]cic.north east)
+  node[midway,above=6pt,font=\sffamily\scriptsize,text=navy,align=center]{high rate:\\no multipliers in CIC};
+\draw[decorate,decoration={brace,amplitude=5pt},navy!70] ([yshift=4pt]cfir.north west) -- ([yshift=4pt]agc.north east)
+  node[midway,above=6pt,font=\sffamily\scriptsize,text=navy]{low rate: sharp filters are cheap here};
+\end{tikzpicture}
+\caption{A digital down-converter, in the arrangement used by the classic GC4016 and, with half-bands
+in place of the CFIR, by the FPGA DDC of the USRP. The expensive arithmetic is pushed to the lowest
+sample rates; only the mixer and the CIC integrators run at the ADC rate.}
+\label{fig:ch06_ddc}
+\end{figure}
+
+The Texas Instruments (originally Graychip) GC4016, a four-channel DDC chip that was a staple of
+cellular base stations and software radios around the turn of the century, is the canonical
+example: each channel has an NCO and mixer, a five-stage CIC with programmable decimation, a 21-tap
+CFIR decimating by two and a 63-tap PFIR decimating by two, followed by a resampler and AGC. Many
+later FPGA DDC cores and the DDCs inside RF-sampling converters follow the same pattern, often with
+half-band chains in place of the CIC when the decimation is a fixed power of two.
+
+\begin{keyidea}[Push arithmetic to the lowest possible rate]
+In a well-designed DDC, only the mixer and the CIC's integrators---a few adders and one complex
+multiplication or CORDIC per sample---run at the ADC rate. Every sharp filter runs after most of the
+decimation has been done, where it is cheap both because its relative transition is wide and because
+it runs rarely. The cost of a DDC is therefore dominated not by the channel filter's sharpness but by
+the input rate times the handful of operations that cannot be postponed.
+\end{keyidea}
+
+\subsection{Tricks of the trade}
+
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[$f_s/4$ mixing.] If a real IF is placed at exactly a quarter of the sample rate, the mixing
+sequence $e^{-j\pi n/2}$ is $1,-j,-1,j,\dots$: the ``mixer'' only routes samples to I or Q and negates
+alternate ones, with no multiplier and no NCO. Many IF-sampling receivers choose their IF for this
+reason, and finish with a small fine-tuning NCO at a lower rate.
+\item[Mixing after decimation.] If the wanted channel lies near the centre of a polyphase decimator's
+passband, the frequency shift can be applied to the filter taps instead of the signal (a band-pass
+decimator), or after a first coarse decimation, saving high-rate multiplications. GNU Radio's
+\texttt{freq\_xlating\_fir\_filter} does exactly this: it rotates the taps to the channel frequency,
+filters and decimates, and corrects the residual phase rotation at the output rate.
+\item[Real-to-complex in the filter.] A real ADC stream can be converted to a complex one at half the
+rate by a complex half-band filter (the $f_s/4$-shifted half-band of Section~\ref{sec:ch06:fir}),
+which is also a Hilbert transformer.
+\item[Choose the converter clock.] A master clock that is an integer multiple of the signal's natural
+rate (30.72 or 61.44\,MHz for LTE and 5G NR, multiples of 1.024\,MHz for DVB-T) removes the need for
+fractional resampling altogether.
+\end{description}
+
+\subsection{The digital up-converter}
+
+A \emph{digital up-converter} (DUC) is the transpose: a pulse-shaping or channel filter interpolating
+by two at the symbol rate, a compensating interpolator by two that pre-distorts for the following
+CIC's droop, a CIC interpolator (or half-band chain) up to the DAC rate, and an NCO mixer that places the
+channel. Transmitters add two digital stages that receivers lack, crest-factor reduction (clipping and
+filtering to lower the peak-to-average ratio) and digital predistortion of the power amplifier
+(Chapter~\ref{ch:sdr}), both of which need the sample rate to be several times the signal bandwidth
+because they create or cancel out-of-band products. A DAC whose images must be suppressed by an
+analog reconstruction filter also benefits from a final inverse-sinc filter that corrects the
+DAC's zero-order-hold droop, $\sinc(f/f_s)$, which is 3.9\,dB at $f_s/2$.
+
+\subsection{In software: GNU Radio and SciPy}
+
+In software the same architecture is assembled from library blocks. Table~\ref{tab:ch06:gr} lists the
+GNU Radio blocks and SciPy functions corresponding to the techniques of this chapter. The polyphase
+blocks are generally the most efficient choice; the FFT filter becomes faster than the direct FIR
+for filters of more than a few dozen taps.
+
+\begin{table}[htbp]\centering\small
+\caption{Multirate building blocks in GNU Radio (3.10) and SciPy.}\label{tab:ch06:gr}
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{6.0cm}>{\raggedright\arraybackslash}p{4.3cm}}
+\toprule
+Technique & GNU Radio block & SciPy \\
+\midrule
+FIR design & \texttt{firdes.low\_pass}, \texttt{firdes.root\_raised\_cosine}, \texttt{optfir} & \texttt{firwin}, \texttt{remez}, \texttt{firls} \\
+FIR filtering & \texttt{fir\_filter\_ccf}, \texttt{fft\_filter\_ccc} & \texttt{lfilter}, \texttt{oaconvolve} \\
+IIR filtering & \texttt{iir\_filter\_ffd}, \texttt{single\_pole\_iir\_filter} & \texttt{sosfilt}, \texttt{sosfiltfilt} \\
+Mixing + decimation & \texttt{freq\_xlating\_fir\_filter\_ccc} & --- \\
+Polyphase decimation & \texttt{pfb.decimator\_ccf} & \texttt{upfirdn}, \texttt{decimate} \\
+Rational resampling & \texttt{rational\_resampler\_ccc} & \texttt{resample\_poly} \\
+Arbitrary resampling & \texttt{pfb.arb\_resampler\_ccf} & --- \\
+Channelizer & \texttt{pfb.channelizer\_ccf}, \texttt{pfb.synthesizer\_ccf} & --- \\
+NCO / mixer & \texttt{sig\_source\_c}, \texttt{rotator\_cc} & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{pitfall}[Filter state across blocks and calls]
+A filter applied to a stream in blocks must carry its state (the last $N-1$ inputs, or the internal
+states of each biquad) from one block to the next. Calling \texttt{lfilter} or \texttt{np.convolve}
+afresh on each block silently restarts the filter from zero, producing a transient at every block
+boundary that appears as a periodic click in audio or a burst of errors in a modem. Pass and return
+\texttt{zi}/\texttt{zf} (SciPy) or use a stateful object; and for decimators, also keep track of the
+\emph{phase}---which input sample the next output aligns with---or the decimation grid will jump at
+each boundary.
+\end{pitfall}
+
+%======================================================================
+\section{A toolbox of small filters}
+\label{sec:ch06:toolbox}
+%======================================================================
+
+A few tiny filters appear in almost every radio and deserve to be known by heart.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[The running sum.] The moving average~\eqref{eq:ch06:ma} implemented recursively as
+$s[n]=s[n-1]+x[n]-x[n-R]$ costs two additions per sample for any $R$. It computes power estimates,
+correlator sums and the energy detectors of burst receivers. In integer arithmetic it is exact; in
+floating point the accumulated rounding error must be cleared periodically.
+\item[The exponential averager.] $y[n]=y[n-1]+\alpha(x[n]-y[n-1])$, a single pole at $1-\alpha$, is the
+cheapest low-pass there is, with a time constant of about $1/\alpha$ samples. With $\alpha=2^{-k}$ it
+needs no multiplier. It smooths AGC detectors, RSSI readings and noise-floor estimates.
+\item[The DC blocker.] $H(z)=(1-z^{-1})/(1-\alpha z^{-1})$ with $\alpha$ just below 1 is a zero at DC and
+a pole just inside it: a high-pass whose $-3$\,dB corner is about $(1-\alpha)f_s/2\pi$. It removes the
+residual DC offset of a direct-conversion receiver (Chapter~\ref{ch:sdr}) and is one of the few IIR
+filters found in almost every SDR data path.
+\item[The Goertzel algorithm.] To compute a single DFT bin $k$ of an $N$-sample block, run the
+second-order recursion $s[n]=x[n]+2\cos(2\pi k/N)\,s[n-1]-s[n-2]$ over the block and form
+$|X[k]|^2=s^2[N-1]+s^2[N-2]-2\cos(2\pi k/N)\,s[N-1]\,s[N-2]$ at the end. It is a resonator with poles on the unit circle,
+used for exactly $N$ samples; it costs one real multiplication per sample per bin, and so beats
+an FFT when only a few bins are needed. It is the classic detector for the dual-tone multi-frequency
+(DTMF) signalling of telephone keypads (Chapter~\ref{ch:history}).
+\end{description}
+
+%======================================================================
+\section{Summary}
+\label{sec:ch06:summary}
+%======================================================================
+
+\begin{itemize}
+\item The $z$-transform turns a filter into a pole-zero plot: the frequency response is the ratio of
+products of distances from the unit circle to the zeros and to the poles. Poles must lie inside the
+circle; a pole at radius $r$ makes a resonance about $(1-r)f_s/\pi$ wide and rings for about
+$1/(1-r)$ samples.
+\item FIR filter cost is about $A_s/(22\,\Delta f/f_s)$ taps. Window designs (Kaiser) are quick;
+Parks--McClellan equiripple designs are optimal in the minimax sense and about 20\% shorter;
+least-squares designs minimise stopband energy. Symmetric taps give exact linear phase and halve the
+multipliers.
+\item Half-band filters have every second tap zero; $M$th-band filters satisfy the Nyquist
+criterion; antisymmetric filters make differentiators and Hilbert transformers.
+\item IIR filters reach sharp responses at low order but distort phase. Design from analog prototypes
+with the bilinear transform and pre-warping; implement as biquads, never as high-order direct forms;
+use saturation in recursive paths; beware limit cycles; equalise group delay with all-passes when
+needed.
+\item In fixed point, accumulate at full precision and round once; scale by $L_1$, $L_\infty$ or $L_2$
+norms according to the signal; budget about 6\,dB per bit for coefficients, data and NCO phase.
+\item Multirate processing rests on the noble identities and the polyphase decomposition: polyphase
+decimators and interpolators never compute discarded outputs or multiply stuffed zeros. Decimate in
+stages, with the sharp filter at the lowest rate; half-band chains and CIC filters are the classic
+early stages. CIC filters need no multipliers, droop in the passband, and need $N\log_2(RD)$ bits of
+register growth, with harmless wrap-around.
+\item The polyphase DFT filter bank channelizes $M$ channels for the cost of one filter and one FFT;
+the polyphase FFT is a better spectrometer than the windowed FFT.
+\item NCOs give phase-continuous, finely resolved tuning; phase truncation costs 6\,dB of SFDR per bit,
+and dithering converts spurs to noise. CORDIC rotates and measures vectors with shifts and adds, one
+bit per iteration.
+\item A DDC chains mixer, CIC, compensating and channel FIRs and a resampler, with only the mixer and
+integrators at the ADC rate; the DUC is its transpose.
+\end{itemize}
 
 \begin{keyidea}[title=Rules of thumb for radio DSP]
 \begin{itemize}
@@ -342,47 +2167,110 @@ stuffed zero.
 \end{keyidea}
 
 \begin{labbox}[title=Lab: filters and multirate]
-\lab{labs/ch06\_filters\_multirate.ipynb} provides an interactive filter designer (window,
-least-squares and Parks--McClellan) with live magnitude, phase and group-delay plots and a tap
-estimate; a biquad-versus-direct-form quantization explorer; a polyphase decimator you can verify
-sample-for-sample against the naive version; a CIC with compensation filter; a Farrow resampler;
-and an 8-channel polyphase channelizer that separates a synthetic multi-carrier signal.
+The companion notebook \lab{moderncomms-labs/labs/lab17\_multirate\_dsp.py} (about 90 minutes)
+works through this chapter in seven sections. It designs low-pass filters by windowing and by
+Parks--McClellan with an interactive tap-count and window selector, and checks Kaiser's length
+formula with \texttt{kaiserord}; compares sixth-order Butterworth, Chebyshev and elliptic filters
+with a 61-tap FIR, including their group delay; implements a polyphase decimator by 8 and a
+polyphase interpolator by 4 and verifies them sample for sample against the direct forms; builds an
+integer CIC decimator ($R=16$, $N=4$) with a 31-tap droop compensator and confirms the $R^N$ gain and
+register growth; measures the SFDR of an NCO for 6, 10 and 14 phase bits against the 6\,dB-per-bit
+rule; and finally assembles a complete DDC---NCO, fixed-point CIC, polyphase compensating FIR and RRC
+matched filter---that extracts a 250\,kBd QPSK channel from a 16\,MS/s capture containing strong
+neighbours, ending with a clean constellation. Its exercises add a half-band decimate-by-4 chain,
+NCO phase dithering and a Farrow resampler. The figure script \lab{book/figscripts/ch06\_figs.py}
+generates every data figure in this chapter, including the channelizer, CORDIC and
+limit-cycle experiments, and is a good starting point for your own.
 \end{labbox}
 
 \problems
 \begin{enumerate}[label=\thechapter.\arabic*]
+\item A filter has zeros at $z=\pm j$ and poles at $z=0.9e^{\pm j\pi/3}$. Sketch its magnitude response
+from the pole-zero geometry, then check it numerically. At what frequency is the gain largest, and
+roughly how wide is the peak?
+\item Design a notch filter~\eqref{eq:ch06:notch} that removes a 60\,Hz hum from audio sampled at
+8\,kHz with a $-3$\,dB width of 2\,Hz. How long does it take to settle? What happens to the notch
+depth if the coefficients are rounded to 16 bits in $Q2.14$?
 \item Estimate the number of taps for a low-pass FIR with passband to 20\,kHz, stopband from
-24\,kHz and 80\,dB attenuation at a sample rate of 192\,kHz. Repeat at 48\,kHz. Explain the
-difference.
-\item Show that an FIR filter with symmetric coefficients has linear phase, and find its group
-delay.
-\item Design (in Python) a sixth-order elliptic low-pass filter and implement it in direct form
-and as biquads with $Q1.15$ coefficients. Find the smallest word length for which each is stable.
-\item Prove the noble identity for decimation. Draw the polyphase structure of a decimate-by-3
-FIR filter with 12 taps and count the multiplications per output sample.
-\item Explain why every other coefficient of a half-band filter is zero. How many multiplies per
-input sample does a 31-tap half-band decimator need, exploiting both symmetry and the zeros?
-\item A CIC decimator has $R=64$ and $N=5$ with 14-bit input. How many bits must the integrators
-have? What is the passband droop at one quarter of the output sample rate?
-\item Design a two-stage decimate-by-40 filter chain for a 200\,kHz channel sampled at 20\,MS/s
-with 70\,dB of alias protection. Compare the MAC rate with a single-stage design.
-\item An NCO has a 32-bit accumulator clocked at 245.76\,MHz. What is its frequency resolution?
-What phase-word width gives spurs below $-90$\,dBc?
-\item \emph{(Simulation)} Implement CORDIC in vectoring mode in integer arithmetic with 16 stages
-and measure its magnitude and phase errors over random inputs.
+24\,kHz and 80\,dB attenuation at a sample rate of 192\,kHz using the harris, Bellanger and Kaiser
+formulas ($A_p=0.1$\,dB). Repeat at 48\,kHz. Explain the difference.
+\item Show that a type II (even-length, symmetric) FIR filter always has a zero at $z=-1$, and that a
+type III filter has zeros at $z=\pm1$. Which types can implement a high-pass filter? A Hilbert
+transformer? A differentiator?
+\item Explain why every other coefficient of a half-band filter is zero. How many multiplications per
+input sample does a 31-tap half-band decimator by two need, exploiting both symmetry and the zeros?
+Show that shifting it by $f_s/4$ gives a complex filter whose imaginary part is a Hilbert transformer.
+\item Use the bilinear transform with pre-warping to design a second-order Butterworth low-pass with a
+1\,kHz cutoff at $f_s=8$\,kHz. Find the biquad coefficients, and compute the error in the cutoff if
+pre-warping is omitted.
+\item Design (in Python) a sixth-order elliptic low-pass filter and implement it in direct form and as
+biquads with $Q2.14$ coefficients. Find the smallest word length for which each is stable, and plot the
+pole positions of both quantized designs.
+\item For the biquad with $a_1=-1.6$, $a_2=0.9$: (a) compute its $L_1$, $L_2$ and $L_\infty$ norms (from
+input to output, numerator 1); (b) choose an input scale factor for each scaling rule; (c) for rounding
+after each product, estimate the output noise power in LSB$^2$.
+\item Prove the noble identity for decimation. Draw the polyphase structure of a decimate-by-3 FIR
+filter with 12 taps and count the multiplications per output sample. Do the same for a rational
+resampler by $3/2$ with a 24-tap prototype.
+\item A CIC decimator has $R=64$, $N=5$ and $D=1$ with a 14-bit input. How many bits must the
+integrators have? What is the passband droop at one quarter of the output sample rate? What is the
+aliasing attenuation at the inner edge of the first alias band if the wanted signal occupies $\pm0.1$
+of the output rate?
+\item Design a two-stage decimate-by-40 filter chain for a 200\,kHz channel sampled at 20\,MS/s with
+70\,dB of alias protection. Try the splits $20\times2$, $10\times4$, $8\times5$, $5\times8$ and
+$4\times10$ and compare their multiplication rates with a single-stage design.
+\item An NCO has a 32-bit accumulator clocked at 245.76\,MHz. What is its frequency resolution? What is
+the exact output frequency for the tuning word nearest to 10\,MHz, and how fast does its phase drift
+relative to an ideal 10\,MHz tone? What phase-word width gives spurs below $-90$\,dBc, and how large
+is the quarter-wave table?
+\item Derive the CORDIC gain $1/K$ and show that it converges. How many iterations and what datapath
+width are needed for 12-bit angle accuracy? What is the range of angles the basic algorithm can
+reach?
+\item \emph{(Simulation)} Implement CORDIC in vectoring mode in integer arithmetic with 16 stages and
+measure its magnitude and phase errors over random inputs. Use it as an FM discriminator (phase
+difference between successive samples) and compare with \texttt{np.angle}.
+\item \emph{(Simulation)} Build a critically sampled 16-channel polyphase DFT channelizer and verify it
+against brute-force mixing, filtering and decimation. Then make it oversampled by two and show that a
+carrier placed exactly on a channel boundary can be recovered intact.
+\item \emph{(Simulation)} Design a complete DDC from 61.44\,MS/s to 1.92\,MS/s for a 1.4\,MHz LTE carrier
+offset by 7\,MHz: NCO, a CIC by 8 with compensator, two half-bands and a 35-tap channel filter. Measure
+the EVM of a QPSK test signal with a 20\,dB stronger adjacent carrier, in floating point and with 16-bit
+fixed-point data and 18-bit coefficients, and count the multiplications per input sample.
 \end{enumerate}
 
 \furtherreading
 \begin{itemize}
-\item A.~V.~Oppenheim and R.~W.~Schafer, \emph{Discrete-Time Signal Processing}, 3rd ed.,
-Pearson, 2010. The standard graduate text.
-\item f.~j.~harris, \emph{Multirate Signal Processing for Communication Systems}, 2nd ed.,
-River Publishers, 2021. The practitioner's bible for polyphase and channelizer design.
-\item R.~G.~Lyons, \emph{Understanding Digital Signal Processing}, 3rd ed., Pearson, 2010.
-Exceptionally clear, with many implementation tricks.
-\item P.~P.~Vaidyanathan, \emph{Multirate Systems and Filter Banks}, Prentice Hall, 1993.
-\item E.~B.~Hogenauer, ``An economical class of digital filters for decimation and
-interpolation,'' \emph{IEEE Trans. ASSP}, 29(2), 1981.
-\item R.~Andraka, ``A survey of CORDIC algorithms for FPGA based computers,'' \emph{FPGA '98},
-1998.
+\item A.~V.~Oppenheim and R.~W.~Schafer, \emph{Discrete-Time Signal Processing}, 3rd ed., Pearson,
+2010. The standard graduate text: the $z$-transform, filter structures, quantization effects and
+multirate basics, all derived carefully.
+\item R.~G.~Lyons, \emph{Understanding Digital Signal Processing}, 3rd ed., Pearson, 2010. Exceptionally
+clear, and full of implementation tricks---CIC filters, DC blockers, Goertzel, sharpening---that the
+formal texts omit.
+\item f.~j.~harris, \emph{Multirate Signal Processing for Communication Systems}, 2nd ed., River
+Publishers, 2021. The practitioner's bible for polyphase filters, channelizers, arbitrary resamplers
+and half-band designs, written by the engineer who built many of them.
+\item R.~E.~Crochiere and L.~R.~Rabiner, \emph{Multirate Digital Signal Processing}, Prentice Hall,
+1983; and their tutorial ``Interpolation and decimation of digital signals---a tutorial review,''
+\emph{Proc. IEEE}, vol.~69, no.~3, 1981. The foundations of multistage design.
+\item P.~P.~Vaidyanathan, \emph{Multirate Systems and Filter Banks}, Prentice Hall, 1993. The definitive
+treatment of polyphase theory, perfect-reconstruction filter banks and their design.
+\item E.~B.~Hogenauer, ``An economical class of digital filters for decimation and interpolation,''
+\emph{IEEE Trans. Acoustics, Speech, and Signal Processing}, vol.~29, no.~2, pp.~155--162, 1981. The CIC
+paper, including register growth and pruning; short and very readable.
+\item T.~W.~Parks and J.~H.~McClellan, ``Chebyshev approximation for nonrecursive digital filters with
+linear phase,'' \emph{IEEE Trans. Circuit Theory}, vol.~19, no.~2, 1972; and J.~H.~McClellan,
+T.~W.~Parks and L.~R.~Rabiner, ``A computer program for designing optimum FIR linear phase digital
+filters,'' \emph{IEEE Trans. Audio and Electroacoustics}, vol.~21, no.~6, 1973.
+\item M.~G.~Bellanger, G.~Bonnerot and M.~Coudreuse, ``Digital filtering by polyphase network:
+application to sample-rate alteration and filter banks,'' \emph{IEEE Trans. Acoustics, Speech, and
+Signal Processing}, vol.~24, no.~2, 1976. The origin of the polyphase decomposition.
+\item J.~E.~Volder, ``The CORDIC trigonometric computing technique,'' \emph{IRE Trans. Electronic
+Computers}, vol.~EC-8, no.~3, 1959; and R.~Andraka, ``A survey of CORDIC algorithms for FPGA based
+computers,'' \emph{Proc. ACM/SIGDA FPGA '98}, 1998, the standard hardware-oriented introduction.
+\item L.~B.~Jackson, \emph{Digital Filters and Signal Processing}, 3rd ed., Kluwer, 1996. Especially good
+on fixed-point effects: scaling, roundoff noise, limit cycles and section ordering in IIR cascades.
+\item Analog Devices, \emph{AD9361 Reference Manual} (UG-570). Describes the transceiver's half-band
+and programmable FIR chain and its design tools in detail; read alongside the UHD documentation for
+the B200's FPGA DDC.
 \end{itemize}
+
