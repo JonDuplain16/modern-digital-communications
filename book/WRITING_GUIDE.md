@@ -71,3 +71,4 @@ Lab numbering already assigned: 13 line codes/eyes, 14 analog AM/FM, 15 superhet
 for new numbers rather than inventing clashing ones; propose `labXX_topic.py` with a spec.
 **Temp files:** always keep drafts/temp files in a folder unique to your chapter
 (e.g. `<scratchpad>/chNN_work/`), never in the shared scratchpad root — parallel authors collided once.
+**Editing .tex:** use the Write/Edit tools, not Bash heredocs — heredocs here can mangle the double backslash (TikZ/array line breaks).

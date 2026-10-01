@@ -1,0 +1,1755 @@
+\chapter{OFDM and Multicarrier Transmission}
+\label{ch:ofdm}
+
+\begin{chapterintro}
+Orthogonal frequency-division multiplexing is the dominant waveform of the early
+twenty-first century. It carries Wi-Fi from 802.11a to Wi-Fi~7, the LTE and 5G NR
+downlinks, digital television and radio on four continents, ADSL and VDSL over telephone
+wires, DOCSIS~3.1 over cable, HomePlug over the power line, and a growing share of optical and
+visible-light links. The idea is to split a wide channel into hundreds or thousands of narrow
+subcarriers, each so narrow that the channel looks flat across it, and to generate and
+separate them all with one FFT. A cyclic prefix turns the channel's convolution into a
+multiplication, so equalisation becomes one complex multiply per subcarrier. This chapter
+starts with the history, from Chang's 1966 Bell Labs paper to LTE's decision in 2005. It
+derives OFDM from the DFT, proves the cyclic-prefix property in matrix form, and shows how
+subcarrier spacing, prefix length and FFT size follow from the delay spread and the
+Doppler. The worked designs are 802.11a, LTE, the 5G NR numerologies and the DVB-T2 32k mode.
+The middle of the chapter covers the resource grid, pilots and channel estimation, and then
+what breaks OFDM: timing and frequency offsets, Doppler, phase noise, sampling-clock error,
+the peak-to-average power ratio and out-of-band emission. The chapter then covers coded OFDM
+and frequency diversity, bit loading and water-filling in DSL, OFDMA and MIMO-OFDM,
+single-frequency networks, OFDM in Wi-Fi~6 and~7, on power lines and in optics, and closes
+with a first look at OFDM radar.
+\end{chapterintro}
+
+%======================================================================
+\section{Why multicarrier?}
+\label{sec:ch17:why}
+%======================================================================
+
+\subsection{The problem: a wideband channel}
+
+Chapter~\ref{ch:channels} described the mobile radio channel as a sum of echoes. In a city the
+echoes arrive over a few microseconds; in hilly terrain over ten or twenty. Chapter~\ref{ch:equalization}
+then showed what this does to a single-carrier signal. At 20 million symbols per second, each
+symbol lasts 50\,ns. A 5\,$\mu$s delay spread therefore smears each symbol over about a hundred of its
+neighbours, and a 10\,$\mu$s spread over two hundred. A time-domain equaliser for such a channel needs
+hundreds of taps, adapts slowly because its error surface has a large eigenvalue spread, and costs
+hundreds of complex multiplies per symbol. Maximum-likelihood sequence detection is out of the
+question. This is the \emph{complexity wall} of Section~\ref{sec:ch12:fde}.
+
+The multicarrier answer is to divide and conquer. Split the 20\,MHz band into $N$ subchannels.
+With $N=1024$, each subchannel is about 20\,kHz wide and carries symbols about 50\,$\mu$s long. A
+5\,$\mu$s echo now smears each symbol by a tenth of its duration instead of by a hundred symbols, and
+across a 20\,kHz slice of spectrum the channel's frequency response is almost constant. Each
+subchannel sees a \emph{flat} channel, a single complex gain, and needs only a one-tap equaliser.
+The ISI problem has not disappeared. It has been made small enough that a short guard interval
+can absorb it completely.
+
+\subsection{From guard bands to overlapping subcarriers}
+
+Frequency-division multiplexing (FDM) is as old as radio. The classical way to put several data
+signals side by side is to band-limit each one with a filter and to leave a guard band between
+neighbours, so that a realisable receive filter can pick one out
+(Figure~\ref{fig:ch17_fdm_vs_ofdm}b). The telephone network's analog carrier systems stacked voice
+channels this way, 4\,kHz apart, for most of the twentieth century
+(Chapter~\ref{ch:history}). Applied to data, FDM has two drawbacks. The guard bands waste spectrum,
+typically 20--50\%. And a bank of hundreds of sharp analog filters, each with its own oscillator,
+is expensive and hard to keep aligned.
+
+The key observation is that the subchannels do not have to be spectrally disjoint to be separable.
+They have to be \emph{orthogonal}. Consider $N$ complex exponentials on a symbol interval of length $T$,
+\begin{equation}
+\phi_k(t)=\frac{1}{\sqrt T}\,e^{j2\pi k\Delta f\,t},\qquad 0\le t<T,\qquad k=0,1,\dots,N-1,
+\label{eq:ch17:subcarrier}
+\end{equation}
+with spacing $\Delta f=1/T$. Each one completes a whole number of cycles in $T$
+(Figure~\ref{fig:ch17_fdm_vs_ofdm}a), and their inner products are
+\begin{equation}
+\langle\phi_k,\phi_l\rangle=\frac1T\int_0^T e^{j2\pi(k-l)t/T}\,dt=
+\begin{cases}1,&k=l,\\[2pt] \dfrac{e^{j2\pi(k-l)}-1}{j2\pi(k-l)}=0,&k\ne l.\end{cases}
+\label{eq:ch17:orth}
+\end{equation}
+The subcarriers are orthonormal. A correlator matched to subcarrier $k$ therefore sees none of the
+others, even though their spectra overlap heavily. In the frequency domain, each time-limited
+subcarrier has a spectrum $T\sinc\big((f-k\Delta f)T\big)$ whose zeros fall at every \emph{other}
+subcarrier's centre frequency (Figure~\ref{fig:ch17_fdm_vs_ofdm}c). Sampled at $f=k\Delta f$, only
+subcarrier $k$ contributes. This is \term{orthogonal frequency-division multiplexing} (OFDM).
+
+\mdcfig{ch17_fdm_vs_ofdm}{From FDM to OFDM. (a) Subcarriers spaced by $1/T$ complete a whole number of
+cycles in the symbol interval $T$, which makes them orthogonal. (b) Classical FDM separates band-limited
+channels with guard bands and needs one sharp filter per channel. (c) OFDM overlaps the $\sinc$-shaped
+subcarrier spectra; at each subcarrier's centre frequency (dots) all the others pass through zero.}
+
+The spectral efficiency gain is easy to count. $N$ subcarriers at spacing $1/T$ occupy a total
+bandwidth of about $(N+1)/T$ (the main lobes of the two edge subcarriers stick out by $1/T$ in
+total) while carrying $N$ complex symbols every $T$ seconds. The efficiency approaches one complex
+symbol per second per hertz, the Nyquist limit of Chapter~\ref{ch:baseband}, without needing a
+single sharp filter. OFDM is to FDM what the Nyquist pulse is to a rectangular spectrum: it
+replaces a brick wall with a carefully arranged overlap that cancels exactly at the sampling
+points. The duality is exact: a Nyquist pulse is zero at the other symbols' sampling times; an
+OFDM subcarrier's spectrum is zero at the other subcarriers' frequencies.
+
+\begin{keyidea}[OFDM turns one hard channel into many easy ones]
+A frequency-selective channel with a long impulse response is hard to equalise in the time domain.
+OFDM transmits $N$ narrowband signals in parallel, each seeing an essentially flat channel. With a
+cyclic prefix (Section~\ref{sec:ch17:cp}) the conversion is exact: the channel becomes $N$
+independent scalar channels $Y_k=H_kX_k+W_k$. Almost everything else in this chapter is either a
+consequence of this identity or a cost paid to keep it true.
+\end{keyidea}
+
+\begin{history}[From Kineplex to Chang's orthogonal channels]
+Parallel-tone data transmission predates the theory. Collins Radio's \emph{Kineplex} system of the
+late 1950s sent data over HF radio on 20 tones, each carrying differentially encoded phase
+shifts at a low symbol rate so that skywave multipath echoes of a few milliseconds were short
+compared with a symbol. The US military's KATHRYN HF modem of the mid-1960s (described by
+Zimmerman and Kirsch in 1967) went further, generating its 34 subchannels with what was
+effectively a discrete Fourier transform implemented in analog hardware. The theory came from
+Robert W.~Chang at Bell Labs, whose 1966 \emph{Bell System Technical Journal} paper ``Synthesis of
+band-limited orthogonal signals for multichannel data transmission'' gave the conditions under
+which overlapping, band-limited subchannels could be transmitted with neither intersymbol nor
+inter-channel interference. Chang patented the scheme (US patent 3,488,445, granted 1970). In
+1967 Burton Saltzberg, also at Bell Labs, analysed a version with staggered (offset) QAM on each
+subcarrier that tolerates tighter spectral shaping; his idea returned forty years later as
+FBMC/OQAM (Section~\ref{sec:ch17:oob}). Both schemes needed a bank of analog oscillators and
+filters, and for more than a decade they remained a curiosity.
+\end{history}
+
+%======================================================================
+\section{OFDM with the discrete Fourier transform}
+\label{sec:ch17:dft}
+%======================================================================
+
+\subsection{The transmitter is an inverse DFT}
+
+The complex baseband OFDM symbol carrying data symbols $X_0,\dots,X_{N-1}$ (drawn from QAM
+constellations, one per subcarrier) is
+\begin{equation}
+s(t)=\sum_{k=0}^{N-1}X_k\,e^{j2\pi k\Delta f\,t},\qquad 0\le t<T=\frac1{\Delta f}.
+\label{eq:ch17:ofdmct}
+\end{equation}
+Its bandwidth is about $N\Delta f$, so by the sampling theorem it is represented by $N$ samples
+taken at $t=nT/N$, $n=0,\dots,N-1$:
+\begin{equation}
+x[n]=s\!\left(\frac{nT}{N}\right)=\sum_{k=0}^{N-1}X_k\,e^{j2\pi kn/N}=N\cdot\mathrm{IDFT}\{X_k\}[n].
+\label{eq:ch17:idft}
+\end{equation}
+This is the observation of Stephen Weinstein and Paul Ebert (Bell Labs, 1971): the whole bank of
+modulators is an inverse discrete Fourier transform, and the bank of receive correlators is a
+forward DFT,
+\begin{equation}
+\frac1N\sum_{n=0}^{N-1}x[n]\,e^{-j2\pi kn/N}=X_k.
+\label{eq:ch17:dftrx}
+\end{equation}
+The orthogonality of~\eqref{eq:ch17:orth} is now the orthogonality of the DFT basis vectors, which
+holds exactly in discrete time. With the FFT, generating $N$ subcarriers costs about
+$\tfrac N2\log_2N$ complex multiplies per OFDM symbol, or $\tfrac12\log_2N$ per data symbol:
+5 for $N=1024$. No analog filter bank is needed.
+
+In what follows we use the unitary normalisation $\vect x=\vect F^H\vect X$ and $\vect X=\vect F\vect x$,
+where $\vect F$ is the $N\times N$ DFT matrix with entries $[\vect F]_{kn}=e^{-j2\pi kn/N}/\sqrt N$.
+It preserves energy (Parseval), so the average power per sample equals the average power per
+subcarrier. The \texttt{commlib.ofdm} functions used by the labs follow this convention.
+
+\begin{history}[Weinstein and Ebert, Peled and Ruiz, and Cimini]
+In 1971 Stephen Weinstein and Paul Ebert of Bell Labs published ``Data transmission by
+frequency-division multiplexing using the discrete Fourier transform'' in the \emph{IEEE Transactions
+on Communication Technology}. The FFT algorithm of Cooley and Tukey was six years old, and they saw
+that it replaced the entire oscillator bank. They also proposed a guard time between symbols to
+absorb channel dispersion, although with an empty guard, which loses orthogonality on a dispersive
+channel. In 1980 Abraham Peled and Antonio Ruiz of IBM filled the guard with a \emph{cyclic extension}
+of the symbol, the cyclic prefix used by every OFDM system since. In 1985 Leonard Cimini of Bell Labs
+analysed OFDM for the mobile radio channel, with pilot-based channel estimation and a one-tap
+equaliser, showing it could handle the frequency-selective fading that was defeating equalisers of
+the time. The name ``OFDM'' became standard in the 1980s; John Bingham's 1990 \emph{IEEE Communications
+Magazine} article ``Multicarrier modulation for data transmission: an idea whose time has come''
+announced that cheap digital signal processing had finally made it practical. Weinstein later wrote
+a short history of the whole development for the same magazine (2009), listed in the further reading.
+\end{history}
+
+\subsection{Guard subcarriers, the DC null and oversampling}
+
+A practical OFDM system never uses all $N$ bins. The bins near $\pm N/2$ (the edges of the sampled
+band) are left empty as \term{guard subcarriers}. They give the DAC's reconstruction filter and the
+receiver's anti-aliasing filter a transition band, and they keep the sidelobes of the occupied
+subcarriers away from the neighbouring channel. The \term{DC subcarrier} is also usually left
+empty, because direct-conversion receivers have a DC offset and local-oscillator leakage that lands
+exactly there (Chapter~\ref{ch:sdr}). An 802.11a transmitter uses 52 of its 64 bins: subcarriers
+$-26$ to $+26$ without 0, occupying 16.6\,MHz of a 20\,MHz channel
+(Figure~\ref{fig:ch17_ofdm_symbol}b). An LTE carrier of 20\,MHz uses 1200 of 2048 bins, 18\,MHz of 20.
+
+Leaving the outer bins empty has a second benefit: the IFFT output is then an \emph{oversampled}
+version of the OFDM signal. Zero-padding the frequency-domain vector to $LN$ bins produces $L$
+times as many time samples of the same waveform. This is how the figures in this chapter were
+drawn, and it matters for the peak-to-average ratio (Section~\ref{sec:ch17:papr}), whose true peaks
+fall between Nyquist-rate samples.
+
+\mdcfig{ch17_ofdm_symbol}{An 802.11a-like OFDM signal (64-point FFT at 20\,MS/s, 52 QPSK or 16-QAM
+subcarriers). (a) The magnitude of three consecutive 4\,$\mu$s symbols. Each begins with a 0.8\,$\mu$s cyclic
+prefix (red) that repeats the symbol's last 0.8\,$\mu$s (green). The waveform looks like noise, with
+occasional high peaks. (b) The power spectral density: flat across the occupied band, with the empty DC
+subcarrier visible as a notch. Outside the band the $\sinc$ sidelobes of the rectangular symbols decay
+only as $1/f^2$.}
+
+\subsection{The complete transceiver}
+
+Figure~\ref{fig:ch17_chain} shows a complete OFDM link. The transmitter encodes and interleaves the
+bits (Section~\ref{sec:ch17:coded}), maps them onto QAM symbols, and places the symbols on the
+data subcarriers of a frequency-domain grid, together with known \emph{pilot} symbols
+(Section~\ref{sec:ch17:grid}). The IFFT converts each column of the grid into $N$ time samples. A
+cyclic prefix is prepended, the symbols are concatenated, optionally windowed or filtered to
+control the spectrum (Section~\ref{sec:ch17:oob}), converted to analog and up-converted. The
+receiver reverses the chain. It first finds the symbol timing and the carrier frequency offset
+(Section~\ref{sec:ch17:sync} and Chapter~\ref{ch:sync}), then strips the prefix, takes an FFT,
+estimates the channel from the pilots, equalises each subcarrier with one complex multiply, and
+passes soft bit decisions to the decoder.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.34cm and 0.34cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.9cm,minimum width=1.2cm,align=center,font=\sffamily\scriptsize},
+  key/.style={blk,fill=accent!8,draw=accent},
+  arr/.style={-{Stealth[length=1.8mm]},thick,navy}]
+% transmitter
+\node[font=\sffamily\scriptsize\bfseries,text=navy,anchor=west] at (-0.7,1.05) {TRANSMITTER};
+\node[blk] (enc) {FEC and\\interleave};
+\node[blk,right=of enc] (map) {QAM\\map};
+\node[blk,right=of map] (grid) {Map to\\subcarriers\\+ pilots};
+\node[key,right=of grid] (ifft) {$N$-point\\IFFT};
+\node[key,right=of ifft] (cp) {Add\\cyclic\\prefix};
+\node[blk,right=of cp] (win) {Window\\or filter};
+\node[blk,right=of win] (dac) {DAC,\\up-convert,\\PA};
+\draw[arr] (enc)--(map); \draw[arr] (map)--(grid); \draw[arr] (grid)--(ifft);
+\draw[arr] (ifft)--(cp); \draw[arr] (cp)--(win); \draw[arr] (win)--(dac);
+\node[left=0.25cm of enc,font=\sffamily\scriptsize] (bits) {bits};
+\draw[arr] (bits)--(enc);
+% channel
+\node[blk,below=0.55cm of dac,fill=accent!4,draw=accent,minimum width=1.2cm] (ch) {Channel\\$h[n]$\\+ noise};
+\draw[arr,accent] (dac)--(ch);
+% receiver (right to left)
+\node[blk,below=0.55cm of ch] (adc) {Down-\\convert,\\ADC};
+\node[blk,left=of adc] (sync) {Timing\\and CFO\\sync};
+\node[key,left=of sync] (rcp) {Remove\\cyclic\\prefix};
+\node[key,left=of rcp] (fft) {$N$-point\\FFT};
+\node[key,left=of fft] (eq) {One-tap\\equaliser\\$\hat X_k=Y_k/\hat H_k$};
+\node[blk,left=of eq] (demap) {Soft\\demap\\(LLRs)};
+\node[blk,left=of demap] (dec) {De-inter-\\leave and\\decode};
+\node[blk,above=0.28cm of eq,fill=practbg,draw=practc,minimum height=0.6cm] (est) {Channel estimation (pilots)};
+\draw[arr,accent] (ch)--(adc);
+\draw[arr] (adc)--(sync); \draw[arr] (sync)--(rcp); \draw[arr] (rcp)--(fft);
+\draw[arr] (fft)--(eq); \draw[arr] (eq)--(demap); \draw[arr] (demap)--(dec);
+\draw[arr,practc] (fft.north) |- (est.east);
+\draw[arr,practc] (est.south)--(eq.north);
+\node[font=\sffamily\scriptsize\bfseries,text=navy,anchor=west] at ([yshift=-0.75cm]dec.south west) {RECEIVER};
+\node[below=0.25cm of dec,font=\sffamily\scriptsize] (bout) {bits};
+\draw[arr] (dec)--(bout);
+\end{tikzpicture}
+\caption{An OFDM transceiver. The red blocks are the ones specific to OFDM: the IFFT, the cyclic prefix,
+the FFT and the per-subcarrier equaliser. Everything else---coding, mapping, synchronisation,
+channel estimation, RF---has a single-carrier counterpart, but in OFDM it all operates on a
+time--frequency grid of resource elements.}
+\label{fig:ch17_chain}
+\end{figure}
+
+
+%======================================================================
+\section{The cyclic prefix}
+\label{sec:ch17:cp}
+%======================================================================
+
+\subsection{What goes wrong without it}
+
+Pass one OFDM symbol through a channel with impulse response $h[0],\dots,h[\nu]$ (memory $\nu$
+samples). The receiver sees the linear convolution $y[n]=\sum_mh[m]x[n-m]+w[n]$, which is $\nu$
+samples longer than the symbol. Two things go wrong. The tail of each symbol spills into the next,
+which is intersymbol interference in the familiar sense. More subtly, within one symbol the
+subcarriers stop being orthogonal. A delayed copy of subcarrier $k$ starts part-way through the FFT
+window, so within the window it is a truncated sinusoid rather than a whole number of cycles, and
+its spectrum leaks into every other bin. This is \term{inter-carrier interference} (ICI).
+Weinstein and Ebert's empty guard interval removes the first problem but not the second.
+
+\subsection{Linear convolution made circular}
+
+The cure is to copy the last $N_{\text{cp}}$ samples of each symbol and transmit them first. The
+transmitted block is
+\begin{equation}
+\tilde{\vect x}=\big[x[N-N_{\text{cp}}],\dots,x[N-1],\;x[0],x[1],\dots,x[N-1]\big]^T,
+\end{equation}
+of length $N+N_{\text{cp}}$. Suppose $N_{\text{cp}}\ge\nu$. The receiver discards the first
+$N_{\text{cp}}$ received samples of each block and keeps the next $N$. Every kept sample
+$y[n]$, $0\le n\le N-1$, is a combination of $x[n],x[n-1],\dots,x[n-\nu]$, and whenever an index
+$n-m$ is negative the sample that arrives is the prefix copy $x[n-m+N]$. So
+\begin{equation}
+y[n]=\sum_{m=0}^{\nu}h[m]\,x\big[(n-m)\bmod N\big]+w[n],\qquad n=0,\dots,N-1,
+\label{eq:ch17:circ}
+\end{equation}
+which is the \emph{circular} convolution of $\vect x$ with $\vect h$. The previous symbol's
+samples, which are the source of ISI, fall only on the discarded prefix
+(Figure~\ref{fig:ch17_cp_tikz}). And circular convolution is exactly what the DFT turns into
+multiplication (Chapter~\ref{ch:signals}):
+\begin{equation}
+\boxed{\;Y_k=H_k\,X_k+W_k,\qquad H_k=\sum_{m=0}^{\nu}h[m]\,e^{-j2\pi km/N},\qquad k=0,\dots,N-1.\;}
+\label{eq:ch17:onetap}
+\end{equation}
+Each subcarrier sees a single complex gain $H_k$, the channel's frequency response sampled at that
+subcarrier, and additive noise $W_k$ with the same variance as $w[n]$ because $\vect F$ is unitary.
+A frequency-selective channel has become $N$ parallel flat-fading channels with no interference
+between them.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=0.86cm,y=0.62cm,font=\sffamily\scriptsize]
+% direct path
+\node[anchor=east] at (-0.2,2.5) {direct path};
+\node[anchor=east] at (-0.2,1.3) {echo, delay $\tau$};
+\foreach \s/\c in {0/navy,1/accent}{
+  \pgfmathsetmacro{\xa}{\s*5.4}
+  \fill[\c!30] (\xa,2.1) rectangle ++(1.1,0.8);
+  \fill[\c!10] (\xa+1.1,2.1) rectangle ++(4.3,0.8);
+  \draw[\c,thick] (\xa,2.1) rectangle ++(5.4,0.8);
+  \draw[\c] (\xa+1.1,2.1) -- ++(0,0.8);
+  \node at (\xa+0.55,2.5) {CP};
+  \node at (\xa+3.25,2.5) {symbol \s};
+  \fill[\c!30] (\xa+0.7,0.9) rectangle ++(1.1,0.8);
+  \fill[\c!10] (\xa+1.8,0.9) rectangle ++(4.3,0.8);
+  \draw[\c,thick,dashed] (\xa+0.7,0.9) rectangle ++(5.4,0.8);
+}
+\node at (6.95,1.3) {\textcolor{accent}{CP}};
+\node at (9.35,1.3) {\textcolor{accent}{symbol 1 (echo)}};
+% ISI region
+\fill[pattern=north east lines,pattern color=accent] (5.4,0.9) rectangle (6.1,1.7);
+\draw[decorate,decoration={brace,amplitude=4pt,mirror}] (5.4,0.8) -- (6.1,0.8) coordinate[midway,below=4pt] (isi); \node[anchor=north east,text=accent] at ([xshift=0.35cm]isi) {ISI from symbol 0};
+% FFT window
+\draw[practc,very thick] (6.5,-0.4) rectangle (10.8,3.3);
+\node[practc,anchor=south] at (8.65,3.3) {FFT window ($N$ samples)};
+\draw[navy,thick,{Stealth}-{Stealth}] (5.4,3.55) -- (6.5,3.55) node[midway,above]{$N_{\text{cp}}$};
+\draw[accent,{Stealth}-{Stealth}] (5.4,1.9) -- (6.1,1.9) node[midway,left=6pt,inner sep=1pt]{$\tau$};
+\node[align=left,anchor=west,text width=2.8cm] at (12.2,1.8) {Inside the window every\\path contributes whole\\cycles of symbol~1 only:\\ISI and ICI vanish if\\$\tau\le N_{\text{cp}}$.};
+\end{tikzpicture}
+\caption{Why the cyclic prefix works. An echo delayed by $\tau$ lets the end of symbol~0 overlap the
+start of symbol~1 (hatched), but only inside the prefix, which the receiver discards. Within the FFT
+window, the echo consists of a cyclically shifted copy of symbol~1, so each subcarrier still has a whole
+number of cycles and orthogonality is preserved. The echo appears in the subcarrier domain only as a phase
+rotation $e^{-j2\pi k\Delta f\tau}$, absorbed into $H_k$.}
+\label{fig:ch17_cp_tikz}
+\end{figure}
+
+\subsection{The matrix view: circulant channels are diagonalised by the DFT}
+
+The same result has an elegant linear-algebra form that generalises to MIMO and to the analysis of
+every impairment later in the chapter. With the prefix inserted and removed, the channel from
+$\vect x$ to $\vect y$ is the $N\times N$ \term{circulant matrix}
+\begin{equation}
+\vect H_c=\begin{bmatrix}
+h[0] & 0 & \cdots & 0 & h[\nu] & \cdots & h[1]\\
+h[1] & h[0] & \cdots & 0 & 0 & \ddots & \vdots\\
+\vdots & & \ddots & & & \ddots & h[\nu]\\
+h[\nu] & \cdots & & h[0] & & & 0\\
+\vdots & \ddots & & & \ddots & & \vdots\\
+0 & \cdots & h[\nu] & \cdots & & h[1] & h[0]
+\end{bmatrix},
+\qquad \vect y=\vect H_c\vect x+\vect w,
+\end{equation}
+each of whose rows is the previous row shifted cyclically one place to the right. Every circulant
+matrix has the same eigenvectors, the columns of $\vect F^H$, whatever its entries. To see why, apply
+$\vect H_c$ to the $k$th Fourier vector $\vect f_k=[1,e^{j2\pi k/N},\dots,e^{j2\pi k(N-1)/N}]^T/\sqrt N$:
+row $n$ gives $\sum_mh[m]e^{j2\pi k(n-m)/N}/\sqrt N=H_k\,[\vect f_k]_n$. The eigenvalues are the
+DFT of the first column. Hence
+\begin{equation}
+\vect H_c=\vect F^H\bm{\Lambda}\vect F,\qquad \bm{\Lambda}=\operatorname{diag}(H_0,\dots,H_{N-1}).
+\label{eq:ch17:eig}
+\end{equation}
+The transmitter sends $\vect x=\vect F^H\vect X$, the receiver computes
+\begin{equation}
+\vect Y=\vect F\vect y=\vect F\vect F^H\bm{\Lambda}\vect F\vect F^H\vect X+\vect F\vect w=\bm{\Lambda}\vect X+\vect W,
+\end{equation}
+which is~\eqref{eq:ch17:onetap} in matrix form. OFDM is simply the eigen-decomposition of the
+channel: it transmits along the channel's eigenvectors, which pass through unchanged apart from a
+scaling by the eigenvalues. Seen this way, OFDM is the practical realisation of the
+\emph{parallel Gaussian channels} of information theory (Chapter~\ref{ch:infotheory}), and the
+eigenvectors do not depend on the channel, so the transmitter does not need to know it. Without the
+prefix, $\vect H$ would be Toeplitz rather than circulant, and the DFT would diagonalise it only
+approximately, leaving off-diagonal terms: the ICI.
+
+\begin{keyidea}[The cyclic prefix buys channel-independent eigenvectors]
+Any linear channel could be diagonalised by its own singular value decomposition, but the transmitter
+would have to know the channel and recompute the transform for every channel realisation. The cyclic
+prefix makes the channel matrix circulant, and all circulant matrices share the DFT as their
+eigenbasis. One fixed, fast transform therefore diagonalises every channel whose memory is shorter
+than the prefix.
+\end{keyidea}
+
+\subsection{One-tap equalisation}
+
+Once~\eqref{eq:ch17:onetap} holds, equalisation is a scalar problem on each subcarrier. The
+zero-forcing equaliser is $\hat X_k=Y_k/H_k$; the MMSE equaliser is
+\begin{equation}
+\hat X_k=\frac{H_k^*}{|H_k|^2+N_0/E_s}\,Y_k,
+\end{equation}
+the scalar version of the Wiener solution of Chapter~\ref{ch:equalization}. The two differ only on deeply
+faded subcarriers, and for a coded system the choice hardly matters, because what the decoder
+actually needs is not $\hat X_k$ but the per-bit log-likelihood ratios computed from $Y_k$, $H_k$ and
+$N_0$ (Chapter~\ref{ch:modulation}). The effective SNR on subcarrier $k$ is
+$|H_k|^2E_s/N_0$, so the LLRs of bits on a faded subcarrier are automatically small, and the decoder
+treats them as the unreliable guesses they are.
+
+Figure~\ref{fig:ch17_one_tap} shows the result on the LTE EVA channel with 600 subcarriers of 15\,kHz.
+The channel varies by more than 25\,dB across the 9\,MHz band. The received subcarrier values are
+scattered in amplitude and phase, and one complex division per subcarrier restores a clean 16-QAM
+constellation. The residual scatter comes from the few subcarriers near the deep notches, where the
+equaliser divides noise by a small number. Uncoded, those subcarriers dominate the error rate;
+Section~\ref{sec:ch17:coded} shows how coding across subcarriers removes the problem.
+
+\mdcfig{ch17_one_tap}{One-tap equalisation on a static EVA channel (Lab~7 setting: 1024-point FFT at
+15.36\,MS/s, 600 subcarriers, 72-sample prefix, SNR 30\,dB). (a) The channel's frequency response
+across the occupied band. (b) Received 16-QAM subcarrier values: each has been scaled and rotated by its
+own $H_k$. (c) After dividing by $H_k$, the constellation is restored; the scattered points come from
+subcarriers near the notches, where noise is amplified.}
+
+\subsection{When the prefix is too short}
+
+Real channels do not stop abruptly at $\nu$ samples; their power delay profiles have tails. If the
+channel extends beyond the prefix, the energy in the excess taps causes both ISI (from the previous
+symbol) and ICI (from the loss of circularity). A path of relative power $p_i$ arriving $\tau_i$ after
+the first contributes, if $\tau_i>T_{\text{cp}}$, a fraction $(\tau_i-T_{\text{cp}})/T$ of its
+energy as ISI from the previous symbol, and roughly the same again as ICI, because that same fraction
+of the current symbol is missing from its circular convolution. For small excesses, the
+signal-to-interference ratio is therefore approximately
+\begin{equation}
+\frac{S}{I}\approx\left[\,2\sum_i p_i\,\frac{(\tau_i-T_{\text{cp}})^+}{T}\right]^{-1},
+\label{eq:ch17:cpsir}
+\end{equation}
+with $(u)^+=\max(u,0)$ and $\sum_ip_i=1$. Figure~\ref{fig:ch17_cp_length} measures the effect for the
+three LTE profiles at an SNR of 45\,dB. For each profile, the interference falls to the noise floor
+only when the prefix reaches the maximum excess delay; with a shorter prefix, the error floor is set
+by the late paths. With no prefix at all, \eqref{eq:ch17:cpsir} gives $T/(2\bar\tau)$, where $\bar\tau$ is
+the mean excess delay: for ETU ($\bar\tau\approx0.56\,\mu$s, $T=66.7\,\mu$s) about 18\,dB, as
+measured. The LTE normal prefix of 4.69\,$\mu$s covers EPA and EVA with a large margin and ETU almost
+completely. Only ETU's last tap, at 5\,$\mu$s with about 3\% of the power, sticks out, by 0.31\,$\mu$s,
+and~\eqref{eq:ch17:cpsir} gives $S/I\approx1/(2\times0.031\times0.0047)$, about 35\,dB, again as measured.
+
+\mdcfig[0.75]{ch17_cp_length}{Interference plus noise on the subcarriers as a function of prefix length,
+for the three LTE channel models (static realisations, averaged; 1024-point FFT at 15.36\,MS/s; SNR
+45\,dB). Dotted lines mark each model's maximum excess delay. Once the prefix covers it, only noise
+remains; with a shorter prefix, the late echoes set an error floor no transmit power can overcome.}
+
+\begin{worked}[The cost of the prefix in 802.11a and LTE]
+The prefix is pure overhead in both time and energy. The energy spent on it is discarded by the
+receiver, so the useful $E_s/N_0$ is lower than the transmitted one by
+$10\log_{10}\big((N+N_{\text{cp}})/N\big)$\,dB, and the symbol rate is reduced by the same ratio.
+
+\emph{802.11a:} $N=64$, $N_{\text{cp}}=16$ at 20\,MS/s ($T_{\text{cp}}=0.8\,\mu$s,
+$T=3.2\,\mu$s). The ratio is $80/64=1.25$: 20\% of the air time and 0.97\,dB of SNR.
+
+\emph{LTE, normal prefix:} $N=2048$ at 30.72\,MS/s ($T=66.7\,\mu$s), with seven symbols per 0.5\,ms
+slot, the first having a prefix of 160 samples and the other six 144. The slot holds
+$7\times2048=14336$ useful samples out of 15360, an efficiency of 93.3\%: 6.7\% overhead and
+0.30\,dB.
+
+\emph{LTE, extended prefix:} six symbols per slot, each with a 512-sample (16.7\,$\mu$s) prefix:
+$6\times2048=12288$ of 15360 samples, 20\% overhead, 0.97\,dB.
+
+The pattern is a direct trade: a prefix long enough for large cells or broadcast costs the same 20\%
+as Wi-Fi's short prefix at a subcarrier spacing twenty times wider. Section~\ref{sec:ch17:design}
+turns this trade into a design procedure.
+\end{worked}
+
+\subsection{Alternatives to the cyclic prefix}
+
+The prefix is not the only guard that makes the channel circulant. \term{Zero-padded OFDM} (ZP-OFDM)
+transmits nothing in the guard interval and, at the receiver, adds the $\nu$ samples that spill past
+the end of the FFT window back onto its beginning (overlap-add), which reproduces the circular
+convolution. It saves the transmit power spent on the prefix and allows the receiver to recover
+symbols even on subcarriers where $H_k=0$, at the cost of slightly more noise; the WiMedia multiband
+OFDM ultra-wideband standard (ECMA-368) used it. A \term{unique word} or \term{known-symbol padding}
+fills the guard with a fixed sequence that can double as a pilot; the single-carrier PHYs of IEEE
+802.11ad/ay use Golay sequences this way. \term{Single-carrier frequency-domain equalisation}
+(SC-FDE, Section~\ref{sec:ch12:fde}) keeps the prefix but moves the IFFT from the transmitter to the
+receiver, and the uplinks of LTE and NR use a hybrid of the two, DFT-spread OFDM
+(Section~\ref{sec:ch17:dfts}).
+
+%======================================================================
+\section{Designing an OFDM system}
+\label{sec:ch17:design}
+%======================================================================
+
+\subsection{Four numbers and three constraints}
+
+An OFDM physical layer is defined, to first order, by four numbers: the occupied bandwidth $B$, the
+subcarrier spacing $\Delta f=1/T$, the prefix duration $T_{\text{cp}}$, and the FFT size $N$ (which,
+with $\Delta f$, fixes the sample rate $f_s=N\Delta f$). Three physical constraints pull them in
+different directions.
+
+\paragraph{The prefix must cover the delay spread.} $T_{\text{cp}}$ must exceed the channel's maximum
+excess delay, not its RMS delay spread (the pitfall at the end of Section~\ref{sec:ch11:standards}), plus
+the timing uncertainty of the receiver and the delay of the transmit and receive filters. Indoor
+channels need a few hundred nanoseconds; urban macro-cells 3--5\,$\mu$s; hilly terrain and
+single-frequency broadcast networks tens to hundreds of microseconds.
+
+\paragraph{The overhead must be tolerable.} The prefix wastes a fraction
+$T_{\text{cp}}/(T+T_{\text{cp}})$ of the time and energy. To keep this below 10--20\%, the useful
+symbol must be five to ten times longer than the prefix, and so $\Delta f=1/T$ must be correspondingly
+small.
+
+\paragraph{The spacing must dwarf the Doppler and the oscillator impairments.} A channel that changes
+during a symbol destroys orthogonality. Section~\ref{sec:ch17:sync} shows that a Doppler spread with
+maximum frequency $f_D$ causes ICI of relative power about $(\pi f_DT)^2/6$; residual carrier offset
+and phase noise add more. To keep ICI 25--30\,dB below the signal, $f_DT$ must be below about
+0.03--0.05, which pushes $\Delta f$ \emph{up}. Wider spacing also shortens the symbol, which lowers the
+latency and makes the system more robust to phase noise, a dominant concern at millimetre-wave
+frequencies.
+
+The FFT size then follows from $N\ge B/\Delta f$, rounded up to a convenient power of two with room
+for guard subcarriers, and the sample rate from $N\Delta f$. Figure~\ref{fig:ch17_design_space}
+combines the first three constraints into a single measure, the spectral efficiency
+$\frac{T}{T+T_{\text{cp}}}\log_2(1+\text{SINR})$, where the SINR includes the Doppler ICI, for four
+scenarios at an SNR of 25\,dB. Each curve has a broad optimum. For an urban macro-cell with a
+4.7\,$\mu$s prefix and 200\,Hz Doppler the optimum is near 12\,kHz, and 15\,kHz costs almost nothing. For a
+high-speed train at 1.5\,kHz Doppler it moves to about 40\,kHz, which is one reason NR allows 30\,kHz
+spacing in FR1. For a broadcast single-frequency network with a 200\,$\mu$s prefix, the optimum is below
+2\,kHz: DVB-T2 uses spacings of a few hundred hertz. Indoor Wi-Fi, with a short prefix and negligible
+Doppler, has a flat optimum over two decades. The 312.5\,kHz of 802.11a, chosen to keep the FFT small
+(64 points) and the symbol short for bursty packet traffic, sits well to the right of it and pays a
+20\% prefix overhead. That is exactly the inefficiency 802.11ax removed by cutting the spacing by a
+factor of four (Section~\ref{sec:ch17:systems}).
+
+\mdcfig{ch17_design_space}{The subcarrier-spacing trade-off. (a) Prefix overhead (solid) rises with
+spacing because the symbol shortens; the share of impairment due to Doppler ICI (dashed) falls with
+spacing. (b) The resulting spectral efficiency at an SNR of 25\,dB, with the optimum marked for each
+scenario. Dotted verticals mark 15\,kHz (LTE) and 312.5\,kHz (802.11a). The model ignores phase noise,
+latency and FFT cost, which all favour wider spacing.}
+
+\begin{worked}[The 802.11a numerology]
+802.11a (1999, carried over unchanged into 802.11g at 2.4\,GHz in 2003) was designed for indoor channels
+with RMS delay spreads up to about 100--200\,ns in a 20\,MHz channel.
+
+\emph{Prefix.} A maximum excess delay of about 800\,ns gives $T_{\text{cp}}=0.8\,\mu$s, 16 samples at
+20\,MS/s.
+
+\emph{FFT and spacing.} A 64-point FFT at 20\,MS/s gives $\Delta f=312.5$\,kHz and $T=3.2\,\mu$s; the full
+symbol is 4\,$\mu$s and the prefix overhead 20\%. A 256-point FFT would have cut the overhead to 6\%, but in
+1999 a 64-point FFT was cheaper, and short symbols suit short packets and allow a fast turnaround between
+transmit and receive.
+
+\emph{Occupancy.} 52 subcarriers ($\pm1$ to $\pm26$) are used: 48 carry data and 4 (at $\pm7$ and $\pm21$) carry
+BPSK pilots for phase tracking. The occupied band is $53\times312.5\,\text{kHz}\approx16.6$\,MHz, leaving 1.7\,MHz
+guard bands on each side.
+
+\emph{Rates.} The 48 data subcarriers carry $48\times b\times R$ information bits per 4\,$\mu$s symbol, with $b$
+bits per subcarrier and code rate $R$. BPSK at rate 1/2 gives $48\times1\times\tfrac12/4\,\mu\text{s}=6$\,Mb/s;
+64-QAM at rate 3/4 gives $48\times6\times\tfrac34/4\,\mu\text{s}=54$\,Mb/s, the familiar headline rate.
+
+\emph{Doppler.} At 5.2\,GHz and walking speed (1.5\,m/s) $f_D\approx26$\,Hz, so $f_DT\approx8\times10^{-5}$: Doppler
+ICI is negligible. The real constraint on the spacing is the crystal oscillator. With a $\pm20$\,ppm
+tolerance on each end, the offset can reach $40\times10^{-6}\times5.2\,\text{GHz}\approx208$\,kHz, two-thirds of a
+subcarrier, and the preamble must estimate and remove it before the FFT (Chapter~\ref{ch:sync}).
+\end{worked}
+
+\begin{worked}[The LTE numerology]
+LTE (3GPP Release 8, 2008) was designed for macro-cells at 0.7--2.7\,GHz, with channel bandwidths of
+1.4, 3, 5, 10, 15 and 20\,MHz and mobile speeds up to 350\,km/h.
+
+\emph{Prefix.} Urban and suburban macro-cells have maximum excess delays up to about 5\,$\mu$s; the normal
+prefix is 144 samples at 30.72\,MS/s, $4.69\,\mu$s (160 samples, $5.21\,\mu$s, for the first symbol of each
+slot, to make seven symbols fill exactly 0.5\,ms).
+
+\emph{Spacing.} At 350\,km/h and 2.6\,GHz, $f_D=vf_c/c\approx843$\,Hz. With $\Delta f=15$\,kHz, $f_DT=0.056$, and
+the Doppler ICI is about $(\pi\times0.056)^2/6\approx5.2\times10^{-3}$, an SIR of 23\,dB: tolerable for the
+QPSK and 16-QAM that a user at that speed would receive. Halving the spacing to 7.5\,kHz would halve the
+overhead but quadruple the ICI.
+
+\emph{FFT.} With 15\,kHz spacing, $f_s=N\times15$\,kHz. The 20\,MHz carrier uses $N=2048$ and
+$f_s=30.72$\,MS/s, eight times the 3.84\,Mchip/s of UMTS, so one reference clock serves both. Its 100
+resource blocks of 12 subcarriers occupy 18\,MHz, 90\% of the channel. The 10\,MHz carrier uses $N=1024$ at
+15.36\,MS/s and 600 subcarriers; the 1.4\,MHz carrier uses $N=128$ at 1.92\,MS/s and 72 subcarriers.
+
+\emph{Extended prefix.} For large cells and for multicast in single-frequency networks (MBSFN), an extended
+prefix of 512 samples ($16.7\,\mu$s) reduces a slot to six symbols. A further MBSFN mode with 7.5\,kHz
+spacing and a $33.3\,\mu$s prefix was specified for dedicated broadcast carriers.
+\end{worked}
+
+\subsection{The 5G NR numerologies}
+
+LTE's single numerology could not stretch from sub-1\,GHz macro-cells to 28\,GHz and beyond. At millimetre
+waves the Doppler for the same speed is ten times larger, oscillator phase noise is far stronger, and
+narrow beams shorten the effective delay spread to tens or hundreds of nanoseconds. NR therefore defines a
+family of \term{numerologies} indexed by $\mu$ (3GPP TS 38.211, Section~4.2),
+\begin{equation}
+\Delta f=2^\mu\times15\,\text{kHz},\qquad T_{\text{cp}}\approx\frac{4.69\,\mu\text{s}}{2^\mu},\qquad
+\text{slot}=\frac{1\,\text{ms}}{2^\mu}=14\text{ symbols},
+\end{equation}
+listed in Table~\ref{tab:ch17:nr} and drawn in Figure~\ref{fig:ch17_numerology}. The prefix
+\emph{fraction} is the same for every numerology, about 6.7\%, because the prefix and the symbol scale
+together; what changes is the absolute time scale, and hence the balance between delay-spread tolerance on
+one side and Doppler, phase-noise tolerance and latency on the other.
+
+\begin{table}[htbp]\centering\small
+\caption{NR numerologies with the normal cyclic prefix (3GPP TS 38.211 Table 4.2-1, Release 17). The prefix
+of the first symbol in every 0.5\,ms is longer by $16\kappa T_c=0.52\,\mu$s. The typical-use column is a
+simplification of the band-specific rules of TS 38.101.}
+\label{tab:ch17:nr}
+\begin{tabular}{@{}c r r r c r l@{}}
+\toprule
+$\mu$ & $\Delta f$ (kHz) & $T$ ($\mu$s) & $T_{\text{cp}}$ ($\mu$s) & Slots/ms & Slot ($\mu$s) & Typical use\\
+\midrule
+0 & 15 & 66.67 & 4.69 & 1 & 1000 & FR1 (below 7.125\,GHz), data and SSB\\
+1 & 30 & 33.33 & 2.34 & 2 & 500 & FR1 mid-band, data and SSB\\
+2 & 60 & 16.67 & 1.17 & 4 & 250 & FR1 and FR2 data; extended CP option\\
+3 & 120 & 8.33 & 0.59 & 8 & 125 & FR2 (24--52.6\,GHz), data and SSB\\
+4 & 240 & 4.17 & 0.29 & 16 & 62.5 & FR2 synchronisation blocks only\\
+5 & 480 & 2.08 & 0.15 & 32 & 31.25 & 52.6--71\,GHz (Release 17)\\
+6 & 960 & 1.04 & 0.07 & 64 & 15.63 & 52.6--71\,GHz (Release 17)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\mdcfig{ch17_numerology}{Half a millisecond of each NR numerology from $\mu=0$ to $\mu=4$. Doubling the
+subcarrier spacing halves the symbol, the prefix and the slot, so there are $2^\mu$ slots of 14 symbols per
+millisecond. Symbol boundaries of different numerologies line up (every symbol of numerology $\mu$ spans
+exactly two of numerology $\mu+1$), which lets a carrier mix numerologies in different bandwidth parts.}
+
+All NR timing is expressed in the basic time unit $T_c=1/(480\,\text{kHz}\times4096)\approx0.509$\,ns. The
+normal prefix is $144\kappa\,2^{-\mu}T_c$ with $\kappa=64$, and the useful symbol $2048\kappa\,2^{-\mu}T_c$; the
+extra $16\kappa T_c$ on the first symbol of each half-subframe makes the symbols of all numerologies nest
+exactly. A carrier may hold at most 275 resource blocks, 3300 subcarriers, so a 4096-point FFT suffices for
+every configuration: 100\,MHz at 30\,kHz (273 resource blocks, 98.3\,MHz occupied, 122.88\,MS/s) or 400\,MHz
+at 120\,kHz (264 resource blocks, 380\,MHz occupied, 491.52\,MS/s). The occupancy of up to about 98\% compares
+with LTE's 90\%; it relies on the transmitter's spectral shaping (Section~\ref{sec:ch17:oob}), which the
+standard leaves to the implementer as long as the emission masks of TS 38.101 and TS 38.104 are met.
+
+\paragraph{Bandwidth parts.} A 100\,MHz NR carrier is too wide for a phone to monitor all the time, so NR
+lets the network configure up to four \term{bandwidth parts} (BWPs) per carrier for each device, of which one
+is active in each direction (TS 38.211 Section~4.4.5; TS 38.213). Each BWP is a contiguous set of resource
+blocks with its own numerology and prefix. A phone can sit on a narrow 20\,MHz BWP while idle, saving the
+power of a wide RF front end and a large FFT, and be switched by a downlink control message to the full
+carrier when data arrives. Bandwidth parts also let a single carrier serve devices of different
+capabilities, or different services with different numerologies, side by side.
+
+\begin{inpractice}[Mixed numerologies and the guard between them]
+Two numerologies on the same carrier are not orthogonal to each other: a 30\,kHz subcarrier is
+not a whole number of cycles over a 15\,kHz symbol's FFT window, so energy leaks between the two
+bandwidth parts. Implementations leave a small guard band (a few subcarriers) between them and apply
+windowing or filtering per bandwidth part. This is one practical reason why the filtered-OFDM and WOLA
+techniques of Section~\ref{sec:ch17:oob} were studied intensively during the design of NR, even though the
+standard does not mandate any particular one.
+\end{inpractice}
+
+\subsection{Broadcasting: very long symbols}
+
+Broadcasters face the opposite extreme. A digital TV network wants to reuse one frequency across a whole
+country, with every transmitter sending the identical signal in a \term{single-frequency network} (SFN).
+A receiver then sees the signals from several transmitters as echoes of one another, with relative delays set by
+the path-length differences: tens of kilometres, or hundreds of microseconds. The prefix (which broadcasting
+standards call the \emph{guard interval}) must cover them.
+
+The 1995 DAB standard (ETSI EN 300 401) uses, in its Mode~I for terrestrial SFNs, 1536 subcarriers at 1\,kHz
+spacing in 1.536\,MHz, a 1\,ms useful symbol and a 246\,$\mu$s guard interval: enough for transmitters about
+70\,km apart. DVB-T (ETSI EN 300 744, 1997) offers a 2k and an 8k mode; in an 8\,MHz channel the 8k mode has
+6817 subcarriers, a 896\,$\mu$s useful symbol, a spacing of about 1.12\,kHz and guard intervals of 1/32 to 1/4 of
+the symbol (28 to 224\,$\mu$s). DVB-T2 (ETSI EN 302 755, 2008) extends this to FFT sizes up to 32k: in 8\,MHz, a
+3584\,$\mu$s useful symbol, a spacing of about 279\,Hz and about 27\,000 subcarriers, with guard intervals up to
+19/128 (532\,$\mu$s). ATSC~3.0 in North America (2017) uses similar 8k, 16k and 32k modes.
+
+\begin{worked}[Sizing a DVB-T2 single-frequency network]
+Transmitters of an SFN are spaced 60\,km apart. A receiver close to one transmitter sees the next one's
+signal about 60\,km later: a relative delay of $60\,\text{km}/(0.3\,\text{km}/\mu\text{s})=200\,\mu$s. With the
+32k mode in 8\,MHz ($T=3584\,\mu$s), a guard interval of 1/16 is $224\,\mu$s and covers it with some margin for
+timing tolerance. The overhead is $1/17$, about 5.9\%. The same guard with the 8k mode ($T=896\,\mu$s) would be
+a 1/4 guard interval and cost 20\%. The price of the long symbol is Doppler sensitivity: the spacing is only
+279\,Hz, so a car at 120\,km/h receiving UHF channel 40 (626\,MHz), with $f_D\approx70$\,Hz, has
+$f_DT\approx0.25$, far too much ICI for high-order QAM. The 32k mode is for rooftop reception; mobile
+services use the smaller FFT sizes, and an SFN operator must choose between spacing its transmitters
+widely and serving vehicles.
+\end{worked}
+
+\begin{history}[OFDM goes mainstream: 1987--2005]
+The first mass-market OFDM systems were broadcast. In 1987 the European Eureka~147 project began
+developing digital audio broadcasting; its design, based on work at the French CCETT laboratory in Rennes by
+Michel Alard, Roselyne Lassalle and colleagues, used \emph{coded} OFDM (COFDM), in which a convolutional code
+and time and frequency interleaving turn the channel's frequency selectivity into diversity
+(Section~\ref{sec:ch17:coded}). DAB services began in the UK and Sweden in 1995, and DVB-T followed in 1997,
+with the first services in 1998. On the telephone line, the 1993 Bellcore ``ADSL Olympics'' compared
+single-carrier CAP modems with the discrete multitone (DMT) modem of Amati Communications, founded by
+John Cioffi of Stanford; DMT won on performance and became the basis of ANSI T1.413 (1995) and ITU-T G.992.1
+(1999). IEEE 802.11a adopted OFDM for 5\,GHz wireless LANs in 1999, with the same PHY as the European HiperLAN/2.
+WiMAX (IEEE 802.16-2004 and 802.16e-2005) and Flarion's Flash-OFDM brought OFDMA to mobile broadband. When
+3GPP studied the successor to UMTS in 2004--2005, OFDMA for the downlink was one of the less contested choices.
+The uplink was debated longer, and in December 2005 3GPP chose single-carrier FDMA, DFT-spread OFDM, for its
+lower peak-to-average ratio (Section~\ref{sec:ch17:dfts}). The first commercial LTE networks opened in
+Stockholm and Oslo in December 2009.
+\end{history}
+
+%======================================================================
+\section{The resource grid, pilots and channel estimation}
+\label{sec:ch17:grid}
+%======================================================================
+
+\subsection{Thinking in time and frequency}
+
+An OFDM signal is naturally described not as a waveform but as a two-dimensional \term{resource grid}:
+subcarriers along one axis, OFDM symbols along the other. Each cell, one subcarrier for one symbol, is a
+\term{resource element} (RE) and carries one complex number. LTE and NR group 12 consecutive subcarriers into a
+\term{resource block} (RB), the unit in which the scheduler allocates spectrum, and group symbols into
+slots of 14 (normal prefix). Figure~\ref{fig:ch17_grid} shows one slot of two resource blocks in NR. Each RE
+is used for one of a small number of purposes: user data, control information, synchronisation signals,
+or \emph{reference signals} (pilots) from which the receiver estimates the channel. The grid is where OFDM's
+flexibility comes from. The scheduler can give different users different rectangles of it
+(OFDMA, Section~\ref{sec:ch17:ofdma}), give different antennas different pilot patterns, and adapt the
+pilot density to the channel.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=0.5cm,y=0.19cm,font=\sffamily\scriptsize]
+% control region
+\fill[navy!12] (0,0) rectangle (2,24);
+% data
+\fill[practbg] (2,0) rectangle (14,24);
+% DMRS type 1 on symbols 2 and 11, every other subcarrier
+\foreach \s in {2,11}{\foreach \k in {0,2,...,22}{\fill[accent!75] (\s,\k) rectangle ++(1,1);}}
+% one highlighted RE
+\fill[navy] (6,17) rectangle ++(1,1);
+\draw[step=1,gray!45,very thin,xstep=1,ystep=1] (0,0) grid (14,24);
+\draw[navy,thick] (0,0) rectangle (14,24);
+\draw[navy,thick] (0,12) -- (14,12);
+% labels
+\draw[decorate,decoration={brace,amplitude=4pt}] (-0.3,0) -- (-0.3,12) node[midway,left=5pt,align=right]{1 resource block\\= 12 subcarriers\\($12\Delta f$)};
+\draw[decorate,decoration={brace,amplitude=4pt,mirror}] (0,-0.6) -- (14,-0.6) node[midway,below=5pt]{1 slot = 14 OFDM symbols ($1/2^\mu$\,ms)};
+\draw[-{Stealth},navy] (7.3,17.5) -- (15.4,19.5) node[right,align=left]{one resource element:\\one subcarrier $\times$ one symbol};
+\draw[-{Stealth},accent] (11.5,6.5) -- (15.4,8) node[right,align=left]{DMRS pilots (type 1,\\front-loaded + 1 additional)};
+\draw[-{Stealth},navy!70] (1,22.5) -- (15.4,25) node[right,align=left]{control region (PDCCH)};
+\node[right,align=left] at (15.4,13.5) {data (PDSCH)};
+\draw[-{Stealth},practc] (15.35,13.5) -- (9,14.5);
+\node[rotate=90] at (-6.2,12) {frequency};
+\draw[-{Stealth}] (-5.6,4) -- (-5.6,20);
+\end{tikzpicture}
+\caption{The NR resource grid: one slot of two resource blocks, with a two-symbol control region, a
+data region, and type-1 demodulation reference signals on every other subcarrier of the third and twelfth
+symbols. A 100\,MHz carrier at 30\,kHz holds 273 such blocks, 3276 subcarriers, and 28 symbols per
+millisecond: about 92\,000 resource elements every millisecond.}
+\label{fig:ch17_grid}
+\end{figure}
+
+\subsection{Pilots as samples of the channel}
+
+The receiver needs $H_k$ on every data RE. It measures it only where it knows what was sent, on the pilots,
+and interpolates everywhere else. The channel $H(f,t)$ is a two-dimensional random function whose
+variation is limited by the delay spread (in frequency) and the Doppler spread (in time)
+(Chapter~\ref{ch:channels}). Pilot placement is therefore a sampling problem. By the sampling theorem,
+pilots every $D_f$ subcarriers can represent channel impulse responses up to $1/(D_f\Delta f)$ long, and
+pilots every $D_t$ symbols can represent Doppler spreads up to $\pm1/(2D_tT_s)$, where $T_s=T+T_{\text{cp}}$ is
+the total symbol duration:
+\begin{equation}
+D_f\le\frac{1}{\tau_{\max}\,\Delta f},\qquad D_t\le\frac{1}{2f_D\,T_s}.
+\label{eq:ch17:pilotnyq}
+\end{equation}
+In practice pilots are placed two to four times more densely than these limits, because interpolation
+filters are not ideal and because noise on each pilot must be averaged out. The pilot overhead is
+$1/(D_fD_t)$ of the grid for each antenna port.
+
+Three families of pattern are in use (Figure~\ref{fig:ch17_pilots}).
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Block pilots.] Whole OFDM symbols of known data, sent as a preamble or at intervals. They sample the
+channel densely in frequency and not at all in time, so they suit channels that are nearly static over a
+packet: Wi-Fi's long training field, repeated as a \emph{midamble} in 802.11ax for long packets at speed.
+\item[Comb pilots.] A few subcarriers carry pilots in every symbol. They track time variation well but
+sample frequency sparsely. 802.11a/g/n/ac use four (or more, in wider channels) such pilots, not for channel
+estimation but to track the common phase error from residual CFO and phase noise.
+\item[Scattered pilots.] A diagonal lattice that shifts from symbol to symbol, so that a few pilots per
+symbol sample both dimensions. DVB-T places a pilot on every twelfth subcarrier, shifted by three subcarriers
+from symbol to symbol, so that four consecutive symbols together sample every third subcarrier, enough for echoes up to a third of the useful symbol,
+more than the longest guard interval. LTE's cell-specific reference signals (CRS) for antenna port 0 occupy
+every sixth subcarrier on two symbols per slot, staggered by three. NR replaces always-on reference signals
+with user-specific ones sent only where data is scheduled.
+\end{description}
+
+\mdcfig{ch17_pilots}{Pilot patterns (red) on one slot of two resource blocks. (a) A block pilot symbol, as
+in a Wi-Fi preamble. (b) Comb pilots on a fixed subset of subcarriers. (c) The scattered LTE CRS for one
+antenna port. (d) NR type-1 DMRS on every other subcarrier of the third symbol, with one additional DMRS
+symbol for mobility; the shaded symbols are the control region.}
+
+\subsection{Least-squares estimation and interpolation}
+
+On a pilot RE, $Y_p=H_pX_p+W_p$ with $X_p$ known, and the \term{least-squares} (LS) estimate is
+\begin{equation}
+\hat H_p^{\text{LS}}=\frac{Y_p}{X_p}=H_p+\frac{W_p}{X_p},\qquad \E|\hat H_p^{\text{LS}}-H_p|^2=\frac{N_0}{|X_p|^2}.
+\end{equation}
+It is unbiased and needs no statistics, but its error equals the inverse pilot SNR. Estimates between pilots
+come from interpolation: linear interpolation in frequency and then in time is the simplest, and second-order
+or spline interpolation is better on frequency-selective channels. Figure~\ref{fig:ch17_chest}a shows the
+danger of linear interpolation near a deep fade, where the true $|H_k|$ has a narrow notch between pilots that
+straight lines cannot follow; Figure~\ref{fig:ch17_chest}b shows the resulting error floor at high SNR.
+Pilots are often transmitted with a few decibels of \emph{power boosting} to make their estimates cleaner,
+paid for by slightly less power on the data.
+
+\subsection{Exploiting the channel's structure}
+
+The LS estimate ignores two things the receiver knows: the channel's impulse response is short (it fits
+inside the prefix), and the channel's frequency response is therefore smooth. Two classic estimators use this.
+
+\paragraph{DFT-based (transform-domain) estimation.} Transform the pilot LS estimates to the delay domain
+with an IDFT, keep only the taps inside a window of length about $T_{\text{cp}}$ (where the channel must live),
+set the rest to zero, and transform back to all subcarriers. The discarded taps contain only noise, so the
+noise is reduced by roughly the ratio of the kept to the total taps: with 100 pilots spanning a window where
+42 taps are kept, about 3.8\,dB. Two effects spoil the ideal. If the path delays are not integer multiples of the
+delay resolution, each path's energy leaks into many taps, and truncation discards some of it. And if the
+pilots do not span the whole FFT band, because of guard subcarriers, the leakage is worse at the band edges.
+Both produce the error floor visible for the DFT-based estimator in Figure~\ref{fig:ch17_chest}b. The
+estimator shines at low SNR and needs careful windowing at high SNR.
+
+\paragraph{Linear MMSE estimation.} If the channel's frequency correlation is known, the best linear estimate
+of the channel vector $\vect h$ on all subcarriers from the LS pilot estimates $\hat{\vect h}_p$ is the Wiener
+filter
+\begin{equation}
+\hat{\vect h}^{\text{LMMSE}}=\vect R_{\vect h\vect h_p}\left(\vect R_{\vect h_p\vect h_p}+\frac{N_0}{E_p}\vect I\right)^{-1}\hat{\vect h}_p^{\text{LS}},
+\label{eq:ch17:lmmse}
+\end{equation}
+where $\vect R_{\vect h\vect h_p}$ is the cross-correlation between the channel on all subcarriers and on the
+pilots, and $\vect R_{\vect h_p\vect h_p}$ the pilots' autocorrelation. For a wide-sense-stationary uncorrelated
+scattering channel with power delay profile $\{p_i,\tau_i\}$, the frequency correlation is
+$\E[H_kH_l^*]=\sum_ip_ie^{-j2\pi(k-l)\Delta f\tau_i}$, the Fourier transform of the PDP (Chapter~\ref{ch:channels}).
+The LMMSE estimator interpolates and denoises in one step. With the true PDP it gains 10--12\,dB over LS at
+low SNR in Figure~\ref{fig:ch17_chest}b and has no floor.
+
+The obvious objection is that the receiver does not know the PDP. Li, Cimini and Sollenberger (1998) showed
+that a \emph{robust} design, which assumes a uniform PDP over the full prefix length and the maximum Doppler
+the system supports, loses little compared with the matched estimator, because the estimator's performance
+depends mainly on the support of the delay profile and Doppler spectrum, not their exact shape. The matrix
+in~\eqref{eq:ch17:lmmse} can then be precomputed. Edfors and colleagues (1998) showed that a low-rank
+approximation, via the eigen-decomposition of $\vect R_{\vect h\vect h}$, keeps nearly all of the gain at a
+fraction of the cost, since only about $\tau_{\max}B$ eigenvalues are significant. Real receivers use such
+separable, reduced-rank Wiener filters: one in frequency, one in time.
+
+\mdcfig{ch17_chest}{Channel estimation on the EVA channel with a pilot on every sixth of 600 subcarriers.
+(a) One realisation at a pilot SNR of 15\,dB (first 240 subcarriers): linear interpolation cuts through the
+notch near subcarrier $-160$, while the LMMSE estimate follows it. (b) Mean-squared error versus pilot SNR.
+Interpolation of LS estimates floors at high SNR; the DFT-based estimator gains at low SNR but floors
+because the path delays are not on its delay grid; LMMSE with the true delay profile has neither
+problem.}
+
+\begin{inpractice}[Reference signals in NR]
+NR has no always-on cell-wide reference signal like LTE's CRS, which occupied about 5--15\% of every
+subframe (depending on the number of antenna ports) even when no one was being served and interfered with
+neighbouring cells. Instead (3GPP TS 38.211, Section~7.4.1):
+\begin{itemize}
+\item The \emph{demodulation reference signal} (DMRS) is sent only in the resource blocks scheduled for a
+user and is precoded like the data, so it measures the effective channel including beamforming. It is
+\emph{front-loaded} (in the third or fourth symbol of the slot, or the first symbol of the allocation) so
+that decoding can start early, and up to three \emph{additional} DMRS symbols can be configured for users at
+high speed. Type~1 places pilots on every other subcarrier (a comb of two), with two code-division groups
+that support up to four antenna ports with one symbol and eight with two; type~2 uses pairs of adjacent
+subcarriers in three groups, for up to six or twelve ports.
+\item The \emph{phase-tracking reference signal} (PT-RS) is a sparse comb, one subcarrier every two or four
+resource blocks on every first, second or fourth symbol, configured at millimetre-wave frequencies to track the
+common phase error of the oscillators (Section~\ref{sec:ch17:sync}).
+\item The \emph{channel-state information reference signal} (CSI-RS) is used by the phone to measure the
+channel for rank, precoder and modulation reporting (Chapter~\ref{ch:mimo}); the \emph{sounding reference
+signal} (SRS) does the same on the uplink.
+\end{itemize}
+The design principle is ``transmit a pilot only when and where someone needs it,'' which reduces overhead,
+interference and the base station's idle power consumption.
+\end{inpractice}
+
+\begin{worked}[Pilot density for a mobile channel]
+A 3.5\,GHz NR carrier with 30\,kHz spacing ($T_s\approx35.7\,\mu$s) must serve users at 120\,km/h in a channel
+with up to 3\,$\mu$s of excess delay. What pilot densities does~\eqref{eq:ch17:pilotnyq} require, and does
+type-1 DMRS meet them?
+
+\emph{Frequency:} $D_f\le1/(3\,\mu\text{s}\times30\,\text{kHz})=11$ subcarriers. Type-1 DMRS on every other
+subcarrier ($D_f=2$) oversamples by more than five, leaving plenty of room for noise averaging, and also
+supports multiple antenna ports by code division.
+
+\emph{Time:} $f_D=33.3\,\text{m/s}\times3.5\,\text{GHz}/c\approx390$\,Hz, so $D_t\le1/(2\times390\times35.7\,\mu\text{s})
+\approx36$ symbols. A single front-loaded DMRS per 14-symbol slot satisfies the sampling limit, but only
+barely once the need for interpolation margin and the channel's variation within the slot are considered.
+In practice, one additional DMRS symbol (Figure~\ref{fig:ch17_pilots}d) is configured above about 60--100\,km/h, and
+two or three for high-speed trains. The overhead of one type-1 DMRS symbol is $\tfrac12\times\tfrac1{14}=3.6\%$; with
+one additional symbol, 7.1\%.
+\end{worked}
+
+\begin{pitfall}[Estimating what you cannot see]
+Channel estimates at the band edges are worse than in the middle, because interpolation there becomes
+extrapolation. Pilots near guard bands, DC subcarriers and the edges of a user's allocation must be handled
+specially, and DFT-based estimators suffer most. A related trap is to test a channel estimator only on
+sample-spaced tapped-delay-line channels, whose paths fall exactly on the DFT delay grid. The estimator then
+looks far better than it will on real channels, whose delays are continuous. The EVA and ETU models used in
+this chapter round delays to the nearest sample at 15.36\,MS/s, but the DFT-based estimator of
+Figure~\ref{fig:ch17_chest} works on a coarser delay grid set by the pilot spacing, which is why its floor appears.
+\end{pitfall}
+
+%======================================================================
+\section{Synchronisation errors and what they do to OFDM}
+\label{sec:ch17:sync}
+%======================================================================
+
+OFDM's orthogonality depends on the receiver's FFT window being aligned with the symbol, its
+frequency grid with the subcarriers and its sample clock with the transmitter's. The algorithms that
+achieve this---Schmidl--Cox preambles, cyclic-prefix correlation, the NR synchronisation signal
+block---are covered in Chapter~\ref{ch:sync} (Sections~\ref{sec:ch10:freq} and~\ref{sec:ch10:frame}). This
+section quantifies what happens when they are imperfect.
+
+\subsection{Timing offset: the ISI-free window}
+
+Suppose the FFT window starts $d$ samples \emph{before} its nominal position, inside the prefix. If
+$0\le d\le N_{\text{cp}}-\nu$, the window still contains only samples of the current symbol, cyclically
+shifted by $d$, and the circular-shift property of the DFT gives
+\begin{equation}
+Y_k=e^{-j2\pi kd/N}\,H_kX_k+W_k.
+\end{equation}
+The offset is harmless: it appears as a linear phase ramp across the subcarriers, which the channel
+estimate absorbs as long as the pilots are processed with the same timing. There is therefore an
+\emph{ISI-free window} of $N_{\text{cp}}-\nu+1$ acceptable starting positions (Figure~\ref{fig:ch17_timing_window}).
+Starting later than nominal brings in samples of the next symbol; starting earlier than $N_{\text{cp}}-\nu$
+brings in the previous symbol's tail. Either causes ISI and ICI whose power grows with the size of the
+error. Because the penalty is asymmetric in practice (the first path is usually strong and the late
+paths weak), receivers deliberately aim the window a few samples early, into the prefix. OFDM thus
+needs only coarse timing, a striking contrast with single-carrier systems, which need the sampling phase
+to a small fraction of a symbol (Chapter~\ref{ch:sync}).
+
+\mdcfig[0.8]{ch17_timing_window}{Interference caused by the position of the FFT window (no noise; the $-60$\,dB
+floor is the plotting limit). Anywhere in the green region the window contains a whole cyclic period of
+the current symbol and the only effect is a phase ramp across subcarriers. Starting late or too early lets a
+neighbouring symbol in.}
+
+\subsection{Carrier frequency offset and inter-carrier interference}
+
+A carrier frequency offset (CFO) of $\epsilon$ subcarrier spacings multiplies the received samples by
+$e^{j2\pi\epsilon n/N}$. Substituting into the DFT,
+\begin{equation}
+\begin{split}
+Y_k&=\sum_{l=0}^{N-1}H_lX_l\,S_{l-k}+W_k,\\
+S_m&=\frac1N\sum_{n=0}^{N-1}e^{j2\pi(m+\epsilon)n/N}
+=\frac{\sin\pi(m+\epsilon)}{N\sin\big(\pi(m+\epsilon)/N\big)}\,e^{j\pi(m+\epsilon)(N-1)/N}.
+\end{split}
+\label{eq:ch17:ici}
+\end{equation}
+The wanted term $S_0\approx\sinc(\epsilon)\,e^{j\pi\epsilon}$ is attenuated and rotated by the same amount
+on every subcarrier; the terms $S_m$, $m\ne0$, leak each subcarrier into its neighbours
+(Figure~\ref{fig:ch17_ici}a). By Parseval, $\sum_m|S_m|^2=1$, so the total ICI power, for independent unit-power
+data on all subcarriers, is
+\begin{equation}
+P_{\text{ICI}}=1-|S_0|^2\approx1-\sinc^2\epsilon\approx\frac{(\pi\epsilon)^2}{3},\qquad
+\text{SIR}\approx\frac{3}{(\pi\epsilon)^2}.
+\label{eq:ch17:icipower}
+\end{equation}
+An offset of 1\% of the spacing limits the SIR to 35\,dB; 5\% to 21\,dB; 10\% to 15\,dB. Figure~\ref{fig:ch17_ici}b
+compares~\eqref{eq:ch17:icipower} with simulation. Besides the ICI, the common rotation accumulates from
+symbol to symbol by $2\pi\epsilon(N+N_{\text{cp}})/N$ radians, which the pilots must track.
+
+The practical consequence is that OFDM receivers need a frequency estimate accurate to about 1--2\% of the
+subcarrier spacing, which is 150--300\,Hz for LTE at 15\,kHz and only 0.1\,ppm at 2\,GHz. As
+Chapter~\ref{ch:sync} explains, this is done in two stages: a coarse stage removes the \emph{integer} part of
+$\epsilon$ (which shifts the whole grid by whole subcarriers without ICI) and the \emph{fractional} part
+estimated from a repeated preamble or the prefix correlation; a tracking loop then follows the residual using
+the pilots. On the OFDMA uplink the problem is harder, because every user's signal arrives with its own
+offset, and the base station cannot correct them all with one rotation. Each device must therefore
+pre-compensate its transmit frequency against the downlink, to within about $\pm0.1$\,ppm in LTE and NR.
+
+\mdcfig{ch17_ici}{Inter-carrier interference. (a) Leakage coefficients $|S_l|^2$ from~\eqref{eq:ch17:ici} for
+three frequency offsets ($N=64$): even a 5\% offset leaks $-25$\,dB into each adjacent subcarrier. (b) Signal-to-ICI
+ratio: a frequency offset $\epsilon$ (theory~\eqref{eq:ch17:icipower}, circles), and a Rayleigh-fading channel with
+Clarke's Doppler spectrum and maximum Doppler $f_D$ (theory~\eqref{eq:ch17:dopici}, squares). Doppler
+spread is half as harmful as a frequency offset of the same size.}
+
+\subsection{Doppler spread}
+
+A time-varying channel produces ICI in the same way: the channel gain changes within the symbol, so
+the subcarriers do not stay orthogonal. For a flat channel $h(t)$ that is constant in distribution with
+autocorrelation $R_h(\Delta t)$, the useful term on subcarrier $k$ is the average of $h(t)$ over the
+symbol and the rest is ICI. Its relative power is
+\begin{equation}
+P_{\text{ICI}}=1-\frac1{T^2}\int_0^T\!\!\int_0^TR_h(t-s)\,dt\,ds.
+\end{equation}
+For Clarke's model, $R_h(\Delta t)=J_0(2\pi f_D\Delta t)\approx1-(\pi f_D\Delta t)^2$ for small arguments
+(Chapter~\ref{ch:channels}), and the average of $(t-s)^2$ over the square is $T^2/6$, so
+\begin{equation}
+P_{\text{ICI}}\approx\frac{(\pi f_DT)^2}{6},\qquad \text{SIR}\approx\frac{6}{(\pi f_DT)^2}.
+\label{eq:ch17:dopici}
+\end{equation}
+This is half the ICI of a fixed offset $\epsilon=f_DT$, because the Doppler spectrum spreads the shifts
+between $-f_D$ and $+f_D$ with a mean square of $f_D^2/2$. Li and Cimini (2001) give the tight upper bound
+$(2\pi f_DT)^2/12$, twice~\eqref{eq:ch17:dopici}, valid for any Doppler spectrum. The approximation is the one used in
+Figure~\ref{fig:ch17_design_space} and in the LTE worked example. For a high-speed train with a single
+line-of-sight path, the Doppler is not a spread but a shift that changes sign as the train passes the mast;
+it behaves as a CFO that the receiver can track, which is why NR's high-speed-train enhancements focus on
+frequency tracking and pre-compensation rather than on subcarrier spacing.
+
+\subsection{Phase noise: common phase error and ICI}
+
+Oscillator phase noise $\phi(t)$ multiplies the signal by $e^{j\phi(t)}$ (Chapter~\ref{ch:sdr}). Expanding
+it as a random, time-varying CFO, the DFT gives
+\begin{equation}
+Y_k=H_kX_k\,\underbrace{\frac1N\sum_ne^{j\phi[n]}}_{\text{CPE}}+\underbrace{\sum_{l\ne k}H_lX_l\,\frac1N\sum_n
+e^{j\phi[n]}e^{j2\pi(l-k)n/N}}_{\text{ICI}}+W_k.
+\end{equation}
+The first term is a \term{common phase error} (CPE): the same rotation for every subcarrier of a symbol,
+changing from symbol to symbol (Figure~\ref{fig:ch17_phase_noise}a). It is easy to remove by measuring the
+rotation on pilots spread across the band, which is what 802.11's four pilots and NR's PT-RS are for. The
+second term is ICI and cannot be removed so simply; it sets an EVM floor. For Wiener (free-running) phase
+noise with a 3-dB linewidth $\beta$, the phase difference over $\Delta t$ has variance $2\pi\beta|\Delta t|$,
+so $\E[e^{j(\phi(t)-\phi(s))}]=e^{-\pi\beta|t-s|}$. Repeating the Doppler calculation with this correlation,
+and using $\E|t-s|=T/3$ over the square,
+\begin{equation}
+P_{\text{ICI}}\approx\frac{\pi\beta T}{3}=\frac{\pi}{3}\,\frac{\beta}{\Delta f}.
+\end{equation}
+The ICI power is proportional to the ratio of linewidth to spacing (Figure~\ref{fig:ch17_phase_noise}c). For
+a practical locked oscillator the phase-noise spectrum is flat inside the loop bandwidth and falls outside
+it, and the rule becomes: phase noise at offsets well below $\Delta f$ produces CPE, which pilots can remove,
+while phase noise at offsets comparable to or beyond $\Delta f$ produces ICI, which they cannot. Since the phase noise of a frequency-multiplied oscillator rises by 6\,dB per doubling of its output
+frequency, millimetre-wave NR uses wider
+spacings (120\,kHz at 28\,GHz and up to 960\,kHz in the 60\,GHz band), which push more of the phase noise
+into the correctable CPE region.
+
+\mdcfig{ch17_phase_noise}{Wiener phase noise on 64-QAM OFDM (256-point FFT, linewidth 0.4\% of the spacing).
+(a) Uncorrected, the common phase error rotates each symbol's constellation by a different angle, smearing it
+into rings. (b) With the CPE removed, the remaining ICI blurs each point. (c) EVM versus linewidth: CPE
+correction removes most of the error, leaving an ICI floor that follows $\pi\beta T/3$.}
+
+\subsection{Sampling-clock offset and IQ imbalance}
+
+If the receiver's ADC clock differs from the transmitter's DAC clock by a fraction $\delta$ (for example
+$20\times10^{-6}$), two things happen. The FFT window drifts through the prefix by $\delta(N+N_{\text{cp}})$
+samples per symbol, which must be corrected before it leaves the ISI-free window. And the whole
+subcarrier grid is stretched: subcarrier $k$ appears with a frequency offset of $k\delta$ spacings, so it
+rotates by $2\pi k\delta(N+N_{	ext{cp}})/N$ radians per symbol and suffers ICI that is strongest at the
+band edges. For 802.11a at 20\,ppm, the drift is $20\times10^{-6}\times80=1.6\times10^{-3}$ samples per symbol, or one
+sample after about 600 symbols (2.4\,ms): a long packet needs timing tracking. The phase ramp across the band
+grows by about $2\pi\times26\times20\times10^{-6}\times80/64\approx0.004$ radians per symbol at the outermost
+subcarrier; the pilots at $\pm7$ and $\pm21$ let the receiver estimate both the common phase and this slope.
+In most receivers the carrier and sampling clocks derive from the same reference, so the two offsets are
+estimated together.
+
+\term{IQ imbalance} in a direct-conversion receiver (Chapter~\ref{ch:sdr}) produces a scaled copy of the
+conjugate signal, and in OFDM terms this means that subcarrier $k$ is received with interference from its
+mirror image, subcarrier $-k$: $Y_k=\mu H_kX_k+\nu H_{-k}^*X_{-k}^*+W_k$. An image rejection of 30\,dB limits
+the subcarrier SNR to about 30\,dB, enough for 256-QAM but not for the 1024- and 4096-QAM of Wi-Fi~6 and~7. Such
+receivers estimate and cancel the imbalance digitally, usually from the preamble.
+
+\begin{worked}[A frequency-error budget at 28\,GHz]
+An NR phone at 28\,GHz uses 120\,kHz spacing. Its crystal is disciplined to the base station's downlink with a
+residual error of 0.1\,ppm, and it moves at 30\,km/h. What SIR do the offset and the Doppler allow, and how
+would 15\,kHz spacing fare?
+
+\emph{Offset:} $0.1\times10^{-6}\times28\times10^9=2.8$\,kHz, so $\epsilon=2.8/120=0.023$ and
+$\text{SIR}\approx3/(\pi\times0.023)^2\approx570$, or 27.5\,dB.
+
+\emph{Doppler:} $f_D=8.33\times28\times10^9/(3\times10^8)\approx780$\,Hz, $f_DT=0.0065$, and
+$\text{SIR}\approx6/(\pi\times0.0065)^2$, about 41\,dB, negligible by comparison.
+
+At 15\,kHz, the same offset would be 19\% of a spacing (SIR about 9\,dB) and the Doppler 5\% (SIR about 24\,dB):
+unusable for anything above QPSK. The wide spacing is not a luxury at millimetre waves; it is what makes
+the oscillators affordable.
+\end{worked}
+
+%======================================================================
+\section{The peak-to-average power ratio}
+\label{sec:ch17:papr}
+%======================================================================
+
+\subsection{Why OFDM is peaky}
+
+Each time sample of an OFDM symbol is a sum of $N$ subcarrier contributions with independent data,
+$x[n]=\frac1{\sqrt N}\sum_kX_ke^{j2\pi kn/N}$. For large $N$ the central limit theorem makes $x[n]$ nearly
+complex Gaussian, so its envelope is Rayleigh distributed and its instantaneous power is exponentially
+distributed: $\Pr\{|x[n]|^2>\gamma\bar P\}=e^{-\gamma}$. Most of the time the power is near its mean, but
+occasionally many subcarriers add in phase and the signal peaks far above it
+(Figure~\ref{fig:ch17_papr}a). The \term{peak-to-average power ratio} (PAPR) of a symbol is
+\begin{equation}
+\text{PAPR}=\frac{\max_n|x[n]|^2}{\E|x[n]|^2}\le N,
+\end{equation}
+with the upper bound reached only if all $N$ subcarriers align in phase: 18\,dB for $N=64$, 31\,dB for
+$N=1200$. Such alignments are astronomically rare, and what matters is the distribution. If the $N$
+Nyquist-rate samples are treated as independent, the complementary cumulative distribution function (CCDF) is
+\begin{equation}
+\Pr\{\text{PAPR}>\gamma\}\approx1-\big(1-e^{-\gamma}\big)^{N}.
+\label{eq:ch17:paprccdf}
+\end{equation}
+The true analog peaks fall between the Nyquist samples, and van Nee and de Wild found empirically that
+replacing $N$ by about $2.8N$ in~\eqref{eq:ch17:paprccdf} matches the oversampled signal well
+(Figure~\ref{fig:ch17_papr}b, dotted). The key features are that the CCDF is steep, and that it moves to the right
+only logarithmically with $N$: at a probability of $10^{-3}$ per symbol, the PAPR is about 10\,dB for 52
+subcarriers, 10.8\,dB for 300 and 11.5\,dB for 1200. Every OFDM signal of practical size needs roughly 10--12\,dB
+of headroom above its average power if its peaks are to pass undistorted.
+
+\mdcfig{ch17_papr}{(a) The instantaneous power of three OFDM symbols with 200 QPSK subcarriers, relative to the mean;
+the peak of each symbol is marked. (b) The PAPR CCDF, measured with 4$\times$ oversampling, for CP-OFDM with 52, 300
+and 1200 subcarriers (the dotted lines are~\eqref{eq:ch17:paprccdf} with $2.8N$), for DFT-spread OFDM with 300
+subcarriers, and for single-carrier QPSK with root-raised-cosine pulses ($\beta=0.22$).}
+
+\subsection{Why it matters: the power amplifier}
+
+A power amplifier (PA) is efficient only near saturation, and a signal with 10\,dB peaks must be backed off so
+that its peaks stay in the PA's linear region (Chapter~\ref{ch:sdr}). Peaks that exceed it are compressed,
+which has two effects: in-band distortion, measured as EVM, which limits the usable constellation; and
+spectral regrowth outside the channel, which violates the emission mask and the adjacent-channel leakage
+ratio (ACLR) limits. Of the two, spectral regrowth usually binds first, because the regulatory limits are
+strict and the neighbour is someone else's customer. Peaks also cost resolution in the converters: every 6\,dB of
+headroom costs one bit of DAC and ADC resolution.
+
+\begin{worked}[What 10\,dB of back-off costs]
+An ideal class-B amplifier has an efficiency of $\eta=\frac\pi4\sqrt{P_{\text{out}}/P_{\text{sat}}}$, 78.5\% at saturation.
+Driving it with a signal whose average power is 10\,dB below saturation gives
+$\eta=0.785\times10^{-10/20}=25\%$ for a sinusoid at that level. A class-A amplifier, whose efficiency is
+$50\%\times P_{\text{out}}/P_{\text{sat}}$, would manage only 5\%. A 40\,W-average OFDM base-station PA backed
+off by 10\,dB therefore needs 400\,W of peak capability, and at 25\% efficiency it draws 160\,W of DC power and
+dissipates 120\,W as heat. Cutting the back-off to 6\,dB raises the class-B efficiency to 39\% and saves about
+58\,W per amplifier. This is why every base-station transmitter combines \emph{crest-factor reduction}
+(clipping and filtering, below) with digital predistortion (Chapter~\ref{ch:sdr}) and efficiency-enhancing
+architectures such as the Doherty amplifier. For a phone, the same arithmetic appears as battery life and,
+more importantly, uplink range: at the cell edge, the handset's transmit power is the limit, and every decibel
+of back-off is a decibel of path loss the link cannot absorb.
+\end{worked}
+
+\subsection{Clipping and filtering}
+
+The simplest way to reduce PAPR is to clip the signal's envelope at a level $A$, preserving the phase. Clipping
+is a memoryless nonlinearity, and by Bussgang's theorem its output is a scaled copy of the input plus distortion
+uncorrelated with it. The distortion falls both in band (raising the EVM) and out of band (splatter).
+Filtering after clipping removes the out-of-band part, but it also regrows some of the peaks, so the
+operation is repeated a few times (\term{iterative clipping and filtering}, Armstrong 2002). With
+oversampling, the filter can be applied in the frequency domain simply by zeroing the unused bins.
+Figure~\ref{fig:ch17_clipping} shows the trade-off for 16-QAM with 200 subcarriers clipped 4\,dB above the RMS
+level. One pass of clipping and filtering reduces the PAPR at $10^{-3}$ from about 11\,dB to about 7.3\,dB with an
+EVM of $-22$\,dB; four iterations reach about 5.7\,dB, at an EVM of $-19$\,dB. Without the filter, clipping splatters
+energy 25\,dB below the in-band level right next to the channel, far above any emission mask.
+
+\mdcfig{ch17_clipping}{Iterative clipping and filtering with the clipping level 4\,dB above RMS. (a) The PAPR
+CCDF falls from about 11\,dB to 7.3\,dB after one clip-and-filter pass and to 5.7\,dB after four, at the cost of
+in-band distortion (EVM in the legend). (b) Average per-symbol spectra: clipping alone splatters into the
+neighbouring channels; the filter confines all versions to the occupied subcarriers.}
+
+In a base station, \term{crest-factor reduction} (CFR) of this kind is applied to the composite multi-carrier
+signal before the DPD, typically limiting the PAPR to 7--8\,dB. It is permitted because the standards budget
+EVM for it: 3GPP TS 38.104 allows, for example, 8\% EVM for 64-QAM and 3.5\% for 256-QAM at the base-station
+transmitter output, and the CFR consumes much of that budget. Smarter variants shape the clipping noise
+into subcarriers that can tolerate it, such as unused or low-order-modulated ones.
+
+\subsection{Distortionless methods: tone reservation, SLM and PTS}
+
+A family of techniques reduces PAPR without distortion, by exploiting redundancy.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Tone reservation (TR).] A few subcarriers (about 1--5\%) carry no data. The transmitter fills them with
+values chosen, by a few iterations of a gradient or clipping-based algorithm, to cancel the peaks of the
+time-domain signal. The receiver simply ignores them. Tellado and Cioffi developed it for DSL in the late 1990s,
+and DVB-T2 includes it as an option, reserving about 1\% of the subcarriers.
+\item[Active constellation extension (ACE).] The outer points of a QAM constellation can be moved
+\emph{outwards}, away from the decision boundaries, without increasing the error probability. ACE (Krongold and
+Jones, 2003) uses this freedom to reduce peaks. It costs a little average power and no data rate, and it is the
+other PAPR option in DVB-T2.
+\item[Selected mapping (SLM) and partial transmit sequences (PTS).] The transmitter generates several versions
+of the same symbol, multiplying the data by different known phase sequences (SLM), or rotating blocks of
+subcarriers by different phases (PTS), and sends the one with the lowest PAPR. With $U$ independent candidates,
+the CCDF becomes $\Pr\{\text{PAPR}>\gamma\}^U$, a large improvement for small $U$. The receiver must learn which
+candidate was sent, from side information or by blind detection, so these methods are popular in the
+literature but rare in standards.
+\end{description}
+All of these reduce the PAPR at $10^{-3}$ by roughly 2--4\,dB. A more radical option is to change the waveform.
+
+\subsection{DFT-spread OFDM: single carrier in OFDM clothing}
+\label{sec:ch17:dfts}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.34cm and 0.34cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.9cm,minimum width=1.15cm,align=center,font=\sffamily\scriptsize},
+  key/.style={blk,fill=accent!8,draw=accent},
+  arr/.style={-{Stealth[length=1.8mm]},thick,navy}]
+\node[blk] (s) {$M$ QAM\\symbols};
+\node[key,right=of s] (dft) {$M$-point\\DFT};
+\node[blk,right=of dft,minimum height=1.9cm] (map) {Map to $M$\\contiguous\\subcarriers\\(zeros\\elsewhere)};
+\node[blk,right=of map] (ifft) {$N$-point\\IFFT};
+\node[blk,right=of ifft] (cp) {Add\\cyclic\\prefix};
+\node[blk,right=of cp] (rf) {DAC\\and PA};
+\draw[arr] (s)--(dft); \draw[arr] (dft)--(map); \draw[arr] (map)--(ifft); \draw[arr] (ifft)--(cp); \draw[arr] (cp)--(rf);
+\node[below=0.25cm of map,font=\sffamily\scriptsize,text=accent,align=center] {other users occupy\\other subcarriers};
+\end{tikzpicture}
+\caption{A DFT-spread OFDM (SC-FDMA) transmitter. Without the red DFT block it is an ordinary OFDM
+transmitter; with it, the output is a single-carrier signal whose spectrum occupies the $M$ assigned
+subcarriers. The receiver removes the prefix, takes an FFT, equalises each subcarrier with an MMSE weight,
+and applies an $M$-point inverse DFT.}
+\label{fig:ch17_dfts_tikz}
+\end{figure}
+
+\term{DFT-spread OFDM} (DFT-s-OFDM), known in LTE as \term{SC-FDMA}, precodes each block of $M$ data symbols
+$d_0,\dots,d_{M-1}$ with an $M$-point DFT before mapping them onto $M$ contiguous subcarriers of an $N$-point
+OFDM modulator (Figure~\ref{fig:ch17_dfts_tikz}). The DFT and IDFT almost cancel. If $N=QM$ and the $M$
+subcarriers start at bin 0, the output samples are
+\begin{equation}
+\begin{split}
+x[n]&=\frac{1}{\sqrt{NM}}\sum_{m=0}^{M-1}d_m\sum_{k=0}^{M-1}e^{j2\pi k(n/N-m/M)}\\
+&=\frac{1}{\sqrt{Q}}\sum_{m=0}^{M-1}d_m\,\frac{\sin\big(\pi(n/Q-m)\big)}{M\sin\big(\pi(n/Q-m)/M\big)}\,e^{j\pi(M-1)(n/Q-m)/M}.
+\end{split}
+\end{equation}
+At $n=Qm$ the kernel is 1 at $m$ and 0 at all other symbols, so $x[Qm]=d_m/\sqrt Q$: the transmitted
+samples at every $Q$th instant are the data symbols themselves, and the samples in between are
+interpolated by a periodic sinc (Dirichlet) kernel. The signal is a single-carrier QAM signal at symbol rate
+$M\Delta f$, shaped by an ideal band-limiting pulse and shifted in frequency to wherever the $M$ subcarriers were
+placed. Its envelope is that of single-carrier modulation, not a Gaussian sum, and its PAPR is several decibels
+lower than OFDM's (Figure~\ref{fig:ch17_papr}b): about 8\,dB for QPSK and 9\,dB for 16-QAM at $10^{-3}$,
+compared with about 11\,dB for OFDM. The remaining peaks come from the sinc pulse, which has no excess
+bandwidth; a single-carrier signal with root-raised-cosine pulses of roll-off 0.22 is lower still, around
+5\,dB.
+
+The receiver is the SC-FDE receiver of Section~\ref{sec:ch12:fde}: FFT, one-tap MMSE equalisation on each of the
+$M$ subcarriers, then an $M$-point IDFT that returns to the symbol domain. Because each data symbol is spread over
+all $M$ subcarriers, a fade on a few subcarriers is averaged out rather than destroying particular symbols, but
+the MMSE equaliser pays a noise-enhancement penalty for it, and DFT-s-OFDM is somewhat worse than OFDM with the
+same code at high SNR on frequency-selective channels. Multiple users still share the band by frequency division,
+each with its own set of subcarriers, hence ``SC-FDMA''. What DFT-s-OFDM gives up is the flexibility of
+putting different users or pilots on arbitrary individual subcarriers, and, in LTE, the ability to transmit
+non-contiguous allocations (later relaxed to two clusters in LTE-Advanced).
+
+\begin{keyidea}[Why the uplink is different]
+A base station's power amplifier is shared, mains-powered and cooled, and it transmits dozens of carriers whose
+combined PAPR it must handle anyway: OFDM's high PAPR costs money but not coverage. A handset's amplifier is
+battery-powered, and at the cell edge its maximum output power limits the link. Every decibel of back-off is a
+decibel less path loss the uplink can tolerate. LTE therefore uses OFDMA on the downlink and SC-FDMA on the uplink.
+NR (TS 38.211, Section~6.3.1.4) offers both on the uplink: CP-OFDM for high rates and MIMO near the base station,
+and DFT-s-OFDM (``transform precoding'') for coverage, switchable by the network. For the most
+coverage-limited links, NR adds $\pi/2$-BPSK, whose alternating rotations keep consecutive symbols 90$^\circ$
+apart so that the envelope never passes near zero. Combined with mild frequency-domain spectral shaping, it
+takes the PAPR a few decibels below that of DFT-s-OFDM with QPSK.
+\end{keyidea}
+
+\begin{inpractice}[How much PAPR reduction is worth]
+The 3GPP evaluations for LTE compared waveforms by their \emph{cubic metric}, a better predictor of the
+required PA back-off than PAPR, and found SC-FDMA with QPSK roughly 2--3\,dB better than OFDMA, with a
+smaller advantage for 16-QAM. That translates directly into a few percent more cell radius for an
+uplink-limited cell, or equivalently into fewer base stations for a given coverage target. It is a small number
+that decided a major design choice. The same logic makes single-carrier waveforms dominant wherever the
+amplifier is the constraint: satellite links (DVB-S2 and its successors), where the transponder runs near
+saturation, and the 60\,GHz 802.11ad/ay single-carrier PHY.
+\end{inpractice}
+
+%======================================================================
+\section{Spectral containment}
+\label{sec:ch17:oob}
+%======================================================================
+
+\subsection{The sidelobe problem}
+
+Each subcarrier of a CP-OFDM symbol is a sinusoid with a rectangular time window, and its spectrum is a
+$\sinc$ whose sidelobes decay only as $1/f^2$ in power. Summed over hundreds of subcarriers, the spectrum
+(Figure~\ref{fig:ch17_ofdm_symbol}b) has a flat top and slowly decaying skirts: 1\,MHz beyond the edge of an LTE
+carrier, the rectangular OFDM spectrum is only about 30\,dB down, not enough for adjacent-channel limits,
+such as the 45\,dB adjacent-channel leakage ratio required of an LTE base station (3GPP TS 36.104). This is why OFDM systems leave guard bands (LTE uses 90\% of the
+nominal channel), and why every transmitter applies additional shaping. The standards specify the emission
+limits, not the method, and the common methods are windowing and filtering.
+
+\subsection{Windowing: WOLA}
+
+The sidelobes decay slowly because the symbol turns on and off abruptly. Replacing the rectangular window by
+one with raised-cosine ramps, overlapping the ramps of successive symbols, smooths the transitions. In
+\term{weighted overlap-and-add} (WOLA), the transmitter extends each symbol by $W$ extra cyclic samples at the
+end, multiplies the extended symbol by a window that ramps up over its first $W$ samples and down over its last $W$,
+and overlaps the ramps of adjacent symbols. The ramps eat into the prefix, so the effective prefix is shortened by
+about $W$, but the sidelobes now decay much faster. The receiver can apply a similar window before its FFT to
+reject interference from neighbouring carriers. WOLA is cheap: a few multiplications per sample. With a ramp of
+1.6\,$\mu$s (a third of the LTE prefix), Figure~\ref{fig:ch17_oob} shows the emission 1\,MHz outside the carrier falling from
+about $-30$\,dB to below $-55$\,dB.
+
+\subsection{Filtering: f-OFDM}
+
+The alternative is to pass the OFDM signal through a sharp band-pass filter matched to the allocation.
+\term{Filtered OFDM} (f-OFDM) uses a filter whose passband covers the allocated subcarriers and whose length is
+comparable to or longer than the symbol, typically a windowed sinc. The filter's impulse response is longer than
+the prefix, so it causes some ISI, but because the filter is flat across the allocation, the ISI it causes is small
+and concentrated at the band edges. In Figure~\ref{fig:ch17_oob}, a 33\,$\mu$s filter (half a symbol) pushes the
+emissions below $-90$\,dB within a few hundred kilohertz of the edge. The cost is computation (a long filter at the
+full sample rate, or a polyphase implementation) and latency. f-OFDM allows guard bands of just a few subcarriers,
+and that is what makes NR's 98\% occupancy possible.
+
+\mdcfig[0.85]{ch17_oob}{Power spectral density of an LTE-10\,MHz-like signal (600 subcarriers of 15\,kHz) with a
+rectangular window, with WOLA using a 1.6\,$\mu$s raised-cosine taper, and with f-OFDM using a Hann-windowed
+sinc filter of 33\,$\mu$s. Dotted lines mark the edges of the 10\,MHz channel.}
+
+\subsection{Alternatives to CP-OFDM and why 5G kept it}
+
+The 5G study phase (2015--2016) examined a dozen proposed waveforms. The main contenders were the following.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[FBMC/OQAM.] \term{Filter-bank multicarrier} descends from Saltzberg's 1967 offset-QAM scheme. Each
+subcarrier is shaped by a long, well-localised prototype filter (for example the PHYDYAS filter, spanning four symbols),
+which gives very low sidelobes and needs no cyclic prefix. Orthogonality is maintained only in the real domain,
+by staggering the real and imaginary parts by half a symbol. The price is that the \emph{intrinsic interference}
+between neighbouring symbols is purely imaginary rather than zero, which complicates channel estimation and
+many MIMO schemes (Alamouti coding among them), and the long filters lengthen short bursts.
+\item[UFMC.] \term{Universal filtered multicarrier} filters groups of subcarriers (sub-bands of, say, one resource
+block) with short filters, and uses a zero-padded guard instead of a prefix to absorb the filter tails.
+\item[GFDM.] \term{Generalised frequency-division multiplexing} transmits a block of several symbols on each
+subcarrier with a circular pulse shape, and uses one prefix per block of symbols rather than per symbol. It is
+flexible but non-orthogonal in general, which puts interference cancellation in the receiver.
+\end{description}
+
+3GPP kept CP-OFDM (TR 38.802 records the study). The reasons are instructive. CP-OFDM is trivially compatible with
+MIMO: each subcarrier is a flat MIMO channel. Its channel estimation is simple and well understood. It has the
+lowest latency, since each symbol stands alone. The spectral-containment advantage of the alternatives largely
+vanished once it was recognised that WOLA or f-OFDM could be applied to CP-OFDM \emph{transparently}, without
+the receiver needing to know, meeting the same emission limits. The alternatives' remaining advantages, such as
+robustness to asynchronous access and tolerance of timing offsets, did not outweigh a decade of accumulated
+engineering around CP-OFDM.
+
+\begin{history}[The 5G waveform debate]
+Between about 2013 and 2016 the choice of the 5G waveform was one of the liveliest topics in communications
+research. The European 5GNOW and PHYDYAS projects championed GFDM and FBMC; Alcatel-Lucent and Nokia promoted UFMC;
+Huawei proposed filtered OFDM. Survey papers with titles such as ``Modulation formats and waveforms for 5G
+networks: who will be the heir of OFDM?'' (Banelli and colleagues, \emph{IEEE Signal Processing Magazine}, 2014)
+framed the question. The eventual answer, CP-OFDM with implementation-specific windowing and filtering, can look
+like a victory for the status quo. It is better read as a finding that the weaknesses of OFDM could be fixed at the
+transmitter without changing what the receiver sees, while its strengths, MIMO-friendliness and simple
+equalisation, could not be matched. The study did change NR: the flexible numerology and the bandwidth-part
+concept are, in part, answers to the problems the new waveforms were proposed to solve.
+\end{history}
+
+%======================================================================
+\section{Coded OFDM, frequency diversity and bit loading}
+\label{sec:ch17:coded}
+%======================================================================
+
+\subsection{Uncoded OFDM is a Rayleigh channel}
+
+The identity $Y_k=H_kX_k+W_k$ has an uncomfortable consequence. On a Rayleigh-fading channel, each $H_k$ is a
+complex Gaussian random variable, so each subcarrier is a flat Rayleigh channel, and the average bit error
+rate of uncoded OFDM is the Rayleigh error rate of Chapter~\ref{ch:channels}: it falls only as $1/\text{SNR}$.
+For QPSK, $P_b\approx1/(4\,E_b/N_0)$ at high SNR, so $10^{-4}$ needs about 34\,dB, roughly 26\,dB more than on an
+AWGN channel. The subcarriers near the notches of the frequency response
+(Figure~\ref{fig:ch17_one_tap}a) produce nearly all the errors. OFDM has removed the ISI but not the
+fading, and a frequency-selective channel that a single-carrier equaliser would have exploited for diversity
+has been turned into many independent flat fades.
+
+\subsection{Coding across subcarriers}
+
+The remedy is to spread each codeword across many subcarriers, so that a few faded subcarriers damage
+only a few code bits, which the decoder corrects from the others. If the codeword spans $L$ independently
+fading subcarriers and the code has free distance $d_{\text{free}}$, the diversity order, the slope of the
+error-rate curve at high SNR, is approximately $\min(d_{\text{free}},L)$. The number of independent fades in
+a bandwidth $B$ is roughly $B/B_c$, where $B_c$ is the coherence bandwidth. Coded OFDM therefore turns a wide
+bandwidth and a large delay spread into diversity, recovering what the one-tap equaliser appeared to
+throw away. This is the ``C'' in \term{COFDM}, the name the DAB and DVB-T designers used.
+
+Two ingredients are essential. The first is an \emph{interleaver} that sends adjacent code bits to
+subcarriers far apart in frequency, because adjacent subcarriers fade together and a convolutional
+code, in particular, cannot correct a burst of errors. The second is \emph{channel-state information in the
+decoder}: the soft demapper must compute the bit LLRs with the per-subcarrier gain $|H_k|^2$, so that bits
+from faded subcarriers are treated as erasures rather than as confident mistakes. The combination, a
+binary code, a bit interleaver and a soft demapper, is \term{bit-interleaved coded modulation} (BICM),
+proposed by Ephraim Zehavi in 1992 and analysed by Giuseppe Caire, Giorgio Taricco and Ezio Biglieri in 1998. On
+fading channels, BICM's diversity order is set by the Hamming distance of the binary code rather than the
+Euclidean distance of the coded modulation, which is why it has displaced trellis-coded modulation in
+every modern wireless system: 802.11 from 802.11a onward, DVB-T and T2, LTE and NR.
+
+Figure~\ref{fig:ch17_coded} shows the effect with the $K=7$ rate-1/2 convolutional code of 802.11a
+(Chapter~\ref{ch:classiccodes}) and QPSK on 600 subcarriers, each codeword filling one OFDM symbol. On the
+ETU channel, whose coherence bandwidth of about 200\,kHz gives some 45 independent fades across 9\,MHz,
+coding with interleaving reaches $10^{-4}$ at about 10\,dB, within 7\,dB of AWGN and more than 20\,dB better than
+uncoded. Without the interleaver, the same code loses about 7\,dB because the code bits of each trellis
+section sit on adjacent, correlated subcarriers. On the EPA channel, whose coherence bandwidth of about
+4.6\,MHz provides only two or three independent fades across 9\,MHz, even the interleaved code has too little
+diversity to exploit and needs about 17\,dB. The lesson is general: coded OFDM's performance depends on the
+product of bandwidth and delay spread, and a narrow allocation in a low-dispersion channel must find its
+diversity elsewhere, in time (interleaving across symbols, retransmission with HARQ) or in space
+(Chapter~\ref{ch:mimo}).
+
+\mdcfig[0.85]{ch17_coded}{Frequency diversity through coding. Bit error rate of QPSK on 600 subcarriers
+with the $K=7$, rate-1/2 convolutional code and soft (max-log) LLRs that include the channel gains, one
+codeword per OFDM symbol and an independent channel realisation per symbol. The interleaved code on ETU gains
+more than 20\,dB over uncoded transmission at $10^{-3}$; removing the interleaver, or moving to the
+less dispersive EPA channel, costs 6--7\,dB.}
+
+\begin{inpractice}[The 802.11a interleaver and DVB-T2's rotated constellations]
+802.11a interleaves the coded bits of each OFDM symbol with a two-stage block permutation (IEEE 802.11,
+Clause 17). The first stage writes the bits into a matrix row by row and reads them out column by column, so that
+adjacent coded bits land on subcarriers about three apart in the 48-subcarrier symbol; the second stage
+alternates adjacent bits between the more and less significant positions of the QAM label, which have
+different reliabilities. The deinterleaver undoes both before the Viterbi decoder. DVB-T2 adds a further
+diversity trick, \emph{rotated constellations}: each QAM point is rotated so that its I and Q components each
+carry information about both bits, and I and Q are then sent on different subcarriers. If one subcarrier fades
+completely, the other component alone still identifies the point. This \emph{signal-space diversity} gives a
+worthwhile gain for high-rate codes on channels with erasures, such as single-frequency networks with strong
+echoes.
+\end{inpractice}
+
+\begin{pitfall}[Forgetting the channel state in the demapper]
+A surprisingly common simulation mistake, and an occasional implementation one, is to equalise with
+$Y_k/H_k$ and then compute LLRs as if the equalised symbol had the same noise variance on every subcarrier. The
+noise on a faded subcarrier has been amplified by $1/|H_k|^2$; ignoring this gives confident LLRs for
+garbage bits, and the decoder is misled. The loss on a frequency-selective channel is several decibels,
+comparable to throwing away the soft information altogether. The correct LLRs follow from $Y_k=H_kX_k+W_k$
+directly, or from the equalised symbol with noise variance $N_0/|H_k|^2$.
+\end{pitfall}
+
+\subsection{Bit loading and water-filling}
+
+When the transmitter knows the channel, it can do better than spread every codeword uniformly: it can put more
+bits on strong subcarriers and fewer, or none, on weak ones. This is \term{adaptive bit loading}, and it is
+the defining feature of \term{discrete multitone} (DMT), the name OFDM goes by on telephone wires. A DSL
+line is almost static, so the receiver measures the SNR of every subcarrier (``tone'') during training,
+computes a bit allocation, and sends it back to the transmitter.
+
+The optimum allocation of power follows from information theory (Chapter~\ref{ch:infotheory}). With $N$
+parallel Gaussian channels of gain-to-noise ratios $g_k=|H_k|^2/N_{0,k}$ and a total power $P$, the rate
+\begin{equation}
+R=\sum_k\log_2\!\left(1+\frac{P_kg_k}{\Gamma}\right)\quad\text{subject to}\quad\sum_kP_k=P
+\end{equation}
+is maximised, by a Lagrange-multiplier argument, when
+\begin{equation}
+P_k=\left(\mu-\frac{\Gamma}{g_k}\right)^{\!+},
+\label{eq:ch17:waterfill}
+\end{equation}
+where the ``water level'' $\mu$ is chosen to use the total power. This is \term{water-filling}: picture the
+curve $\Gamma/g_k$ as the bottom of a vessel, pour in power, and each subcarrier gets the depth of water above it
+(Figure~\ref{fig:ch17_waterfill}a). Subcarriers whose floor is above the water level get nothing. The
+\term{SNR gap} $\Gamma$ converts capacity into a practical rate: uncoded QAM at a symbol error rate of $10^{-7}$
+needs an SNR about 9.8\,dB above the Shannon limit, a code reduces the gap by its coding gain, and a system
+margin (6\,dB is common in DSL) increases it. The number of bits on tone $k$ is then
+$b_k=\log_2(1+\text{SNR}_k/\Gamma)$, rounded down to an integer.
+
+In practice, water-filling's power allocation matters less than its choice of \emph{which} tones to use. DSL
+transmitters are constrained by a PSD mask on every tone, so they cannot pour extra power into good tones, and
+theory and experience agree that a flat PSD over the tones water-filling would switch on comes very close to
+the optimum. The bits, not the power, are what adapt. Practical loading algorithms work in discrete bits:
+Hughes-Hartogs' greedy algorithm (1987) adds one bit at a time to the tone where it costs least power; the
+algorithm of Chow, Cioffi and Bingham (1995) is a fast approximation; and the Levin--Campello algorithm finds the
+exact discrete optimum efficiently.
+
+\mdcfig{ch17_waterfill}{Bit loading on an ADSL2+ loop (tones 33--511 at 4.3125\,kHz, flat $-40$\,dBm/Hz transmit
+PSD, a simple loss model for 0.4\,mm cable, crosstalk that rises with frequency and a narrowband AM
+radio interferer near 1.35\,MHz; gap 11.8\,dB including a 6\,dB margin and 4\,dB coding gain). (a) Water-filling
+on a 3\,km loop: the water level and the power allocation (blue). Tones above about 1.1\,MHz are switched off.
+(b) The integer bit allocation for three loop lengths and the resulting line rates, at 4000 DMT symbols per
+second.}
+
+\begin{worked}[The ADSL2+ rate on a 3\,km loop]
+ADSL uses a real-valued DMT signal: the IFFT input is Hermitian-symmetric, so that the output is a real baseband
+signal for the copper pair. ADSL2+ (ITU-T G.992.5) uses a 1024-point IFFT at 4.416\,MS/s, giving 512 tones of
+4.3125\,kHz up to 2.208\,MHz, of which tones 33--511 carry downstream data (the lower tones are for POTS
+splitting and upstream). The prefix is 64 samples, 14.5\,$\mu$s, and after one synchronisation symbol per 68
+data symbols the data-symbol rate is exactly 4000 per second. Each tone carries up to 15 bits.
+
+For the 3\,km loop of Figure~\ref{fig:ch17_waterfill}, the SNR falls from about 60\,dB on the lowest tones to below the
+gap near 0.9\,MHz. With the 11.8\,dB gap, the loading starts at 15 bits per tone, falls by roughly one bit every
+30\,kHz, and reaches zero near 0.9\,MHz, for a total of about 1410 bits per DMT symbol: $1410\times4000\approx5.6$\,Mb/s.
+On a 1\,km loop nearly every tone is usable and the line rate reaches about 27\,Mb/s before framing overheads
+(the ADSL2+ maximum is about 24\,Mb/s of payload); at 5\,km only the lowest 70 tones survive, for about 1\,Mb/s.
+The strong rate-versus-reach dependence is the defining characteristic of DSL, and the reason operators pushed
+fibre ever closer to the home (Chapter~\ref{ch:wireline}).
+\end{worked}
+
+\begin{inpractice}[Adaptive modulation in wireless OFDM]
+A mobile channel changes too quickly for tone-by-tone loading, and feeding back a bit allocation for thousands of
+subcarriers every millisecond would cost too much. LTE and NR adapt more coarsely. The phone reports a
+\emph{channel quality indicator} (CQI) for the whole band or for sub-bands of several resource blocks, and the base
+station chooses one modulation and coding scheme for each user's allocation and relies on the code to average over
+the fading within it. The frequency-domain adaptation happens instead in the \emph{scheduler}, which gives each
+user the resource blocks where its channel is currently strong (Section~\ref{sec:ch17:ofdma}). Wi-Fi uses a
+single MCS per packet (per resource unit in 802.11ax) chosen by rate-adaptation algorithms such as Minstrel, which
+probe different rates and keep the one with the highest measured throughput.
+\end{inpractice}
+
+%======================================================================
+\section{OFDMA, MIMO-OFDM and single-frequency networks}
+\label{sec:ch17:ofdma}
+%======================================================================
+
+\subsection{OFDMA: sharing the grid}
+
+\term{Orthogonal frequency-division multiple access} (OFDMA) gives different users different subsets of the
+resource grid. On the downlink this is natural: the base station builds one IFFT input with each user's data
+on its own resource blocks. Each user demodulates the whole symbol and keeps its own subcarriers. The payoff
+is \term{multiuser diversity}. Different users see independent fading, so at any moment each resource block
+is strong for someone, and a scheduler that assigns blocks to users with good channels, while keeping the
+allocation fair over time (the \emph{proportional-fair} rule), gains substantially over a round-robin
+allocation. Chapter~\ref{ch:multipleaccess} develops scheduling and its trade-offs.
+
+The uplink is harder. Each user's signal travels over its own channel, with its own delay and its own
+oscillator. For the subcarriers of different users to remain orthogonal at the base station's FFT, all
+signals must arrive within the prefix of one another, and all must be on frequency to a small fraction of
+the spacing. LTE and NR therefore command each phone's transmit timing with a \emph{timing advance}, which
+compensates the round-trip delay so that signals from near and far users arrive aligned. Each phone also
+locks its transmit frequency to the downlink it receives, and per-user power control keeps the strong signals
+from overwhelming the leakage floor seen by weak ones. The same requirements appear in 802.11ax's uplink
+OFDMA, where a trigger frame from the access point tells each station exactly when to transmit, and each
+station must pre-correct its frequency and timing from that frame.
+
+\subsection{MIMO-OFDM}
+
+OFDM and multiple antennas fit together naturally. With $N_t$ transmit and $N_r$ receive antennas and a
+prefix longer than every antenna pair's channel, each subcarrier becomes a flat MIMO channel,
+\begin{equation}
+\vect y_k=\vect H_k\vect x_k+\vect w_k,\qquad \vect H_k\in\C^{N_r\times N_t},
+\end{equation}
+where $\vect H_k$ is the DFT, element by element, of the matrix impulse response. All the MIMO techniques of
+Chapter~\ref{ch:mimo}---spatial multiplexing, beamforming, space--time coding and multi-user MIMO---can then be
+applied independently on each subcarrier, or on groups of subcarriers across which $\vect H_k$ changes
+little. A single-carrier MIMO system on a frequency-selective channel faces a far harder problem, a matrix
+equaliser with memory. This compatibility, more than any other single property, is why OFDM is the
+waveform of MIMO systems: 802.11n (2009) brought MIMO-OFDM to the mass market, LTE built it in from the start,
+and NR's massive-MIMO base stations with 64 or more antennas compute a precoder for every few resource blocks.
+
+\subsection{Single-frequency networks}
+
+Section~\ref{sec:ch17:design} introduced the single-frequency network from the point of view of the guard
+interval. The idea is worth stating in general. In an SFN, the transmitters are synchronised in time and frequency
+(usually by GNSS) and send identical OFDM symbols. The receiver cannot tell the signals of different transmitters
+apart from multipath echoes, and as long as they arrive within the prefix, OFDM combines them automatically:
+the channel $H_k$ is simply the sum of the channels from all transmitters. Far from being interference, a second
+transmitter adds power and diversity, filling in the shadows and fades of the first. A country-wide TV or radio
+network can then use one frequency instead of the four to seven a conventional network needs to keep
+co-channel transmitters apart. SFNs are used by DAB and DVB-T/T2 throughout Europe, by ATSC~3.0, and by LTE's
+multicast service (MBSFN), whose extended prefix and 7.5\,kHz mode were designed for them; later 3GPP releases
+added still narrower numerologies with longer prefixes for broadcasting from high towers.
+
+\begin{pitfall}[The SFN self-interference zone]
+An echo from a distant transmitter that arrives \emph{later} than the guard interval is not merely wasted: it
+is interference, with the ISI and ICI of~\eqref{eq:ch17:cpsir}. SFN planners must therefore check not only
+the coverage of each transmitter but the delay differences everywhere in the service area, including over the
+sea and from mountain-top sites that can be received at great distances under anomalous propagation. The
+solution may involve adding deliberate static delays at some transmitters to move the zone of excessive delay
+difference to where nobody lives.
+\end{pitfall}
+
+%======================================================================
+\section{OFDM across the industry}
+\label{sec:ch17:systems}
+%======================================================================
+
+Table~\ref{tab:ch17:systems} collects the parameters of the OFDM systems discussed in this chapter. Two things
+stand out. The subcarrier spacings span more than three orders of magnitude, from the 279\,Hz of DVB-T2 to the
+960\,kHz of NR at 60\,GHz, each set by the delay spread and Doppler of its channel. And the constellations have
+grown steadily denser, to 4096-QAM in Wi-Fi~7 and DOCSIS~3.1, as the channels became cleaner (cable, short
+indoor links) and the radios better.
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{Parameters of some OFDM systems (maximum or typical values; see the cited standards for details). ADSL2+ uses a real-valued (Hermitian) DMT signal.}
+\label{tab:ch17:systems}
+\begin{tabular}{@{}l c l l l l@{}}
+\toprule
+System & Year & Bandwidth & FFT & $\Delta f$ & Densest QAM\\
+\midrule
+DAB (EN 300 401, mode I) & 1995 & 1.536\,MHz & 2048 & 1\,kHz & DQPSK\\
+DVB-T (EN 300 744) & 1997 & 6--8\,MHz & 2k, 8k & 1.12--4.46\,kHz & 64\\
+ADSL2+ (G.992.5) & 2003 & 2.2\,MHz & 1024 & 4.3125\,kHz & 15 bits/tone\\
+IEEE 802.11a/g & 1999 & 20\,MHz & 64 & 312.5\,kHz & 64\\
+IEEE 802.11n/ac & 2009/13 & 20--160\,MHz & 64--512 & 312.5\,kHz & 256\\
+IEEE 802.11ax (Wi-Fi 6) & 2021 & 20--160\,MHz & 256--2048 & 78.125\,kHz & 1024\\
+IEEE 802.11be (Wi-Fi 7) & 2024 & 20--320\,MHz & 256--4096 & 78.125\,kHz & 4096\\
+DVB-T2 (EN 302 755) & 2008 & 1.7--10\,MHz & 1k--32k & down to 279\,Hz & 256\\
+LTE (TS 36.211) & 2009 & 1.4--20\,MHz & 128--2048 & 15\,kHz & 256 (1024 later)\\
+DOCSIS 3.1 downstream & 2013 & 24--192\,MHz & 4k, 8k & 50, 25\,kHz & 4096\\
+5G NR (TS 38.211) & 2019 & 5--400\,MHz & up to 4096 & 15--960\,kHz & 256 (1024 in FR1)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Wi-Fi 6 and 7}
+
+IEEE 802.11ax (Wi-Fi~6, approved in 2021 after products appeared in 2019) made three changes to the OFDM layer of
+Wi-Fi. First, it quartered the subcarrier spacing to 78.125\,kHz with a 256-point FFT per 20\,MHz, making the
+useful symbol 12.8\,$\mu$s. With a 0.8\,$\mu$s guard interval the overhead falls from 20\% to 5.9\%; with the 1.6 and
+3.2\,$\mu$s options it can serve outdoor and large-venue channels. Second, it introduced OFDMA: the access point
+can divide a channel into \term{resource units} (RUs) of 26, 52, 106, 242, 484, 996 or $2\times996$ subcarriers
+and serve up to nine stations in one 20\,MHz transmission, which greatly reduces the overhead of the many short
+packets typical of real networks. Third, it added 1024-QAM, which needs a transmitter EVM of about $-35$\,dB.
+IEEE 802.11be (Wi-Fi~7, 2024) keeps the numerology, doubles the maximum channel to 320\,MHz, adds 4096-QAM
+(EVM of about $-38$\,dB), allows several RUs to be assigned to one station (multi-RU), and allows a wide channel to
+be used with holes in it (\emph{preamble puncturing}) when part of it is occupied by another network, a
+flexibility that falls naturally out of OFDM, since a hole is just a set of zeroed subcarriers.
+
+\begin{worked}[Wi-Fi 6 and 7 peak rates]
+In 20\,MHz, 802.11ax uses 242 subcarriers: 234 for data and 8 for pilots. At the top MCS (1024-QAM, 10 bits,
+rate 5/6) and a 13.6\,$\mu$s symbol (0.8\,$\mu$s guard), one spatial stream carries
+$234\times10\times\tfrac56/13.6\,\mu\text{s}\approx143$\,Mb/s. A 160\,MHz channel has 1960 data subcarriers, so
+$1960\times10\times\tfrac56/13.6\,\mu\text{s}\approx1.2$\,Gb/s per stream, and with the maximum of eight streams about
+9.6\,Gb/s, the figure on Wi-Fi~6 marketing. For 802.11be at 320\,MHz, 3920 data subcarriers with 4096-QAM (12 bits,
+rate 5/6) give about 2.9\,Gb/s per stream, and 16 streams about 46\,Gb/s. Real devices, with two to four antennas and
+imperfect channels, see a small fraction of these numbers; but the arithmetic shows exactly which knobs the
+standards turned: more subcarriers, more bits per subcarrier and more streams.
+\end{worked}
+
+\subsection{Cable, power line and the home network}
+
+DOCSIS~3.1 (CableLabs, 2013) replaced the 6\,MHz single-carrier QAM channels of earlier cable modems with OFDM
+channels up to 192\,MHz wide, using 4096- or 8192-point FFTs at 204.8\,MS/s, giving 50 or 25\,kHz subcarriers,
+and a choice of prefix from 0.94 to 5\,$\mu$s to cover the echoes of the coaxial plant. The cable channel is
+clean enough for 4096-QAM downstream, with 8192- and 16384-QAM as options, and the upstream uses OFDMA. Like DSL,
+it adapts: the \emph{modulation profiles} assign different constellations to different groups of subcarriers
+according to the measured SNR, a coarse form of bit loading. OFDM's ability to \emph{exclude} subcarriers is
+equally valuable on the cable: subcarriers that coincide with strong ingress or with legacy channels are simply
+switched off.
+
+Power lines are a hostile medium: strong frequency-selective attenuation from impedance mismatches at every
+outlet, impulsive noise from switching power supplies, and strict limits on radiation. Broadband power-line
+standards (HomePlug AV and IEEE 1901, and ITU-T G.hn, G.9960) all use OFDM, with about 1100 subcarriers of
+24.4\,kHz between 2 and 30\,MHz in HomePlug AV and bandwidths up to about 100\,MHz in later versions, with bit
+loading per subcarrier and tone masks that notch out the amateur radio bands, a spectral agility no
+single-carrier system could offer. Narrowband power-line standards for smart meters (G3-PLC and PRIME) use OFDM
+too, at a few tens of kilohertz.
+
+\subsection{Optical OFDM and Li-Fi}
+
+Most short-reach optical links use intensity modulation and direct detection (IM/DD): the transmitted signal
+is the optical \emph{power}, which must be real and non-negative. A real OFDM signal is produced by imposing
+Hermitian symmetry on the IFFT input ($X_{N-k}=X_k^*$, with $X_0$ and $X_{N/2}$ real or zero), exactly as in DSL.
+Non-negativity is obtained either by adding a DC bias large enough that clipping at zero is rare
+(\emph{DC-biased optical OFDM}), or by loading only the odd subcarriers, which makes the signal antisymmetric
+so that clipping its negative half at zero leaves the odd subcarriers intact, at half the spectral efficiency
+(\emph{asymmetrically clipped optical OFDM}). DMT was studied intensively for 100G and 400G data-centre links
+around 2015, but the industry chose the simpler PAM-4 (Chapter~\ref{ch:baseband}). OFDM thrives, however, in
+visible-light and infrared \emph{Li-Fi}: IEEE 802.11bb (2023) adapts the 802.11 OFDM PHYs to light, using LEDs
+or laser diodes as transmitters. For long-haul coherent optics, coherent optical OFDM had a period of intense
+research around 2008--2012 but lost to single-carrier dual-polarisation QAM with powerful DSP
+(Chapter~\ref{ch:wireline}), in part because the fibre's nonlinearity punishes OFDM's high PAPR.
+
+\subsection{OFDM radar and integrated sensing}
+
+An OFDM signal is also a very good radar waveform, and this observation underlies much of the current interest
+in \emph{integrated sensing and communication} (ISAC) for 6G. Suppose the OFDM transmitter also listens for
+reflections. A target at range $R$ and radial velocity $v$ returns the signal with delay $\tau=2R/c$ and Doppler
+$f_d=2v/\lambda$. Because the transmitter knows the data $X_{k,l}$ on every subcarrier $k$ and symbol $l$, it can
+divide it out of the received grid:
+\begin{equation}
+D_{k,l}=\frac{Y_{k,l}}{X_{k,l}}=\sum_pa_p\,e^{-j2\pi k\Delta f\tau_p}\,e^{j2\pi f_{d,p}lT_s}+\text{noise}.
+\end{equation}
+Each target is a two-dimensional complex exponential: an IDFT across subcarriers gives the range profile and a
+DFT across symbols gives the Doppler, so a 2-D FFT of the grid produces a range--Doppler map. The range
+resolution is $c/(2N\Delta f)=c/(2B)$ and the maximum unambiguous range is $c/(2\Delta f)$; the prefix must cover
+the round-trip delay for the processing to remain ISI-free, which limits the range to about $cT_{\text{cp}}/2$ unless
+longer processing is used. A 100\,MHz NR carrier at 30\,kHz spacing thus resolves targets 1.5\,m apart, with a
+prefix-limited range of about 350\,m and, over 140 symbols (5\,ms) at 3.5\,GHz, a velocity resolution of
+$\lambda/(2\times5\,\text{ms})\approx8.6$\,m/s. Automotive radar research has explored OFDM waveforms since Sturm
+and Wiesbeck's work around 2009--2011, and 3GPP began studying ISAC in Release 19.
+
+A related idea goes further: instead of placing data on the time--frequency grid, place it on the
+\emph{delay--Doppler} grid, where a doubly dispersive channel is sparse and nearly constant. This is
+\term{orthogonal time--frequency space} (OTFS) modulation, proposed by Hadani and colleagues in 2017, which
+can be implemented as a two-dimensional precoding around an OFDM modem, much as DFT-s-OFDM is a one-dimensional
+precoding. OTFS and its relatives, together with OFDM-based ISAC, are among the candidate 6G technologies examined
+in Chapter~25.
+
+%======================================================================
+\section{Summary}
+\label{sec:ch17:summary}
+%======================================================================
+
+\begin{itemize}
+\item OFDM divides a wideband channel into $N$ orthogonal subcarriers spaced by $1/T$, whose spectra overlap but
+cancel at each other's centres. The IDFT generates them and the DFT separates them (Weinstein and Ebert, 1971), at
+a cost of $\tfrac12\log_2N$ multiplies per symbol.
+\item A cyclic prefix at least as long as the channel memory makes the channel matrix circulant, which the DFT
+diagonalises for every channel: $Y_k=H_kX_k+W_k$. Equalisation is one complex multiply per subcarrier. The prefix
+costs $T_{\text{cp}}/(T+T_{\text{cp}})$ of time and energy.
+\item The spacing is a compromise: small enough that the prefix overhead is low, large enough that Doppler
+($P_{\text{ICI}}\approx(\pi f_DT)^2/6$), frequency offset ($\approx(\pi\epsilon)^2/3$) and phase noise
+($\approx\pi\beta T/3$) cause little ICI. 802.11a (312.5\,kHz, 0.8\,$\mu$s), LTE (15\,kHz, 4.7\,$\mu$s), NR ($15\times2^\mu$\,kHz),
+DVB-T2 (down to 279\,Hz, hundreds of microseconds) are each a solution for its channel.
+\item The resource grid carries data, control and pilots. Pilot spacing must sample $H(f,t)$ at better than the
+Nyquist rate set by the delay and Doppler spreads. LS estimates plus interpolation are simple; DFT-based and
+LMMSE estimators exploit the channel's structure; NR sends demodulation pilots only with data.
+\item Timing errors within the ISI-free part of the prefix only rotate the subcarriers. Frequency errors must be
+kept to about 1--2\% of the spacing. Phase noise causes a common phase error, tracked by pilots, and ICI, which
+sets a floor.
+\item OFDM's PAPR is about 10--12\,dB at $10^{-3}$, costing amplifier efficiency and coverage. Clipping and filtering,
+tone reservation and ACE reduce it; DFT-spread OFDM (SC-FDMA) is a single-carrier signal in OFDM form and is used
+on the LTE and NR uplinks.
+\item Rectangular symbols have slowly decaying sidelobes; WOLA and filtered OFDM contain the spectrum
+transparently, which is one reason 5G kept CP-OFDM over FBMC, UFMC and GFDM.
+\item Uncoded OFDM on a fading channel is a Rayleigh channel. Coding with bit interleaving (BICM) and CSI-weighted
+LLRs recovers diversity of order up to $B/B_c$. When the channel is known at the transmitter, as in DSL, bit
+loading and water-filling adapt the rate to each tone.
+\item OFDMA shares the grid among users, MIMO-OFDM applies MIMO per subcarrier, and SFNs turn multiple transmitters
+into benign echoes. OFDM carries Wi-Fi, cellular, broadcasting, DSL, cable, power-line and Li-Fi links, and it is
+becoming a radar waveform too.
+\end{itemize}
+
+\begin{labbox}[OFDM from the IFFT to the resource grid]
+The notebook \lab{moderncomms-labs/labs/lab07\_ofdm.py} builds an OFDM link step by step with
+\texttt{commlib.ofdm}. It shows the orthogonality of overlapping subcarriers; equalises an EVA channel with one
+tap per subcarrier (Figure~\ref{fig:ch17_one_tap}) and lets you shrink the cyclic prefix interactively until ISI
+appears (Figure~\ref{fig:ch17_cp_length}); measures the ICI caused by a frequency offset against
+$3/(\pi\epsilon)^2$ (Figure~\ref{fig:ch17_ici}); acquires timing and frequency with a Schmidl--Cox preamble;
+compares comb-pilot LS channel estimation at three pilot spacings; compares the PAPR of CP-OFDM, DFT-s-OFDM and
+single carrier (Figure~\ref{fig:ch17_papr}); and tabulates the NR numerologies. Its exercises extend it to LMMSE
+channel estimation, Doppler ICI and clipping-and-filtering. The figure script \lab{book/figscripts/ch17\_figs.py}
+generates every data figure in this chapter, including the coded-OFDM, water-filling, phase-noise and
+spectral-containment experiments, and is a good starting point for the simulation problems below.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item Show that the subcarriers~\eqref{eq:ch17:subcarrier} are orthogonal over any interval of length $T$, not just
+$[0,T)$. Why does this matter for the timing tolerance of Section~\ref{sec:ch17:sync}?
+\item An OFDM system must cover a 40\,MHz channel with 90\% occupancy, a maximum excess delay of 2\,$\mu$s and a maximum
+Doppler of 500\,Hz, with prefix overhead below 10\% and Doppler SIR above 25\,dB. Find the range of acceptable subcarrier
+spacings, choose one, and give the FFT size, sample rate, prefix length in samples and number of used subcarriers.
+\item Write out $\vect H_c$ for $N=4$ and $h=[1,0.5]$. Verify numerically that $\vect F\vect H_c\vect F^H$ is diagonal
+with entries $H_k=1+0.5e^{-j2\pi k/4}$. What happens if the prefix is removed?
+\item Prove that the zero-padded OFDM receiver, which adds the $\nu$ samples after the FFT window to the first $\nu$
+samples of the window, produces a circular convolution. Compare the received SNR of ZP-OFDM and CP-OFDM for the same
+transmitted energy per symbol.
+\item Using~\eqref{eq:ch17:cpsir}, estimate the signal-to-interference ratio for the ETU profile with the NR normal
+prefix at 30\,kHz spacing (2.34\,$\mu$s) and at 60\,kHz (1.17\,$\mu$s). Which numerology would you use for an ETU-like
+macro-cell at 3.5\,GHz?
+\item Derive~\eqref{eq:ch17:ici} and show that $\sum_m|S_m|^2=1$. For $\epsilon=0.1$ and $N=64$, compute $|S_0|^2$ and
+$|S_{\pm1}|^2$ in decibels, and check against Figure~\ref{fig:ch17_ici}a.
+\item Derive the Doppler ICI~\eqref{eq:ch17:dopici} from the two-dimensional integral, and repeat the calculation
+for a channel whose Doppler spectrum is a single line at $+f_D$ (pure frequency offset). Explain the factor of two.
+\item An 802.11ax station at 5.5\,GHz has a residual frequency error of 1\,ppm and uses 1024-QAM, which needs an SINR of
+about 35\,dB. Is the ICI from this offset acceptable at 78.125\,kHz spacing? At 312.5\,kHz?
+\item A DVB-T receiver in 8k mode with an 8\,MHz channel receives two SFN transmitters with a relative delay of
+180\,$\mu$s. Which guard intervals (1/4, 1/8, 1/16, 1/32) avoid self-interference? What is the maximum vehicle speed at
+690\,MHz for a Doppler SIR of 20\,dB?
+\item Show that the PAPR of an OFDM symbol cannot exceed $N$, and that the bound is reached by setting all $X_k$ equal.
+Using~\eqref{eq:ch17:paprccdf}, find the PAPR exceeded with probability $10^{-4}$ for $N=256$ and $N=4096$, with and
+without the $2.8N$ correction.
+\item Show that DFT-s-OFDM with $N=QM$ and localised mapping produces output samples $x[Qm]=d_m/\sqrt Q$, and that with
+interleaved mapping (every $Q$th subcarrier) the output is the data sequence repeated $Q$ times, with a phase ramp.
+What is the PAPR of the interleaved version for QPSK?
+\item Derive the water-filling solution~\eqref{eq:ch17:waterfill} with a Lagrange multiplier. For three tones with
+$g=[10,3,1]$, $\Gamma=1$ and $P=2$, find the powers and the rate. Compare with equal power.
+\item \emph{(Simulation)} Extend \texttt{ch17\_figs.py}'s \texttt{coded()} function to 16-QAM with (a) Gray-labelled
+BICM and the 802.11a interleaver and (b) no interleaver. Plot BER on EVA and ETU, and estimate the diversity order from
+the slope.
+\item \emph{(Simulation)} Implement an LMMSE channel estimator that assumes a uniform delay profile of length equal to the
+prefix (the robust estimator of Li, Cimini and Sollenberger) and compare its MSE on EVA with the estimator matched to
+the true profile (Figure~\ref{fig:ch17_chest}b).
+\item \emph{(Simulation)} Generate an OFDM signal with 1200 subcarriers of 15\,kHz, apply iterative clipping and filtering
+at 5, 6 and 7\,dB, and pass the result through the Rapp amplifier model in \texttt{commlib.channel.rapp\_pa} with a range of
+back-offs. For each, measure the ACLR and the EVM, and find the back-off at which the ACLR reaches 45\,dB with and
+without CFR.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item R.~van Nee and R.~Prasad, \emph{OFDM for Wireless Multimedia Communications}, Artech House, 2000. The classic
+engineering text on OFDM, written by one of the designers of 802.11a; still the best practical treatment of
+synchronisation, PAPR and coded OFDM.
+\item Y.~Li and G.~L.~St\"uber (eds.), \emph{Orthogonal Frequency Division Multiplexing for Wireless Communications},
+Springer, 2006. Chapters by leading researchers on channel estimation, ICI, PAPR, MIMO-OFDM and OFDMA.
+\item S.~B.~Weinstein, ``The history of orthogonal frequency-division multiplexing,'' \emph{IEEE Communications
+Magazine}, vol.~47, no.~11, 2009. A short first-hand history from Kineplex and Chang to LTE.
+\item S.~B.~Weinstein and P.~M.~Ebert, ``Data transmission by frequency-division multiplexing using the discrete
+Fourier transform,'' \emph{IEEE Trans. Communication Technology}, vol.~19, no.~5, 1971; and R.~W.~Chang, ``Synthesis
+of band-limited orthogonal signals for multichannel data transmission,'' \emph{Bell System Technical Journal},
+vol.~45, 1966. The two founding papers.
+\item J.~A.~C.~Bingham, ``Multicarrier modulation for data transmission: an idea whose time has come,'' \emph{IEEE
+Communications Magazine}, vol.~28, no.~5, 1990. The paper that relaunched multicarrier modulation, with the DSL view
+of bit loading.
+\item E.~Dahlman, S.~Parkvall and J.~Sk\"old, \emph{5G NR: The Next Generation Wireless Access Technology}, 2nd ed.,
+Academic Press, 2020. Numerologies, bandwidth parts, reference signals and the reasoning behind them, by
+members of the 3GPP design team. 3GPP TS 38.211 is the primary source.
+\item Y.~Li, L.~J.~Cimini and N.~R.~Sollenberger, ``Robust channel estimation for OFDM systems with rapid dispersive
+fading channels,'' \emph{IEEE Trans. Communications}, vol.~46, no.~7, 1998; and O.~Edfors, M.~Sandell, J.-J.~van de
+Beek, S.~K.~Wilson and P.~O.~B\"orjesson, ``OFDM channel estimation by singular value decomposition,'' \emph{IEEE Trans.
+Communications}, vol.~46, no.~7, 1998. The foundations of practical OFDM channel estimation.
+\item T.~Pollet, M.~Van Bladel and M.~Moeneclaey, ``BER sensitivity of OFDM systems to carrier frequency offset and
+Wiener phase noise,'' \emph{IEEE Trans. Communications}, vol.~43, 1995; and Y.~Li and L.~J.~Cimini, ``Bounds on the
+interchannel interference of OFDM in time-varying impairments,'' \emph{IEEE Trans. Communications}, vol.~49, no.~3,
+2001. The ICI analysis of Section~\ref{sec:ch17:sync}.
+\item S.~H.~Han and J.~H.~Lee, ``An overview of peak-to-average power ratio reduction techniques for multicarrier
+transmission,'' \emph{IEEE Wireless Communications}, vol.~12, no.~2, 2005. A clear survey of clipping, coding, SLM,
+PTS, tone reservation and ACE.
+\item G.~Caire, G.~Taricco and E.~Biglieri, ``Bit-interleaved coded modulation,'' \emph{IEEE Trans. Information Theory},
+vol.~44, no.~3, 1998. The theory of BICM and why it suits fading channels.
+\item T.~Starr, J.~M.~Cioffi and P.~J.~Silverman, \emph{Understanding Digital Subscriber Line Technology}, Prentice
+Hall, 1999. DMT, bit loading and the practice of ADSL, from the people who built it.
+\item B.~Farhang-Boroujeny, ``OFDM versus filter bank multicarrier,'' \emph{IEEE Signal Processing Magazine}, vol.~28,
+no.~3, 2011; and P.~Banelli \emph{et al.}, ``Modulation formats and waveforms for 5G networks: who will be the heir of
+OFDM?'', \emph{IEEE Signal Processing Magazine}, vol.~31, no.~6, 2014. The case for the alternatives.
+\item C.~Sturm and W.~Wiesbeck, ``Waveform design and signal processing aspects for fusion of wireless communications
+and radar sensing,'' \emph{Proceedings of the IEEE}, vol.~99, no.~7, 2011. OFDM radar and the origin of much of today's
+ISAC research.
+\end{itemize}

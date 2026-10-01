@@ -11,3 +11,9 @@
 | 20 | lab20_block_codes.py | 14 | Hamming/SECDED, CRC calculator, GF(2^m), RS with bursts, interleaving |
 | 21 | lab21_cpm_evm.py | 9 | MSK/GMSK/GFSK gen+detect, spectra/99% BW, PAPR CCDF, EVM under impairments (reuse ch09_figs.py gmsk_baseband + impairments) |
 | 22 | lab22_propagation_link_budget.py | 11 | link-budget & coverage planner: Friis, Hata/COST-231, 38.901 LOS/NLOS/O2I, knife-edge, two-ray, P.838 rain, Jakes–Reudink coverage (helpers in ch11_figs.py) |
+| 23 | lab23_turbo_exit.py | 15 | turbo enc/BCJR dec, per-iteration BER, EXIT chart, BEC density evolution |
+| 24 | lab24_source_coding.py | 16 | Huffman/canonical vs adaptive arithmetic on text, LPC analysis/resynthesis at new pitch, toy JPEG quality slider bpp/PSNR, masking-threshold shaped noise (helpers in ch16_figs.py) |
+| 25 | lab25_spread_spectrum_gps.py | 18 | PN/Gold codes, DSSS w/ jammer, RAKE, near–far, GPS C/A FFT acquisition, DLL/PLL, position fix (commlib.spread) |
+| 26 | lab26_cellular_system.py | 20 | hex-grid SIR maps, Erlang, ALOHA/CSMA sim, PPP coverage, PF scheduler |
+| 27 | lab27_lte_nr_phy.py | 21 | resource grid, PSS/SSS cell search, PDSCH chain |
+| 28 | lab28_ofdm_system.py | 17 | LMMSE/DFT/LS chest, Doppler+phase-noise ICI & CPE fix, coded OFDM ± BICM on EPA/ETU, clipping+filtering w/ Rapp PA ACLR/EVM, WOLA/f-OFDM spectra, DSL bit loading, OFDM radar range–Doppler (helpers in ch17_figs.py) |
