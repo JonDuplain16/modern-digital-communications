@@ -58,7 +58,7 @@ def search(query, n=12):
         print(f"{ok}{p['title']}\n     {ii.get('width')}x{ii.get('height')} {ii.get('mime')} | {lic} | {artist[:60]}\n     {desc[:150]}")
 
 
-def get(title, name, maxpx=1800):
+def get(title, name, maxpx=1280):
     if not title.startswith("File:"):
         title = "File:" + title
     d = _get(API, {"action": "query", "format": "json", "titles": title, "prop": "imageinfo",

@@ -25,8 +25,12 @@ def page_visual(page):
     strokes = [p for p in paths if p.get("type") in ("s", "fs") or p.get("color") is not None]
     curvy = sum(1 for p in paths for it in p["items"] if it[0] in ("c", "qu"))
     lines = sum(1 for p in strokes for it in p["items"] if it[0] == "l")
-    # TikZ/diagram: curves or many stroked lines. Tables: >= 4 rules spanning the text.
-    return curvy >= 4 or lines >= 12
+    # booktabs table: >= 3 dark horizontal rules wider than ~1.4 in (the running-head rule is grey)
+    rules = sum(1 for p in strokes for it in p["items"]
+                if it[0] == "l" and abs(it[1].y - it[2].y) < 0.5 and abs(it[2].x - it[1].x) > 100
+                and p.get("color") is not None and max(p["color"]) < 0.3)
+    # TikZ/diagram: curves or many stroked lines.
+    return curvy >= 4 or lines >= 12 or rules >= 3
 
 
 def main():
