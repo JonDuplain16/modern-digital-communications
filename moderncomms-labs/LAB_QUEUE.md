@@ -24,3 +24,4 @@
 | 33 | lab33_noise_detection.py | 3 | noise generation/statistics, filtered noise PSD, envelope stats, NF cascade calc, ROC/Neyman–Pearson |
 | 34 | lab34_telegraph_history.py | 1 | Morse keying + spectrum, Morse vs Huffman on user text, Kelvin RC-cable ISI with wpm slider, analog repeater chain vs regenerator chain |
 | 35 | lab35_fourier_spectra.py | 2 | windows/scalloping/zero padding, uncertainty, group delay, STFT, two-tone IP3 (helpers in ch02_figs.py) |
+| 36 | lab36_rf_transceiver.py | 7 | two-tone IIP3 measurement, receiver line-up calculator (gain/NF/IIP3/SFDR cascade), phase noise from L(f) mask + reciprocal mixing, PA classes + Doherty efficiency, memory-polynomial DPD with indirect learning (helpers in ch07_figs.py) |

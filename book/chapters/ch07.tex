@@ -5,349 +5,1924 @@
 The mathematics of this book assumes ideal mixers, perfect oscillators and linear amplifiers.
 Real radios have none of these, and the engineer who understands their imperfections designs
 systems that work on the first try. This chapter walks through a modern transceiver from the
-antenna to the samples: receiver architectures, the sensitivity--linearity trade-off and its
-figures of merit, oscillators and phase noise, power amplifiers and the linearisation techniques
-that make OFDM affordable, and the digital correction of analog impairments. It ends with the
-software-defined radio---its history, its architecture as embodied in the USRP B200, and the
-practical art of streaming samples between a radio and a computer.
+antenna to the samples and back again. It starts with receiver architectures---the superheterodyne,
+the direct-conversion receiver that now dominates integrated radios, the low-IF compromise, image-reject
+mixers and direct RF sampling---and then takes the RF front end apart: filters and duplexers, the
+low-noise amplifier, the mixer. It develops the figures of merit that every radio data sheet quotes
+(sensitivity, noise figure, P1dB, IIP2, IIP3, spurious-free dynamic range, blocking) and shows how a
+receiver line-up is planned so that a $-100$\,dBm signal survives next to a $-25$\,dBm one. It covers
+frequency generation from the quartz crystal to the fractional-$N$ synthesiser and Leeson's model of
+phase noise, the I/Q impairments of direct conversion and the algorithms that remove them, and the
+transmitter: DACs, power-amplifier classes, the efficiency--linearity trade-off, spectral regrowth and
+ACLR, crest-factor reduction, digital predistortion, the Doherty amplifier and envelope tracking.
+The second half of the chapter turns to the software-defined radio: its history from SPEAKeasy and
+Mitola to GNU Radio and the \$20 dongle, its architecture as embodied in the Ettus USRP B200 on your
+bench, the practical art of streaming samples between a radio and a computer, the measurements you can
+make with it, and the platforms and industries that SDR has transformed.
 \end{chapterintro}
 
+%======================================================================
 \section{Anatomy of a transceiver}
+\label{sec:ch07:anatomy}
+%======================================================================
 
-Every radio, from a Bluetooth earbud to a 64-antenna base station, has the same skeleton. On the
-receive side:
+Every radio, from a Bluetooth earbud to a 64-antenna base station, has the same skeleton
+(Figure~\ref{fig:ch07_transceiver}). On the receive side:
 \begin{enumerate}
-\item An antenna and a \emph{band filter} (a SAW, BAW or cavity filter) that passes only the band
-of interest and protects the receiver from strong out-of-band signals.
+\item An antenna and a \emph{band filter} (a SAW, BAW, ceramic or cavity filter) that passes only the
+band of interest and protects the receiver from strong out-of-band signals---including, in a
+frequency-division duplex radio, its own transmitter.
 \item A \term{low-noise amplifier} (LNA) that sets the noise figure of the whole chain
 (Chapter~\ref{ch:noise}).
 \item One or more \emph{mixers} driven by a \emph{local oscillator} (LO) that translate the signal to
 an intermediate frequency or directly to baseband.
-\item Analog filtering and gain (the \emph{baseband} or \emph{IF} section) with automatic gain control.
-\item An ADC, followed by digital down-conversion, decimation and channel filtering
-(Chapter~\ref{ch:dsp}).
+\item Analog filtering and variable gain (the \emph{baseband} or \emph{IF} section), under the control
+of an automatic gain control loop.
+\item A pair of ADCs, followed by digital down-conversion, decimation and channel filtering
+(Chapter~\ref{ch:dsp}), and digital correction of the analog impairments.
 \end{enumerate}
-The transmit side mirrors it: DAC, reconstruction filter, I/Q up-converter, driver, power
-amplifier (PA), harmonic filter, and antenna, with a switch or duplexer sharing the antenna with the
-receiver. Each block contributes noise, distortion, spurious signals and frequency errors, and the
-radio designer's job is to allocate a budget for each.
+The transmit side mirrors it: digital predistortion and crest-factor reduction, a pair of DACs,
+reconstruction filters, an I/Q up-converter, a driver, the power amplifier (PA), a harmonic filter,
+and the antenna, shared with the receiver through a switch (time-division duplex) or a duplexer
+(frequency-division duplex). A synthesiser, locked to a crystal reference, provides every LO and
+every clock.
 
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.62cm,minimum width=1.05cm,align=center,font=\sffamily\scriptsize},
+  dsp/.style={draw=accent,fill=accent!6,thick,minimum height=1.9cm,minimum width=1.5cm,align=center,font=\sffamily\scriptsize},
+  syn/.style={draw=practc,fill=practc!8,thick,minimum height=0.62cm,minimum width=1.05cm,align=center,font=\sffamily\scriptsize},
+  mix/.style={draw=navy,thick,circle,minimum size=0.5cm,inner sep=0pt,font=\sffamily\small},
+  arr/.style={-{Stealth[length=1.6mm]},thick,navy},
+  lo/.style={-{Stealth[length=1.4mm]},thick,practc}]
+% antenna and duplexer
+\node[draw=navy,thick,minimum height=4.4cm,minimum width=0.95cm,align=center,font=\sffamily\scriptsize] (dup) at (1.2,0) {dup-\\lexer\\or\\T/R\\switch};
+\draw[thick,navy] (-0.1,0) -- (dup.west);
+\draw[thick,navy] (-0.1,0) -- (-0.1,0.6) -- (-0.35,1.0) (-0.1,0.6) -- (0.15,1.0) (-0.35,1.0) -- (0.15,1.0);
+\node[font=\sffamily\scriptsize] at (-0.1,1.25) {antenna};
+% receive path
+\node[blk] (lna) at (2.65,1.5) {LNA};
+\node[mix] (mi) at (4.1,2.0) {$\times$};
+\node[mix] (mq) at (4.1,1.0) {$\times$};
+\node[blk] (fi) at (5.45,2.0) {LPF/VGA};
+\node[blk] (fq) at (5.45,1.0) {LPF/VGA};
+\node[blk] (adci) at (6.85,2.0) {ADC};
+\node[blk] (adcq) at (6.85,1.0) {ADC};
+\node[dsp] (drx) at (8.75,1.5) {DDC, decim.\\DC and I/Q\\correction\\AGC};
+\draw[arr] (dup.east |- lna.west) -- (lna);
+\draw[arr] (lna.east) -- (3.4,1.5) |- (mi.west);
+\draw[arr] (3.4,1.5) |- (mq.west);
+\draw[arr] (mi)--(fi); \draw[arr] (mq)--(fq); \draw[arr] (fi)--(adci); \draw[arr] (fq)--(adcq);
+\draw[arr] (adci.east) -- (adci.east -| drx.west); \draw[arr] (adcq.east) -- (adcq.east -| drx.west);
+% transmit path
+\node[blk,fill=accent!6,draw=accent] (pa) at (2.65,-1.5) {PA};
+\node[mix] (sum) at (3.4,-1.5) {$+$};
+\node[mix] (ti) at (4.1,-1.0) {$\times$};
+\node[mix] (tq) at (4.1,-2.0) {$\times$};
+\node[blk] (rti) at (5.45,-1.0) {LPF};
+\node[blk] (rtq) at (5.45,-2.0) {LPF};
+\node[blk] (daci) at (6.85,-1.0) {DAC};
+\node[blk] (dacq) at (6.85,-2.0) {DAC};
+\node[dsp] (dtx) at (8.75,-1.5) {DUC, interp.\\CFR, DPD\\I/Q and LO\\calibration};
+\draw[arr] (dtx.west |- daci.east) -- (daci.east); \draw[arr] (dtx.west |- dacq.east) -- (dacq.east);
+\draw[arr] (daci)--(rti); \draw[arr] (dacq)--(rtq); \draw[arr] (rti)--(ti); \draw[arr] (rtq)--(tq);
+\draw[arr] (ti.west) -| (sum.north); \draw[arr] (tq.west) -| (sum.south);
+\draw[arr] (sum)--(pa); \draw[arr] (pa.west) -- (dup.east |- pa.west);
+% frequency generation
+\node[syn] (ref) at (2.65,0) {TCXO};
+\node[syn] (syn) at (5.75,0) {PLL synthesisers, $\div2$ for 0$^\circ$/90$^\circ$};
+\draw[lo] (ref) -- (syn);
+\draw[lo] (4.1,0.31) -- node[right,font=\tiny,text=practc]{LO$_{\text{RX}}$} (mq.south);
+\draw[lo] (4.1,-0.31) -- node[right,font=\tiny,text=practc]{LO$_{\text{TX}}$} (ti.north);
+\draw[lo] (4.1,2.6) node[above,font=\tiny,text=practc]{LO 0$^\circ$} -- (mi.north);
+\draw[lo] (4.1,-2.6) node[below,font=\tiny,text=practc]{LO 90$^\circ$} -- (tq.south);
+\draw[arr,dashed] (dtx.north) -- node[right,font=\tiny,align=left]{observation\\receiver} (drx.south);
+\end{tikzpicture}
+\caption{A direct-conversion (zero-IF) transceiver, the architecture of nearly every integrated radio
+chip including the AD9364 in the USRP B200. The receive path (top) amplifies, mixes to baseband in
+quadrature, filters and digitises; the transmit path (bottom) mirrors it. Everything right of the
+converters is DSP, including the correction of the analog impairments described in this chapter. The
+dashed feedback path, an \emph{observation receiver}, lets the transmitter learn its own distortion.}
+\label{fig:ch07_transceiver}
+\end{figure}
+
+Each block contributes noise, distortion, spurious signals and frequency errors, and the radio
+designer's job is to allocate a budget for each. The budget comes from the standard the radio must
+meet: a reference sensitivity (the weakest signal it must decode), a set of blocking and intermodulation
+tests (the strongest interferers it must tolerate while doing so), an error-vector magnitude (EVM) for
+the transmitted signal, an adjacent-channel leakage ratio and a spectrum emission mask (how much power it
+may spray onto its neighbours), and frequency-error limits. Almost every number in this chapter is one
+of those requirements traced back to a circuit specification.
+
+\begin{keyidea}[Four quantities run the radio]
+Strip a radio data sheet to its essentials and four numbers remain: the \emph{noise figure}, which sets
+how weak a signal it can hear; the \emph{intercept points and compression point}, which set how strong
+a signal it can tolerate; the \emph{phase noise} of its oscillators, which limits both the
+constellation density it can support and its tolerance of nearby blockers; and its \emph{efficiency},
+which sets battery life, heat and the electricity bill of a network. Every architecture in this chapter
+is a different trade among those four, and every digital correction algorithm exists because one of
+them could not be met in analog alone.
+\end{keyidea}
+
+%======================================================================
 \section{Receiver architectures}
+\label{sec:ch07:arch}
+%======================================================================
 
-\subsection{Three families}
+\subsection{Four families}
 
-Figure~\ref{fig:ch07_architectures} sketches the three architectures in use today. The
-\term{superheterodyne} of Chapter~\ref{ch:analog} converts to a fixed IF where high-quality filters
-select the channel. It remains the choice where selectivity and dynamic range are paramount:
-spectrum analysers, military receivers, many base stations, and satellite ground terminals.
+Figure~\ref{fig:ch07_architectures} sketches the four architectures in use today in the frequency
+domain. The \term{superheterodyne} of Chapter~\ref{ch:analog} converts to a fixed intermediate frequency
+(IF) where high-quality filters select the channel. Its weakness is the \term{image}: a mixer with LO
+at $f_{\text{LO}}$ converts both $f_{\text{LO}}+f_{\text{IF}}$ and $f_{\text{LO}}-f_{\text{IF}}$ to the
+same IF, so a filter \emph{before} the mixer must remove whichever of the two is unwanted. A high IF
+makes the image easy to filter (it is $2f_{\text{IF}}$ away) but the channel hard to select; a low IF
+does the reverse; double and triple conversion resolve the conflict at the cost of more mixers,
+oscillators and spurious responses. The superhet remains the choice where selectivity and dynamic range
+are paramount: spectrum analysers, military and surveillance receivers, many base stations, broadcast
+and satellite ground equipment, and the RF sections of high-end amateur transceivers.
 
 \mdcfig{ch07_architectures}{Receiver architectures in the frequency domain. Top: the superheterodyne
-must reject the image before mixing. Middle: the zero-IF receiver's image is the signal's own
-mirror, rejected only by I/Q balance, and its baseband sits on the DC offset. Bottom: a direct
+must reject the image with an RF filter before mixing. Second: the zero-IF receiver's ``image'' is the
+signal's own mirror, rejected only by I/Q balance, and its baseband sits on the DC offset. Third: a
+low-IF receiver keeps away from DC but its image is a neighbouring channel. Bottom: a direct
 RF-sampling receiver digitises the whole band and performs the mixing digitally.}
 
 The \term{direct-conversion} or \term{zero-IF} receiver sets the LO at the carrier and produces I and
 Q baseband outputs directly. It needs no image filter and no IF filter---channel selection is a
-low-pass filter that can be integrated on chip---so it dominates mobile phones and integrated
-transceivers like the AD9364 in the B200. Its weaknesses are the ones Chapter~1 of the companion labs
-lets you see: \emph{DC offset} from LO leakage that mixes with itself, \emph{flicker (1/f) noise}
-in the baseband amplifiers, \emph{second-order intermodulation} that converts strong amplitude-varying
-blockers directly to baseband, and \emph{I/Q imbalance} that creates a mirror image of the signal onto
-itself. A \emph{low-IF} receiver places the signal a few hundred kilohertz or a megahertz from DC,
-avoiding the DC and flicker problems at the cost of needing better image rejection; it is common in
-Bluetooth, GNSS and FM radio chips.
+low-pass filter that can be integrated on chip---so a single die can cover 70\,MHz to 6\,GHz, as the
+AD9364 in the B200 does. That flexibility is why zero-IF dominates mobile phones, integrated
+transceivers and SDRs. Its weaknesses all come from putting the wanted signal at DC, and the next
+subsection examines them one by one.
 
-\term{Direct RF sampling} puts the ADC at the antenna, or nearly so. Converters sampling at 3 to 10\,GS/s
-with 12 to 14 bits, integrated with FPGA logic in devices such as AMD's RFSoC, can digitise
-everything up to several gigahertz. The mixers, IF filters and channel filters all become DSP. This is
-the logical end of Mitola's software radio vision, limited today by power consumption and by the
-dynamic range needed when strong and weak signals share the band.
+A \term{low-IF} receiver places the LO about half a channel (or a little more) away from the carrier, so
+the wanted signal lands at a small IF, typically a few hundred kilohertz to a few megahertz, avoiding
+the DC and flicker problems while keeping channel filtering on chip. The image is now the
+\emph{adjacent} channel, which may be much stronger than the wanted one, and must be rejected by I/Q
+balance (Lab~15 measures exactly this trade). Low-IF is common in Bluetooth, GNSS, FM-radio and
+narrowband IoT chips.
 
-\subsection{The sensitivity--linearity trade-off}
+\term{Direct RF sampling} puts the ADC at the antenna, or nearly so. Converters sampling at several
+gigasamples per second with 12 to 14 bits, integrated with FPGA logic in devices such as AMD's
+Zynq UltraScale+ RFSoC, can digitise everything up to several gigahertz; the mixers, IF filters and
+channel filters all become DSP (Chapter~\ref{ch:dsp}). This is the logical end of Mitola's software radio
+vision, limited today by power consumption, by the clock jitter that limits the SNR of a converter
+sampling a high-frequency signal (Chapter~\ref{ch:pcm}), and by the dynamic range needed when strong and
+weak signals share the band.
 
-A receiver must hear signals near the thermal floor while tolerating others 80 or 100\,dB stronger
-on nearby frequencies. Gain early in the chain improves noise figure (Friis) but pushes later stages
-toward overload. The two figures of merit are noise figure, for the weak signal, and linearity, for
-the strong ones.
+\subsection{The trouble with zero: direct-conversion impairments}
+\label{sec:ch07:zeroif}
 
-Linearity is usually characterised by expanding the amplifier's transfer function as a power series,
-$y=a_1x+a_2x^2+a_3x^3+\cdots$. Driving it with two tones at $f_1$ and $f_2$ produces, among many
-products, \term{third-order intermodulation} (IM3) at $2f_1-f_2$ and $2f_2-f_1$. These are the
-dangerous ones because they fall close to the tones---in the band, where no filter can remove them
-(Figure~\ref{fig:ch07_two_tone}). As the input rises by 1\,dB the IM3 products rise by 3\,dB; the
-extrapolated input level at which they would equal the fundamental is the \term{third-order intercept
-point} (IIP3). A second-order intercept (IIP2) describes the $a_2$ products that trouble zero-IF
-receivers. The 1\,dB \term{compression point} (P1dB), where gain has fallen by 1\,dB, sits roughly
-10\,dB below IIP3 for a simple amplifier.
+Figure~\ref{fig:ch07_zeroif_impairments} is a simulation of what a direct-conversion receiver hands its
+ADCs, with every impairment exaggerated just enough to be visible. There are five.
+
+\mdcfig{ch07_zeroif_impairments}{Simulated spectrum at the output of a zero-IF receiver's analog
+section, before digital channel filtering. A 16-QAM signal sits at DC; an amplitude-varying blocker
+40\,dB stronger sits at $+6$\,MHz. The receiver adds a DC offset from LO self-mixing, flicker noise
+and the blocker's second-order intermodulation (its envelope) near DC, and an image of the blocker
+at $-6$\,MHz from I/Q imbalance.}
+
+\paragraph{DC offset and LO self-mixing.} The LO signal is many decibels stronger than anything at
+the antenna, and some of it leaks: through substrate and package coupling to the LNA input, or out of
+the antenna and back off a nearby reflector. Leaked LO arriving at the mixer's RF port mixes with the
+LO itself, $\cos^2(\omega_{\text{LO}}t)=\tfrac12+\tfrac12\cos2\omega_{\text{LO}}t$, producing a DC
+term. A leakage of $-60$\,dBm referred to the LNA input, multiplied by 60\,dB of receiver gain, is a
+0\,dBm DC offset at the ADC---larger than the wanted signal and possibly large enough to saturate the
+baseband amplifiers. Worse, the offset changes with LO frequency, gain setting, temperature and the
+environment around the antenna (a hand moving near a phone changes the reflection), so a one-time
+calibration is not enough. Remedies: a careful layout and LO-buffer design that minimise the leakage;
+DC-offset cancellation loops in the analog baseband that run at power-up and at every gain change;
+a digital high-pass filter or running-mean subtraction after the ADC (Section~\ref{sec:ch07:iq}); and,
+for signals whose spectrum has a hole at DC (OFDM with an unused DC subcarrier), simply ignoring it.
+
+\paragraph{LO radiation.} The same leakage path running outward means a zero-IF receiver radiates its
+LO \emph{in the band it is receiving}, where other users can be disturbed. Standards therefore limit
+spurious emissions in receive mode, and the LO is often generated at twice or two-thirds the carrier
+and divided down, so that the VCO itself is not at the antenna frequency.
+
+\paragraph{Flicker noise.} Baseband amplifiers in CMOS have $1/f$ noise corners from tens of
+kilohertz to megahertz (Chapter~\ref{ch:noise}). In a superhet that noise lies far from the IF; in a
+zero-IF receiver it falls right on the centre of the wanted channel. For wideband signals---a 20\,MHz
+LTE carrier, say---the few hundred kilohertz around DC carry a small fraction of the energy and the
+penalty is modest; for a 200\,kHz GSM channel it is serious, which is why early GSM receivers stayed
+superheterodyne and why narrowband receivers prefer low-IF.
+
+\paragraph{Second-order intermodulation.} A mixer is a deliberately nonlinear device, and its
+even-order distortion, $a_2x^2$, demodulates the \emph{envelope} of any strong signal. A blocker
+$b(t)\cos(\omega_bt+\theta(t))$ produces $\tfrac12a_2b^2(t)$, a baseband term with roughly twice the
+blocker's envelope bandwidth, centred at DC, whatever the blocker's frequency. A constant-envelope
+blocker produces only a DC shift; an AM, OFDM or pulsed blocker (a GSM burst, a TDD neighbour switching
+on and off) produces a noise-like interferer right on top of the wanted signal. The figure of merit is
+the \term{second-order intercept point} (IIP2), and zero-IF receivers need IIP2 of $+45$ to $+60$\,dBm,
+attained with balanced, carefully matched mixers and often with on-chip IIP2 calibration. The most
+dangerous case is a full-duplex FDD phone: its own transmitter, leaking through the duplexer at perhaps
+$-25$\,dBm, is an amplitude-modulated blocker whose IM2 lands on the receive channel.
+
+\paragraph{I/Q imbalance.} If the I and Q paths differ slightly in gain or the two LO phases are not
+exactly $90^\circ$ apart, every signal at baseband frequency $f$ acquires an image at $-f$. In a zero-IF
+receiver the image of the wanted signal lands on itself (its mirror half), which merely distorts the
+constellation; but a strong signal at $+f$ elsewhere in the captured band sends its image into whatever
+is at $-f$. Section~\ref{sec:ch07:iq} derives the image-rejection ratio and the algorithms that correct
+it.
+
+\begin{history}[The zero-IF receiver comes in from the cold]
+Direct conversion is as old as radio---the homodyne and the synchrodyne were described between the
+1920s and 1940s, and radio amateurs have built direct-conversion receivers for CW and SSB for decades---but
+its integration began with pagers. In the early 1980s Ian Vance and colleagues at STC in the UK
+built a pager receiver whose channel selection was done entirely by on-chip low-pass filters, with the
+signal at zero IF; the FSK paging signal had little energy at DC, so the DC offset could simply be
+removed. Through the 1990s, as CMOS improved and DC-offset cancellation loops matured, the architecture
+spread to DECT, to GSM and then to essentially all cellular, Wi-Fi and Bluetooth chips. Asad Abidi's
+1995 paper ``Direct-conversion radio transceivers for digital communications'' laid out the problems
+listed in this section so clearly that it remains the place to start. The superheterodyne did not die;
+it retreated to where its selectivity and dynamic range are worth the filters.
+\end{history}
+
+\subsection{Image-reject mixers: Hartley and Weaver}
+\label{sec:ch07:imagereject}
+
+There is a third way to deal with the image: cancel it by phasing, exactly as the phasing SSB modulator
+of Chapter~\ref{ch:analog} cancels the unwanted sideband. The \term{Hartley architecture}
+(Figure~\ref{fig:ch07_hartley}, top) mixes the RF input with quadrature LOs, low-pass filters both
+outputs, shifts one of them by a further $90^\circ$ and adds. To see why it works, write the input as a
+wanted component at $\omega_{\text{LO}}+\omega_{\text{IF}}$ and an image at
+$\omega_{\text{LO}}-\omega_{\text{IF}}$, both of amplitude 1. After mixing with $\cos\omega_{\text{LO}}t$
+and $\sin\omega_{\text{LO}}t$ and low-pass filtering,
+\begin{align}
+I(t)&=\tfrac12\cos\omega_{\text{IF}}t+\tfrac12\cos\omega_{\text{IF}}t, \nonumber\\
+Q(t)&=-\tfrac12\sin\omega_{\text{IF}}t+\tfrac12\sin\omega_{\text{IF}}t,
+\end{align}
+where in each line the first term is the wanted signal and the second the image. Shifting $Q$ by
+$90^\circ$ turns $\mp\sin$ into $\pm\cos$: the wanted terms add and the image terms cancel. In complex
+terms, the I/Q pair is the complex envelope, in which the wanted signal sits at $+\omega_{\text{IF}}$ and
+the image at $-\omega_{\text{IF}}$, and the Hilbert transform plus addition is simply ``take the
+positive-frequency half''. A low-IF receiver with digital I/Q processing is a Hartley receiver whose
+$90^\circ$ shift and sum happen in DSP. The image rejection is limited by the same gain and phase
+matching as any I/Q system: about 30 to 40\,dB from good analog design, more with calibration.
+
+The \term{Weaver architecture} (bottom of the figure) replaces the wideband $90^\circ$ phase shifter,
+which is hard to build accurately over a range of IF frequencies, with a second quadrature mixing stage.
+It is the Weaver SSB method of Chapter~\ref{ch:analog} turned into a receiver, and it is the structure of
+every receiver that performs a quadrature analog mix followed by a complex digital mix.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.45cm and 0.5cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.7cm,minimum width=1.1cm,align=center,font=\sffamily\scriptsize},
+  mix/.style={draw=navy,thick,circle,minimum size=0.55cm,inner sep=0pt,font=\sffamily\small},
+  arr/.style={-{Stealth[length=1.6mm]},thick,navy}]
+% Hartley
+\node[font=\sffamily\scriptsize] (in) {RF};
+\node[mix,right=0.6cm of in,yshift=0.6cm] (m1) {$\times$};
+\node[mix,right=0.6cm of in,yshift=-0.6cm] (m2) {$\times$};
+\node[blk,right=of m1] (l1) {LPF};
+\node[blk,right=of m2] (l2) {LPF};
+\node[blk,right=of l2,fill=accent!6,draw=accent] (h) {$90^\circ$\\shift};
+\node[mix,right=2.5cm of l1,yshift=-0.6cm] (s) {$+$};
+\node[right=0.4cm of s,font=\sffamily\scriptsize] (out) {IF, image cancelled};
+\node[above=0.12cm of m1,font=\tiny] {$\cos\omega_{\text{LO}}t$};
+\node[below=0.12cm of m2,font=\tiny] {$\sin\omega_{\text{LO}}t$};
+\draw[arr] (in) -- ++(0.3,0) |- (m1); \draw[arr] (in) -- ++(0.3,0) |- (m2);
+\draw[arr] (m1)--(l1); \draw[arr] (m2)--(l2); \draw[arr] (l2)--(h);
+\draw[arr] (l1) -| (s); \draw[arr] (h) -| (s); \draw[arr] (s)--(out);
+\node[left=0.1cm of in,font=\sffamily\scriptsize\bfseries,text=navy] {Hartley};
+% Weaver
+\node[font=\sffamily\scriptsize,below=2.7cm of in] (in2) {RF};
+\node[mix,right=0.6cm of in2,yshift=0.6cm] (w1) {$\times$};
+\node[mix,right=0.6cm of in2,yshift=-0.6cm] (w2) {$\times$};
+\node[blk,right=of w1] (wl1) {LPF};
+\node[blk,right=of w2] (wl2) {LPF};
+\node[mix,right=of wl1] (w3) {$\times$};
+\node[mix,right=of wl2] (w4) {$\times$};
+\node[mix,right=0.7cm of w3,yshift=-0.6cm] (ws) {$-$};
+\node[right=0.4cm of ws,font=\sffamily\scriptsize] (out2) {IF, image cancelled};
+\node[above=0.12cm of w1,font=\tiny] {$\cos\omega_1t$};
+\node[below=0.12cm of w2,font=\tiny] {$\sin\omega_1t$};
+\node[above=0.12cm of w3,font=\tiny] {$\cos\omega_2t$};
+\node[below=0.12cm of w4,font=\tiny] {$\sin\omega_2t$};
+\draw[arr] (in2) -- ++(0.3,0) |- (w1); \draw[arr] (in2) -- ++(0.3,0) |- (w2);
+\draw[arr] (w1)--(wl1); \draw[arr] (w2)--(wl2); \draw[arr] (wl1)--(w3); \draw[arr] (wl2)--(w4);
+\draw[arr] (w3) -| (ws); \draw[arr] (w4) -| (ws); \draw[arr] (ws)--(out2);
+\node[left=0.1cm of in2,font=\sffamily\scriptsize\bfseries,text=navy] {Weaver};
+\end{tikzpicture}
+\caption{Image-reject receivers. The Hartley architecture (top) cancels the image by a $90^\circ$
+shift of one quadrature branch before summing; the Weaver architecture (bottom) achieves the same with a
+second quadrature mixing stage. Either cancels the image only as well as its two branches match.}
+\label{fig:ch07_hartley}
+\end{figure}
+
+\subsection{Direct RF sampling and the RFSoC}
+
+The direct-sampling receiver is easiest to understand as a bandpass sampler (Chapter~\ref{ch:pcm}):
+an ADC sampling at $f_s$ folds every Nyquist zone of width $f_s/2$ onto the first, so a band-pass filter
+selecting one zone, followed by a fast ADC and a digital down-converter, is a complete receiver. Modern
+RF data converters integrated with FPGA fabric---the Gen~3 RFSoC devices sample at several GS/s with
+14-bit resolution and accept inputs up to roughly 6\,GHz, according to AMD's data sheets---make this
+practical for base stations, phased-array radars, test equipment and the high-end SDRs of
+Section~\ref{sec:ch07:platforms}. The trade-offs are power (a multi-GS/s converter and the DSP behind it
+burn watts, not milliwatts), the converter's own noise figure (Chapter~\ref{ch:noise} shows that a
+converter's noise density makes it a poor front-end unless preceded by an LNA with gain), clock jitter,
+and the spurious products of the converter's interleaved cores, which appear at predictable offsets and
+must be calibrated out.
+
+Table~\ref{tab:ch07:arch} summarises the four.
+
+\begin{table}[htbp]\centering\small
+\caption{Receiver architectures compared.}
+\label{tab:ch07:arch}
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.3cm}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{3.4cm}}
+\toprule
+Architecture & Strengths & Weaknesses & Typical use \\
+\midrule
+Superhet\-ero\-dyne & Best selectivity and dynamic range; no DC problems & Image and IF filters (off chip), spurious responses, cost & Spectrum analysers, military, satellite and broadcast receivers \\
+Zero-IF & Fully integrable; one design covers many bands; simple & DC offset, LO leakage, flicker noise, IM2, I/Q imbalance & Phones, Wi-Fi, SDR RFICs (AD9364, AD9361, LMS7002M) \\
+Low-IF & Integrable; away from DC and $1/f$ noise & Image is adjacent channel; needs high IRR & Bluetooth, GNSS, FM, IoT \\
+Direct RF sampling & No analog mixing; whole band at once & Power, ADC noise and spurs, jitter & Base stations, radar, test gear, RFSoC SDRs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%======================================================================
+\section{The RF front end}
+\label{sec:ch07:frontend}
+%======================================================================
+
+The front end---everything between the antenna connector and the mixer---is where most of a
+receiver's noise figure and much of its linearity are decided, and where the hardest physical limits
+live. It consists of filters, switches, a duplexer if the radio is full-duplex, and the LNA.
+
+\subsection{Filters: SAW, BAW, ceramic and cavity}
+
+A front-end filter must have low insertion loss in the pass band (every decibel adds directly to the
+noise figure, Chapter~\ref{ch:noise}) and steep skirts to reject strong signals just outside the band,
+all in a small package. Four technologies cover the range.
+\begin{description}
+\item[Surface acoustic wave (SAW)] filters convert the electrical signal into an acoustic wave on a
+piezoelectric substrate (lithium tantalate or niobate) with interdigital transducers, whose geometry
+sets the response. They are tiny and cheap and dominate below about 2.5\,GHz; temperature-compensated
+(TC-SAW) variants hold their edges over temperature for tightly spaced duplex bands.
+\item[Bulk acoustic wave (BAW)] filters, including the film bulk acoustic resonator (FBAR), use a
+thin piezoelectric film (aluminium nitride, often scandium-doped) resonating through its thickness.
+They have higher $Q$ at higher frequencies and handle more power, and they dominate the 2 to 7\,GHz
+bands of LTE, 5G NR and Wi-Fi~6E/7.
+\item[Ceramic and LTCC] filters and resonators are used where size matters less: GNSS, ISM-band
+modules, and the band-select filters of simple radios.
+\item[Cavity and dielectric-resonator] filters, with unloaded $Q$ in the thousands, are used in base
+stations, where they must pass hundreds of watts and reject the receive band by 80 to 100\,dB, and in
+satellite payloads and ground stations.
+\end{description}
+
+\subsection{Duplexers and the FDD problem}
+
+A frequency-division duplex radio (Chapter~\ref{ch:multipleaccess}) transmits and receives at the same
+time on two frequencies separated by the duplex spacing. A \term{duplexer} is two band-pass filters
+joined at the antenna: the transmit filter passes the uplink band and blocks the downlink, the receive
+filter does the reverse. Consider an LTE phone transmitting $+23$\,dBm in band~3 (uplink 1710--1785\,MHz,
+downlink 1805--1880\,MHz) while trying to receive a signal near $-100$\,dBm only 95\,MHz away. If the
+duplexer's transmit-to-receive isolation is 55\,dB, the transmitter's carrier arrives at the LNA at
+$-32$\,dBm---as a blocker that compresses the LNA, generates IM2 in a zero-IF mixer, and mixes with
+phase noise. Just as dangerous is the transmitter's own \emph{noise} in the receive band: a PA whose
+output noise density at the receive frequency is $-130$\,dBm/Hz would, after 55\,dB of isolation, add
+$-185$\,dBm/Hz, harmlessly below the thermal floor; but a cheaper transmit chain with $-120$\,dBm/Hz would
+add $-175$\,dBm/Hz, degrading sensitivity by about 2.5\,dB. That is why the duplexer specification has
+two isolation numbers (in the transmit band and in the receive band), and why the transmit chain's noise
+at the receive frequency is a specification of its own.
+
+\begin{inpractice}[The band-count problem in a smartphone]
+A 2G phone of 1995 needed two or three bands. A flagship 5G phone today supports several dozen LTE and
+NR bands from 600\,MHz to 6\,GHz (plus millimetre-wave modules), with carrier aggregation that requires
+several receive and transmit chains to operate simultaneously on different bands. Each FDD band needs
+its own duplexer; carrier aggregation needs multiplexers (quadplexers, hexaplexers) whose filters do not
+load one another; and every combination of simultaneously active bands creates new intermodulation and
+harmonic hazards (a band-12 uplink's third harmonic, for instance, must not land in a band being
+received). The result is that the RF front end of a modern phone contains of the order of a hundred
+acoustic filters, packed with switches, LNAs and PAs into a handful of front-end modules made by a small
+number of specialised companies. Filter count, not transistor count, is the scaling problem of the
+mobile radio, and it is one reason why tunable filters and full-duplex cancellation
+(Section~\ref{sec:ch07:fullduplex}) are active research areas.
+\end{inpractice}
+
+\subsection{The low-noise amplifier}
+
+The LNA has three jobs: provide enough gain to make the noise of everything after it negligible
+(Friis, equation~\eqref{eq:ch03:friis}); add as little noise as possible itself; and remain linear in
+the presence of the strongest signals the band filter lets through. These are in tension.
+
+\paragraph{Noise match versus power match.} Chapter~\ref{ch:noise} showed that a transistor's noise
+factor depends on its source admittance, $F=F_{\min}+(R_n/G_s)|Y_s-Y_{\text{opt}}|^2$
+(equation~\eqref{eq:ch03:fmin}), and that the optimum source for noise, $Y_{\text{opt}}$, is not in
+general the conjugate match that maximises gain. Presenting $Y_{\text{opt}}$ gives the lowest noise
+figure but a poor input return loss: power is reflected back toward the filter, whose response is
+designed for a 50\,$\Omega$ load and becomes distorted when mismatched. The classic resolution in CMOS
+is \emph{inductive source degeneration}: an inductor $L_s$ in the source creates a real input resistance
+$g_mL_s/C_{gs}=\omega_TL_s$ without adding thermal noise, and with a series gate inductor resonating the
+input capacitance, the power match and noise match can be brought close together at one frequency.
+Wideband LNAs (for SDR front ends covering decades of frequency) instead use resistive feedback or
+noise-cancelling topologies, accepting a somewhat higher noise figure for a flat match.
+
+\paragraph{Gain, noise figure and linearity.} A typical integrated cellular LNA has a gain of 15 to
+20\,dB, a noise figure of 1 to 2\,dB and an IIP3 of $-10$ to 0\,dBm; a discrete GaAs pHEMT LNA for a
+satellite ground terminal may reach a noise figure of 0.3\,dB at 4\,GHz. High gain helps the cascade
+noise figure but pushes the mixer toward overload. Real receivers therefore provide \emph{gain steps}:
+the LNA can be switched to a lower gain or bypassed altogether when the received signal is strong,
+which is the first and coarsest stage of the automatic gain control of Section~\ref{sec:ch07:agc}.
+The AD9364's receive gain table, which UHD exposes as a single number from 0 to about 76\,dB on the B200,
+is a sequence of such settings across LNA, mixer, TIA and baseband amplifiers, chosen to keep the noise
+figure low at high gain and the linearity high at low gain.
+
+\begin{pitfall}[Loss before the LNA counts double]
+A decibel of loss ahead of the LNA---a long coaxial cable, a switch, a lossy filter, a bad connector---adds
+a full decibel to the system noise figure, because it attenuates the signal while the noise at its output
+is still the thermal $kT$ (Chapter~\ref{ch:noise}). On the bench, a B200 connected to an antenna through
+5\,m of thin RG-174 at 2.4\,GHz has lost several decibels of sensitivity before the signal reaches the
+board. That is why satellite and radio-astronomy receivers mount the LNA at the antenna feed, why tower-mounted
+amplifiers exist for base stations, and why an external low-noise preamplifier at the antenna is the
+cheapest sensitivity upgrade for any SDR.
+\end{pitfall}
+
+\subsection{Mixers}
+
+A mixer multiplies the RF signal by the LO. Since a perfect multiplier is hard to build, practical
+mixers \emph{switch}: they multiply the RF signal by a square wave at the LO frequency, which contains
+the fundamental plus odd harmonics at $3f_{\text{LO}}$, $5f_{\text{LO}}$ and so on.
+
+\paragraph{Passive mixers.} The diode ring of Chapter~\ref{ch:analog} and its CMOS successor, a ring of
+four MOS switches driven by a large LO, are \emph{passive}: they have conversion loss rather than gain
+(about 6\,dB for an ideal switching mixer with a resistive load), but excellent linearity (IIP3 of
+$+10$ to $+30$\,dBm) and very little flicker noise, since no DC current flows through the switches. Modern
+zero-IF receivers almost universally use a passive current-mode mixer: the LNA delivers a current, the
+switches commutate it, and a transimpedance amplifier (TIA) at baseband converts it to a voltage while
+presenting a low impedance that keeps voltage swings---and hence distortion---small at the mixer.
+
+\paragraph{Active mixers and the Gilbert cell.} The \term{Gilbert cell} uses a differential pair, driven
+by the RF signal, whose tail currents are steered by two cross-coupled differential pairs switched by
+the LO. It provides conversion gain (10\,dB or so), good port-to-port isolation from its balanced
+structure, and needs only a modest LO drive; its price is a higher noise figure (8 to 12\,dB SSB is
+typical), flicker noise at the output (which matters at zero IF) and lower linearity than a passive
+ring. It was the workhorse of bipolar radio ICs for thirty years.
+
+\paragraph{Conversion gain, noise figure and LO drive.} A mixer is specified by its \emph{conversion gain}
+(output power at the IF over input power at RF), its noise figure---single-sideband or double-sideband,
+a factor of 2 apart, as Chapter~\ref{ch:noise} warned---its IIP3 and IIP2, its \emph{port isolations}
+(LO-to-RF, which sets LO leakage and hence DC offset; LO-to-IF; RF-to-IF), and the LO power it needs. A
+passive diode mixer needs $+7$ to $+17$\,dBm of LO (the ``level 7'' and ``level 17'' mixers of
+catalogue fame); an integrated CMOS switching mixer needs rail-to-rail square-wave LO drive, generated
+on chip by dividers and buffers that themselves consume a good fraction of the receiver's power.
+
+\paragraph{Harmonic responses.} Because a switching mixer multiplies by a square wave, it responds at
+$3f_{\text{LO}}$ with only about 10\,dB less conversion gain than at $f_{\text{LO}}$ (the square wave's
+third harmonic is $1/3$ of its fundamental), at $5f_{\text{LO}}$ about 14\,dB less, and so on. A
+narrowband receiver with a band filter in front does not care. A wideband SDR tuned to 100\,MHz with no
+preselector, however, will also receive signals at 300\,MHz and 500\,MHz with modest attenuation---a common
+source of ``mysterious'' signals in wideband SDR captures. \emph{Harmonic-rejection mixers}, which
+combine several phases of the LO weighted to cancel the third and fifth harmonics, and switched
+preselection filter banks (the B200 has none; higher-end USRPs do) are the remedies.
+
+\begin{history}[Barrie Gilbert's multiplier]
+In 1968 Barrie Gilbert, then at Tektronix, published ``A precise four-quadrant multiplier with
+subnanosecond response'' in the \emph{IEEE Journal of Solid-State Circuits}. His circuit---three
+differential pairs and a translinear input stage---made analog multiplication accurate, wideband and
+integrable. Gilbert noted later that a similar topology had been used earlier by Howard Jones for a
+synchronous detector, but it was Gilbert's analysis of the translinear principle that made the circuit
+a building block. The ``Gilbert-cell mixer'' became, through the 1980s and 1990s, the standard mixer
+of every integrated receiver, from pagers to the first generations of GSM and Wi-Fi chips, and Gilbert
+spent the rest of his career at Analog Devices, the company that would later build the RFICs at the heart
+of today's SDRs.
+\end{history}
+
+%======================================================================
+\section{Receiver figures of merit}
+\label{sec:ch07:metrics}
+%======================================================================
+
+\subsection{Sensitivity and the noise-figure cascade}
+
+The \term{sensitivity} of a receiver is the weakest signal it can demodulate at a specified error
+rate. Chapter~\ref{ch:noise} derived it, equation~\eqref{eq:ch03:sens}:
+\begin{equation}
+P_{\text{sens}}=-174\,\text{dBm/Hz}+10\log_{10}B+\text{NF}+\text{SNR}_{\text{min}}\quad\text{dBm},
+\label{eq:ch07:sens}
+\end{equation}
+and the Friis formula, equation~\eqref{eq:ch03:friis}, gives the noise figure of a cascade,
+$F=F_1+(F_2-1)/G_1+(F_3-1)/(G_1G_2)+\cdots$. In a well-designed receiver the first one or two stages set
+the noise figure and the later ones contribute a few tenths of a decibel.
+
+\begin{worked}[A B200-like receiver line-up]
+Consider a receiver modelled loosely on an SDR with an integrated zero-IF RFIC. The numbers are
+illustrative, chosen to be typical of such a chain, not taken from a data sheet:
+\begin{center}\small
+\begin{tabular}{lrrr|rrr}
+\toprule
+Stage & Gain & NF & IIP3 & Cum.\ gain & Cum.\ NF & Cum.\ IIP3 \\
+ & (dB) & (dB) & (dBm) & (dB) & (dB) & (dBm) \\
+\midrule
+T/R switch, balun, traces & $-2.5$ & 2.5 & --- & $-2.5$ & 2.5 & --- \\
+LNA & 20 & 1.5 & $-10$ & 17.5 & 4.0 & $-7.5$ \\
+Mixer + TIA & 15 & 10 & $+5$ & 32.5 & 4.27 & $-13.7$ \\
+Baseband filter + VGA & 30 & 20 & $+15$ & 62.5 & 4.36 & $-19.0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\emph{Noise figure.} The 2.5\,dB of passive loss is a noise factor of 1.778 and a gain of 0.562. The LNA
+adds $(1.413-1)/0.562=0.734$, giving $F=2.51$ (4.0\,dB): the loss ahead of the LNA has cost more than the
+LNA itself. The mixer adds $(10-1)/(0.562\times100)=0.160$ and the baseband $(100-1)/1778=0.056$, for a
+total of $F=2.73$, NF $=4.36$\,dB. The 20\,dB-noise-figure baseband stage contributes 0.09\,dB.
+
+\emph{Linearity.} For IIP3 the cascade formula (derived below) adds the reciprocals of each stage's IIP3
+referred to the input, $G_{\text{before}}/\text{IIP3}_k$, in milliwatts: $0.562/0.1=5.62$ for the LNA,
+$56.2/3.16=17.8$ for the mixer and $1778/31.6=56.2$ for the baseband, a total of 79.6, so
+$\text{IIP3}=1/79.6\,\text{mW}=-19.0$\,dBm. The \emph{last} stage, with the highest IIP3 but the most
+gain in front of it, dominates.
+
+\emph{Dynamic range.} In 1\,MHz the noise floor is $-174+60+4.4=-109.6$\,dBm and, by
+equation~\eqref{eq:ch07:sfdr} below, the SFDR is $\tfrac23(-19.0+109.6)=60$\,dB. These values---NF of a
+few decibels, IIP3 near $-20$\,dBm at maximum gain---are of the order Ettus quotes for the B200 (noise
+figure below about 8\,dB including the board, IIP3 about $-20$\,dBm at typical noise figure). Reducing
+the receive gain by 10\,dB in the baseband would raise the IIP3 to about $-12$\,dBm at a cost of under
+0.5\,dB of noise figure; reducing it at the LNA would cost far more noise figure. That is the logic of a
+gain table.
+\end{worked}
+
+\subsection{Nonlinearity: compression, intermodulation and intercepts}
+
+Linearity is usually characterised by expanding the amplifier's transfer function as a power series
+(Chapter~\ref{ch:signals}), $y=a_1x+a_2x^2+a_3x^3+\cdots$. Driving it with a single tone
+$A\cos\omega t$ gives a fundamental of amplitude $a_1A+\tfrac34a_3A^3$; for a compressive device
+($a_3/a_1<0$), the gain falls as $A$ grows. The input at which it has fallen by 1\,dB is the
+\term{1\,dB compression point} (P1dB), at
+\begin{equation}
+A_{\text{1dB}}=\sqrt{0.145\,|a_1/a_3|}.
+\end{equation}
+Driving it with two tones at $\omega_1$ and $\omega_2$ produces, among many products,
+\term{third-order intermodulation} (IM3) at $2\omega_1-\omega_2$ and $2\omega_2-\omega_1$ with amplitude
+$\tfrac34a_3A^3$. These are the dangerous ones because they fall close to the tones---in the band, where no
+filter can remove them (Figure~\ref{fig:ch07_two_tone}). As the input rises by 1\,dB the IM3 products
+rise by 3\,dB; the extrapolated input level at which they would equal the fundamental is the
+\term{third-order intercept point} (IIP3), at
+\begin{equation}
+A_{\text{IIP3}}=\sqrt{\tfrac43\,|a_1/a_3|},
+\end{equation}
+so for a device described by a cubic, IIP3 lies $10\log_{10}(\tfrac43/0.145)=9.6$\,dB above P1dB. Real
+amplifiers deviate (higher-order terms matter near compression), but ``IIP3 $\approx$ P1dB + 10\,dB'' is
+the engineer's rule of thumb. The intercept is a fiction---no device can actually be driven there---but a
+useful one, because it predicts the IM3 level at any lower drive. If each of two tones is at $P_{\text{in}}$
+dBm, the IM3 products at the output, referred to the input, are at
+\begin{equation}
+P_{\text{IM3}}=3P_{\text{in}}-2\,\text{IIP3}\quad\text{dBm}.
+\label{eq:ch07:im3}
+\end{equation}
 
 \mdcfig{ch07_two_tone}{Left: a two-tone test through a cubic nonlinearity produces
 third-order products at $2f_1-f_2$ and $2f_2-f_1$. Right: fundamental and IM3 output against input
 power; their extrapolated intersection is the third-order intercept.}
 
+The second-order term creates products at $\omega_1\pm\omega_2$ and at DC, and the corresponding
+\term{IIP2} is defined the same way with slope 2: $P_{\text{IM2}}=2P_{\text{in}}-\text{IIP2}$. In a
+superhet, second-order products generally fall far from the IF and are filtered; in a zero-IF receiver
+the difference-frequency product of a blocker with itself lands at DC (Section~\ref{sec:ch07:zeroif}),
+which is why IIP2 appears on every RFIC data sheet.
+
+\paragraph{Cascaded intercept.} Two stages in cascade, each weakly nonlinear, have an overall IIP3 given
+to a good approximation (assuming the IM3 products add in phase, the worst case) by
+\begin{equation}
+\frac{1}{\text{IIP3}_{\text{tot}}}\approx\frac{1}{\text{IIP3}_1}+\frac{G_1}{\text{IIP3}_2}+\frac{G_1G_2}{\text{IIP3}_3}+\cdots
+\label{eq:ch07:iip3cascade}
+\end{equation}
+in linear power units. The proof is short: referred to the input of the cascade, the second stage's
+intercept is reduced by the gain in front of it, and the IM3 \emph{amplitudes} add. Noise wants gain early;
+linearity wants it late. Figure~\ref{fig:ch07_cascade_tradeoff} shows the negotiation for a simple chain
+whose LNA gain is varied: noise figure falls with LNA gain and saturates; IIP3 falls steadily; the
+spurious-free dynamic range defined next has a maximum at a moderate LNA gain.
+
+\mdcfig{ch07_cascade_tradeoff}{The line-up trade-off. A chain of band filter ($-1.5$\,dB), LNA
+(NF 1.2\,dB, IIP3 0\,dBm, gain varied), mixer (gain 6\,dB, NF 10\,dB, IIP3 $+10$\,dBm) and baseband
+(gain 30\,dB, NF 15\,dB, IIP3 $+10$\,dBm). Left: cascade noise figure and IIP3. Right: SFDR in 1\,MHz,
+which peaks at a modest LNA gain---more gain only trades dynamic range at the top for a vanishing
+improvement at the bottom.}
+
+\subsection{Spurious-free dynamic range}
+
 The \term{spurious-free dynamic range} combines both ends: the range of input powers over which a signal
-is above the noise floor while two equal interferers' IM3 products are still below it,
+is above the noise floor while two equal interferers' IM3 products are still below it. Setting
+$P_{\text{IM3}}$ of equation~\eqref{eq:ch07:im3} equal to the noise floor $P_{\text{noise}}$ gives the
+largest tolerable interferer, $P_{\text{max}}=(2\,\text{IIP3}+P_{\text{noise}})/3$, and
+$\text{SFDR}=P_{\text{max}}-P_{\text{noise}}$:
 \begin{equation}
 \text{SFDR}=\tfrac23\big(\text{IIP3}-P_{\text{noise}}\big)\ \text{dB},
 \qquad P_{\text{noise}}=-174+10\log_{10}B+\text{NF}\ \text{dBm}.
 \label{eq:ch07:sfdr}
 \end{equation}
 A receiver with NF 6\,dB, IIP3 $-10$\,dBm and a 200\,kHz channel has a noise floor of $-115$\,dBm and
-an SFDR of 70\,dB. In cascades, IIP3 degrades with gain before a stage:
-$1/\text{IIP3}_{\text{tot}}\approx\sum_k G_{k-1}/\text{IIP3}_k$ (linear units, where $G_{k-1}$ is the gain
-ahead of stage $k$). Noise wants gain early; linearity wants it late. Every receiver line-up is a
-negotiation between the two.
+an SFDR of 70\,dB. Because the noise floor rises with bandwidth, SFDR always comes with a bandwidth;
+quoting it ``in 1\,Hz'' gives large, flattering numbers that are of little use to a system designer.
 
 \subsection{Blocking and desensitisation}
 
-A strong \emph{blocker} near the wanted channel does harm in three ways even if no intermodulation
-product lands on the signal: it compresses the LNA or mixer, reducing gain for the weak signal; its
-presence forces the AGC to reduce gain, raising the effective noise figure; and it mixes with the LO's
-phase noise to spread noise onto the wanted channel (reciprocal mixing, below). Cellular standards
-therefore specify blocking tests in which the receiver must maintain its sensitivity with a
-specified interferer present, and those tests, rather than the plain sensitivity test, usually set
-the design.
+A strong \emph{blocker} near the wanted channel does harm in four ways even if no intermodulation
+product lands on the signal. It \emph{compresses} the LNA or mixer, reducing gain for the weak signal
+(a small signal riding on a large one sees the incremental gain, which falls faster than the large-signal
+gain: the weak signal is ``desensitised'' by about 3\,dB when the blocker is near the P1dB). Its presence
+forces the \emph{AGC} to reduce gain, raising the effective noise figure. It \emph{mixes with the LO's
+phase noise} to spread noise onto the wanted channel (reciprocal mixing, Section~\ref{sec:ch07:recip}).
+And in a zero-IF receiver its \emph{IM2} lands at DC. Cellular standards therefore specify blocking
+tests in which the receiver must maintain its sensitivity, within a few decibels, with a specified
+interferer present, and those tests, rather than the plain sensitivity test, usually set the design. For
+GSM, 3GPP TS~45.005 requires a mobile to decode a wanted signal 3\,dB above reference sensitivity in the
+presence of an in-band GMSK blocker at levels of approximately $-43$\,dBm at 600\,kHz to 1.6\,MHz offset,
+$-33$\,dBm at 1.6 to 3\,MHz and $-23$\,dBm beyond 3\,MHz---a blocker up to roughly 80\,dB stronger than the
+wanted signal. LTE and NR specify analogous in-band, out-of-band and narrowband blocking tests in TS~36.101
+and TS~38.101-1.
 
-\section{Oscillators and frequency synthesis}
+\subsection{Dynamic-range planning and AGC}
+\label{sec:ch07:agc}
 
-\subsection{References}
+A \emph{level diagram} (Figure~\ref{fig:ch07_level_diagram}) traces the wanted signal, the noise and the
+largest blocker from the antenna to the ADC, stage by stage, and checks three things at every node:
+that the noise stays well above the next stage's own noise (so the noise figure is set early), that the
+blocker stays below every stage's compression point with margin for its peak-to-average ratio, and that
+at the ADC the blocker fits under full scale while the thermal noise sits comfortably above the
+quantisation floor. The analog channel filter, which in a zero-IF receiver is the baseband low-pass
+filter, attenuates the blocker before the gain that follows it, and that attenuation is what makes the
+plan close.
 
-Every frequency in a radio derives from a reference oscillator, almost always a quartz crystal.
-A plain crystal oscillator (XO) is accurate to about $\pm20$\,ppm over temperature; a
-temperature-compensated crystal oscillator (TCXO), like the B200's, to about $\pm2$\,ppm; an
-oven-controlled oscillator (OCXO) to 10\,ppb; and a GPS-disciplined oscillator (GPSDO) to parts in
-$10^{12}$ over a day. A frequency error of $\epsilon$ at carrier $f_c$ is a carrier frequency offset of
-$\epsilon f_c$: 2\,ppm at 3.5\,GHz is 7\,kHz, a quarter of a 30\,kHz NR subcarrier. Cellular base
-stations hold $\pm50$\,ppb, and phones lock their oscillators to the base station, which is why
-Chapter~\ref{ch:sync} matters so much.
+\mdcfig{ch07_level_diagram}{A level diagram for a narrowband zero-IF receiver (200\,kHz channel, cascade
+NF about 5\,dB) facing a $-23$\,dBm blocker 3\,MHz away. The baseband filter attenuates the blocker by
+22\,dB and the VGA stage's filtering by another 20\,dB, so it arrives about 11\,dB below the ADC's full scale
+(an illustrative $+4$\,dBm) while the thermal noise sits more than 30\,dB above an ideal 12-bit
+converter's quantisation noise in the channel. Note the mixer, which sees the blocker at about $-7$\,dBm:
+its compression point must be well above that.}
 
-\subsection{PLL synthesisers}
+\begin{worked}[How many ADC bits does a GSM blocker need?]
+Suppose a zero-IF receiver with a 61.44\,MS/s I/Q ADC pair must handle the GSM case above: wanted
+signal at $-99$\,dBm needing about 9\,dB SNR in 200\,kHz, and a $-23$\,dBm blocker at 3\,MHz, with
+\emph{no} analog filtering of the blocker before the ADC.
 
-A \term{phase-locked loop} (PLL) synthesiser multiplies the reference to the desired LO frequency.
-A voltage-controlled oscillator's output is divided by $N$ and compared in phase with the reference;
-the loop filter steers the VCO until the divided output tracks the reference, so
-$f_{\text{VCO}}=Nf_{\text{ref}}$. An \emph{integer-N} synthesiser can only step in multiples of
-$f_{\text{ref}}$; a \emph{fractional-N} synthesiser alternates the divide ratio with a sigma-delta
-modulator (Chapter~\ref{ch:pcm}) to achieve fine resolution with a high reference frequency. Inside
-the loop bandwidth, the output phase noise follows the reference multiplied by $20\log_{10}N$\,dB;
-outside it, the VCO's own noise dominates. The AD9364 contains two such fractional-N synthesisers,
-one for receive and one for transmit, both locked to the B200's 40\,MHz TCXO.
+The total noise in 200\,kHz, referred to the antenna, must be at most $-99-9=-108$\,dBm; let us demand that
+the ADC's contribution be 10\,dB below that, $-118$\,dBm. Full scale must accommodate the blocker plus a
+few decibels of headroom for the wanted signal, noise and AGC error, say $-20$\,dBm referred to the
+antenna. The required dynamic range \emph{in the channel} is therefore $-20-(-118)=98$\,dB.
 
-\subsection{Phase noise}
+The ADC's quantisation noise is spread over the whole complex band of 61.44\,MHz, of which the channel
+filter keeps 200\,kHz: a processing gain of $10\log_{10}(61.44/0.2)=24.9$\,dB. The ADC therefore needs a
+full-band SNR of $98-24.9=73$\,dB, which by $\text{SNR}=6.02N+1.76$ (Chapter~\ref{ch:pcm}) is
+$N\approx11.8$ ideal bits. A real 12-bit converter has an effective number of bits closer to 10 or 11,
+so it falls 5 to 10\,dB short.
 
-A real oscillator's phase wanders randomly. Its spectrum, instead of a line, has skirts described by
-the \term{single-sideband phase noise} $\mathcal{L}(f)$ in dBc/Hz at offset $f$ from the carrier
-(Figure~\ref{fig:ch07_phase_noise}). Leeson's model gives the characteristic shape: $1/f^3$ close in
-(flicker noise upconverted), $1/f^2$ in the middle (white noise integrated by the resonator), and a
-flat floor far out. Integrating $\mathcal{L}(f)$ over offsets gives the RMS phase error,
+The cure is analog filtering. A third-order Butterworth baseband filter with a 1\,MHz corner attenuates
+a 3\,MHz blocker by about $60\log_{10}3=29$\,dB, which reduces the needed dynamic range to about 70\,dB and
+the needed ADC resolution to under 8 effective bits. This is the central bargain of SDR design: every
+decibel of analog selectivity before the converter is a decibel the ADC does not have to provide, and a
+wideband SDR that skips the analog filter to keep its bandwidth flexible pays for it in bits.
+\end{worked}
+
+\paragraph{Automatic gain control.} The level plan holds for one input level; the AGC must keep it valid
+as the input varies over 100\,dB. It measures power at one or more points (after the LNA, after the
+baseband filter, at the ADC output) and adjusts gain in steps, with the rule that gain is removed
+\emph{as early in the chain as possible} when signals are strong (to protect linearity) and added as
+early as possible when they are weak (to protect noise figure). Its time constants are a compromise: a
+fast attack prevents clipping when a strong burst arrives; a slow decay avoids gain pumping on
+amplitude-modulated signals; and gain changes in the middle of a packet corrupt it, so packet radios
+such as Wi-Fi settle the gain during the preamble's short training field and freeze it for the rest of
+the packet. The AD9364 offers both a fast-attack AGC suited to bursty TDD signals and a slow AGC for
+continuous signals, plus manual gain control, which is what UHD uses by default on the B200.
+
+\begin{pitfall}[AGC in an SDR experiment]
+Many SDR experiments go wrong because the gain is wrong, not because the DSP is. Too little gain and
+the ADC's noise dominates; too much and a strong signal elsewhere in the captured band clips the ADC, at
+which point every signal in the capture is corrupted by clipping products. On a B200, look at the
+peak sample magnitude (UHD scales the converter's full scale to $\pm1.0$ in its floating-point
+\texttt{fc32} format, so I or Q values near $\pm1$ mean clipping), not only at the signal of interest: the wideband spectrum view of
+\lab{gr01\_spectrum\_iq\_capture.py} shows the signals you did not mean to capture but which are using up
+your dynamic range.
+\end{pitfall}
+
+%======================================================================
+\section{Frequency generation}
+\label{sec:ch07:synth}
+%======================================================================
+
+\subsection{References: from crystal to GPSDO}
+
+Every frequency in a radio derives from a reference oscillator, almost always a quartz crystal: a slab
+of piezoelectric quartz whose mechanical resonance, with unloaded $Q$ of $10^4$ to $10^6$, controls an
+oscillator circuit. Its frequency depends on the cut of the crystal, its temperature, its age and its
+drive level. The grades are:
+\begin{description}
+\item[XO] (plain crystal oscillator): about $\pm10$ to $\pm50$\,ppm over temperature and life. Fine for
+a microcontroller; inadequate for most radios without frequency correction from the received signal.
+\item[TCXO] (temperature-compensated): a thermistor network or a digital lookup table bends the frequency
+back against the crystal's cubic temperature curve, giving about $\pm0.5$ to $\pm2$\,ppm. Every phone and
+most SDRs, including the B200, use one.
+\item[OCXO] (oven-controlled): the crystal is held at the turning point of its temperature curve, around
+70 to 85\,$^\circ$C, in a small oven, giving parts per billion of stability at the cost of watts of heater
+power and minutes of warm-up. Base stations and instruments use them.
+\item[GPSDO] (GNSS-disciplined oscillator): a TCXO or OCXO steered by a slow PLL to the timing signals of
+a GNSS receiver (Chapter~\ref{ch:spreadspectrum}). Over a day its average frequency is accurate to
+parts in $10^{12}$ and it provides a pulse-per-second (PPS) time reference; in the short term it is only
+as good as its oscillator. Rubidium and caesium standards serve where GNSS cannot be relied on.
+\end{description}
+
+A fractional frequency error $\epsilon$ at carrier $f_c$ is a carrier frequency offset of $\epsilon f_c$
+(Figure~\ref{fig:ch07_freq_accuracy}). It is also a sample-clock error of $\epsilon f_s$, because the
+same reference clocks the converters, and a timing drift of $\epsilon$ seconds per second.
+
+\mdcfig[0.82]{ch07_freq_accuracy}{Worst-case carrier frequency offset produced by references of
+different grades, compared with OFDM subcarrier spacings. A TCXO is good enough for Wi-Fi without
+correction of more than a fraction of a subcarrier; for LTE and NR the receiver must estimate and remove
+the offset (Chapter~\ref{ch:sync}).}
+
+\begin{worked}[Two parts per million at 2.4\,GHz]
+A B200's TCXO is specified at about $\pm2$\,ppm. At 2.4\,GHz the worst-case offset is
+$2\times10^{-6}\times2.4\times10^9=4.8$\,kHz; two such radios talking to each other can be off by twice
+that, 9.6\,kHz. Against a Wi-Fi subcarrier spacing of 312.5\,kHz this is 3\%: a small fraction, which
+Wi-Fi's preamble-based CFO estimator removes easily (802.11 allows each station $\pm20$\,ppm, or up to
+96\,kHz between two stations at 2.4\,GHz, and the estimator of Chapter~\ref{ch:ofdm} covers it). Against
+an LTE subcarrier spacing of 15\,kHz it is 64\%, which would destroy orthogonality: a phone must
+estimate the offset from the synchronisation signals before it can demodulate anything, and 3GPP
+requires the UE to transmit within $\pm0.1$\,ppm of the carrier it receives (TS~38.101-1), which it
+achieves by locking its oscillator to the base station. The sample clock is off by the same 2\,ppm: at
+30.72\,MS/s that is 61 samples per second of drift, so a receiver that does not track timing slips a
+sample every 16\,ms. For coherent multi-radio experiments, timing measurements and anything that must
+agree with an external clock, feed the B200 a 10\,MHz reference and PPS, or fit its GPSDO module.
+\end{worked}
+
+\begin{history}[Quartz takes control]
+Walter Cady of Wesleyan University built the first quartz-crystal-controlled oscillator in 1921, and
+George Washington Pierce of Harvard published the simple one-transistor (originally one-valve)
+oscillator circuit that still bears his name in 1923. Warren Marrison and J.~W.~Horton at Bell
+Laboratories built the first quartz clock in 1927, and by the 1930s crystal control had replaced the
+free-running tuned circuit in broadcast and military transmitters. The Second World War turned crystal
+manufacture into a mass industry: US factories produced tens of millions of crystal units for military
+radios, and the techniques for cutting, lapping and finishing quartz to a frequency developed then are
+recognisably those used today. The temperature-compensated oscillator was the enabler of the mobile
+phone; the GPS-disciplined oscillator, from the 1990s, of the synchronised cellular network.
+\end{history}
+
+\subsection{PLL synthesisers: integer-$N$ and fractional-$N$}
+
+A \term{phase-locked loop} (PLL) synthesiser multiplies the reference to the desired LO frequency
+(Figure~\ref{fig:ch07_fracn}). A voltage-controlled oscillator's output is divided by $N$ and compared in
+phase with the reference (divided by $R$) in a phase-frequency detector; a charge pump and loop filter
+steer the VCO until the divided output tracks the reference, so
+$f_{\text{VCO}}=Nf_{\text{ref}}/R=Nf_{\text{PFD}}$. Chapter~\ref{ch:sync} develops the loop dynamics;
+here we care about frequency resolution, spurs and noise.
+
+An \emph{integer-$N$} synthesiser can only step in multiples of $f_{\text{PFD}}$. A GSM synthesiser with
+a 200\,kHz channel raster needs $f_{\text{PFD}}=200$\,kHz, and a loop bandwidth necessarily well below
+that---perhaps 10 to 20\,kHz---which makes it slow to settle and leaves the VCO's noise uncorrected over
+most of the offsets that matter. Worse, the in-band noise of the phase detector and dividers is
+multiplied by $N^2$, and $N$ is large when $f_{\text{PFD}}$ is small.
+
+A \term{fractional-$N$ synthesiser} runs the phase detector at a high frequency (tens of megahertz) and
+achieves fine resolution by changing the divide ratio dynamically: dividing by $N$ for some reference
+cycles and by $N+1$ for others gives an average of $N+\alpha$ for any fraction $\alpha$. Done
+periodically, this produces large \emph{fractional spurs} at offsets of $\alpha f_{\text{PFD}}$; done with a
+\emph{sigma-delta modulator} (Chapter~\ref{ch:pcm}) driving the divider, the instantaneous ratio wanders
+over $N-3\ldots N+4$ (for a third-order modulator) in such a way that the quantisation error is pushed to
+high offset frequencies, where the PLL's low-pass loop filters it out. A 24-bit modulator with a 40\,MHz
+PFD has a resolution of $40\,\text{MHz}/2^{24}\approx2.4$\,Hz. The price is residual shaped noise near
+the loop bandwidth, sensitivity of that noise to charge-pump nonlinearity (which folds the shaped noise
+back in-band), and ``integer-boundary spurs'' when the fraction $\alpha$ is close to 0 or 1. The AD9364
+contains two fractional-$N$ synthesisers with integrated VCOs, one for receive and one for transmit,
+both locked to the board's reference.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.55cm and 0.55cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.85cm,minimum width=1.3cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]},thick,navy}]
+\node[blk,draw=practc,fill=practc!8] (ref) {TCXO\\40 MHz};
+\node[blk,right=of ref] (r) {$\div R$};
+\node[blk,right=of r] (pfd) {PFD +\\charge\\pump};
+\node[blk,right=of pfd] (lf) {loop\\filter};
+\node[blk,right=of lf,fill=accent!6,draw=accent] (vco) {VCO\\$2f_{\text{LO}}$};
+\node[blk,right=of vco] (q) {$\div2$\\quadrature};
+\node[right=0.35cm of q,font=\sffamily\scriptsize,align=left] (out) {LO 0$^\circ$\\LO 90$^\circ$};
+\node[blk,below=0.7cm of lf,minimum width=3.2cm] (div) {multi-modulus divider $\div N[k]$};
+\node[blk,below=0.7cm of div,minimum width=3.2cm,draw=accent,fill=accent!6] (sd) {$\Sigma\Delta$ modulator (MASH 1-1-1)};
+\node[left=0.5cm of sd,font=\sffamily\scriptsize,align=right] (frac) {fractional word\\$\alpha$ (e.g.\ 24 bits)};
+\draw[arr] (ref)--(r); \draw[arr] (r)--node[above,font=\tiny]{$f_{\text{PFD}}$}(pfd); \draw[arr] (pfd)--(lf);
+\draw[arr] (lf)--node[above,font=\tiny]{$v_{\text{tune}}$}(vco); \draw[arr] (vco)--(q); \draw[arr] (q)--(out);
+\draw[arr] ($(vco.east)+(0.25,0)$) |- (div.east);
+\draw[arr] (div.west) -| (pfd.south);
+\draw[arr] (sd.north) -- node[right,font=\tiny]{$N+\Delta N[k]$, $\Delta N\in\{-3..4\}$}(div.south);
+\draw[arr] (frac)--(sd);
+\end{tikzpicture}
+\caption{A fractional-$N$ synthesiser with sigma-delta control and quadrature LO generation. The
+divide ratio is dithered by a sigma-delta modulator so that its average is $N+\alpha$ while its
+quantisation noise is shaped to high offsets, where the loop filter removes it. The VCO runs at twice the
+LO frequency and a divide-by-two produces accurate $0^\circ$ and $90^\circ$ phases (and keeps the VCO
+away from the PA's output frequency). Compare the charge-pump PLL of Chapter~\ref{ch:sync}.}
+\label{fig:ch07_fracn}
+\end{figure}
+
+\subsection{Oscillator phase noise and Leeson's model}
+
+A real oscillator's phase wanders randomly, $v(t)=A\cos(2\pi f_0t+\phi(t))$. Its spectrum, instead of a
+line, has skirts described by the \term{single-sideband phase noise} $\mathcal{L}(f)$ in dBc/Hz at offset
+$f$ from the carrier: for small $\phi$, $\mathcal L(f)\approx\tfrac12S_\phi(f)$, half the power spectral
+density of the phase. D.~B.~Leeson's 1966 model explains its characteristic shape from a feedback
+oscillator with a resonator of loaded quality factor $Q_L$ and a sustaining amplifier of noise factor
+$F$ delivering signal power $P_s$:
 \begin{equation}
-\sigma_\phi^2=2\int_{f_1}^{f_2}10^{\mathcal{L}(f)/10}\,df\quad(\text{rad}^2).
+\mathcal L(f)=10\log_{10}\left[\frac{FkT}{2P_s}\left(1+\Big(\frac{f_0}{2Q_Lf}\Big)^2\right)\left(1+\frac{f_c}{f}\right)\right].
+\label{eq:ch07:leeson}
 \end{equation}
-Phase noise hurts in three ways.
+Read it from the outside in. Far from the carrier the phase noise is flat at $FkT/2P_s$: the
+amplifier's white noise, half of which is phase modulation, relative to the signal power. Inside the
+resonator's half-bandwidth $f_0/2Q_L$, the loop integrates that white phase noise into a random walk, and
+the spectrum rises as $1/f^2$ (20\,dB/decade). Below the amplifier's flicker corner $f_c$, upconverted
+$1/f$ noise adds another factor of $1/f$, giving the $1/f^3$ region. Figure~\ref{fig:ch07_leeson} (left)
+shows the consequences: a 2.4\,GHz on-chip LC VCO with $Q_L=8$, $F=15$\,dB and $P_s=0$\,dBm reaches about
+$-118$\,dBc/Hz at 1\,MHz offset, typical of integrated VCOs; a better resonator ($Q=30$ or 200) is
+11 or 28\,dB quieter; a 40\,MHz crystal with $Q$ of tens of thousands is far quieter still. The lessons are
+the ones every oscillator designer lives by: maximise resonator $Q$, maximise signal power, minimise
+amplifier noise and flicker.
+
+\mdcfig{ch07_leeson}{Left: Leeson's model for a 2.4\,GHz VCO with three resonator $Q$s and for a
+40\,MHz crystal oscillator. Right: a 2.4\,GHz PLL synthesiser ($N=60$ from a 40\,MHz reference, loop
+bandwidth about 400\,kHz). Inside the loop bandwidth the output follows the reference and phase-detector
+noise multiplied by $N$ ($20\log_{10}60=35.6$\,dB); outside it, the free-running VCO. Integrated from
+1\,kHz to 10\,MHz the output has about $0.35^\circ$ RMS phase error.}
+
+\paragraph{Phase noise in a PLL.} Locking an oscillator in a PLL changes its phase noise
+(Figure~\ref{fig:ch07_leeson}, right). The loop acts as a low-pass filter on the reference's phase noise
+(multiplied by $N$, i.e.\ raised by $20\log_{10}N$\,dB, because multiplying frequency by $N$ multiplies
+phase deviations by $N$) and on the noise of the phase detector, charge pump and dividers, and as a
+high-pass filter on the VCO's noise. The phase-detector contribution is commonly specified by a
+\emph{normalised in-band phase-noise floor}, a figure of merit around $-220$ to $-230$\,dBc/Hz for modern
+synthesiser ICs, to which $10\log_{10}f_{\text{PFD}}+20\log_{10}N$ is added. The optimum loop bandwidth is
+roughly where the multiplied in-band noise crosses the free-running VCO noise; making it narrower lets
+the VCO's rising noise through (in this example, a 50\,kHz loop gives $1.3^\circ$ RMS instead of
+$0.35^\circ$), wider brings up the in-band floor and the sigma-delta noise.
+
+\subsection{Integrated phase noise and its effects}
+
+Integrating $\mathcal{L}(f)$ over the offsets that matter gives the RMS phase error,
+\begin{equation}
+\sigma_\phi^2=2\int_{f_1}^{f_2}10^{\mathcal{L}(f)/10}\,df\quad(\text{rad}^2),
+\label{eq:ch07:pnint}
+\end{equation}
+where the lower limit is set by what the receiver's carrier-tracking loop removes and the upper by the
+signal bandwidth. The equivalent timing jitter is $\sigma_t=\sigma_\phi/(2\pi f_0)$: $0.35^\circ$ at
+2.4\,GHz is 0.4\,ps. Ettus quotes the B200's LO phase noise as roughly $1^\circ$ RMS at 3.5\,GHz and
+$1.5^\circ$ at 6\,GHz. Phase noise hurts in three ways.
 \begin{itemize}
-\item \textbf{Constellation rotation.} Residual phase jitter after carrier tracking rotates dense
-constellations: 64-QAM tolerates about $1.5^\circ$ RMS, 1024-QAM less than $0.5^\circ$.
-\item \textbf{OFDM impairment.} Slow phase noise produces a common phase error on all subcarriers,
-which pilots track; fast phase noise produces inter-carrier interference, which they cannot. This
-is why 5G NR at millimetre-wave uses wider subcarriers and adds phase-tracking reference signals
-(Chapter~\ref{ch:ofdm}).
-\item \textbf{Reciprocal mixing.} A strong blocker at offset $\Delta f$ mixes with the LO's phase noise
-at that offset and lands on the wanted channel with power $P_{\text{blocker}}+\mathcal{L}(\Delta f)+10\log_{10}B$.
-A $-30$\,dBm blocker 1\,MHz away, an LO at $-130$\,dBc/Hz and a 1\,MHz channel give $-100$\,dBm of
-noise---enough to swamp a weak signal.
+\item \textbf{Constellation rotation.} Residual phase jitter after carrier tracking rotates the
+constellation (Figure~\ref{fig:ch07_phase_noise}), contributing an EVM of approximately
+$\sigma_\phi$ in radians: $1^\circ$ is 1.7\% ($-35$\,dB). 64-QAM tolerates a couple of degrees RMS;
+1024-QAM, whose outer points are separated by less than $2^\circ$ in angle, needs well under $0.5^\circ$.
+\item \textbf{OFDM impairment.} Phase noise slower than an OFDM symbol produces a \emph{common phase
+error} that rotates all subcarriers together and is removed with pilots; faster phase noise produces
+inter-carrier interference that pilots cannot remove (Chapter~\ref{ch:ofdm}). Because a synthesiser's
+phase noise grows as $20\log_{10}f_0$, a 28\,GHz LO is about 20\,dB noisier than a 2.8\,GHz one built the
+same way. This is why 5G NR at millimetre-wave uses wider subcarriers (120\,kHz, so that the ICI-causing
+part of the spectrum is a smaller fraction) and adds phase-tracking reference signals (PT-RS).
+\item \textbf{Reciprocal mixing}, which deserves its own subsection.
 \end{itemize}
 
 \mdcfig{ch07_phase_noise}{Left: typical oscillator phase-noise profile with its $1/f^3$, $1/f^2$ and
 floor regions. Centre and right: 64-QAM with $0.5^\circ$ and $3^\circ$ RMS residual phase jitter;
 the outer points smear along arcs.}
 
+\subsection{Reciprocal mixing}
+\label{sec:ch07:recip}
+
+A receiver's LO is not a line but a line with skirts, and a mixer translates \emph{everything} at its
+input by \emph{every} component of the LO. A strong blocker at offset $\Delta f$ from the wanted signal
+is therefore converted by the LO's phase-noise skirt at offset $\Delta f$ onto the wanted channel,
+exactly as if the blocker itself had skirts. The noise added to a channel of bandwidth $B$ is
+\begin{equation}
+P_{\text{RM}}\approx P_{\text{blocker}}+\mathcal{L}(\Delta f)+10\log_{10}B\quad\text{dBm},
+\label{eq:ch07:recip}
+\end{equation}
+assuming $\mathcal L$ is roughly constant across the channel. No filter after the mixer can remove it,
+because it sits on top of the wanted signal; only a better LO, or a filter that attenuates the blocker
+\emph{before} the mixer, helps (Figure~\ref{fig:ch07_reciprocal}). The same mechanism operates in reverse
+in a transmitter, whose phase noise spreads its own carrier into neighbouring channels, and is one
+reason why base-station synthesisers are so much quieter than handset ones.
+
+\mdcfig{ch07_reciprocal}{Reciprocal mixing. Left: after down-conversion, a $-40$\,dBm blocker 1\,MHz away
+carries the LO's phase-noise skirt onto a weak wanted signal at 0\,Hz. With a poor LO
+($-100$\,dBc/Hz at 1\,MHz) the skirt buries the wanted signal; with the PLL of
+Figure~\ref{fig:ch07_leeson} it is still well above the thermal floor at the wanted channel. Right: rise of
+the noise floor in a 200\,kHz channel (NF 5\,dB) against blocker power for three LO phase-noise levels.}
+
+\begin{worked}[Reciprocal mixing with a $-100$\,dBc/Hz LO]
+A receiver with a 200\,kHz channel and a 5\,dB noise figure has a thermal noise floor of
+$-174+53+5=-116$\,dBm. A blocker of $-40$\,dBm sits 1\,MHz away, and the LO's phase noise at 1\,MHz offset is
+$-100$\,dBc/Hz---a mediocre free-running ring oscillator, or a badly designed synthesiser. By
+equation~\eqref{eq:ch07:recip} the reciprocal-mixing noise is $-40-100+53=-87$\,dBm, 29\,dB above the
+thermal floor: the receiver has lost 29\,dB of sensitivity to a blocker that is not even in its channel.
+For the reciprocal-mixing noise to be 10\,dB below the thermal floor, adding only 0.4\,dB, we need
+$-40+\mathcal L+53\le-126$, i.e.\ $\mathcal L(1\,\text{MHz})\le-139$\,dBc/Hz. Repeat the calculation with
+GSM's $-23$\,dBm blocker at 3\,MHz and a thermal floor of about $-116$\,dBm, and the requirement is
+$\mathcal L(3\,\text{MHz})\le-156$\,dBc/Hz---the classic, very demanding GSM synthesiser specification,
+which is usually relaxed in practice by accepting some desensitisation in the 3\,dB the blocking test
+allows.
+\end{worked}
+
+\subsection{LO distribution, quadrature generation and pulling}
+
+Generating the LO is only half the job; it must be delivered to the mixers with accurate quadrature and
+without coupling into anything else.
+\begin{itemize}
+\item \textbf{Quadrature.} The cleanest way to obtain $0^\circ$ and $90^\circ$ LO phases is to run the VCO
+at twice (or four times) the LO frequency and divide by two with a pair of flip-flops triggered on
+opposite edges; the quadrature accuracy then depends on the duty cycle and matching of the divider, and
+is typically within a degree. Polyphase RC networks are the alternative when a $2\times$ VCO is
+impractical.
+\item \textbf{Pulling.} A VCO is an injection-lockable oscillator: a strong signal near its frequency
+pulls it. In a transmitter the PA output, many decibels stronger than anything else on the chip and
+modulated, is exactly such a signal if the VCO runs at the carrier frequency. Running the VCO at
+$2f_c$, $4f_c$ or $\tfrac43f_c$ and dividing keeps the VCO away from the PA's frequency and its harmonics.
+\item \textbf{Coherence between channels.} The two receive channels of a B210 (AD9361) share one RX
+synthesiser and are therefore phase-coherent, which makes it a simple two-element array. Two separate
+B200s, even sharing a 10\,MHz reference and PPS, have synthesisers whose phases after each retune are
+unrelated, so phase-coherent multi-radio experiments need a calibration signal after every tune (and
+UHD's timed commands to retune all radios at the same instant).
+\end{itemize}
+
+%======================================================================
+\section{I/Q impairments and their digital correction}
+\label{sec:ch07:iq}
+%======================================================================
+
+The philosophy of the modern transceiver is: build analog circuits that are good enough, then
+measure and correct the rest in DSP. Nowhere is this clearer than in the I/Q impairments of
+direct conversion.
+
+\subsection{The imbalance model and the image-rejection ratio}
+
+Let the receiver's I branch be ideal and the Q branch have relative gain $g=1+\epsilon$ and phase error
+$\phi$ (in practice both branches are imperfect, but only the difference matters). If the ideal complex
+baseband signal is $x=x_I+jx_Q$, the receiver delivers $y=x_I+j\,g(\cos\phi\,x_Q+\sin\phi\,x_I)$, the
+model in \texttt{commlib.iq\_imbalance}. Substituting $x_I=(x+x^*)/2$ and $x_Q=(x-x^*)/2j$ and collecting
+terms,
+\begin{equation}
+y=\mu x+\nu x^*,\qquad \mu=\frac{1+g\,e^{j\phi}}{2},\qquad \nu=\frac{1-g\,e^{-j\phi}}{2}.
+\label{eq:ch07:iqmodel}
+\end{equation}
+The received signal is the wanted signal scaled by $\mu$ plus its \emph{complex conjugate} scaled by
+$\nu$. Conjugation mirrors the spectrum: a component at baseband frequency $+f$ in $x$ appears at $-f$ in
+$x^*$. The \term{image-rejection ratio} is the ratio of the wanted to the mirrored power,
+\begin{equation}
+\text{IRR}=\frac{|\mu|^2}{|\nu|^2}=\frac{1+2g\cos\phi+g^2}{1-2g\cos\phi+g^2}
+\approx\frac{4}{\epsilon^2+\phi^2},
+\label{eq:ch07:irr}
+\end{equation}
+where the approximation holds for small errors because $1-2g\cos\phi+g^2=(1-g)^2+2g(1-\cos\phi)\approx
+\epsilon^2+\phi^2$. Equation~\eqref{eq:ch07:irr} is identical to the sideband suppression of the phasing
+SSB modulator in Chapter~\ref{ch:analog}, as it must be: both are the same mathematics.
+
+\begin{worked}[Image rejection from $1^\circ$ and $0.1$\,dB]
+A gain imbalance of 0.1\,dB is $g=10^{0.1/20}=1.0116$, $\epsilon=0.0116$; a phase error of $1^\circ$
+is $\phi=0.01745$\,rad. The approximation gives $\text{IRR}\approx4/(1.34\times10^{-4}+3.05\times10^{-4})
+=9120$, or 39.6\,dB; the exact formula agrees to 0.01\,dB. Notice that the phase error contributes more
+than twice as much as the gain error: $1^\circ$ of phase is ``worth'' about 0.15\,dB of gain mismatch. This
+is about the best that careful analog design achieves across temperature and frequency without
+calibration; 25 to 35\,dB is more typical of an uncalibrated wideband RFIC. A 39.6\,dB IRR limits the
+SNR of a mirrored OFDM subcarrier to about 40\,dB---ample for 256-QAM, marginal for the 4096-QAM of Wi-Fi~7,
+which therefore always relies on digital correction.
+\end{worked}
+
+\mdcfig{ch07_irr}{Image-rejection ratio. Left: contours of IRR against gain and phase imbalance; the
+dot marks $0.1$\,dB and $1^\circ$ (39.6\,dB). Right: IRR against phase error for four gain errors. Phase
+and gain errors combine as the sum of squares in~\eqref{eq:ch07:irr}, so the larger one dominates.}
+
+What the image does depends on the architecture. In a zero-IF receiver with a single signal centred at
+DC, the image is the signal's own mirror: subcarrier $k$ of an OFDM signal receives interference from
+subcarrier $-k$, and a single-carrier constellation is skewed into a parallelogram (left of
+Figure~\ref{fig:ch07_iq_correction}). In a low-IF receiver, or in an SDR capture containing several
+signals, the image of a strong signal at $+f$ falls on whatever weaker signal sits at $-f$, and the
+\emph{required} IRR is the power difference plus the SNR needed: a 30\,dB stronger neighbour and a 15\,dB
+SNR requirement need 45\,dB of image rejection (Lab~15, Section~6).
+
+\subsection{Frequency-dependent imbalance}
+
+The model above is \emph{frequency-independent}: the LO's quadrature error and the mixers' gain
+mismatch affect all baseband frequencies equally. But the I and Q branches also have separate
+baseband filters, TIAs and ADCs whose responses never match perfectly, and at the band edge of a 20 or
+56\,MHz-wide filter a tiny difference in corner frequency becomes a significant gain and phase mismatch.
+The result is an IRR that varies across the band, worst at the edges. Correction then needs a short FIR
+filter on one branch (a ``frequency-dependent'' or ``wideband'' I/Q corrector), or, in OFDM receivers,
+a per-subcarrier correction estimated from pilots or the preamble, which is natural because the
+channel estimator already works per subcarrier.
+
+\subsection{DC offset: sources and removal}
+
+The DC offset of Section~\ref{sec:ch07:zeroif} has a static part (LO self-mixing, baseband amplifier
+offsets) and a dynamic part (time-varying LO reflection, IM2 of a varying blocker). Analog loops remove
+the bulk so that the baseband amplifiers do not saturate; a digital estimator removes the rest. The
+simplest digital estimator is a running mean subtracted from the signal,
+\begin{equation}
+m[n]=m[n-1]+\alpha\big(y[n]-m[n-1]\big),\qquad z[n]=y[n]-m[n],
+\end{equation}
+which is a first-order high-pass filter with a notch at DC whose width is about $\alpha f_s/2\pi$. A small
+$\alpha$ gives a narrow notch that barely touches the signal but tracks slowly; a large one tracks fast
+but cuts a hole in the middle of the band. The B200's FPGA and the AD9364 both implement DC tracking, and
+UHD enables it by default.
+
+\begin{pitfall}[DC removal eats signals at DC]
+Automatic DC-offset correction cannot tell an unwanted offset from a wanted signal that happens to be at
+0\,Hz: a carrier tuned exactly to the centre of the band, an unmodulated pilot tone, or the carrier
+component of an AM or FSK signal. If your received tone mysteriously vanishes when tuned dead centre,
+this is why. The standard SDR answer is \emph{offset tuning}: tune the RF LO a few hundred kilohertz away
+from the signal and let the digital down-converter shift it the rest of the way, so that both the DC
+spur and the DC notch fall outside the signal. In UHD this is a \texttt{tune\_request} with an LO offset;
+in GNU Radio, the \texttt{lo\_offset} argument of the USRP source.
+\end{pitfall}
+
+\subsection{Estimating and correcting the imbalance}
+
+Because the imbalance is a $2\times2$ linear transformation of $(x_I,x_Q)$, it can be undone by its
+inverse once $g$ and $\phi$ are known. They can be estimated \emph{blindly} from the received signal's
+second-order statistics. Almost all communication signals are \emph{proper} (circular): their I and Q
+components have equal power and are uncorrelated, $\E[x_I^2]=\E[x_Q^2]$ and $\E[x_Ix_Q]=0$
+(Chapter~\ref{ch:noise}). The imbalance breaks this symmetry. With $y_I=x_I$ and
+$y_Q=g(\cos\phi\,x_Q+\sin\phi\,x_I)$, after removing the mean,
+\begin{equation}
+\frac{\E[y_Iy_Q]}{\E[y_I^2]}=g\sin\phi,\qquad \frac{\E[y_Q^2]}{\E[y_I^2]}=g^2,
+\end{equation}
+so $g\sin\phi$ and $g\cos\phi=\sqrt{g^2-(g\sin\phi)^2}$ follow directly, and the corrected quadrature
+component is
+\begin{equation}
+\hat x_Q=\frac{y_Q-g\sin\phi\;y_I}{g\cos\phi}.
+\label{eq:ch07:iqcorr}
+\end{equation}
+This is a Gram--Schmidt orthonormalisation of Q against I, implemented in Lab~1's \texttt{iq\_correct}
+function. Figure~\ref{fig:ch07_iq_correction} shows it at work on a capture with 1.5\,dB and $10^\circ$ of
+imbalance plus a DC offset; the estimates from 65\,536 samples are correct to 0.01\,dB and $0.01^\circ$. An
+equivalent formulation, popular in the literature, estimates the coefficient $w$ of a correction
+$z=y+w\,y^*$ that makes $\E[z^2]=0$ (restores circularity), and an adaptive version updates $w$ with an
+LMS-style rule, $w\leftarrow w-\mu_wz^2$, tracking slow drift. The method fails for signals that are not
+proper---a single real tone, a BPSK signal at DC, a signal whose spectrum is not symmetric in power
+within the estimation window---which is why calibration-based methods are also used.
+
+\mdcfig{ch07_iq_correction}{Blind I/Q correction. A 16-QAM signal at DC and a 15\,dB stronger
+QPSK carrier at $+0.27$ cycles/sample are received with 1.5\,dB and $10^\circ$ of imbalance and a DC
+offset. Left: the 16-QAM constellation is skewed and shifted; centre: after mean removal and the
+correction~\eqref{eq:ch07:iqcorr}; right: the spectrum before and after, showing the DC spike and the
+QPSK carrier's image at $-0.27$ removed.}
+
+\paragraph{Calibration.} An RFIC can measure its own impairments by injecting a known test tone, or by
+looping its transmitter back into its receiver, at power-up and whenever the frequency or gain changes.
+The AD9364 performs a sequence of such calibrations (baseband and RF DC offset, receive and transmit
+quadrature) when it is tuned, and runs background tracking of receive quadrature and DC offset during
+operation; UHD exposes the tracking as \texttt{set\_auto\_dc\_offset} and \texttt{set\_auto\_iq\_balance}.
+
+\subsection{The transmitter's I/Q impairments}
+
+A quadrature modulator, $s(t)=I(t)\cos2\pi f_ct-Q(t)\sin2\pi f_ct$, suffers the same impairments in
+mirror image. A DC offset at the DAC outputs, together with the mixer's LO-to-RF feedthrough, appears as
+\term{LO leakage}: a carrier spike at the centre of the transmitted signal. Gain and phase mismatch
+produce an image at the mirror frequency, suppressed by the IRR of equation~\eqref{eq:ch07:irr}; the
+Ettus data sheet quotes the B200's single-sideband and carrier suppression at roughly 35 and 50\,dBc
+respectively. Both are corrected by \emph{pre}-distorting the I/Q samples: adding a small DC term of
+opposite sign cancels the leakage, and applying the inverse of~\eqref{eq:ch07:iqmodel} before the DACs
+cancels the image. The estimates come from a loopback measurement through the receiver or a dedicated
+observation receiver, and both errors count in the transmitter's EVM budget.
+
+\begin{keyidea}[Analog good enough, digital the rest]
+Every impairment in this section---DC offset, I/Q imbalance, LO leakage, frequency-dependent
+mismatch---is a \emph{deterministic, slowly varying, linear} distortion. That is what makes it cheap to
+correct digitally: estimate a handful of parameters occasionally and apply a $2\times2$ matrix or a short
+filter to every sample. The analog designer's job is to keep the impairments small enough and stable
+enough that the estimates converge and stay valid between updates; the DSP designer's is to estimate
+them from whatever the signal offers. The same partnership, with a much harder nonlinear model, is the
+basis of the digital predistortion of the next section.
+\end{keyidea}
+
+%======================================================================
 \section{The transmitter}
+\label{sec:ch07:tx}
+%======================================================================
 
-\subsection{The I/Q modulator}
+\subsection{From samples to RF: DACs and reconstruction}
 
-A modern transmitter synthesises the complex envelope digitally, converts I and Q with two DACs and
-up-converts them with a quadrature modulator:
-$s(t)=I(t)\cos2\pi f_ct-Q(t)\sin2\pi f_ct$. Its impairments mirror the receiver's: \emph{LO leakage}
-appears as a carrier spike at the centre of the signal, and I/Q gain and phase mismatch produce a
-mirror image with the suppression given by Figure~\ref{fig:ch04_ssb_phase}. Both are measured and
-corrected digitally, and both are part of the transmit EVM budget that standards specify.
+A modern transmitter synthesises the complex envelope digitally, interpolates it to the DAC rate,
+converts I and Q with two DACs, filters, and up-converts with the quadrature modulator. A DAC holds each
+sample for one sample period, so its output is the ideal impulse train convolved with a rectangular
+pulse: the \emph{zero-order hold} of Chapter~\ref{ch:pcm}. Two consequences follow
+(Figure~\ref{fig:ch07_dac_images}). First, the output spectrum is multiplied by a sinc envelope, which
+droops by $20\log_{10}\sinc(f/f_s)$: 0.6\,dB at $0.2f_s$ and 3.9\,dB at $f_s/2$. An \emph{inverse-sinc}
+FIR before the DAC flattens it. Second, the spectrum contains \emph{images} of the signal around every
+multiple of $f_s$, attenuated only by the sinc nulls; the image at $f_s-f$ is only a few decibels below the
+wanted signal when $f$ is a sizeable fraction of $f_s$. An analog reconstruction filter must remove them.
+Interpolating digitally by 4 before the DAC pushes the first image to $4f_s-f$, so that the sinc envelope
+attenuates it heavily and a gentle, cheap, low-group-delay analog filter suffices. The AD9364 does
+exactly this: its transmit path has a programmable FIR and up to three half-band interpolators before
+DACs that run at a multiple of the data rate.
 
-\subsection{Power amplifiers}
+\mdcfig{ch07_dac_images}{DAC images and the zero-order hold. Left: running the DAC at the data rate
+leaves images only a few decibels down at $f_s\pm f$, demanding a steep reconstruction filter. Right: after
+$4\times$ digital interpolation the first images move to $4f_s\pm f$, deep in the sinc envelope's skirt,
+and a gentle analog filter suffices.}
 
-The PA is the most power-hungry component of most radios and the most nonlinear. Its classes trade
-linearity for efficiency. \emph{Class A} conducts all the time and is linear but at best 50\%
-efficient; \emph{class AB} and \emph{B} conduct for about half the cycle and reach 60 to 78\% at peak
-power; \emph{class C, D, E} and \emph{F} operate as switches or with harmonic shaping and exceed 80\%,
-but only for constant-envelope signals such as FM, GMSK and FSK. That is why 2G GSM, Bluetooth and
-most IoT links use constant-envelope modulations: they let a battery-powered device use a
-saturated, efficient PA.
+\subsection{Power-amplifier classes}
+
+The PA is the most power-hungry component of most radios and the most nonlinear. Its \emph{drain
+efficiency} is $\eta=P_{\text{out}}/P_{\text{DC}}$; its \emph{power-added efficiency} subtracts the input
+drive, $(P_{\text{out}}-P_{\text{in}})/P_{\text{DC}}$. The classic classes are distinguished by how the
+transistor is biased and driven (Table~\ref{tab:ch07:paclasses}).
+
+\begin{table}[htbp]\centering\small
+\caption{Power-amplifier classes. Efficiencies are ideal maxima at full output.}
+\label{tab:ch07:paclasses}
+\begin{tabular}{l>{\raggedright\arraybackslash}p{2.5cm}c>{\raggedright\arraybackslash}p{5.6cm}}
+\toprule
+Class & Operation & $\eta_{\max}$ & Typical use \\
+\midrule
+A & conducts $360^\circ$ & 50\% & Small-signal drivers, highest-linearity stages \\
+AB & conducts $180$--$360^\circ$ & 50--78.5\% & Linear PAs for QAM/OFDM (phones, Wi-Fi, carrier amp of a Doherty) \\
+B & conducts $180^\circ$ (push-pull) & 78.5\% & Linear PAs; the theoretical reference \\
+C & conducts $<180^\circ$ & $\to100$\% & FM and CW transmitters, peaking amp of a Doherty \\
+D & switching, square wave & 100\% & Audio, LF/MF broadcast, envelope modulators \\
+E & switching with shaped load (zero-voltage switching) & 100\% & GSM, Bluetooth, RFID, constant-envelope PAs \\
+F, F$^{-1}$ & harmonic tuning shapes voltage and current & 100\% & High-efficiency base-station and satellite PAs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The efficiency limits follow from simple waveform arguments. A class-A stage biased at $I_{DC}$ with
+supply $V_{DD}$ delivers at most a sinusoid of amplitude $V_{DD}$ and $I_{DC}$, i.e.\
+$P_{\text{out}}=\tfrac12V_{DD}I_{DC}$, half the DC power. A class-B stage conducts on alternate half
+cycles; its DC current is the average of a half-sine, $(2/\pi)I_{\text{pk}}$, so
+$\eta=\tfrac12V_{\text{pk}}I_{\text{pk}}/(V_{DD}\cdot2I_{\text{pk}}/\pi)=(\pi/4)(V_{\text{pk}}/V_{DD})$,
+reaching 78.5\% at full swing. Switching classes D, E and F make the transistor a switch---either full
+voltage and no current, or full current and no voltage---so ideally it dissipates nothing; but a switch
+produces a constant-amplitude output, so these classes can amplify only constant-envelope signals, or
+must have their amplitude restored by modulating the supply.
+
+\paragraph{Efficiency versus back-off.} The crucial point for modern signals is what happens \emph{below}
+full output. If the output amplitude is a fraction $v$ of its maximum (an output back-off of
+$-20\log_{10}v$\,dB), the class-A efficiency falls as $v^2$ (the DC power is constant) and the class-B
+efficiency as $v$ (the DC current follows the signal). An OFDM signal spends most of its time 6 to 12\,dB
+below its peak (Figure~\ref{fig:ch07_pa_efficiency}), so averaged over the signal's amplitude
+distribution an ideal class-B PA handling an 8\,dB-PAPR OFDM signal is only about 35\% efficient, and a
+class-A one 8\%. Real PAs, with knee voltages, losses and the need for some extra back-off for
+linearity, do worse. Constant-envelope modulations (FM, GMSK, FSK) avoid the problem entirely, which is
+why 2G GSM, Bluetooth and most IoT links use them: they let a battery-powered device run a saturated,
+efficient PA (Chapter~\ref{ch:modulation}).
+
+\mdcfig{ch07_pa_efficiency}{Left: ideal drain efficiency against output back-off for class A, class B,
+symmetric and asymmetric Doherty and envelope tracking (modelled as a 70\%-efficient PA with an
+85\%-efficient supply modulator), with the histogram of an 8\,dB-PAPR OFDM signal's instantaneous back-off.
+Right: the average efficiency each achieves with that signal.}
+
+\subsection{AM/AM, AM/PM and memory}
+
+A PA's nonlinearity is characterised, for narrowband signals, by how its output amplitude and phase
+depend on the input amplitude: the \term{AM/AM} and \term{AM/PM} characteristics. For solid-state PAs the
+\emph{Rapp model} captures AM/AM well,
+\begin{equation}
+|y|=\frac{G|x|}{\big(1+(G|x|/A_{\text{sat}})^{2p}\big)^{1/2p}},
+\end{equation}
+with a smoothness parameter $p$ of about 2 to 3; travelling-wave tube amplifiers in satellites are
+described by the \emph{Saleh model}, which has pronounced AM/PM (Chapter~\ref{ch:satellite}). Both are
+\emph{memoryless}: the output depends only on the present input.
+
+Real PAs have \term{memory}: the output also depends on past inputs, because the bias networks, matching
+networks and the transistor's temperature all have time constants. Electrical memory from bias-network
+impedance at the envelope frequency, and thermal memory with time constants from microseconds to
+milliseconds, make the AM/AM and AM/PM ``curves'' into clouds and hysteresis loops when measured with a
+wideband signal (Figure~\ref{fig:ch07_dpd_amam}, red). Memory effects grow with signal bandwidth, which
+is why they matter more for a 100\,MHz NR carrier than for a 5\,MHz LTE carrier.
+
+\subsection{Spectral regrowth, ACLR and EVM}
 
 Linear modulations such as QAM and OFDM have a large peak-to-average power ratio (PAPR), about 10\,dB
-for OFDM at $10^{-3}$ probability. A PA driven into saturation clips the peaks, and the clipping
-distortion spreads into adjacent channels as \term{spectral regrowth} (Figure~\ref{fig:ch07_pa_regrowth}).
-Standards limit it through the \term{adjacent channel leakage ratio} (ACLR), typically 45\,dB for
-LTE and NR terminals, and limit in-band distortion through EVM. The simplest fix is \term{back-off}:
-operating the PA well below saturation. But efficiency falls rapidly with back-off; a class-AB PA
-backed off by 8 to 10\,dB may be only 10 to 15\% efficient.
+for OFDM at $10^{-3}$ probability (Chapter~\ref{ch:ofdm}). A PA driven near saturation compresses the peaks,
+and the distortion---odd-order products of the signal with itself---spreads into adjacent channels as
+\term{spectral regrowth} (Figure~\ref{fig:ch07_pa_regrowth}). Third-order distortion occupies three times the
+signal bandwidth, fifth-order five times. The \term{adjacent channel leakage ratio},
+\begin{equation}
+\text{ACLR}=10\log_{10}\frac{\int_{\text{assigned channel}}S(f)\,df}{\int_{\text{adjacent channel}}S(f)\,df}\ \text{dB},
+\end{equation}
+is the standard measure. For NR, 3GPP requires about 30\,dB from a phone (TS~38.101-1) and 45\,dB from a
+base station (TS~38.104); LTE's numbers (TS~36.101, 36.104) are similar. In-band distortion is measured by
+the \term{error-vector magnitude}, the RMS difference between the transmitted and ideal constellation
+points relative to the RMS signal; NR allows a phone 8\% for 64-QAM and 3.5\% for 256-QAM. Beyond the
+adjacent channel, a \emph{spectrum emission mask} bounds the out-of-band emission as a function of
+offset, and \emph{spurious emission} limits (of the order of $-30$\,dBm per megahertz above 1\,GHz for a
+phone) apply everywhere else, including at the harmonics that the PA's output filter must suppress.
 
 \mdcfig{ch07_pa_regrowth}{Left: AM/AM curve of a solid-state PA (Rapp model). Right: spectrum of an
 OFDM signal after the PA at 12, 6 and 3\,dB of back-off. Each 3\,dB less back-off raises the
 out-of-band emission substantially.}
 
-\subsection{Efficiency and linearisation}
+\mdcfig{ch07_aclr_backoff}{A 64-QAM OFDM signal through a Rapp PA with AM/PM. Left: ACLR rises by about
+1.7\,dB per dB of back-off while efficiency (dotted, ideal class B) falls; meeting a base station's 45\,dB
+without linearisation needs about 14\,dB of back-off and leaves less than 20\% efficiency. Right: EVM
+against back-off with the NR UE limits for 64- and 256-QAM.}
 
-Four techniques recover efficiency without giving up linearity:
+\begin{worked}[The efficiency--ACLR trade for a base-station PA]
+A macro base station must deliver 40\,W average per carrier with 45\,dB ACLR. Take the PA model of
+Figure~\ref{fig:ch07_aclr_backoff} as representative of a class-AB device without linearisation: 45\,dB
+ACLR needs about 14\,dB of output back-off from saturation, where the efficiency is about 18\%. The PA
+must then be capable of $40\times10^{1.4}\approx1000$\,W peak, and it draws $40/0.18=220$\,W from the
+supply, dissipating 180\,W as heat.
+
+Now add DPD that improves ACLR by about 20\,dB (Figure~\ref{fig:ch07_dpd}). The PA can run at about 6\,dB
+back-off, where its raw ACLR of 30\,dB becomes about 50\,dB after correction and its efficiency is about
+41\%: a 160\,W device drawing 98\,W. The saving is 120\,W per carrier, about 1\,MWh a year, before counting
+the air-conditioning that would have removed the heat. Replace the class-AB stage with a Doherty and the
+efficiency at that back-off rises to 50 to 60\% in practice. Multiply by three sectors, several carriers
+and hundreds of thousands of sites, and DPD plus Doherty is worth whole power stations; this is why every
+macro base station since the late 2000s uses both.
+\end{worked}
+
+\begin{worked}[An EVM budget for 256-QAM]
+EVM contributions from independent impairments add in power. Suppose a transmitter must meet 3.5\% for
+256-QAM, and its designer allocates: LO phase noise $1^\circ$ RMS, contributing
+$\sigma_\phi=0.0175$, i.e.\ 1.75\%; I/Q image after calibration at 40\,dB IRR, 1.0\%; PA distortion
+after DPD, 2.0\%; DAC quantisation, filter ripple and group delay, 0.5\%. The total is
+$\sqrt{1.75^2+1.0^2+2.0^2+0.5^2}=2.9$\%, leaving a little margin for production spread and temperature.
+The budget shows where effort pays: halving the phase noise to $0.5^\circ$ would save more than any
+improvement to the DAC, and the PA, as usual, is the biggest single term.
+\end{worked}
+
+\subsection{Crest-factor reduction}
+
+\term{Crest-factor reduction} (CFR) reduces the PAPR of the digital signal before the PA, trading a
+small, controlled amount of EVM for a large gain in efficiency. The simplest effective method is
+\emph{iterative clipping and filtering}: clip the complex envelope's magnitude at a threshold, then
+filter away the out-of-band products the clipping created (for OFDM, zero the unused subcarriers),
+and repeat, because filtering regrows some peaks. Figure~\ref{fig:ch07_cfr} shows a 64-QAM OFDM signal
+whose PAPR at $10^{-4}$ probability falls from about 10\,dB to under 8\,dB with one iteration and to about
+7\,dB with four, at EVM costs of 3.3\% and 5.7\%. Production CFR uses \emph{peak cancellation}---subtracting
+band-limited pulses centred on each peak---which achieves the same result in a single pass and can shape
+the EVM, putting more of it on low-order subcarriers that can tolerate it. Tone reservation (Chapter~\ref{ch:ofdm})
+keeps EVM at zero by sacrificing a few subcarriers.
+
+\mdcfig{ch07_cfr}{Crest-factor reduction by clipping and filtering. Left: CCDF of the instantaneous-to-average
+power for the original OFDM signal and after one and four clip-and-filter iterations at a 6\,dB
+threshold. Right: the spectrum per subcarrier; clipping alone (dashed) splatters into the guard band,
+while filtering confines the distortion to the occupied subcarriers.}
+
+\subsection{Digital predistortion}
+\label{sec:ch07:dpd}
+
+\term{Digital predistortion} (DPD) applies, in the digital domain, an approximate inverse of the PA's
+nonlinearity, so that the cascade of predistorter and PA is linear up to saturation. Because the PA has
+memory, the predistorter must too. The workhorse model is the \term{memory polynomial},
+\begin{equation}
+z[n]=\sum_{k=1}^{K}\sum_{m=0}^{M}a_{km}\,x[n-m]\,\big|x[n-m]\big|^{k-1},
+\label{eq:ch07:mp}
+\end{equation}
+a polynomial of order $K$ in the envelope at each of $M+1$ delays, with complex coefficients $a_{km}$.
+It is a pruned Volterra series that keeps only the ``diagonal'' terms, and its great virtue is that it is
+\emph{linear in its coefficients}: stacking the basis functions $x[n-m]|x[n-m]|^{k-1}$ as the columns of
+a matrix $\boldsymbol\Phi$, the coefficients that best map one signal to another are a least-squares
+solution, $\mathbf a=(\boldsymbol\Phi^H\boldsymbol\Phi)^{-1}\boldsymbol\Phi^H\mathbf z$. The
+\emph{generalised} memory polynomial of Morgan and colleagues adds cross terms between the signal and
+lagging and leading envelope samples, capturing more of the memory at modest cost.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.6cm and 0.75cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.9cm,minimum width=1.6cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]},thick,navy}]
+\node[font=\sffamily\scriptsize] (x) {$x[n]$};
+\node[blk,right=0.6cm of x] (pd) {predistorter\\(copy of $\mathbf a$)};
+\node[blk,right=of pd] (dac) {DAC +\\up-conv.};
+\node[blk,right=of dac,fill=accent!6,draw=accent] (pa) {PA};
+\node[right=0.6cm of pa,font=\sffamily\scriptsize] (y) {$y(t)$};
+\node[blk,below=0.75cm of pa] (obs) {observation\\receiver, $\div G$};
+\node[blk,below=0.75cm of pd] (post) {postdistorter\\training: fit $\mathbf a$};
+\draw[arr] (x)--(pd); \draw[arr] (pd)--node[above,font=\tiny]{$z[n]$}(dac); \draw[arr] (dac)--(pa); \draw[arr] (pa)--(y);
+\draw[arr] ($(pa.east)+(0.25,0)$) |- (obs.east);
+\draw[arr] (obs)--node[above,font=\tiny]{$y[n]/G$}(post);
+\draw[arr,accent] ($(pd.east)+(0.3,0)$) -- ++(0,-0.75) -| ($(post.north)+(0.45,0)$);
+\node[font=\tiny,text=accent,anchor=west] at ($(pd.east)+(0.35,-0.45)$) {target $z[n]$};
+\draw[arr,dashed] ($(post.north)-(0.3,0)$) -- node[left,font=\tiny]{copy $\mathbf a$} ($(pd.south)-(0.3,0)$);
+\end{tikzpicture}
+\caption{The indirect learning architecture. A postdistorter is trained to map the PA's normalised
+output $y/G$ back to the PA's input $z$; since a $p$th-order inverse is (approximately) the same whether
+placed before or after the PA, its coefficients are copied into the predistorter. Training repeats
+every few milliseconds to seconds to track temperature and ageing.}
+\label{fig:ch07_ila}
+\end{figure}
+
+How are the coefficients found? The PA's output is observed through an \emph{observation receiver}---a
+second, linear down-converter and ADC whose bandwidth must be three to five times the signal bandwidth to
+see the distortion products. In the \term{indirect learning architecture} (ILA,
+Figure~\ref{fig:ch07_ila}), a \emph{postdistorter} is fitted to map the normalised PA output $y/G$ to the
+PA input $z$, by least squares on a block of samples; its coefficients are then copied into the
+predistorter, and the process iterates a few times. The ILA relies on the fact that the $p$th-order
+inverse of a nonlinear system is the same whether applied before or after it; it is simple and robust,
+though slightly biased by noise in the observed output. \emph{Direct learning} instead adjusts the
+predistorter to minimise the error between $x$ and $y/G$ directly, which avoids the bias at the cost of
+needing a model of the PA's gradient.
+
+Figure~\ref{fig:ch07_dpd} shows ILA at work on a PA model with memory (a Wiener--Hammerstein cascade of a
+short filter, a Rapp AM/AM with AM/PM, and another filter) driven by OFDM at 11\,dB input back-off. The PA
+alone gives 39\,dB ACLR; a memoryless polynomial predistorter ($K=7$, $M=0$) improves it to 56\,dB; a memory
+polynomial ($K=7$, $M=3$) to 60\,dB. Figure~\ref{fig:ch07_dpd_amam} shows why: after DPD the AM/AM and
+AM/PM clouds collapse onto the ideal straight lines. DPD cannot help above saturation---no predistorter can
+make the PA deliver more power than it has---so in practice it is always combined with CFR, which keeps
+the peaks below the point where the PA runs out.
+
+\mdcfig[0.88]{ch07_dpd}{Digital predistortion of a PA with memory at 11\,dB input back-off, using the
+indirect learning architecture. A memoryless polynomial removes most of the regrowth; a memory polynomial
+removes more, approaching the ideal linear amplifier near the channel.}
+
+\mdcfig{ch07_dpd_amam}{AM/AM and AM/PM of the PA with memory, measured sample by sample with an OFDM
+signal. Without DPD (red) the characteristic compresses and memory spreads it into a cloud; with the
+memory-polynomial DPD (green) it collapses onto the ideal linear response.}
+
+\begin{inpractice}[DPD in real products]
+DPD began in cellular base stations in the 2000s, where the savings of the worked example above paid for
+the observation receiver and the FPGA logic many times over, and it is now universal in macro and small
+cells, in cable-TV and satellite amplifiers, and in high-power broadcast transmitters. Commercial
+implementations run the predistorter at three to five times the signal bandwidth in an FPGA or ASIC and
+the coefficient estimation in software on an embedded processor; RFSoC-based radio units and dedicated
+transceiver chips include DPD engines as hard blocks. Phones were long thought too power-constrained for
+DPD, but the wide bandwidths and high peak-to-average ratios of NR uplinks have brought lightweight DPD
+and envelope-tracking-aware predistortion into high-end handset PA modules. Massive-MIMO arrays with 64 or
+more low-power PAs pose a new problem: a full DPD per PA is expensive, and research and products are
+exploring shared observation receivers and beam-domain DPD.
+\end{inpractice}
+
+\subsection{The Doherty amplifier}
+
+The \term{Doherty amplifier} (Figure~\ref{fig:ch07_doherty_tikz}) combines a \emph{carrier} (main)
+amplifier biased in class AB with a \emph{peaking} (auxiliary) amplifier biased in class C that turns on
+only for signal peaks. The trick is \emph{load modulation}. The main amplifier drives the load through a
+quarter-wave transmission line, an impedance inverter: $Z_{\text{in}}=Z_0^2/Z_L$. At low drive the peaking
+amplifier is off, the main amplifier sees twice its optimum load, and so reaches its maximum voltage swing,
+and hence maximum efficiency, at half its maximum current---6\,dB below the combined peak power. Above that
+point the peaking amplifier starts injecting current into the common node, which raises the apparent load
+impedance there; through the inverter the main amplifier sees its load \emph{fall} toward $R_{\text{opt}}$,
+so it delivers more current while its voltage stays at the maximum. At full drive both amplifiers deliver
+equal power into their optimum loads (Figure~\ref{fig:ch07_doherty}, left). The efficiency of an ideal
+symmetric Doherty with class-B devices has two peaks of 78.5\%, at full power and at 6\,dB back-off, and
+does not fall below about 70\% between them:
+\begin{equation}
+\eta(v)=\begin{cases}\dfrac{\pi}{4}\dfrac{v}{\alpha}, & v\le\alpha,\\[2ex]
+\dfrac{\pi}{4}\dfrac{v^2}{v(1+\alpha)-\alpha}, & v>\alpha,\end{cases}
+\label{eq:ch07:doherty}
+\end{equation}
+where $v$ is the normalised output amplitude and $\alpha$ the amplitude at which the peaking amplifier
+turns on ($\alpha=\tfrac12$ for a symmetric Doherty). An asymmetric Doherty, with a peaking device twice
+the size of the main ($\alpha=\tfrac13$), moves the back-off peak to 9.5\,dB, better matched to OFDM's
+statistics; three-way Doherties go further. With the 8\,dB OFDM signal of
+Figure~\ref{fig:ch07_pa_efficiency}, both ideal Doherties average about 61\%, against 35\% for class B.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.6cm and 0.8cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.9cm,minimum width=1.6cm,align=center,font=\sffamily\scriptsize},
+  tl/.style={draw=practc,fill=practc!8,thick,minimum height=0.55cm,minimum width=1.5cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]},thick,navy}]
+\node[font=\sffamily\scriptsize] (in) {RF in};
+\node[blk,right=0.5cm of in,minimum width=1.4cm] (split) {splitter};
+\node[blk,right=of split,yshift=0.9cm] (main) {carrier amp\\class AB};
+\node[tl,right=0.5cm of split,yshift=-0.9cm] (ph) {$\lambda/4$ (90$^\circ$)};
+\node[blk,right=0.4cm of ph,fill=accent!6,draw=accent] (peak) {peaking amp\\class C};
+\node[tl,right=of main] (inv) {$\lambda/4$, $Z_0=R_{\text{opt}}$\\impedance inverter};
+\coordinate (node) at ($(inv.east)+(0.7,0)$);
+\node[draw=navy,thick,circle,fill=navy,inner sep=1.3pt] (nd) at (node) {};
+\node[blk,right=0.8cm of nd,minimum width=1.4cm] (load) {load\\$R_{\text{opt}}/2$};
+\draw[arr] (in)--(split); \draw[arr] (split.east) -- ++(0.2,0) |- (main.west);
+\draw[arr] (split.east) -- ++(0.2,0) |- (ph.west);
+\draw[arr] (ph)--(peak); \draw[arr] (main)--(inv); \draw[thick,navy] (inv.east)--(nd);
+\draw[arr] (peak.east) -| (nd); \draw[arr] (nd)--(load);
+\node[above=0.12cm of nd,font=\tiny,align=center] {common node:\\load modulation};
+\end{tikzpicture}
+\caption{The Doherty amplifier. The quarter-wave line after the carrier amplifier inverts the impedance
+at the common node, so that as the peaking amplifier injects current the carrier amplifier sees its load
+fall from $2R_{\text{opt}}$ to $R_{\text{opt}}$. The quarter-wave line at the peaking amplifier's input
+restores phase alignment at the combining node.}
+\label{fig:ch07_doherty_tikz}
+\end{figure}
+
+\mdcfig{ch07_doherty}{The ideal symmetric Doherty. Left: as the drive rises past half its maximum, the
+peaking amplifier's current rises from zero while the main amplifier's load falls from $2R_{\text{opt}}$
+to $R_{\text{opt}}$ and its voltage stays at maximum swing. Right: efficiency~\eqref{eq:ch07:doherty} of
+symmetric and asymmetric Doherty amplifiers against class B.}
+
+\begin{history}[Doherty's amplifier, 1936]
+William H.\ Doherty of Bell Telephone Laboratories described ``a new high efficiency power amplifier for
+modulated waves'' in the \emph{Proceedings of the IRE} in 1936. His problem was the AM broadcast
+transmitter, whose carrier sits at a quarter of peak envelope power and whose linear amplifiers wasted
+most of their input as heat. A Doherty amplifier went into service at a 50\,kW broadcast station, and the
+technique was used in AM transmitters for a few decades before high-level plate modulation and later
+pulse-step modulation (Chapter~\ref{ch:analog}) displaced it. It then lay largely dormant until the
+2000s, when the 3G and 4G base-station industry, facing high-PAPR signals and enormous electricity bills,
+rediscovered it. Combined with DPD to correct its rather nonlinear behaviour, it became the standard
+base-station PA within a decade. Its contemporary, Henri Chireix's 1935 \emph{outphasing} amplifier,
+which combines two constant-envelope signals of varying phase to synthesise an amplitude-modulated one,
+has been rediscovered in the same way.
+\end{history}
+
+\subsection{Envelope tracking and polar transmitters}
+
+\term{Envelope tracking} (ET) attacks the efficiency problem from the supply side: a fast DC--DC
+converter (the \emph{supply modulator}) varies the PA's drain voltage to follow the signal's envelope,
+so that the transistor operates near compression, where it is efficient, at every instant. The PA remains
+a linear amplifier; the supply merely removes the headroom it would otherwise waste. The supply modulator,
+which must track envelopes with bandwidths of tens of megahertz at high efficiency, is the hard part, and
+the combined efficiency is the product of the PA and modulator efficiencies (about 58\% in the idealised
+model of Figure~\ref{fig:ch07_pa_efficiency}). ET entered smartphones with LTE around 2013 and is now in
+nearly every 4G and 5G handset's PA module; it is used with DPD-like ``isogain'' shaping tables that choose
+the supply voltage for each envelope value so that the PA's gain stays constant. Its ancestor,
+\emph{envelope elimination and restoration} (Kahn, 1952), drives a saturated PA with a constant-envelope
+phase signal and imposes the amplitude entirely through the supply---the high-power version of the
+pulse-step AM transmitters of Chapter~\ref{ch:analog}, and of the polar transmitters used in some EDGE
+phones.
+
+\subsection{Full duplex and self-interference}
+\label{sec:ch07:fullduplex}
+
+Every radio in this chapter avoids hearing its own transmitter by separating transmit and receive in
+time (TDD) or frequency (FDD). \emph{In-band full duplex}---transmitting and receiving on the same
+frequency at the same time---would double spectral efficiency for some links, but it requires suppressing
+the transmitter's own signal at the receiver by about 110\,dB: from $+20$\,dBm transmitted to below a
+$-90$\,dBm noise floor. No single technique provides this. The suppression is built up in stages:
+antenna isolation or a circulator (20 to 40\,dB), \emph{analog cancellation} that subtracts a tapped,
+delayed and weighted copy of the transmit signal at the LNA input before it can saturate the receiver (20
+to 30\,dB), and \emph{digital cancellation} that models the residual---including the PA's nonlinearity and
+the transmitter's phase noise, which a linear canceller cannot remove---with the same memory polynomials as
+DPD (30 to 40\,dB). Full duplex is used today in wireline (every DSL and Ethernet transceiver cancels its
+own echo, Chapter~\ref{ch:wireline}, and DOCSIS~4.0 extends it to cable), in some relay and
+integrated-access-backhaul nodes, and in radar and sensing systems that must listen while transmitting;
+for general cellular access it remains a research topic (Chapter~\ref{ch:sixg}).
+
+%======================================================================
+\section{The software-defined radio}
+\label{sec:ch07:sdr}
+%======================================================================
+
+A \term{software-defined radio} (SDR) is a radio in which some or all of the physical-layer functions
+are implemented in software or reprogrammable logic, so that the same hardware can be reconfigured to
+different waveforms, bands and standards. In a sense every radio in this chapter is one: the zero-IF
+transceiver of Figure~\ref{fig:ch07_transceiver} does everything right of its converters digitally. The
+term is usually reserved, though, for radios whose \emph{waveform} is software---where changing from FM
+to LTE to a home-made OFDM link is a matter of loading a program, not of buying a chip.
+
+\begin{history}[From SPEAKeasy to the software radio]
+The phrase \emph{software radio} was introduced by Joseph Mitola III in the early 1990s (his 1992 IEEE
+National Telesystems Conference paper used it) and set out in his influential 1995 \emph{IEEE
+Communications Magazine} article ``The software radio architecture'', which described a radio whose ADC
+sat as close to the antenna as possible and whose every function, from channel selection to the
+protocol stack, was software running on general-purpose hardware. Mitola later coined \emph{cognitive
+radio} (1999, with Gerald Maguire) for a software radio that senses and adapts to its environment. The
+motivation in the US military was interoperability: the often-told story of the 1983 Grenada operation,
+in which units of different services could not talk to each other because their radios were
+incompatible, became the standard justification. DARPA and the US Air Force's SPEAKeasy programme
+(phase~I from about 1992 to 1995) demonstrated a programmable radio covering 2 to 2000\,MHz that could
+emulate a large number of military waveforms. Its successor, the Joint Tactical Radio System (from
+1997), and its Software Communications Architecture (SCA), a framework for portable waveform software,
+had a long and expensive history, but the SCA is today an international standard for military SDRs, and
+the radios fielded under its descendants are software-defined throughout.
+\end{history}
+
+\begin{history}[GNU Radio, the USRP and the \$20 dongle]
+In civil communications the decisive step came from the open-source world. In 2001 Eric Blossom
+started GNU Radio, a free signal-processing framework, with funding from John Gilmore; its early
+showpiece was an HDTV receiver. GNU Radio needed hardware, and Matt Ettus built it: the first Universal
+Software Radio Peripheral (USRP), around 2004, put ADCs, DACs and an FPGA on a USB~2.0 board with
+plug-in RF daughterboards, at a price a university lab could afford. Ettus Research was acquired by
+National Instruments in 2010, and the USRP family---including the B200 and B210 (introduced in 2013,
+built around Analog Devices' AD9364 and AD9361 RFICs)---became the standard research SDR. In 2012 the
+Linux developer Antti Palosaari found that the Realtek RTL2832U chip in cheap DVB-T television dongles
+could be put into a mode that streamed raw 8-bit I/Q samples to the host; the \texttt{rtl-sdr} project of
+the Osmocom community turned it into a receiver covering roughly 24 to 1766\,MHz for about \$20. Within a
+year hundreds of thousands of hobbyists, students and security researchers had an SDR. Today
+software-defined base stations run on commodity servers (OpenAirInterface, srsRAN), and the Open RAN
+movement is built on the same idea.
+\end{history}
+
+\subsection{SDR architecture: RFIC, FPGA, host}
+
+A modern SDR has three layers (Figure~\ref{fig:ch07_b200}).
 \begin{description}
-\item[Crest-factor reduction (CFR)] clips and filters the digital signal to reduce PAPR by 2 to 4\,dB
-before the PA, trading a small, controlled EVM for a large efficiency gain.
-\item[Digital predistortion (DPD)] applies the inverse of the PA's nonlinearity in the digital domain,
-so that the cascade is linear. A small observation receiver samples the PA output; an adaptive
-algorithm (usually the \emph{indirect learning architecture} with a \emph{memory polynomial} or
-generalised memory polynomial model) learns the inverse. Figure~\ref{fig:ch07_dpd} shows a 20\,dB
-reduction in spectral regrowth at 10\,dB of back-off. Every macro base station and most small cells
-use DPD.
-\item[Doherty amplifiers] combine a carrier amplifier biased in class AB with a peaking amplifier
-that turns on only for signal peaks. Load modulation keeps efficiency high over about 6\,dB of
-back-off. Doherty PAs with DPD are the standard in cellular base stations.
-\item[Envelope tracking (ET)] varies the PA's supply voltage to follow the signal envelope, so the
-transistor is always near saturation. It is used in nearly every 4G and 5G smartphone.
+\item[The RF front end and RFIC.] An integrated zero-IF transceiver (AD9361/AD9364, AD9371, LMS7002M)
+or, at the high end, RF data converters with discrete or semi-discrete front ends. It covers a wide
+tuning range with programmable analog filters, gains and synthesisers, and it already does a
+considerable amount of DSP: decimation, interpolation, fixed filtering, DC and I/Q tracking, AGC.
+\item[The FPGA.] Further rate conversion (CIC and half-band filters, Chapter~\ref{ch:dsp}), digital
+down- and up-conversion with an NCO for fine tuning, timestamping of every sample, packetisation, and,
+on larger devices, user-programmable DSP for functions that are too fast for the host.
+\item[The host.] A PC, embedded ARM processor or GPU running the driver (UHD for Ettus radios) and the
+application---GNU Radio, MATLAB, a C++ program or Python with NumPy. All of the waveform-specific
+processing in this book's labs lives here.
 \end{description}
 
-\mdcfig[0.72]{ch07_dpd}{Digital predistortion inverts the PA's AM/AM curve. At 10\,dB back-off the
-out-of-band emission drops by about 20\,dB, approaching the ideal linear amplifier.}
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.62cm,minimum width=1.05cm,align=center,font=\sffamily\tiny},
+  fpga/.style={draw=accent,fill=accent!6,thick,minimum height=0.62cm,minimum width=1.05cm,align=center,font=\sffamily\tiny},
+  arr/.style={-{Stealth[length=1.4mm]},thick,navy}]
+% chip outlines
+\draw[navy,thick,dashed,rounded corners] (0.9,-0.55) rectangle (8.25,2.75);
+\node[font=\sffamily\scriptsize\bfseries,text=navy] at (4.6,2.5) {AD9364 RFIC};
+\draw[accent,thick,dashed,rounded corners] (8.45,-0.55) rectangle (10.75,2.75);
+\node[font=\sffamily\scriptsize\bfseries,text=accent] at (9.6,2.5) {Spartan-6 FPGA};
+% RX row
+\node[font=\sffamily\tiny,align=center] (rxp) at (0.0,1.5) {RX2 or\\TX/RX\\SMA};
+\node[blk] (lna) at (1.6,1.5) {LNA\\(gain steps)};
+\node[blk] (mix) at (2.85,1.5) {quadrature\\mixer};
+\node[blk] (tia) at (4.1,1.5) {TIA +\\1st-order LPF};
+\node[blk] (bbf) at (5.35,1.5) {BB LPF\\0.2--56 MHz};
+\node[blk] (adc) at (6.6,1.5) {12-bit\\ADCs};
+\node[blk] (dec) at (7.7,1.5) {HB + FIR\\decim.};
+\node[fpga] (fr) at (9.6,1.5) {DC, CIC, HB\\decim., time-\\stamps};
+\draw[arr] (rxp)--(lna); \draw[arr] (lna)--(mix); \draw[arr] (mix)--(tia); \draw[arr] (tia)--(bbf);
+\draw[arr] (bbf)--(adc); \draw[arr] (adc)--(dec); \draw[arr] (dec)--(fr);
+% TX row
+\node[font=\sffamily\tiny,align=center] (txp) at (0.0,0.15) {TX/RX\\SMA};
+\node[blk] (txo) at (1.6,0.15) {TX output\\atten.};
+\node[blk] (upc) at (2.85,0.15) {quadrature\\modulator};
+\node[blk] (tbf) at (4.1,0.15) {BB LPFs};
+\node[blk] (dac) at (5.35,0.15) {12-bit\\DACs};
+\node[blk] (int) at (6.6,0.15) {FIR + HB\\interp.};
+\node[fpga] (ft) at (9.6,0.15) {CIC, HB\\interp.,\\timed bursts};
+\draw[arr] (txo)--(txp); \draw[arr] (upc)--(txo); \draw[arr] (tbf)--(upc); \draw[arr] (dac)--(tbf);
+\draw[arr] (int)--(dac); \draw[arr] (ft)--(int);
+% synths
+\node[blk,draw=practc,fill=practc!8] (syn) at (2.85,-1.25) {RX and TX\\frac-$N$ synth.};
+\node[blk,draw=practc,fill=practc!8] (bbpll) at (5.35,-1.25) {BB PLL\\(converter clock)};
+\node[blk,draw=practc,fill=practc!8] (tcxo) at (0.6,-1.25) {40 MHz TCXO\\(10 MHz/PPS,\\GPSDO opt.)};
+\draw[arr,practc] (tcxo)--(syn); \draw[arr,practc] (syn)--(mix); \draw[arr,practc] (syn)--(upc);
+\draw[arr,practc] (syn.east)--(bbpll.west); \draw[arr,practc] (bbpll)--(dac); \draw[arr,practc] (bbpll.east) -| (adc.south);
+% host
+\node[draw=navy,thick,fill=navy!12,minimum height=2.0cm,minimum width=1.4cm,align=center,font=\sffamily\tiny] (host) at (12.1,0.8) {USB 3.0\\$\downarrow$\\host PC:\\UHD driver,\\GNU Radio,\\Python};
+\draw[arr] (fr.east) -- (fr.east -| host.west);
+\draw[arr] (ft.east -| host.west) -- (ft.east);
+\end{tikzpicture}
+\caption{The signal chain of the USRP B200. The AD9364 RFIC does the analog work and the first stages
+of rate conversion; the FPGA completes the decimation or interpolation, removes residual DC, timestamps
+samples and packs them for the USB~3.0 link to the host, where UHD delivers them to the application. One
+40\,MHz reference clocks everything. Specifications are approximate; see the Ettus and Analog Devices
+documentation.}
+\label{fig:ch07_b200}
+\end{figure}
 
-\section{Correcting analog impairments digitally}
+\subsection{The USRP B200 in detail}
 
-The philosophy of the modern transceiver is: build analog circuits that are good enough, then
-measure and correct the rest in DSP. The standard digital corrections are:
-\begin{itemize}
-\item \textbf{DC offset}: a high-pass filter or an estimator that subtracts the running mean, often in
-hardware (the B200's FPGA does this).
-\item \textbf{I/Q imbalance}: estimate the gain and phase mismatch from the second-order statistics of
-the received signal (for a proper complex signal, $E[I^2]=E[Q^2]$ and $E[IQ]=0$), then apply a
-$2\times2$ correction. Frequency-dependent imbalance requires a short FIR per branch.
-\item \textbf{Carrier and sampling frequency offset}: estimated and corrected by the synchronisation
-algorithms of Chapter~\ref{ch:sync}.
-\item \textbf{Transmit LO leakage and image}: calibrated with a loopback path at start-up and tracked in
-the background.
-\item \textbf{PA nonlinearity}: DPD, as above.
-\end{itemize}
+\paragraph{The RFIC.} The AD9364 is the single-channel member of Analog Devices' AD9361 family. Its
+receive path (top row of Figure~\ref{fig:ch07_b200}) is the zero-IF chain of
+Section~\ref{sec:ch07:arch}: an LNA with gain steps, a passive quadrature mixer, a transimpedance
+amplifier whose feedback network forms a first low-pass pole, a programmable third-order baseband
+low-pass filter whose bandwidth can be set from about 200\,kHz to 56\,MHz, and 12-bit ADCs that run at a
+multiple of the output rate. A digital chain of fixed half-band decimators (and an optional
+decimate-by-3 stage) and a programmable FIR of up to 128 taps brings the rate down to at most
+61.44\,MS/s while providing the sharp channel filtering that the gentle analog filters do not. The
+transmit path mirrors it, with a programmable FIR and half-band interpolators ahead of 12-bit DACs,
+baseband filters, a quadrature modulator and an output stage with about 90\,dB of attenuation range in
+0.25\,dB steps. Two fractional-$N$ synthesisers with integrated VCOs provide the RX and TX LOs from 70\,MHz
+to 6\,GHz, and a third PLL (the BB~PLL) generates the converter clock. On top of the signal path sit the
+calibrations and tracking loops of Section~\ref{sec:ch07:iq}, an AGC with fast and slow modes, and an
+internal state machine that sequences them.
 
-\section{The software-defined radio}
+\paragraph{The board.} Around the RFIC the B200 adds RF switches and baluns connecting the two SMA ports
+(\texttt{TX/RX}, which can transmit or receive, and \texttt{RX2}, receive only), a 40\,MHz TCXO
+(about $\pm2$\,ppm) with a PLL that can discipline it to an external 10\,MHz reference, a PPS input, an
+optional on-board GPSDO, a Xilinx Spartan-6 FPGA, and a Cypress FX3 USB~3.0 controller. The board is bus
+powered (an external supply is recommended for transmitting at full power) and Ettus quotes the maximum
+output power at more than $+10$\,dBm and the receive noise figure at under 8\,dB.
 
-\subsection{From SPEAKeasy to the USRP}
+\paragraph{Master clock rate and sample rates.} The \emph{master clock rate} (MCR) sets the AD9364's
+data-interface rate, up to 61.44\,MHz for a single channel (30.72\,MHz per channel when a B210 runs two).
+The host sample rate you request is the MCR divided by an integer decimation (or multiplied by an integer
+interpolation) in the FPGA. UHD picks an MCR automatically, but choosing it yourself is often better.
+Choosing an MCR that makes the FPGA's rate change even, or a power of two, gives the best filter
+performance, because the CIC and half-band stages are designed for those ratios; choosing an MCR equal to
+a multiple of the signal's natural rate (for example 30.72\,MHz for LTE and NR, whose sample rates are
+multiples of 1.92\,MHz) avoids fractional resampling altogether; and a rate change of 1 (MCR equal to the
+sample rate) bypasses the FPGA's filters entirely, leaving only the AD9364's.
 
-The term \emph{software radio} was coined by Joseph Mitola III in 1991 and popularised in his 1995
-paper ``The software radio architecture''. The US military's SPEAKeasy programme (1991--1995)
-demonstrated a radio that could emulate more than a dozen military waveforms by loading different
-software, motivated by the fact that US forces in the 1983 Grenada invasion could not talk to each
-other across services. The Joint Tactical Radio System and the Software Communications
-Architecture followed. In civil communications, the key enabler was the combination of fast ADCs,
-FPGAs and general-purpose processors. Eric Blossom started GNU Radio in 2001; Matt Ettus built the
-first Universal Software Radio Peripheral (USRP) in 2004 to give GNU Radio affordable hardware. The
-RTL-SDR discovery of 2012---that a \$20 DVB-T dongle could stream raw samples---put an SDR receiver in
-every student's hands. Today, software-defined base stations run on commodity servers
-(OpenAirInterface, srsRAN) and the Open RAN movement is built on the same idea.
+\paragraph{The USB link.} Samples cross USB~3.0 as 16-bit I and 16-bit Q integers (\texttt{sc16}, four
+bytes per complex sample), or as 12- or 8-bit samples to save bandwidth. At 61.44\,MS/s \texttt{sc16}
+is 246\,MB/s, close to what a good USB~3.0 controller sustains in practice; the usable rate depends on the
+host's controller and operating system, and Ettus specifies up to 56\,MHz of instantaneous bandwidth for
+the B200. If you need the full rate reliably, use a short cable, a dedicated USB~3.0 port and the
+\texttt{sc8} or \texttt{sc12} wire format.
 
-\subsection{The USRP B200 as a case study}
+\subsection{UHD and the host side}
 
-The B200 is a compact example of the architecture:
-\begin{itemize}
-\item \textbf{RF}: an Analog Devices AD9364 RFIC covering 70\,MHz to 6\,GHz, with one transmit and one
-receive chain, zero-IF architecture, integrated LNAs, mixers, synthesisers, 12-bit ADCs and DACs
-running up to 61.44\,MS/s, half-band and programmable FIR decimators, and hardware DC-offset and
-quadrature correction. Instantaneous bandwidth is up to 56\,MHz.
-\item \textbf{FPGA}: a Xilinx Spartan-6 performs further DSP (CIC and half-band decimation or
-interpolation, DC-offset correction, timestamping) and packs samples for the host.
-\item \textbf{Host interface}: USB 3.0, carrying 16-bit I/Q samples (or 8-bit for higher rates).
-\item \textbf{Clocking}: a 40\,MHz TCXO ($\pm2$\,ppm) with inputs for an external 10\,MHz reference and
-a pulse-per-second (PPS) signal; a GPSDO can be fitted internally.
-\end{itemize}
-The \emph{master clock rate} (MCR) sets the AD9364's converter rate; the requested host sample rate
-is MCR divided by an integer decimation in the FPGA. Choosing an MCR that makes the decimation even,
-or a power of two, gives the best filter performance, and choosing an MCR equal to a multiple of the
-signal's natural rate (for example 30.72\,MHz for LTE and NR) avoids resampling altogether.
+UHD (the USRP Hardware Driver) is Ettus's open-source driver and API, in C++ with Python bindings. It
+finds and configures the device, tunes it, sets gains, rates and antennas, and moves samples between the
+radio and the application as \emph{streams}. A minimal Python capture looks like this:
+\begin{lstlisting}
+import uhd, numpy as np
+usrp = uhd.usrp.MultiUSRP("type=b200")
+x = usrp.recv_num_samps(1_000_000,   # number of samples
+                        2.437e9,     # centre frequency (Hz)
+                        10e6,        # sample rate (S/s)
+                        [0],         # channel list
+                        40)          # receive gain (dB)
+x = x[0]                             # complex64 array, full scale = 1.0
+\end{lstlisting}
+Behind that call are the objects every real application uses: a \emph{tune request}, which splits a
+requested frequency between the RF synthesiser and the FPGA's NCO (so that an LO offset can move the DC
+spur out of the band); \emph{stream arguments}, which choose the host format (\texttt{fc32} complex float
+or \texttt{sc16}) and the wire format; a \emph{receive streamer} that delivers buffers of samples with
+\emph{metadata}---a timestamp for the first sample, and error codes; and \emph{timed commands}, which
+schedule a tune, a gain change or a transmission at a future value of the radio's sample clock. Utility
+programs (\texttt{uhd\_find\_devices}, \texttt{uhd\_usrp\_probe}, \texttt{uhd\_fft},
+\texttt{rx\_samples\_to\_file}, \texttt{benchmark\_rate}) are the first things to run on a new setup.
 
-\subsection{Streaming, latency and time}
+\subsection{Streaming, buffering and time}
 
-The link between radio and host is a stream of packets. If the host does not consume samples fast
-enough, the radio's buffer \emph{overflows} and samples are lost (UHD prints \texttt{O}); if it does
-not supply transmit samples fast enough, the DAC \emph{underflows} (\texttt{U}). A USB 3.0 link and a
-modern CPU sustain a few tens of MS/s; beyond that, processing must move into the FPGA. Every packet
-carries a timestamp from the radio's sample clock, which allows timed transmissions (transmit this
-burst at time $t$), coherent operation of several radios sharing a reference and PPS, and
-measurement of exact delays. Latency through the USB stack and operating system is typically a
-few milliseconds---fine for most experiments, but far too much for protocols such as Wi-Fi's
-16\,$\mu$s acknowledgement timing, which is why real-time MAC layers run in the FPGA.
+The link between radio and host is a stream of packets, and real-time streaming is a contract: the host
+must consume receive samples as fast as the radio produces them and supply transmit samples before the
+DAC needs them. When it fails, UHD prints a single letter to the console, and every SDR user learns to read
+them:
+\begin{description}
+\item[\texttt{O} (overflow)] the radio's receive buffer filled because the host did not read fast enough;
+samples were \emph{lost}, and the metadata reports a discontinuity.
+\item[\texttt{D} (dropped packet)] a sequence error on the receive path, usually a network or USB problem.
+\item[\texttt{U} (underflow)] the transmit buffer ran dry; the DAC sent zeros, and the transmitted
+waveform has a gap.
+\item[\texttt{L} (late)] a timed command or transmit burst arrived after its scheduled time.
+\item[\texttt{S} (sequence error)] transmit packets were lost or reordered on the way to the radio.
+\end{description}
+The causes are usually mundane: a Python loop doing too much work per buffer, a CPU frequency governor
+throttling the processor, a USB controller shared with other devices, a laptop on battery power. The
+remedies are to do less per sample in the hot path (vectorise with NumPy, move work to compiled blocks),
+to enlarge the transport buffers (\texttt{num\_recv\_frames}, \texttt{recv\_frame\_size}), to use a lower
+sample rate or a smaller wire format, and to test the host with \texttt{benchmark\_rate} before blaming
+your own code.
+
+\paragraph{Timestamps.} Every packet carries a timestamp from the radio's sample clock, which can be set
+to match an external PPS. That enables timed transmission (send this burst at exactly time $t$), coherent
+operation of several radios sharing a 10\,MHz reference and PPS, time-of-arrival measurements, and
+tagging every capture with absolute time. It also means that ``when did this sample arrive?'' has an exact
+answer, which a host clock can never give.
+
+\paragraph{Latency.} The round trip from antenna to host and back through USB, the operating system and
+the application's buffers is typically a few milliseconds. That is fine for most experiments, and even
+for the 1\,ms subframes of an LTE base station implemented on a PC (srsRAN and OpenAirInterface do it with
+careful real-time tuning), but far too much for protocols such as Wi-Fi, whose acknowledgement must start
+16\,$\mu$s after the end of a received frame. Such protocols require the time-critical MAC functions to run
+in the FPGA, close to the converters.
 
 \subsection{GNU Radio}
 
-GNU Radio models a radio as a \emph{flowgraph} of blocks connected by streams of items, each block
-running in its own thread with ring buffers between them. Blocks can also exchange asynchronous
-\emph{messages} (for packets and control) and attach \emph{tags} to stream items (for burst lengths,
-timestamps and frequency changes). GNU Radio Companion (GRC) draws the flowgraph and generates Python.
-The hardware scripts in this book's companion code are written directly in Python in the same style,
-so that every block and parameter is visible. GNU Radio 4.0, at release-candidate stage in 2026,
-rebuilds the runtime around a new scheduler and C++ block model, but the flowgraph concept is
-unchanged.
+GNU Radio models a radio as a \emph{flowgraph}: a directed graph of \emph{blocks} connected by
+\emph{streams} of items (complex samples, floats, bytes). Each block implements a \texttt{work} function
+that consumes input items and produces output items; \emph{sync} blocks produce one output per input,
+\emph{decimators} and \emph{interpolators} a fixed ratio, \emph{general} blocks any number. The runtime
+gives each block its own thread and connects them with lock-free ring buffers, so a flowgraph is
+naturally pipelined across CPU cores. Two further mechanisms carry information that does not fit in a
+stream:
+\begin{itemize}
+\item \textbf{Stream tags} attach key--value metadata to a particular item in a stream: the UHD source
+tags the first sample with \texttt{rx\_time} and \texttt{rx\_freq} and re-tags after an overflow or retune;
+a burst transmitter uses \texttt{tx\_sob}/\texttt{tx\_eob} or a \texttt{packet\_len} tag to delimit
+bursts; a synchroniser can tag the start of each detected frame.
+\item \textbf{Messages} are asynchronous objects (polymorphic types, PMTs) passed between blocks outside
+the streams, used for packets (a protocol data unit with its metadata), for control (retune the radio) and
+for connecting the physical layer to MAC-layer logic.
+\end{itemize}
+Blocks are grouped into \emph{hierarchical blocks}, and new ones are written in C++ or Python as
+\emph{out-of-tree} (OOT) modules. GNU Radio Companion (GRC) draws a flowgraph graphically and generates a
+Python program from it. The hardware scripts in this book's companion code (Appendix~\ref{appB}) are
+written directly in Python in the same style, so that every block and parameter is visible. GNU Radio
+4.0, under development in 2026, rebuilds the runtime around a new scheduler and a compile-time C++ block
+model, but the flowgraph concept is unchanged.
 
-\begin{center}
-\begin{tabular}{llll}
+\subsection{Calibration and frequency accuracy in practice}
+
+An SDR delivers its best performance only after its imperfections are measured and corrected. On a B200:
+\begin{itemize}
+\item \textbf{DC offset and I/Q balance} are calibrated by the AD9364 at each tune and tracked in the
+background; leave the automatic corrections on unless you are studying the impairments, and use offset
+tuning when your signal has energy at DC.
+\item \textbf{Gain} is not calibrated in absolute terms: a gain setting of 40\,dB does not mean a known
+number of dBFS per dBm, and the relation varies by a few decibels across frequency and between units. For
+power measurements, calibrate with a signal generator at the frequencies you care about.
+\item \textbf{Frequency} is as good as the reference: about $\pm2$\,ppm from the TCXO, parts per billion
+with an external 10\,MHz reference from a lab standard or with the GPSDO module once it has locked to
+satellites. Receivers of real signals can of course estimate and correct the offset (Chapter~\ref{ch:sync});
+the reference matters when the radio itself is the measuring instrument or when two radios must agree.
+\end{itemize}
+
+\begin{inpractice}[Measuring a B200: noise figure, spurs and clipping]
+Three measurements every SDR owner should make once.
+
+\emph{Noise figure.} Terminate the receive port in 50\,$\Omega$, set a gain, and measure the noise power
+spectral density in dBFS/Hz (average many FFTs and correct for the window's equivalent noise bandwidth).
+Then inject a known tone from a signal generator, say $-80$\,dBm, and read its level in dBFS: the
+difference is the gain in dBFS per dBm. Suppose the tone reads $-22$\,dBFS (a conversion of $+58$\,dB)
+and the terminated noise floor reads $-111$\,dBFS/Hz: referred to the input that is $-169$\,dBm/Hz, so the
+noise figure is $-169-(-174)=5$\,dB. Repeat across frequency and gain to map the receiver; at low gain
+settings you will see the noise figure rise steeply as the ADC's own noise takes over.
+
+\emph{Spurs.} With the input terminated, look for lines: the DC spur (with correction off), the image of
+any strong signal, and fixed spurs related to the master clock, the reference and the USB controller,
+which stay at fixed absolute frequencies or fixed offsets from the LO as you retune. Knowing them prevents
+you from ``discovering'' them in a capture.
+
+\emph{Clipping.} Feed a strong signal and raise the gain until the I/Q samples approach $\pm1$; the
+spectrum will grow a forest of intermodulation products and the amplitude histogram will pile up at the
+rails. Back off by at least the signal's PAPR plus a few decibels. A good habit is to log the peak
+magnitude of every capture.
+\end{inpractice}
+
+\subsection{The SDR landscape}
+\label{sec:ch07:platforms}
+
+Table~\ref{tab:ch07:platforms} lists representative platforms. At the low end, receive-only dongles and
+the half-duplex HackRF serve hobbyists and teaching; the ADALM-Pluto, with an AD9363 and a small Zynq,
+is built for the classroom. The B200/B210 and bladeRF occupy the research middle ground, with
+full-duplex AD9361-family RFICs. At the top, radios built on the Zynq UltraScale+ RFSoC (such as the
+USRP X410) sample directly at RF with hundreds of megahertz of bandwidth per channel, and platforms such as
+Deepwave's AIR-T put an embedded GPU next to the RFIC for machine-learning signal processing at the edge.
+The specifications are approximate and evolve with each hardware revision.
+
+\begin{table}[htbp]\centering\small
+\caption{Representative SDR platforms (approximate specifications).}
+\label{tab:ch07:platforms}
+\setlength{\tabcolsep}{4pt}\footnotesize
+\begin{tabular}{lllll}
 \toprule
-Device & Frequency range & Bandwidth & Notes \\
+Device & RF chip & Frequency range & Bandwidth & Notes \\
 \midrule
-RTL-SDR (RTL2832U) & $\approx$24\,MHz--1.7\,GHz & $\approx$2.4\,MHz & 8-bit, receive only \\
-ADALM-Pluto & 325\,MHz--3.8\,GHz (extendable) & 20\,MHz & AD9363, 1$\times$1, teaching \\
-HackRF One & 1\,MHz--6\,GHz & 20\,MHz & 8-bit, half-duplex \\
-USRP B200 / B210 & 70\,MHz--6\,GHz & 56\,MHz & AD9364 / AD9361, 1$\times$1 / 2$\times$2 \\
-bladeRF 2.0 & 47\,MHz--6\,GHz & 56\,MHz & AD9361, 2$\times$2 \\
-USRP X410 & 1\,MHz--7.2\,GHz & 400\,MHz & RFSoC, 4$\times$4 \\
+RTL-SDR dongle & RTL2832U + tuner & $\approx$24\,MHz--1.7\,GHz & $\approx$2.4\,MHz & 8-bit, receive only \\
+HackRF One & MAX2837 + mixer & 1\,MHz--6\,GHz & 20\,MHz & 8-bit, half-duplex \\
+ADALM-Pluto & AD9363 & 325\,MHz--3.8\,GHz & 20\,MHz & 1$\times$1, Zynq-7010, teaching \\
+USRP B200 / B210 & AD9364 / AD9361 & 70\,MHz--6\,GHz & 56\,MHz & 1$\times$1 / 2$\times$2, USB 3.0 \\
+bladeRF 2.0 micro & AD9361 & 47\,MHz--6\,GHz & 56\,MHz & 2$\times$2, USB 3.0 \\
+LimeSDR & LMS7002M & 0.1\,MHz--3.8\,GHz & 61.44\,MHz & 2$\times$2, open hardware \\
+AIR-T & AD9371 & 300\,MHz--6\,GHz & $\approx$100\,MHz & 2$\times$2, embedded GPU \\
+USRP X410 & RFSoC & 1\,MHz--7.2\,GHz & 400\,MHz & 4$\times$4, direct sampling \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
-\begin{pitfall}[title=Safe loopback testing]
-The B200 can transmit more than $+10$\,dBm. Its receiver is damaged by roughly $-15$\,dBm at the
-input. Never connect TX to RX without at least 30\,dB of attenuation (60\,dB is safer), and start with
-the lowest TX gain. Over the air, transmit only in bands you are licensed for or in ISM bands at low
-power.
+\begin{inpractice}[SDR in industry]
+\emph{Base stations.} Every modern base station is software-defined in its baseband, and increasingly in
+its radio: an O-RAN radio unit using the 7.2x functional split performs the FFT, cyclic prefix, part of the
+beamforming, digital up- and down-conversion, CFR and DPD in an FPGA or ASIC next to the RF, while the
+distributed unit runs the rest of the physical layer on servers, sometimes with accelerator cards
+(Chapter~\ref{ch:cellular}). \emph{Defence.} Tactical radios in NATO forces are SDRs running portable
+waveforms under the SCA and its successors, and electronic-warfare systems rely on wideband
+direct-sampling receivers. \emph{Spectrum monitoring.} National regulators and operators use networks of
+wideband SDR receivers to find interference and unlicensed transmitters, and the same hardware does
+direction finding by time difference of arrival. \emph{Amateur radio and broadcasting.} Direct-sampling SDR
+transceivers have taken over the high end of the amateur market, and broadcast exciters for DAB, DVB-T2 and
+ATSC~3.0 are software-defined. \emph{Space and science.} Satellite ground stations, including volunteer
+networks such as SatNOGS, CubeSat radios, GNSS research receivers (Chapter~\ref{ch:spreadspectrum}) and
+radio-astronomy back ends are SDRs. \emph{Research and test.} Open-source stacks (srsRAN,
+OpenAirInterface) on USRPs are the standard way to prototype 5G and 6G ideas, and the same radios are
+used to test the security of everything from car key fobs to aircraft transponders.
+\end{inpractice}
+
+\begin{pitfall}[Transmitting legally and safely]
+A B200 can transmit anywhere from 70\,MHz to 6\,GHz, including frequencies used by aviation, GNSS,
+public-safety and cellular systems; transmitting there without authorisation is illegal almost
+everywhere and can endanger lives. Over the air, transmit only where you are licensed (an amateur licence
+covers specific bands and modes) or in licence-exempt ISM bands within the applicable power and duty-cycle
+rules (in the US, FCC Part~15; in Europe, the relevant ETSI harmonised standards). For everything else, use
+a cable. The B200 can deliver more than $+10$\,dBm, and its receiver is rated for a maximum input of about
+$-15$\,dBm: never connect TX to RX without at least 30\,dB of attenuation (40 to 60\,dB is safer and leaves
+the receiver in its linear range), start with the lowest TX gain, and remember that the harmonics and
+spurious emissions of an unfiltered SDR transmitter may land in somebody else's band even when the
+fundamental is legal.
 \end{pitfall}
 
-\begin{labbox}[title=Lab: the imperfect transceiver]
-\lab{labs/ch07\_transceiver\_impairments.ipynb} models a complete transceiver in Python: a two-tone
-test with an interactive IIP3 readout, a receiver line-up calculator (cascaded NF, gain, IIP3 and
-SFDR), phase noise synthesis from an $\mathcal{L}(f)$ mask with its effect on 64-QAM and OFDM, a Rapp PA
-with back-off, ACLR and EVM measurements, a memory-polynomial DPD with indirect learning, and blind I/Q
-imbalance estimation. With hardware, \lab{gnuradio/gr01\_spectrum\_iq\_capture.py} shows the B200's
-DC spur and image when its corrections are disabled.
+%======================================================================
+\section*{Summary}
+\addcontentsline{toc}{section}{Summary}
+%======================================================================
+
+\begin{itemize}
+\item Receivers come in four families: the superheterodyne (best selectivity, needs image and IF filters),
+zero-IF (integrable, but with DC offset, LO leakage, flicker noise, IM2 and I/Q imbalance), low-IF (away
+from DC, but the image is a neighbour) and direct RF sampling (all-digital, power- and ADC-limited).
+Hartley and Weaver structures reject the image by phasing.
+\item The front end's filters, duplexer and LNA set most of the noise figure; loss before the LNA counts
+in full. Switching mixers respond at odd LO harmonics; the Gilbert cell trades noise and linearity for gain.
+\item Sensitivity is $-174+10\log_{10}B+\text{NF}+\text{SNR}_{\min}$\,dBm. Noise wants gain early, linearity
+late; IIP3 cascades as the sum of $G_{\text{before}}/\text{IIP3}_k$; SFDR $=\tfrac23(\text{IIP3}-P_{\text{noise}})$.
+Blockers desensitise by compression, AGC, IM2 and reciprocal mixing; a level diagram and analog filtering
+before the ADC make the dynamic range close.
+\item References range from $\pm20$\,ppm XOs to GPSDOs; fractional-$N$ PLLs with sigma-delta dividers give
+fine steps with wide loops. Leeson's model explains the $1/f^3$, $1/f^2$ and flat regions of phase noise;
+integrated phase noise limits QAM order and OFDM subcarrier spacing; reciprocal mixing,
+$P_b+\mathcal L(\Delta f)+10\log_{10}B$, couples blockers into the channel.
+\item I/Q imbalance creates a conjugate image with $\text{IRR}\approx4/(\epsilon^2+\phi^2)$; $0.1$\,dB and
+$1^\circ$ give about 40\,dB. Blind second-order-statistics estimators and loopback calibration correct it,
+and offset tuning sidesteps DC.
+\item PA efficiency collapses with back-off; OFDM's PAPR makes linear PAs inefficient. ACLR and EVM bound
+the distortion. CFR, DPD with memory polynomials and indirect learning, Doherty load modulation and envelope
+tracking together make linear modulation affordable.
+\item An SDR is RFIC + FPGA + host. The B200 couples an AD9364 zero-IF transceiver to a Spartan-6 FPGA and
+USB~3.0; master clock rate, wire format, buffering and timestamps determine whether samples arrive intact.
+GNU Radio builds radios as flowgraphs of blocks with stream tags and messages. Measure your radio's noise
+figure, spurs and clipping point before trusting it, and transmit only where you may.
+\end{itemize}
+
+\begin{labbox}[The imperfect transceiver]
+Three existing notebooks and one hardware script accompany this chapter:
+\begin{itemize}
+\item \lab{moderncomms-labs/labs/lab01\_baseband.py} walks down the B200/AD9364 receive chain: real versus
+complex sampling, a digital down-converter, the fingerprints of direct conversion (an interactive DC
+offset and I/Q imbalance explorer with the IRR formula of~\eqref{eq:ch07:irr}), blind I/Q correction
+(\texttt{iq\_correct}, the method of~\eqref{eq:ch07:iqcorr}), LO phase noise, and ADC resolution, noise
+figure and sensitivity; its last section analyses your own B200 captures.
+\item \lab{moderncomms-labs/labs/lab15\_superhet\_receiver.py} builds a medium-wave superheterodyne stage
+by stage (preselector, mixer, IF filter, AGC, detector), demonstrates the image problem and IF selectivity,
+and compares zero-IF and low-IF receivers, measuring how I/Q imbalance turns a strong adjacent channel into
+in-band interference.
+\item \lab{moderncomms-labs/labs/lab28\_ofdm\_system.py}, Section~4, clips, filters and amplifies an OFDM
+signal through a PA model and measures EVM and ACLR, the trade-offs of Section~\ref{sec:ch07:tx}.
+\item \lab{moderncomms-labs/gnuradio/gr01\_spectrum\_iq\_capture.py} is a receive-only B200 spectrum,
+waterfall and I/Q recorder; \texttt{-{}-no-dc-corr} disables UHD's DC-offset correction so you can see the
+zero-IF DC spur, and \texttt{-{}-sim} runs without hardware.
+\end{itemize}
+A dedicated notebook, \lab{moderncomms-labs/labs/lab36\_rf\_transceiver.py}, adds a two-tone
+IIP3 measurement, a receiver line-up calculator (cascaded gain, NF, IIP3 and SFDR, as in the worked
+example), phase-noise synthesis from an $\mathcal L(f)$ mask with reciprocal mixing, PA classes and
+Doherty efficiency, and memory-polynomial DPD with indirect learning. The figure script
+\lab{book/figscripts/ch07\_figs.py} already implements most of these and is a good starting point.
 \end{labbox}
 
 \problems
 \begin{enumerate}[label=\thechapter.\arabic*]
+\item A superheterodyne receiver for the 88--108\,MHz FM band uses a 10.7\,MHz IF with high-side LO.
+What range must the LO tune over, and where do the images of stations at 88 and 108\,MHz lie? Why is the
+image not in the FM band? What image rejection does a single tuned circuit with loaded $Q=30$ at
+the signal frequency provide for a station at 98\,MHz?
 \item A receiver has an LNA (NF 1.5\,dB, gain 18\,dB, IIP3 $+5$\,dBm), a mixer (NF 9\,dB, gain 8\,dB,
 IIP3 $+10$\,dBm) and an IF amplifier (NF 6\,dB, gain 30\,dB, IIP3 $+15$\,dBm). Compute the cascaded NF
-and IIP3 and the SFDR in a 1\,MHz bandwidth.
-\item Derive the SFDR formula~\eqref{eq:ch07:sfdr}.
+and IIP3 and the SFDR in a 1\,MHz bandwidth. Which stage limits each?
+\item Derive the SFDR formula~\eqref{eq:ch07:sfdr} and the cascaded IIP3 formula~\eqref{eq:ch07:iip3cascade}.
+Under what assumption about the phases of the IM3 products is the latter a worst case?
 \item Two interferers at 1001 and 1002\,MHz, each $-35$\,dBm, reach a receiver tuned to 1000\,MHz with
-IIP3 $-5$\,dBm. What is the IM3 level on the wanted channel?
-\item A 3.5\,GHz receiver's LO has $\mathcal{L}=-100$\,dBc/Hz at 10\,kHz, falling 20\,dB/decade.
-Compute the RMS phase error integrated from 10\,kHz to 1\,MHz. Is it adequate for 256-QAM?
-\item Explain why a zero-IF receiver is sensitive to IIP2 but a superheterodyne largely is not.
-\item An OFDM PA delivers 20\,W average with 8\,dB of back-off and 25\% efficiency. Estimate the DC power
-saved per year if DPD allows 5\,dB of back-off at 38\% efficiency.
+IIP3 $-5$\,dBm. What is the IM3 level on the wanted channel? By how much must the interferers fall for
+the IM3 product to drop 20\,dB?
+\item For $y=a_1x+a_3x^3$, show that the 1\,dB compression point is at $A^2=0.145|a_1/a_3|$ and the
+intercept at $A^2=\tfrac43|a_1/a_3|$, so that IIP3 is 9.6\,dB above P1dB.
+\item Explain why a zero-IF receiver is sensitive to IIP2 but a superheterodyne largely is not. An FDD
+phone's transmitter leaks $-27$\,dBm of a 20\,MHz-wide OFDM signal into its receiver. What IIP2 is needed
+for the IM2 product to be 10\,dB below a $-105$\,dBm noise floor? (Treat the IM2 product as noise-like.)
+\item Derive the I/Q imbalance model~\eqref{eq:ch07:iqmodel} and the IRR~\eqref{eq:ch07:irr}. What phase
+error alone gives 30\,dB? What gain error alone? A low-IF receiver must handle a 35\,dB stronger image
+channel with 12\,dB SIR: what IRR does it need, and is it achievable without calibration?
+\item A 3.5\,GHz receiver's LO has $\mathcal{L}=-100$\,dBc/Hz at 10\,kHz, falling 20\,dB/decade to a floor of
+$-150$\,dBc/Hz. Compute the RMS phase error integrated from 10\,kHz to 10\,MHz and the resulting EVM
+contribution. Is it adequate for 256-QAM? What changes if the carrier is 28\,GHz with the same synthesiser
+design?
+\item A GSM receiver (200\,kHz channel, NF 6\,dB) must tolerate a $-23$\,dBm blocker at 3\,MHz with no more
+than 3\,dB of desensitisation. What LO phase noise at 3\,MHz offset is required? Repeat for a $-43$\,dBm
+blocker at 600\,kHz.
+\item An OFDM PA delivers 20\,W average with 8\,dB of back-off and 25\% efficiency. Estimate the DC
+power and annual energy saved if DPD allows 5\,dB of back-off at 38\% efficiency, and if a Doherty
+architecture then raises the efficiency at that back-off to 55\%.
+\item Using~\eqref{eq:ch07:doherty}, find the efficiency of an ideal symmetric Doherty at its minimum
+between 0 and 6\,dB back-off, and show that it occurs at $v=2/3$. For a Rayleigh-envelope signal clipped
+at a PAPR of 8\,dB, compute the average efficiency of class B and of the symmetric Doherty numerically.
 \item Choose a B200 master clock rate for (a) a 1\,MS/s experiment, (b) a 20\,MHz LTE carrier sampled at
-30.72\,MS/s, (c) a 25\,MS/s wideband capture. Justify each choice.
+30.72\,MS/s, (c) a 25\,MS/s wideband capture. Justify each choice, and compute the USB throughput for
+each with \texttt{sc16} samples.
 \item \emph{(Simulation)} Implement a memory-polynomial DPD with indirect learning for a PA model with
-memory (a Wiener--Hammerstein model) and compare its ACLR improvement with a memoryless DPD.
+memory (a Wiener--Hammerstein model), starting from the chapter's figure script (\lab{ch07\_figs.py}). Plot ACLR
+against $K$ and $M$ and against input back-off, and compare with a memoryless DPD. At what back-off does
+DPD stop helping, and why?
+\item \emph{(Simulation)} Generate a 16-QAM signal at DC and a 20\,dB stronger carrier at $+0.3f_s$,
+apply 1\,dB and $5^\circ$ of I/Q imbalance, and implement (a) the blind estimator~\eqref{eq:ch07:iqcorr}
+and (b) an adaptive circularity-restoring corrector $z=y+wy^*$. Plot the residual image against the
+number of samples used, and show where each fails.
+\item \emph{(Hardware)} With a B200, a 50\,$\Omega$ terminator and a signal generator (or a second
+SDR through 60\,dB of attenuation), measure the receiver's noise figure at 915\,MHz and 2.4\,GHz for gain
+settings of 20, 40 and 60\,dB, following the in-practice box. Plot NF against gain and explain the shape.
+\item \emph{(Hardware)} Using \lab{gr01\_spectrum\_iq\_capture.py} with and without
+\texttt{-{}-no-dc-corr}, capture a strong FM broadcast station tuned (a) exactly to its carrier and (b)
+300\,kHz away. Measure the DC spur level and the station's image, compute the IRR, and estimate the gain
+and phase imbalance with Lab~1's \texttt{iq\_correct}.
 \end{enumerate}
 
 \furtherreading
 \begin{itemize}
-\item B.~Razavi, \emph{RF Microelectronics}, 2nd ed., Pearson, 2012.
+\item B.~Razavi, \emph{RF Microelectronics}, 2nd ed., Prentice Hall, 2012. The standard text on
+transceiver architectures and circuits: noise, nonlinearity, receiver and transmitter architectures, LNAs,
+mixers, oscillators, PLLs and PAs, with a system designer's eye throughout.
+\item D.~M.~Pozar, \emph{Microwave and RF Design of Wireless Systems}, Wiley, 2001. A clear treatment of
+the system-level quantities of this chapter---noise figure, intercepts, dynamic range, filters, mixers,
+oscillators and link budgets---for readers coming from microwave engineering.
 \item S.~C.~Cripps, \emph{RF Power Amplifiers for Wireless Communications}, 2nd ed., Artech House, 2006.
-\item Q.~Gu, \emph{RF System Design of Transceivers for Wireless Communications}, Springer, 2005.
-\item J.~Mitola, ``The software radio architecture,'' \emph{IEEE Commun. Mag.}, 33(5), 1995.
-\item D.~R.~Morgan et al., ``A generalized memory polynomial model for digital predistortion of RF
-power amplifiers,'' \emph{IEEE Trans. Signal Process.}, 54(10), 2006.
-\item Ettus Research, \emph{UHD Manual} and the USRP B200/B210 documentation; Analog Devices,
-\emph{AD9364 Reference Manual (UG-570)}.
+The practitioner's book on PA classes, load-line design, Doherty, envelope tracking and linearisation.
+\item A.~A.~Abidi, ``Direct-conversion radio transceivers for digital communications,'' \emph{IEEE Journal
+of Solid-State Circuits}, vol.~30, no.~12, 1995. The classic analysis of zero-IF impairments.
+\item D.~B.~Leeson, ``A simple model of feedback oscillator noise spectrum,'' \emph{Proceedings of the
+IEEE}, vol.~54, no.~2, 1966. Two pages that every oscillator designer has read.
+\item J.~Mitola, ``The software radio architecture,'' \emph{IEEE Communications Magazine}, vol.~33,
+no.~5, 1995. The paper that defined the field's ambitions.
+\item J.~H.~Reed, \emph{Software Radio: A Modern Approach to Radio Engineering}, Prentice Hall, 2002. A
+broad survey of SDR architecture, data converters, front ends and smart antennas from the era when SDR
+became practical.
+\item D.~R.~Morgan, Z.~Ma, J.~Kim, M.~G.~Zierdt and J.~Pastalan, ``A generalized memory polynomial model
+for digital predistortion of RF power amplifiers,'' \emph{IEEE Transactions on Signal Processing},
+vol.~54, no.~10, 2006. The memory-polynomial family and its generalisation, with measured results.
+\item W.~H.~Doherty, ``A new high efficiency power amplifier for modulated waves,'' \emph{Proceedings of
+the IRE}, vol.~24, no.~9, 1936. Still readable, and the origin of today's base-station PA.
+\item Ettus Research, \emph{USRP B200/B210 data sheet} and the \emph{UHD manual} (online). Specifications,
+clocking, master-clock-rate rules, stream arguments and the error codes of
+Section~\ref{sec:ch07:sdr}.
+\item Analog Devices, \emph{AD9361/AD9364 Reference Manual (UG-570)} and the AD9364 data sheet. The
+internal signal chain, gain tables, filters, calibrations and AGC of the B200's RFIC, in exhaustive detail.
+\item 3GPP TS~38.101-1 and TS~38.104, \emph{NR User Equipment and Base Station radio transmission and
+reception}. The source of the sensitivity, blocking, ACLR, EVM and frequency-error requirements that drive
+transceiver design.
 \end{itemize}
