@@ -1,42 +1,76 @@
 # Modern Digital Communications — Labs and SDR Examples
 
-Companion code for the course text *Modern Digital Communications: A Hands-On Course
-with Python and SDR*. Twelve interactive Jupyter labs (one per chapter), a small shared
-DSP library, and five GNU Radio 3.10 flowgraphs for the Ettus USRP B200.
+Companion code for the textbook *Modern Digital Communications*. Eighteen interactive Python
+simulation labs (plus a start-here index), a small shared DSP library, and five GNU Radio 3.10
+flowgraphs for the Ettus USRP B200. **Start with `labs/lab00_index.ipynb`.**
 
 ```
-commlib/     shared library: modulation, filters, channels, sync, equalizers,
-             OFDM, coding (Viterbi, LDPC, polar), MIMO, IQ file I/O
-labs/        labNN_*.ipynb (pre-executed, with figures) + labNN_*.py sources (jupytext)
+commlib/     shared library: modulation, filters, channels, sync, equalizers (+ eqadv), OFDM,
+             coding (Viterbi, LDPC, polar), MIMO, IQ file I/O, satellite links, line codes,
+             and labkit (the common look-and-feel, widgets and self-checks used by every lab)
+labs/        labNN_*.ipynb (pre-executed, with figures) + labNN_*.py sources (jupytext percent format)
 gnuradio/    grNN_*.py hardware flowgraphs + grcommon.py helpers
-tests/       test_commlib.py, build_notebooks.py (rebuild/execute all labs)
+tests/       test_commlib.py, build_notebooks.py (rebuild/execute labs), dump_figs.py (figure review)
 data/        IQ captures from gr01 land here
 ```
 
 ## 1. Labs
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 jupyter lab labs/
 ```
-Open a notebook and choose *Run All*. Each `interact(...)` panel becomes live sliders.
-The notebooks ship pre-executed, so you can read every figure before running anything.
+Open a notebook and choose *Restart Kernel and Run All Cells*. Panels built with `interact` become
+live sliders; in the shipped (pre-executed) notebooks they are rendered once at their defaults.
 
-| Lab | Topic | Interactive highlights |
-|-----|-------|------------------------|
-| 01 | Complex baseband, IQ, SDR receive chain | IQ imbalance image, sensitivity / link budget |
-| 02 | Signal space and modulation | Any constellation vs Eb/N0, Gray vs natural, LLRs |
-| 03 | Pulse shaping, Nyquist, matched filter | Roll-off vs spectrum and eye |
-| 04 | Synchronization | PLL bandwidth, Gardner timing, ZC frame sync, full burst RX |
-| 05 | Wireless channels | Doppler spectrum, TDL profiles, fading BER, channel sounding |
-| 06 | Equalization | ZF/MMSE/LMS/CMA/DFE on ISI channels |
-| 07 | OFDM | CP, CFO/ICI, Schmidl-Cox, pilot estimation, PAPR, NR numerology |
-| 08 | Information theory, convolutional codes | Shannon limit, Hamming, Viterbi hard/soft, puncturing |
-| 09 | LDPC and polar codes | BP vs min-sum, polarization, SC vs CA-SCL |
-| 10 | MIMO | Diversity slope, capacity, ZF/MMSE/SIC/ML, beamforming, massive MIMO |
-| 11 | Air interfaces (NR, Wi-Fi 7) | OFDMA schedulers, DFT-s-OFDM PAPR, MCS/HARQ, 4096-QAM EVM |
-| 12 | Frontiers | OTFS vs OFDM, OFDM radar map, learned demapper |
+Every lab follows the same template: a title block (chapter, what you will learn, prerequisites, time,
+roadmap); numbered sections that start with the physics and the key equations, then code, then a
+**What you should see** paragraph; **Try it yourself** questions with `lk.check(...)` self-checks that
+print PASS / FAIL / TODO; and closing **Key takeaways**, **Going further (USRP B200 / GNU Radio)** and
+graded **Exercises**. Run times below are for the full notebook on a desktop PC.
+
+| Lab | Chapter(s) | Topic | Interactive highlights | Run time |
+|-----|-----------|-------|------------------------|---------:|
+| 00 | — | Start here: setup, environment check, index | — | 1 s |
+| 01 | 2, 7 | Complex baseband, IQ sampling, the SDR receive chain | real vs IQ sampling, IQ imbalance, sensitivity | 3 s |
+| 02 | 9 | Digital modulation and optimal detection (PSK/QAM/APSK, FSK, DPSK, MSK/GMSK) | any constellation vs Eb/N0, GMSK BT | 5 s |
+| 03 | 8 | Pulse shaping, Nyquist criterion, matched filter, eyes, ACLR | folded spectrum, eye explorer | 3 s |
+| 04 | 10 | Carrier, timing and frame synchronization; MCRB | PLL playground, burst receiver | 6 s |
+| 05 | 11 | Path loss, fading, Doppler, level crossings, coherence bandwidth, sounding | TDL time-frequency response | 10 s |
+| 06 | 12 | ZF/MMSE, LMS/NLMS/RLS, CMA, DFE, MLSE | null depth vs ZF/MMSE | 5 s |
+| 07 | 17 | OFDM: CP, ICI, Schmidl–Cox, pilots, PAPR, NR numerology | CP vs delay spread | 21 s |
+| 08 | 13, 14 | Capacity, Hamming, CRC, convolutional codes, puncturing, interleaving | Viterbi frame viewer | 35 s |
+| 09 | 15 | LDPC (PEG, BP, min-sum) and polar codes (SC, CA-SCL) | iterations histogram | 55 s |
+| 10 | 19 | MIMO diversity, capacity, detection, beamforming, massive MIMO precoding | water-filling, beam steering | 12 s |
+| 11 | 20–22 | Frequency reuse, Erlang B, NR grid, scheduling, link adaptation, CSMA/CA, 4096-QAM | PF scheduler, PAPR, MCS/HARQ | 6 s |
+| 12 | 25 | OTFS vs OFDM, OFDM radar (ISAC), RIS, learned demapper | range-Doppler map, RIS | 11 s |
+| 13 | 8 | Line codes and PSDs, PRBS/scramblers, 8b/10b, jitter and bathtubs, NRZ vs PAM-4 + FFE, duobinary | jitter budget, backplane loss | 8 s |
+| 14 | 4 | AM/DSB/SSB, envelope and coherent detection, FM, Carson, FM threshold, FM stereo | AM index and RC, tone FM | 4 s |
+| 15 | 4, 7 | Superheterodyne receiver, images, IF selectivity, AGC, zero-IF and low-IF | preselector Q and IF order, low-IF image | 2 s |
+| 16 | 5 | Sampling, ZOH, quantization, dither, μ-law/A-law, delta and sigma-delta, T1 | aliasing, delta-mod step | 2 s |
+| 17 | 6 | FIR/IIR design, polyphase, CIC + compensation, NCO, multi-stage DDC | FIR window vs Parks–McClellan | 2 s |
+| 18 | 23 | Satellite link budgets, GEO/LEO geometry and Doppler, P.618 rain, ACM vs CCM, TWTA | DTH budget, orbit explorer | 3 s |
+
+### Writing or editing a lab
+Edit `labs/labNN_*.py` (jupytext percent format: `# %%` code cells, `# %% [markdown]` text cells), then
+rebuild and review:
+
+```bash
+python tests/build_notebooks.py lab07           # one lab (or several: lab07 lab13); no argument = all
+python tests/dump_figs.py lab07_ofdm out.png     # stitch the lab's figures into one PNG to eyeball
+python tests/test_commlib.py                     # library self-tests (run after any commlib change)
+```
+`build_notebooks.py` executes in-process (no Jupyter kernel), captures prints, figures and labkit tables
+in order, records each cell's run time, and exits non-zero if a lab fails. It works on Linux, macOS and
+Windows (Git Bash or PowerShell). It caps BLAS threads at 2: on many-core machines OpenBLAS thread
+start-up can make the small matrix solves in these labs 100× slower, so the labs set
+`OPENBLAS_NUM_THREADS=2` in their first cell as well.
+
+New labs should start from any existing lab: use `from commlib import labkit as lk`, `rng = lk.setup(...)`,
+`lk.fig/lk.show` for figures, `lk.interact` + `lk.slider/lk.islider/lk.choice` for controls, `lk.table` for
+results, `lk.check` for self-checks and `lk.summary()` at the end.
 
 ## 2. GNU Radio hardware examples
 
@@ -44,13 +78,13 @@ Tested with GNU Radio 3.10.9 / UHD 4 on Ubuntu 24.04. Every script runs **withou
 first: `--sim` replaces the B200 with `channels.channel_model` (CFO, clock offset,
 multipath, AWGN), and `--nogui` prints statistics instead of opening Qt windows.
 
-| Script | Chapter | What it shows | Try |
+| Script | Book chapter | What it shows | Try |
 |--------|---------|---------------|-----|
-| `gr01_spectrum_iq_capture.py` | 1 | Live spectrum/waterfall; records `.cfile` + SigMF | `--freq 100e6 --rate 2e6 --out ../data/capture.cfile` |
-| `gr02_psk_link.py` | 4, 6 | QPSK link: AGC, FLL, polyphase clock sync, CMA, Costas, live BER | `--sim --cfo 2000 --multipath --ppm 50 --snr 15` |
-| `gr03_channel_sounder.py` | 5 | Zadoff-Chu sounder: power-delay profile, RMS delay spread | `--sim --multipath` |
-| `gr04_ofdm_link.py` | 7 | 802.11a-like packet OFDM: PER and goodput | `--sim --multipath --cfo 5000 --snr 20` |
-| `gr05_coded_link.py` | 8 | Framed BPSK + K=7 Viterbi (commlib): raw vs decoded BER | `--sim --snr -3` |
+| `gr01_spectrum_iq_capture.py` | 2, 7 | Live spectrum/waterfall; records `.cfile` + SigMF | `--freq 100e6 --rate 2e6 --out ../data/capture.cfile` |
+| `gr02_psk_link.py` | 9, 10, 12 | QPSK link: AGC, FLL, polyphase clock sync, CMA, Costas, live BER | `--sim --cfo 2000 --multipath --ppm 50 --snr 15` |
+| `gr03_channel_sounder.py` | 11 | Zadoff-Chu sounder: power-delay profile, RMS delay spread | `--sim --multipath` |
+| `gr04_ofdm_link.py` | 17 | 802.11a-like packet OFDM: PER and goodput | `--sim --multipath --cfo 5000 --snr 20` |
+| `gr05_coded_link.py` | 14 | Framed BPSK + K=7 Viterbi (commlib): raw vs decoded BER | `--sim --snr -3` |
 
 Results measured in simulation while preparing this release: gr02 converged to BER < 1e-4
 with 2 kHz CFO at 18 dB; gr03 recovered the 3-tap profile (88 ns RMS delay spread);
@@ -80,6 +114,7 @@ an offset (implemented as an RX LO offset). Start with low `--tx-gain` and raise
 python tests/test_commlib.py                 # library self-test (BER vs theory, loops lock, codes decode)
 python tests/build_notebooks.py              # regenerate + execute every lab from labs/*.py
 python tests/build_notebooks.py lab07        # just one
+bash tests/build_all.sh                      # one process per lab (isolates failures)
 ```
 Edit the `labs/*.py` sources (jupytext percent format) and rebuild, or edit the notebooks directly.
 

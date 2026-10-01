@@ -1,0 +1,375 @@
+"""commlib.cellular -- multiple access, traffic and cellular-system tools.
+
+Used by Chapter 20 ("Multiple Access and the Cellular Concept") figures and by the
+cellular-system lab. Import explicitly:  ``from commlib import cellular as cel``.
+
+Contents
+--------
+* Traffic theory: Erlang B and Erlang C (stable recursions), dimensioning helpers.
+* Hexagonal geometry: cluster sizes N = i^2 + ij + j^2, reuse labelling of a hex
+  lattice, co-channel SIR formulas, uniform user drops in a hexagon.
+* Random access: pure/slotted ALOHA, CSMA (Kleinrock--Tobagi), Bianchi's 802.11 DCF
+  fixed point and a slot-level DCF simulator, RACH preamble collision statistics.
+* Stochastic geometry: Poisson point process drops and the Andrews--Baccelli--Ganti
+  (2011) downlink coverage probability, closed form and Monte Carlo.
+* Schedulers: round robin, max-rate, proportional fair and alpha-fair; Jain's index.
+
+Conventions: distances in units of the cell radius R unless stated; powers linear unless a
+name ends in ``_db``; everything is vectorised with NumPy where it is cheap to do so.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+# ================================================================== traffic theory
+
+
+def erlang_b(A, C):
+    """Erlang B blocking probability for offered traffic A (erlangs) and C servers.
+
+    Uses the numerically stable recursion B(A,0)=1, B(A,c)=A B(A,c-1)/(c + A B(A,c-1)).
+    ``A`` may be an array; ``C`` is an integer.
+    """
+    A = np.asarray(A, dtype=float)
+    B = np.ones_like(A)
+    for c in range(1, int(C) + 1):
+        B = A * B / (c + A * B)
+    return B
+
+
+def erlang_c(A, C):
+    """Erlang C: probability that an arriving call must wait (M/M/C queue).
+
+    C(A,c) = c B / (c - A (1 - B)) with B = Erlang B. Returns 1 when A >= C (unstable).
+    """
+    A = np.asarray(A, dtype=float)
+    B = erlang_b(A, C)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Pw = C * B / (C - A * (1 - B))
+    return np.where(A < C, Pw, 1.0)
+
+
+def erlang_c_wait(A, C, hold, t=0.0):
+    """Erlang C waiting statistics.
+
+    Returns (P[wait > t], mean wait over all calls) for mean holding time ``hold``.
+    """
+    Pw = erlang_c(A, C)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ptail = Pw * np.exp(-(C - np.asarray(A, float)) * t / hold)
+        wbar = Pw * hold / (C - np.asarray(A, float))
+    return ptail, wbar
+
+
+def erlang_b_capacity(C, gos=0.02):
+    """Largest offered traffic (erlangs) that C channels carry at blocking ``gos`` (bisection)."""
+    lo, hi = 0.0, max(1.0, 2.0 * C + 10)
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if erlang_b(mid, C) > gos:
+            hi = mid
+        else:
+            lo = mid
+    return lo
+
+
+def erlang_b_channels(A, gos=0.02):
+    """Smallest number of channels that carries A erlangs at blocking <= ``gos``."""
+    c, B = 0, 1.0
+    while B > gos:
+        c += 1
+        B = A * B / (c + A * B)
+    return c
+
+
+# ================================================================== hexagonal geometry
+
+def cluster_size(i, j):
+    """Hexagonal cluster size N = i^2 + i j + j^2."""
+    return i * i + i * j + j * j
+
+
+def valid_cluster_sizes(nmax=40):
+    """Sorted list of (N, i, j) with 0 <= j <= i and N <= nmax."""
+    out = {}
+    for i in range(0, 8):
+        for j in range(0, i + 1):
+            N = cluster_size(i, j)
+            if 0 < N <= nmax and N not in out:
+                out[N] = (i, j)
+    return [(N, *out[N]) for N in sorted(out)]
+
+
+def reuse_ratio(N):
+    """Co-channel reuse ratio Q = D/R = sqrt(3N)."""
+    return np.sqrt(3.0 * np.asarray(N, float))
+
+
+def sir_simple(N, n=4.0, n_int=6):
+    """First-tier SIR approximation (D/R)^n / n_int (linear), all interferers at distance D."""
+    return reuse_ratio(N) ** n / n_int
+
+
+def sir_worst(N, n=4.0):
+    """Rappaport's worst-case first-tier SIR (linear) for an omni cell-edge user:
+    two interferers at D-R, two at D, two at D+R."""
+    Q = reuse_ratio(N)
+    return 1.0 / (2 * (Q - 1) ** -n + 2 * Q ** -n + 2 * (Q + 1) ** -n)
+
+
+def axial_to_xy(q, r, R=1.0):
+    """Centre of the pointy-top hexagon with axial coordinates (q, r) and circumradius R."""
+    q = np.asarray(q, float); r = np.asarray(r, float)
+    return np.sqrt(3) * R * (q + r / 2), 1.5 * R * r
+
+
+def hex_axial_grid(rings):
+    """Axial coordinates (q, r) of all hexagons within ``rings`` of the origin (1 + 3k(k+1) cells)."""
+    qs, rs = [], []
+    for q in range(-rings, rings + 1):
+        for r in range(max(-rings, -q - rings), min(rings, -q + rings) + 1):
+            qs.append(q); rs.append(r)
+    qs, rs = np.array(qs), np.array(rs)
+    ring = (np.abs(qs) + np.abs(rs) + np.abs(qs + rs)) // 2
+    order = np.lexsort((rs, qs, ring))          # origin first, then ring by ring
+    return qs[order], rs[order]
+
+
+def reuse_labels(q, r, i, j):
+    """Channel-set label (0..N-1) of each hexagon for the reuse pattern generated by (i, j).
+
+    The co-channel cells form the sub-lattice spanned by a=(i, j) and its 60-degree
+    rotation b=(-j, i+j) (axial coordinates); the label is the coset of (q, r).
+    """
+    N = cluster_size(i, j)
+    q = np.asarray(q); r = np.asarray(r)
+    s = np.mod((i + j) * q + j * r, N)
+    t = np.mod(-j * q + i * r, N)
+    key = s * N + t
+    # coset representatives -> compact ids, with the origin cell getting label 0
+    uniq = {}
+    out = np.empty(key.shape, int)
+    uniq[0] = 0
+    for idx, k in enumerate(key.ravel()):
+        if k not in uniq:
+            uniq[k] = len(uniq)
+        out.flat[idx] = uniq[k]
+    return out
+
+
+def cochannel_centres(i, j, tiers=1, R=1.0):
+    """Centres (complex) of the co-channel cells in the first ``tiers`` tiers around the origin."""
+    a = axial_to_xy(i, j, R)
+    a = a[0] + 1j * a[1]
+    out = []
+    for k in range(1, tiers + 1):
+        for m in range(6):
+            rot = np.exp(1j * np.pi / 3 * m)
+            nxt = np.exp(1j * np.pi / 3 * (m + 1))
+            for s in range(k):          # walk along the hexagonal ring of tier k
+                out.append(a * rot * (k - s) + a * nxt * s)
+    return np.array(out)
+
+
+def hex_contains(x, y, R=1.0):
+    """True where (x, y) lies inside the pointy-top hexagon of circumradius R at the origin."""
+    x = np.abs(np.asarray(x)); y = np.abs(np.asarray(y))
+    h = np.sqrt(3) / 2 * R
+    return (x <= h) & (y <= R - x / np.sqrt(3))
+
+
+def drop_in_hex(n, R=1.0, rng=None, rmin=0.0):
+    """n points uniform in a hexagon of circumradius R (rejection sampling); complex output."""
+    rng = np.random.default_rng() if rng is None else rng
+    pts = []
+    while sum(len(p) for p in pts) < n:
+        x = (rng.random(2 * n) * 2 - 1) * np.sqrt(3) / 2 * R
+        y = (rng.random(2 * n) * 2 - 1) * R
+        ok = hex_contains(x, y, R) & (np.hypot(x, y) >= rmin)
+        pts.append(x[ok] + 1j * y[ok])
+    return np.concatenate(pts)[:n]
+
+
+# ================================================================== random access
+
+def aloha_throughput(G, slotted=False):
+    """Throughput S (packets per packet time) of pure (G e^{-2G}) or slotted (G e^{-G}) ALOHA."""
+    G = np.asarray(G, float)
+    return G * np.exp(-G) if slotted else G * np.exp(-2 * G)
+
+
+def csma_throughput(G, a, kind="nonpersistent"):
+    """Kleinrock--Tobagi (1975) CSMA throughput, a = propagation delay / packet time.
+
+    kind: 'nonpersistent', 'slotted-nonpersistent', '1-persistent'.
+    """
+    G = np.asarray(G, float)
+    if kind == "nonpersistent":
+        return G * np.exp(-a * G) / (G * (1 + 2 * a) + np.exp(-a * G))
+    if kind == "slotted-nonpersistent":
+        return a * G * np.exp(-a * G) / (1 - np.exp(-a * G) + a)
+    if kind == "1-persistent":
+        num = G * (1 + G + a * G * (1 + G + a * G / 2)) * np.exp(-G * (1 + 2 * a))
+        den = G * (1 + 2 * a) - (1 - np.exp(-a * G)) + (1 + a * G) * np.exp(-G * (1 + a))
+        return num / den
+    raise ValueError(kind)
+
+
+def bianchi_tau(n, W=16, m=6, iters=2000):
+    """Solve Bianchi's fixed point for n saturated stations.
+
+    W = CWmin (backoff drawn from 0..W-1), m = number of doublings (CWmax = 2^m W).
+    Returns (tau, p): per-slot transmission probability and conditional collision probability.
+    """
+    lo, hi = 0.0, 0.999    # bisection on p (avoids the removable singularity at p = 1/2)
+    for _ in range(iters):
+        p = 0.5 * (lo + hi)
+        tau = 2 * (1 - 2 * p) / ((1 - 2 * p) * (W + 1) + p * W * (1 - (2 * p) ** m))
+        f = p - (1 - (1 - tau) ** (n - 1))
+        if f > 0:
+            hi = p
+        else:
+            lo = p
+        if hi - lo < 1e-13:
+            break
+    return tau, p
+
+
+def bianchi_throughput(n, W=16, m=6, slot=9e-6, Ts=None, Tc=None, payload_time=None):
+    """Bianchi saturation throughput (fraction of time carrying payload).
+
+    Times in seconds; Ts and Tc are the durations of a successful and a collided
+    transmission (including inter-frame spaces); payload_time is the useful part of Ts.
+    """
+    tau, p = bianchi_tau(n, W, m)
+    Ptr = 1 - (1 - tau) ** n
+    Ps = n * tau * (1 - tau) ** (n - 1) / Ptr if Ptr > 0 else 0.0
+    num = Ps * Ptr * payload_time
+    den = (1 - Ptr) * slot + Ptr * Ps * Ts + Ptr * (1 - Ps) * Tc
+    return num / den, tau, p
+
+
+def dcf_simulate(n, W=16, m=6, slot=9e-6, Ts=None, Tc=None, payload_time=None,
+                 events=20000, rng=None):
+    """Slot-level Monte Carlo of n saturated 802.11 DCF stations (binary exponential backoff).
+
+    Returns (throughput fraction, conditional collision probability per attempt).
+    """
+    rng = np.random.default_rng() if rng is None else rng
+    cw = np.full(n, W)
+    bo = rng.integers(0, cw)
+    t = useful = 0.0
+    att = coll = 0
+    for _ in range(events):
+        k = bo.min()
+        t += k * slot
+        bo -= k
+        tx = np.flatnonzero(bo == 0)
+        att += len(tx)
+        if len(tx) == 1:
+            t += Ts; useful += payload_time
+            cw[tx] = W
+        else:
+            t += Tc; coll += len(tx)
+            cw[tx] = np.minimum(2 * cw[tx], W * 2 ** m)
+        bo[tx] = rng.integers(0, cw[tx])
+        # stations that did not transmit freeze and resume: nothing to do (counters unchanged)
+    return useful / t, coll / att
+
+
+def rach_success(k, M):
+    """Expected number of contenders (out of k) whose preamble no one else picked, M preambles."""
+    k = np.asarray(k, float)
+    return k * (1 - 1 / M) ** np.maximum(k - 1, 0)
+
+
+# ================================================================== stochastic geometry
+
+def ppp_drop(lam, side, rng=None):
+    """Poisson point process of intensity ``lam`` on a square [-side/2, side/2]^2; complex output."""
+    rng = np.random.default_rng() if rng is None else rng
+    n = rng.poisson(lam * side * side)
+    return (rng.random(n) - 0.5) * side + 1j * (rng.random(n) - 0.5) * side
+
+
+def abg_rho(T, alpha=4.0, npts=4000):
+    """rho(T, alpha) = T^{2/alpha} * integral_{T^{-2/alpha}}^inf du / (1 + u^{alpha/2})."""
+    T = np.atleast_1d(np.asarray(T, float))
+    out = np.empty_like(T)
+    for k, t in enumerate(T):
+        lo = t ** (-2 / alpha)
+        # substitute u = lo + v/(1-v), v in [0,1)
+        v = np.linspace(0, 1, npts, endpoint=False) + 0.5 / npts
+        u = lo + v / (1 - v)
+        out[k] = t ** (2 / alpha) * np.sum(1 / (1 + u ** (alpha / 2)) / (1 - v) ** 2) / npts
+    return out
+
+
+def abg_coverage(T, alpha=4.0, snr=np.inf, lam=1.0, npts=2000):
+    """Andrews--Baccelli--Ganti coverage P[SINR > T] for a PPP downlink, nearest-BS association,
+    Rayleigh fading, path loss r^-alpha. ``snr`` is the transmit SNR referenced to unit distance
+    (P/sigma^2); infinite means interference-limited, where P_c = 1 / (1 + rho(T, alpha))."""
+    T = np.atleast_1d(np.asarray(T, float))
+    rho = abg_rho(T, alpha)
+    if not np.isfinite(snr):
+        return 1 / (1 + rho)
+    # P_c = pi lam int_0^inf exp(-pi lam v (1+rho) - mu T sigma^2 v^{alpha/2} / P) dv
+    v = np.linspace(0, 1, npts, endpoint=False) + 0.5 / npts
+    out = []
+    for t, r_ in zip(T, rho):
+        sc = 1.0 / (np.pi * lam * (1 + r_))      # natural scale of v = r^2
+        vv = sc * v / (1 - v)
+        jac = sc / (1 - v) ** 2
+        f = np.exp(-np.pi * lam * vv * (1 + r_) - t / snr * vv ** (alpha / 2))
+        out.append(np.pi * lam * np.sum(f * jac) / npts)
+    return np.array(out)
+
+
+def ppp_sinr_samples(lam=1.0, alpha=4.0, snr=np.inf, trials=2000, side=None, rng=None):
+    """Monte Carlo SINR (linear) at the origin: PPP base stations, nearest-BS association,
+    unit-mean Rayleigh fading on every link."""
+    rng = np.random.default_rng() if rng is None else rng
+    side = side if side is not None else 30 / np.sqrt(lam)
+    out = np.empty(trials)
+    for k in range(trials):
+        bs = ppp_drop(lam, side, rng)
+        if len(bs) == 0:
+            out[k] = 0
+            continue
+        d = np.abs(bs)
+        h = rng.exponential(size=len(d))
+        p = h * d ** -alpha
+        s = np.argmin(d)
+        I = p.sum() - p[s]
+        out[k] = p[s] / (I + (1 / snr if np.isfinite(snr) else 0.0))
+    return out
+
+
+# ================================================================== schedulers
+
+def jain(x):
+    """Jain's fairness index (sum x)^2 / (n sum x^2)."""
+    x = np.asarray(x, float)
+    return x.sum() ** 2 / (len(x) * np.sum(x ** 2))
+
+
+def schedule(rates, policy="pf", alpha=1.0, tc=100.0):
+    """Single-resource scheduler over time. ``rates`` has shape (slots, users): the rate each
+    user would get if scheduled. Policies: 'rr', 'maxrate', 'pf' (alpha=1) and 'alpha'
+    (generalised alpha-fair, metric r / Rbar^alpha). Returns long-term throughput per user."""
+    S, U = rates.shape
+    avg = np.full(U, 1e-6)
+    served = np.zeros(U)
+    for s in range(S):
+        r = rates[s]
+        if policy == "rr":
+            k = s % U
+        elif policy == "maxrate":
+            k = int(np.argmax(r))
+        else:
+            a = 1.0 if policy == "pf" else alpha
+            k = int(np.argmax(r / avg ** a))
+        inst = np.zeros(U); inst[k] = r[k]
+        avg = (1 - 1 / tc) * avg + inst / tc
+        served += inst
+    return served / S

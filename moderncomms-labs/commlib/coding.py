@@ -116,6 +116,58 @@ class ConvCode:
             st = prev[st, dec[t, st]]
         return bits[:T - (K - 1)] if terminated else bits
 
+    def encode_batch(self, bits, terminate=True):
+        """Encode many frames at once. bits: (B, n). Returns (B, (n + K - 1) * n_out)
+        interleaved exactly like encode()."""
+        u = np.asarray(bits, dtype=np.int64)
+        if terminate:
+            u = np.concatenate([u, np.zeros((u.shape[0], self.K - 1), dtype=np.int64)], axis=1)
+        B, T = u.shape
+        out = np.empty((B, T, self.n_out), dtype=np.int8)
+        for j, g in enumerate(self.gens):
+            taps = np.array([(g >> (self.K - 1 - k)) & 1 for k in range(self.K)])   # k = delay
+            acc = np.zeros((B, T), dtype=np.int64)
+            for k in np.flatnonzero(taps):
+                acc[:, k:] += u[:, :T - k]
+            out[:, :, j] = acc & 1
+        return out.reshape(B, -1)
+
+    def decode_batch(self, llr, terminated=True):
+        """Viterbi decoding of many equal-length frames at once.
+
+        llr: (B, T*n_out) array, one frame per row. Returns (B, T - K + 1) bits
+        (or (B, T) if not terminated). Same result as calling decode() per row,
+        but vectorised across frames, so Monte Carlo runs are much faster.
+        """
+        r = np.asarray(llr, dtype=float)
+        B = r.shape[0]
+        r = r.reshape(B, -1, self.n_out)
+        T = r.shape[1]
+        S, K = self.S, self.K
+        ns = np.arange(S)
+        b_of_ns = ns >> (K - 2)
+        low = (ns & ((1 << (K - 2)) - 1)) << 1
+        prev = np.stack([low, low | 1], axis=1)
+        sgn = 1 - 2 * self.outputs.astype(float)
+        bo = sgn[prev, b_of_ns[:, None]]                        # (S, 2, n_out)
+        pm = np.full((B, S), np.inf)
+        pm[:, 0] = 0.0
+        dec = np.zeros((T, B, S), dtype=np.int8)
+        rows = np.arange(B)[:, None]
+        for t in range(T):
+            bm = -np.einsum("sjn,bn->bsj", bo, r[:, t])         # (B, S, 2)
+            cand = pm[:, prev] + bm
+            choice = np.argmin(cand, axis=2)
+            pm = np.take_along_axis(cand, choice[:, :, None], axis=2)[:, :, 0]
+            pm -= pm.min(axis=1, keepdims=True)
+            dec[t] = choice
+        st = np.zeros(B, dtype=int) if terminated else np.argmin(pm, axis=1)
+        bits = np.empty((B, T), dtype=np.int8)
+        for t in range(T - 1, -1, -1):
+            bits[:, t] = st >> (K - 2)
+            st = prev[st, dec[t, rows[:, 0], st]]
+        return bits[:, :T - (K - 1)] if terminated else bits
+
 
 # ---------------------------------------------------------------- LDPC
 def _gf2_rref(H):
@@ -172,6 +224,14 @@ class LDPCCode:
 
     @staticmethod
     def _peg(n, m, dv, rng):
+        """Progressive edge growth (Hu, Eleftheriou & Arnold 2005).
+
+        For each new edge of variable v, expand the Tanner-graph tree rooted at v
+        level by level. If some checks are never reached, connect to one of them
+        (no new cycle at all); otherwise connect to a check first reached at the
+        deepest level, which creates the longest possible new cycle. Ties are
+        broken by the lowest current check degree, then at random.
+        """
         H = np.zeros((m, n), dtype=np.int8)
         cdeg = np.zeros(m, dtype=int)
         vnbrs = [[] for _ in range(n)]
@@ -179,28 +239,28 @@ class LDPCCode:
         for v in range(n):
             for k in range(dv):
                 if k == 0:
-                    cand = np.where(cdeg == cdeg.min())[0]
+                    pool = np.arange(m)
                 else:
-                    reached = set(vnbrs[v])
-                    frontier_v = {v}
-                    last_unreached = None
+                    reached = np.zeros(m, dtype=bool)
+                    reached[vnbrs[v]] = True
+                    frontier_c = list(vnbrs[v])
+                    seen_v = {v}
+                    prev_unreached = None
                     while True:
-                        new_c = set()
-                        for vv in frontier_v:
-                            new_c.update(vnbrs[vv])
-                        new_c -= reached
-                        unreached = np.array([c for c in range(m) if c not in reached and c not in new_c])
-                        if len(unreached) == 0 or not new_c:
-                            if len(unreached) == 0:
-                                unreached = last_unreached
+                        unreached = np.flatnonzero(~reached)
+                        if len(unreached) == 0:            # everything reachable: go deepest
+                            pool = prev_unreached
                             break
-                        last_unreached = unreached
-                        reached |= new_c
-                        frontier_v = set()
-                        for c in new_c:
-                            frontier_v.update(cnbrs[c])
-                    pool = unreached if unreached is not None and len(unreached) else np.setdiff1d(np.arange(m), vnbrs[v])
-                    cand = pool[cdeg[pool] == cdeg[pool].min()]
+                        fv = {vv for c in frontier_c for vv in cnbrs[c]} - seen_v
+                        seen_v |= fv
+                        new_c = {c for vv in fv for c in vnbrs[vv] if not reached[c]}
+                        if not new_c:                      # tree stopped growing
+                            pool = unreached
+                            break
+                        prev_unreached = unreached
+                        reached[list(new_c)] = True
+                        frontier_c = list(new_c)
+                cand = pool[cdeg[pool] == cdeg[pool].min()]
                 c = int(rng.choice(cand))
                 H[c, v] = 1
                 cdeg[c] += 1

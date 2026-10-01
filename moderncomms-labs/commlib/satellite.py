@@ -331,7 +331,8 @@ def cn0_dbhz(eirp_dbw, path_loss_db, g_over_t, other_loss_db=0.0):
 
 def combine_cn_db(*cn_db):
     """Combine independent noise/interference contributions: 1/(C/N)tot = sum 1/(C/N)_i (dB in, dB out)."""
-    return -db(np.sum([undb(-np.asarray(x, float)) for x in cn_db], axis=0))
+    terms = np.broadcast_arrays(*[undb(-np.asarray(x, float)) for x in cn_db])
+    return -db(np.sum(terms, axis=0))
 
 
 def rain_noise_temp(atten_db, t_medium=275.0):

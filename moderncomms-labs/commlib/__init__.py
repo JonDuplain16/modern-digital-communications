@@ -12,5 +12,6 @@ from .coding import *       # noqa
 from .mimo import *         # noqa
 from .iq import *           # noqa
 from .plotting import *     # noqa
+from . import labkit         # noqa  (lab look-and-feel helpers: commlib.labkit)
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

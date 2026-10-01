@@ -1,8 +1,19 @@
 """Sanity tests for commlib. Run:  python -m pytest -q tests/  (or python tests/test_commlib.py)"""
 import os
 import sys
+import traceback
 
+# Small matrices + many-core machines: OpenBLAS thread start-up and contention can make a
+# 256x256 solve 100x slower. A few threads are plenty for these labs (set before NumPy loads).
+for _v in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_v, "2")
 import numpy as np
+
+try:                                   # Windows consoles default to cp1252
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import commlib as cl  # noqa: E402
@@ -121,6 +132,15 @@ def test_viterbi():
     assert np.mean(uh != u) < 1e-2
 
 
+def test_viterbi_batch_matches_single():
+    cc = cl.ConvCode()
+    u = RNG.integers(0, 2, (8, 300))
+    c = cc.encode_batch(u)
+    assert np.array_equal(c, np.array([cc.encode(x) for x in u]))
+    y = (1 - 2.0 * c) + 0.9 * RNG.standard_normal(c.shape)
+    assert np.array_equal(cc.decode_batch(y), np.array([cc.decode(r) for r in y]))
+
+
 def test_ldpc():
     code = cl.LDPCCode(n=480, rate=0.5, dv=3, seed=2)
     u = cl.random_bits(code.k, RNG)
@@ -131,6 +151,29 @@ def test_ldpc():
     for m in ("minsum", "spa"):
         ch = code.decode(2 * y / sigma ** 2, method=m)
         assert np.mean(code.info_bits(ch) != u) < 0.02, m
+
+
+def test_ldpc_peg_has_no_4_cycles():
+    for n, seed in [(576, 3), (480, 2), (96, 0)]:
+        H = cl.LDPCCode(n=n, rate=0.5, dv=3, seed=seed).H.astype(int)
+        overlap = H @ H.T
+        np.fill_diagonal(overlap, 0)
+        assert overlap.max() <= 1, (n, int((overlap > 1).sum() // 2))
+        assert np.all(H.sum(axis=0) == 3)
+
+
+def test_labkit_helpers():
+    from commlib import labkit as lk
+    rng = lk.setup(seed=1, quiet=True)
+    assert isinstance(rng, np.random.Generator)
+    assert lk.check("pass", 1.02, 1.0, rtol=0.05)
+    assert not lk.check("fail", 2.0, 1.0)
+    assert not lk.check("todo", None, 1.0)
+    assert lk.check("cond", None, cond=True)
+    lk.table([[1, 2.5], [3, 4.25]], ["a", "b"], title="t")
+    ber = lk.ber_mc(lambda b: (5, 1000), min_errors=20)
+    assert abs(ber - 5e-3) < 1e-12
+    assert abs(lk.db(100) - 20) < 1e-12 and abs(lk.undb(3) - 1.9953) < 1e-3
 
 
 def test_polar():
@@ -169,7 +212,15 @@ def test_mimo():
 
 
 if __name__ == "__main__":
+    failed = 0
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
-            fn()
-            print("PASS", name)
+            try:
+                fn()
+                print("PASS", name)
+            except Exception:
+                failed += 1
+                print("FAIL", name)
+                traceback.print_exc()
+    print(f"{failed} failure(s)" if failed else "all tests passed")
+    sys.exit(1 if failed else 0)
