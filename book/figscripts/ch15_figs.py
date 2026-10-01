@@ -60,7 +60,8 @@ def na_ebn0(n, k, eps):
 
 
 # ============================================================================ optional result cache
-# Set CH15_CACHE=<file.pkl> to store Monte Carlo results between runs (handy when only the
+# Results are cached in cache/ch15_simcache.pkl by default (override with CH15_CACHE=<file.pkl>);
+# delete it to recompute everything (a cold run takes ~50 min). Original note: cache Monte Carlo results between runs (handy when only the
 # plotting changes). Without it every figure is recomputed from scratch.
 import os, pickle, hashlib, functools
 _CACHE_FILE = os.environ.get("CH15_CACHE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "ch15_simcache.pkl"))

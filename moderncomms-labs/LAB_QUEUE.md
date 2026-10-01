@@ -21,3 +21,5 @@
 | 30 | lab30_wireline_optical.py | 24 | loop loss & DSL rate vs reach, crosstalk/vectoring, fibre CD + DSP compensation, coherent DP-QPSK chain, OSNR budget |
 | 31 | lab31_wifi_ble_lora.py | 22 | 802.11 preamble detect/CFO/LTF chest, MAC efficiency + aggregation + rate anomaly, Minstrel-like RA, BLE GFSK + battery calc, 802.15.4 O-QPSK, LoRa mod/demod SER vs theory + ToA/duty/link budget, RFID range (commlib/iot.py) |
 | 32 | lab32_6g_waveforms.py | 25 | OTFS vs OFDM, near-field focusing, ISAC range-Doppler, RIS |
+| 33 | lab33_noise_detection.py | 3 | noise generation/statistics, filtered noise PSD, envelope stats, NF cascade calc, ROC/Neyman–Pearson |
+| 34 | lab34_telegraph_history.py | 1 | Morse keying + spectrum, Morse vs Huffman on user text, Kelvin RC-cable ISI with wpm slider, analog repeater chain vs regenerator chain |
