@@ -1,0 +1,2216 @@
+\chapter{Wireline and Optical Communications}
+\label{ch:wireline}
+
+\begin{chapterintro}
+Radio gets the headlines, but almost every bit you send ends up on a wire or a fibre within a
+few hundred metres of leaving your antenna. The cellular base station is fed by fibre, the
+Wi-Fi access point by a twisted pair, and more than nine-tenths of intercontinental traffic
+crosses the oceans on a few hundred submarine cables. This chapter is about those guided
+channels. It starts with the transmission-line physics that every wireline engineer carries
+around, then follows the telephone network from the hand-cranked magneto to the stored-program
+switch, the signalling network that made it intelligent and the voiceband modems that pushed
+it to its Shannon limit. It revisits the digital hierarchy from T1 through SONET to the optical
+transport network, and then shows how DSL, cable modems and Ethernet squeezed gigabits out of
+copper that was laid for telephone calls and analog television. The second half turns to
+light: the physics of the fibre (loss, dispersion and nonlinearity), lasers, modulators and
+photodiodes, the erbium-doped fibre amplifier and wavelength-division multiplexing, and the
+coherent revolution that brought the QAM, MIMO equalisers and soft-decision codes of earlier
+chapters into the optical domain. It closes with passive optical networks, data-centre optics
+and a short look at free-space optics. Much of the book meets here: line codes
+(Chapter~\ref{ch:baseband}), equalisation and echo cancellation (Chapter~\ref{ch:equalization}),
+DMT (Chapter~\ref{ch:ofdm}), capacity (Chapter~\ref{ch:infotheory}) and modern codes
+(Chapter~\ref{ch:moderncodes}) are all at work in the systems of this chapter.
+\end{chapterintro}
+
+%======================================================================
+\section{Why guided media still carry the world}
+\label{sec:ch24:intro}
+%======================================================================
+
+A wireless channel is shared, power-limited and unpredictable. A guided channel---a twisted
+pair, a coaxial cable, an optical fibre---is private, stable and, in the case of fibre,
+almost unimaginably wide. A single modern fibre pair carries tens of terabits per second
+across an ocean; the entire radio spectrum below 100\,GHz, used perfectly, would carry less
+than that over a single link. That is why the architecture of every network, wireless ones
+included, is the same: radio for the last few hundred metres, where mobility matters, and
+guided media everywhere else.
+
+The guided world splits naturally into three tiers, and this chapter follows them.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[The core.] Long-haul and submarine fibre, carrying aggregated traffic between cities
+and continents. The engineering problem is to maximise capacity times distance per fibre and
+per watt. Coherent detection, optical amplifiers and wavelength-division multiplexing rule
+here.
+\item[The metro and data centre.] Fibre rings between central offices and links of a few
+metres to a hundred kilometres between switches and servers. The problem is cost and power
+per bit at enormous volume: hundreds of millions of optical transceivers a year.
+\item[The access network, or ``last mile''.] The final connection to homes and businesses.
+For a century it was a copper pair per subscriber; then coaxial cable built for television;
+now increasingly fibre. The problem is cost per subscriber, and the defining constraint has
+been reuse: the copper was already in the ground, and anything that could squeeze more out of
+it without digging was worth enormous engineering effort.
+\end{description}
+
+\mdcfig[0.85]{ch24_access_rates}{Approximate maximum downstream rates of access technologies
+against the year their standard (or first major version) appeared. Each family advanced by
+reusing the same physical medium with more signal processing; together they track a growth of
+roughly 50\% per year, an observation sometimes called Nielsen's law. Years and rates are
+approximate and are for orientation only.}
+
+Figure~\ref{fig:ch24_access_rates} shows the result of that pressure. Over sixty years the
+rate delivered to a home grew by a factor of about $10^8$, from 300\,b/s acoustic-coupled
+modems to 10\,Gb/s passive optical networks. Remarkably, much of that growth came over media
+that did not change: the telephone pair that carried a 300\,b/s modem in 1962 carried
+100\,Mb/s of VDSL2 in 2010. What changed was signal processing---equalisation, echo
+cancellation, multicarrier modulation, coding and, finally, crosstalk cancellation. The
+copper story is therefore a long case study in the ideas of this book, and the fibre story
+is the same ideas applied to a channel a million times wider.
+
+%======================================================================
+\section{Transmission lines for communication engineers}
+\label{sec:ch24:tline}
+%======================================================================
+
+Every wire is a transmission line once its length is comparable to a wavelength, or, more
+practically, once the signal's rise time is comparable to the propagation delay. A telephone
+pair is a transmission line at a few kilohertz over several kilometres; a circuit-board trace
+is one at a few gigahertz over a few centimetres. This section collects the results a
+communication engineer needs; the electromagnetic derivations are in any microwave text.
+
+\subsection{The RLGC model and the telegrapher's equations}
+
+Model a uniform two-conductor line as a cascade of infinitesimal sections, each of length
+$dz$, with series resistance $R\,dz$ and inductance $L\,dz$, and shunt conductance $G\,dz$ and
+capacitance $C\,dz$. $R$, $L$, $G$ and $C$ are the \term{primary line constants}, per unit
+length. Kirchhoff's laws applied to one section give, for phasors at angular frequency
+$\omega$, the \term{telegrapher's equations}
+\begin{equation}
+\frac{dV}{dz}=-(R+j\omega L)\,I,\qquad \frac{dI}{dz}=-(G+j\omega C)\,V,
+\label{eq:ch24:telegrapher}
+\end{equation}
+first written down in this form by Oliver Heaviside in the 1880s. Eliminating $I$ gives the
+wave equation $d^2V/dz^2=\gamma^2V$, whose solution is a pair of waves travelling in
+opposite directions,
+\begin{equation}
+V(z)=V^+e^{-\gamma z}+V^-e^{+\gamma z},\qquad
+I(z)=\frac{1}{Z_0}\left(V^+e^{-\gamma z}-V^-e^{+\gamma z}\right),
+\end{equation}
+with the \term{propagation constant} and the \term{characteristic impedance}
+\begin{equation}
+\gamma=\alpha+j\beta=\sqrt{(R+j\omega L)(G+j\omega C)},\qquad
+Z_0=\sqrt{\frac{R+j\omega L}{G+j\omega C}}.
+\label{eq:ch24:gammaz0}
+\end{equation}
+The real part $\alpha$ is the attenuation in nepers per metre (multiply by 8.686 for decibels);
+the imaginary part $\beta$ is the phase constant, and the phase velocity is $\omega/\beta$. A
+line of length $\ell$ terminated in its own characteristic impedance looks, from its input,
+like a resistor $Z_0$ and transfers the signal as $H(f)=e^{-\gamma\ell}$: an attenuation of
+$8.686\,\alpha\ell$\,dB and a delay of $\beta\ell/\omega$.
+
+Two limits explain almost everything about copper.
+
+\emph{At low frequencies}, $\omega L\ll R$ and $G\approx0$, so $\gamma\approx\sqrt{j\omega RC}$
+and $Z_0\approx\sqrt{R/(j\omega C)}$. The attenuation grows as $\sqrt f$, the impedance is large
+and has a phase of $-45^\circ$, and the line behaves as a diffusion medium. This is Kelvin's
+cable of Chapter~\ref{ch:history}, where the response time grows as the square of the length.
+A telephone pair is in this regime throughout the voice band: a 26-gauge pair has
+$|Z_0|\approx970$\,$\Omega$ at 1\,kHz (Figure~\ref{fig:ch24_line_loss}), which is why
+telephone circuits were designed around 600 or 900\,$\Omega$ terminations.
+
+\emph{At high frequencies}, $\omega L\gg R$ and $\omega C\gg G$, and a first-order expansion gives
+\begin{equation}
+Z_0\approx\sqrt{\frac LC},\qquad
+\alpha\approx\frac{R}{2Z_0}+\frac{GZ_0}{2},\qquad v=\frac{1}{\sqrt{LC}}.
+\label{eq:ch24:hfloss}
+\end{equation}
+The impedance becomes real and nearly constant---about 100\,$\Omega$ for twisted pair,
+50 or 75\,$\Omega$ for coax---and the line becomes a proper waveguide with a velocity of 0.6
+to 0.8 times that of light. The first term of $\alpha$ is conductor loss and the second is
+dielectric loss.
+
+\subsection{Skin effect, dielectric loss and the shape of copper loss}
+
+At high frequency the current crowds into a skin of depth $\delta=1/\sqrt{\pi f\mu\sigma}$ at
+the conductor surface (66\,$\mu$m in copper at 1\,MHz, 6.6\,$\mu$m at 100\,MHz), so $R$ rises as
+$\sqrt f$ and the conductor term of~\eqref{eq:ch24:hfloss} gives a loss in decibels
+proportional to $\sqrt f$. The dielectric term $GZ_0/2$, with $G=\omega C\tan\delta$ for an
+insulator of loss tangent $\tan\delta$, grows in proportion to $f$. The loss of any copper
+medium is therefore well fitted by
+\begin{equation}
+\alpha_{\mathrm{dB}}(f)\approx k_1\sqrt f+k_2f,
+\label{eq:ch24:k1k2}
+\end{equation}
+with skin effect dominating in telephone cable and coax, and dielectric loss taking over on
+circuit boards at gigahertz frequencies (Chapter~\ref{ch:baseband}). Cable data sheets and the
+TIA-568 cabling standards specify insertion loss in exactly this form, sometimes with a third
+$k_3/\sqrt f$ term for low-frequency effects.
+
+\mdcfig{ch24_line_loss}{Left: attenuation per kilometre of 26 and 24 AWG telephone pairs
+(from the parametric RLGC model used in DSL standards work), a Category~6 data pair (from
+the TIA-568 insertion-loss formula) and typical RG-6 drop coax. In the voice band the loss
+grows as $\sqrt f$ through the RC diffusion mechanism; above about 100\,kHz the skin effect
+takes over, again as $\sqrt f$; dielectric loss adds a component proportional to $f$. Right:
+the magnitude (solid) and phase (dashed) of the characteristic impedance of a telephone pair,
+falling from the RC regime (about 700--1000\,$\Omega$ at $-45^\circ$) to a nearly real
+100\,$\Omega$ above about 100\,kHz.}
+
+Figure~\ref{fig:ch24_line_loss} shows the result for the four copper media of this chapter.
+Note the logarithmic axes: at 1\,MHz a 26-gauge telephone pair loses about 25\,dB per
+kilometre, and at 30\,MHz about 150\,dB/km. No conceivable signal processing extracts data
+from a channel with hundreds of decibels of loss, which is why every increase in copper
+access speed has been bought by shortening the copper.
+
+\begin{worked}[The loss of a 3\,km loop at 1\,MHz]
+A subscriber is served by 3\,km of 26 AWG (0.4\,mm) cable. Estimate the loss at 1\,MHz.
+
+At 1\,MHz the parametric cable model gives, per kilometre, $R\approx627$\,$\Omega$,
+$L\approx0.57$\,mH, $C\approx49$\,nF and a negligible $G$. Since $\omega L=3.6$\,k$\Omega$ per
+km is six times $R$, the high-frequency approximation applies: $Z_0\approx\sqrt{L/C}\approx
+108$\,$\Omega$, and
+\[
+\alpha\approx\frac{R}{2Z_0}=\frac{627}{2\times108}\approx2.9\ \text{Np/km}
+\;\Rightarrow\;8.686\times2.9\approx25\ \text{dB/km}.
+\]
+The full expression~\eqref{eq:ch24:gammaz0} gives 25.4\,dB/km. Three kilometres therefore lose
+about 76\,dB at 1\,MHz. If the transmitter launches $-40$\,dBm/Hz (the ADSL downstream level)
+and the receiver sees the conventional background noise of $-140$\,dBm/Hz, the SNR at 1\,MHz is
+$100-76=24$\,dB before any crosstalk---enough for about 5 bits per tone after the SNR gap of
+Chapter~\ref{ch:ofdm}, and falling by about 1\,bit for every 6\,dB of extra loss. The velocity
+is $v=1/\sqrt{LC}\approx1.9\times10^8$\,m/s, about $0.63c$, so the loop delay is 16\,$\mu$s.
+\end{worked}
+
+\subsection{Twisted pair and coaxial cable}
+
+A \term{twisted pair} is two insulated conductors twisted together. The twist is the whole
+point: an interfering magnetic field induces voltages of opposite sign in successive half-twists,
+which cancel, and the two wires of the pair are, on average, equally exposed to any nearby
+conductor, so a \emph{differential} receiver rejects what they pick up in common. The cancellation
+is never perfect, and the residue is crosstalk. Telephone cables bundle pairs into
+\emph{binder groups} of 25 pairs, each pair with a different twist length so that neighbours do
+not lie parallel for long, and bundle binders into cables of up to several thousand pairs.
+Conductor sizes are given in the American Wire Gauge: 26 AWG is 0.40\,mm, 24 AWG 0.51\,mm, 22 AWG
+0.64\,mm, and 19 AWG 0.91\,mm. Thinner wire is cheaper and was used close to the exchange where
+cables are biggest; thicker wire was used on long rural loops.
+
+Data cabling follows the TIA-568 and ISO/IEC 11801 categories: Category~3 (16\,MHz, 10BASE-T),
+Category~5 and 5e (100\,MHz, Fast and Gigabit Ethernet), Category~6 (250\,MHz), Category~6A
+(500\,MHz, 10GBASE-T to 100\,m) and Category~8 (2\,GHz, 25/40GBASE-T to 30\,m). Each category
+tightens the twist and the manufacturing tolerances, and the higher ones add foil shields.
+
+A \term{coaxial cable} confines the field between an inner conductor and a surrounding shield,
+so it neither radiates nor picks up interference as long as the shield is intact, and its loss
+is set almost entirely by the skin effect in the conductors. Cable television uses 75\,$\Omega$
+coax, a value that minimises loss for an air or foam dielectric; laboratory and radio work uses
+50\,$\Omega$, a compromise between minimum loss and maximum power handling. A 1\,cm aluminium
+``hardline'' trunk cable loses about 2\,dB per 100\,m at 500\,MHz; an RG-6 drop cable to the house
+loses about 15\,dB per 100\,m at the same frequency.
+
+\subsection{Reflections and return loss}
+
+When a line of impedance $Z_0$ is terminated in a load $Z_L\ne Z_0$, part of the incident wave
+is reflected. The \term{reflection coefficient} and the \term{return loss} are
+\begin{equation}
+\Gamma=\frac{Z_L-Z_0}{Z_L+Z_0},\qquad \mathrm{RL}=-20\log_{10}|\Gamma|\ \text{dB}.
+\label{eq:ch24:gamma}
+\end{equation}
+A 100\,$\Omega$ line terminated in 120\,$\Omega$ has $\Gamma=0.09$ and a return loss of 21\,dB; a
+75\,$\Omega$ coax connected to a 50\,$\Omega$ instrument has $\Gamma=-0.2$ and 14\,dB. An open
+circuit reflects everything with $\Gamma=+1$, a short with $\Gamma=-1$. The \term{time-domain
+reflectometer} (TDR), which launches a fast step and watches the reflections come back, turns
+this into a tool: the delay of each echo locates a fault, and its sign and size identify it. Every
+line tester in a telephone company's van is a TDR.
+
+Reflections matter to a communication system in two ways. First, they are \emph{echoes}: in a
+full-duplex system the transmitter's own signal, reflected from the near-end impedance mismatch,
+arrives at the local receiver, often much stronger than the far-end signal (Section~\ref{sec:ch24:hybrid}).
+Second, a mismatch partway along a line---a change of gauge, a connector, a branch---produces a
+multipath channel. The most notorious example in the telephone plant is the \term{bridged tap}:
+an unused branch of cable left connected to a loop, a legacy of the practice of wiring one pair to
+several possible customer locations and connecting whichever was needed. An open-ended tap of
+length $\ell_t$ presents at its junction the admittance $Y=\tanh(\gamma\ell_t)/Z_0$; at the
+frequencies where the tap is an odd number of quarter wavelengths long, $f=(2k+1)v/(4\ell_t)$, the
+reflected wave returns in antiphase and the tap shorts the line (Figure~\ref{fig:ch24_loop_impairments}).
+A 25\,m tap carves its first notch near 2\,MHz, squarely in the VDSL2 band.
+
+\subsection{Crosstalk}
+
+Crosstalk is the coupling of signals between pairs in the same cable, through the mutual
+capacitance and inductance of imperfectly twisted neighbours. It comes in two kinds, named for
+where the victim's receiver is relative to the disturbing transmitter.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Near-end crosstalk (NEXT).] The disturber's transmitter and the victim's receiver are at
+the same end. The coupled signal has not travelled down the cable, so it is strong, and it
+grows with frequency, because coupling through a small capacitance rises as $f$ and the
+contributions along the line add with random phase. The standard empirical model, due to
+Unger and adopted in the ANSI and ITU DSL standards, gives the power coupling from $N$
+disturbers in a 50-pair binder as
+\begin{equation}
+|H_{\mathrm{NEXT}}(f)|^2=K_{\mathrm{NEXT}}\left(\frac{N}{49}\right)^{0.6}f^{3/2},\qquad
+K_{\mathrm{NEXT}}\approx8.8\times10^{-14},
+\label{eq:ch24:next}
+\end{equation}
+with $f$ in hertz. It is a ``1\% worst case'' model: 99\% of pairs in real cables do better. At
+80\,kHz, the ISDN frequency, it gives 57\,dB of NEXT loss for 49 disturbers, the number on which
+ISDN was designed. The $N^{0.6}$ law reflects the fact that the nearest neighbours dominate.
+\item[Far-end crosstalk (FEXT).] The disturber's transmitter is at the far end, with the
+victim's. The coupling accumulates along the whole length and travels with the signal, so it is
+attenuated by the line like the signal itself:
+\begin{equation}
+|H_{\mathrm{FEXT}}(f)|^2=K_{\mathrm{FEXT}}\left(\frac{N}{49}\right)^{0.6}f^{2}\,\ell\,|H(f)|^2,
+\qquad K_{\mathrm{FEXT}}\approx7.7\times10^{-21}\ (\ell\text{ in feet}).
+\label{eq:ch24:fext}
+\end{equation}
+\end{description}
+Figure~\ref{fig:ch24_crosstalk_vectoring} plots both against the through signal of a 1\,km loop. NEXT
+exceeds the received signal above about 2\,MHz, so systems that transmit in both directions in the
+same band on adjacent pairs cannot work there. That single observation dictates the architecture
+of DSL: ADSL and VDSL2 use \emph{frequency-division duplexing} with different bands for each
+direction, so that NEXT from other lines falls outside the receiver's band, and G.fast uses
+synchronised time-division duplexing, so that no receiver listens while a neighbour transmits.
+What remains is FEXT, which, unlike the signal, \emph{grows} relative to it as $f^2\ell$, and which
+limits every modern DSL system until it is cancelled (Section~\ref{sec:ch24:vectoring}).
+
+\begin{pitfall}[Self-crosstalk is the real enemy]
+Engineers new to DSL look first at background noise, typically $-140$\,dBm/Hz, and compute
+spectacular rates. On a real cable the dominant noise is crosstalk from other lines carrying
+\emph{the same service}---self-NEXT and self-FEXT---because the disturbers use exactly the victim's
+band at exactly the victim's power. Adding subscribers to a binder therefore lowers everyone's
+rate, and a rate promised from a single-line test on an empty cable will not be achieved in
+service. Always include a crosstalk model with a realistic number of same-service disturbers;
+the Unger model with 10 to 24 disturbers is the usual planning choice.
+\end{pitfall}
+
+%======================================================================
+\section{The telephone plant}
+\label{sec:ch24:telephone}
+%======================================================================
+
+\subsection{From magneto to stored program control}
+
+\begin{history}[A hundred years of switching]
+Bell's telephone (1876) needed a way to connect any subscriber to any other, and the first
+answer was the manual switchboard, opened in New Haven, Connecticut, in 1878 with 21 subscribers.
+Operators plugged cords into jacks; the subscriber's telephone carried its own battery
+and a hand-cranked magneto to ring the exchange. By the 1890s \emph{common battery} working put the
+battery at the exchange, where it still is: the $-48$\,V on a telephone line today descends from
+those lead-acid cells.
+
+Automation began with Almon Strowger's step-by-step switch, patented in 1891 and first used at La
+Porte, Indiana, in 1892. Each digit dialled moved an electromechanical selector one step per pulse;
+the call's path through the exchange was built digit by digit, directly controlled by the
+subscriber. The Bell System's \emph{panel} switches of the 1920s and the \emph{crossbar}
+switches (the No.~1 crossbar entered service in 1938) separated control from switching: common
+control equipment received all the digits first, then chose and set up a path through a matrix of
+relay contacts. Crossbar offices carried most of North America's calls into the 1970s.
+
+The decisive step was Bell Labs' No.~1 Electronic Switching System, cut over in Succasunna, New
+Jersey, in 1965: the switching fabric was still made of metallic reed relays, but the control was a
+\emph{stored-program} computer. Features became software. Call waiting, call forwarding and
+three-way calling arrived as program changes, and stored program control has defined telephone
+switching ever since. The No.~4 ESS (1976) was the first digital toll switch, switching PCM time
+slots instead of metallic paths; the No.~5 ESS (1982) and Northern Telecom's DMS-100 brought
+digital switching to local exchanges. A digital switch connects calls by copying 8-bit samples
+between time slots in memory, a technique called \emph{time-slot interchange}.
+\end{history}
+
+\subsection{The local loop}
+
+The \term{local loop} is the pair of copper wires between the exchange (the \emph{central office},
+CO) and the customer. It is the largest single investment of any telephone company: several hundred
+million pairs worldwide, each running on average a few kilometres. Leaving the CO, pairs travel in
+large \emph{feeder} cables to a cross-connect cabinet (in North America the \emph{serving area
+interface}), then in smaller \emph{distribution} cables along the streets, and finally in a
+\emph{drop} wire to the house. North American loops are typically 1 to 6\,km long, with a long tail
+of rural loops beyond 8\,km; European and Asian loops are generally shorter.
+
+The CO powers the line with about $-48$\,V through a feed resistance; when the handset goes off-hook,
+a loop current of 20 to 80\,mA flows, which the exchange detects. Dialling interrupts the current
+(pulse dialling at 10 pulses per second) or sends dual-tone multi-frequency (DTMF) pairs; ringing
+is a high-voltage AC signal, about 90\,V\,rms at 20\,Hz in North America, superimposed on the battery.
+The \term{line card} at the exchange implements all of this. Its functions are summarised by the
+mnemonic BORSCHT: \emph{B}attery feed, \emph{O}vervoltage protection, \emph{R}inging,
+\emph{S}upervision (on/off-hook detection), \emph{C}odec (the $\mu$-law or A-law PCM converter of
+Chapter~\ref{ch:pcm}), \emph{H}ybrid (two-wire to four-wire conversion) and \emph{T}esting.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.8cm,minimum width=1.3cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[blk,minimum height=2.4cm] (phone) at (0,0) {Tele-\\phone};
+\node[blk,minimum height=2.4cm,fill=accent!6,draw=accent] (hyb) at (3.6,0) {Hybrid\\[2pt]balance\\network\\$Z_B$};
+\draw[thick,navy] (0.65,0.2) -- (2.95,0.2); \draw[thick,navy] (0.65,-0.2) -- (2.95,-0.2);
+\node[font=\sffamily\scriptsize,text=navy,align=center] at (1.8,0.65) {2-wire loop};
+\node[font=\sffamily\scriptsize,text=navy,align=center] at (1.8,-0.65) {both directions};
+\node[blk] (adc) at (6.0,0.85) {A/D\\(codec)};
+\node[blk] (dac) at (6.0,-0.85) {D/A\\(codec)};
+\node[draw=navy,thick,circle,inner sep=1pt,font=\small] (sum) at (8.0,0.85) {$+$};
+\node[blk] (ec) at (8.0,-0.0) {Echo\\canceller};
+\node[blk,minimum width=1.7cm] (sw) at (10.4,0.85) {to network\\(64\,kb/s)};
+\node[blk,minimum width=1.7cm] (sw2) at (10.4,-0.85) {from network\\(64\,kb/s)};
+\draw[arr] (hyb.east |- adc) -- (adc); \draw[arr] (adc) -- (sum); \draw[arr] (sum) -- (sw);
+\draw[arr] (sw2) -- (dac); \draw[arr] (dac) -- (hyb.east |- dac);
+\draw[arr] (9.1,-0.85) |- (ec.east);
+\draw[arr] (ec) -- node[right,font=\scriptsize]{$-$} (sum);
+\draw[arr,dashed,accent] (4.2,-0.75) .. controls (4.75,-0.3) and (4.75,0.3) .. node[right,font=\sffamily\scriptsize,text=accent]{echo} (4.2,0.75);
+\node[draw=navy!50,dashed,rounded corners,fit=(hyb)(adc)(dac)(ec),inner sep=0.2cm,label={[font=\sffamily\scriptsize,text=navy]above:line card (four-wire side to the right of the hybrid)}] {};
+\end{tikzpicture}
+\caption{Two-wire to four-wire conversion. The loop carries both directions on one pair; the hybrid
+separates them using a balance impedance $Z_B$ that mimics the line. Because $Z_B$ never matches the
+real loop exactly, part of the incoming signal from the network leaks back towards it as echo; an
+adaptive echo canceller (Chapter~\ref{ch:equalization}) removes the residue.}
+\label{fig:ch24_hybrid}
+\end{figure}
+
+\subsection{The hybrid, two wires and four}
+\label{sec:ch24:hybrid}
+
+A telephone loop carries both directions of speech on one pair, but amplifiers, multiplexers and
+digital transmission are one-way devices. Somewhere, therefore, every long-distance circuit must
+convert from \emph{two-wire} to \emph{four-wire} working, with a separate path for each direction.
+The device that does it is the \term{hybrid} (Figure~\ref{fig:ch24_hybrid}), originally a
+transformer bridge and now an operational-amplifier circuit inside the line card. It is a balanced
+bridge: the signal from the network drives the line and a \emph{balance impedance} $Z_B$ in
+opposite arms, and the receive port sees the difference. If $Z_B$ equals the loop's input impedance,
+the transmitted signal cancels at the receive port exactly, while the signal arriving from the
+loop does not. The figure of merit is the \term{transhybrid loss}, the attenuation from the
+four-wire input to the four-wire output, which is related to the mismatch by the same formula as
+return loss,
+\begin{equation}
+\text{THL}\approx-20\log_{10}\left|\frac{Z_{\text{in}}-Z_B}{Z_{\text{in}}+Z_B}\right|.
+\end{equation}
+The trouble is that $Z_{\text{in}}$ depends on the gauge, length, bridged taps and loading of each
+individual loop (Figure~\ref{fig:ch24_line_loss} shows how strongly $Z_0$ varies in the voice
+band), while $Z_B$ is one compromise network for all loops. A typical hybrid achieves only 6 to
+20\,dB of transhybrid loss, with an average around 11\,dB.
+
+The leakage is \term{echo}. On a local call the talker's own voice returns within a few
+milliseconds and sounds like the natural sidetone of the handset. As the round-trip delay grows,
+echo becomes annoying and then intolerable: ITU-T G.131 relates the acceptable echo level to the
+delay, and above roughly 25\,ms of one-way delay control is required. Early long-distance circuits
+used \emph{echo suppressors}, voice-activated switches that opened the return path while the far
+party talked, at the cost of clipped speech whenever both spoke. Satellite circuits, with 270\,ms
+one-way delay (Chapter~\ref{ch:satellite}), forced the invention of the adaptive \term{echo
+canceller}, developed at Bell Labs in the 1960s by Kelly, Logan and Sondhi; the first single-chip
+version followed in 1980. Modern network echo cancellers (ITU-T G.168) model echo paths up to
+64 or 128\,ms long with NLMS adaptive filters (Section~\ref{sec:ch12:echo}). A second hazard of the
+hybrid is \emph{singing}: if the loop gain around the four-wire circuit---two amplifiers and two
+transhybrid losses---exceeds unity, the circuit oscillates, which is why analog four-wire circuits
+always included some loss.
+
+\begin{keyidea}[Echo is the price of sharing a wire]
+Whenever two directions share one medium at the same frequencies, each receiver hears its own
+transmitter. The hybrid, the echo canceller of V.32, the four echo-and-NEXT cancellers of
+Gigabit Ethernet, DOCSIS~4.0's full-duplex cable plant and the self-interference cancellation of
+full-duplex radio are the same idea at successively higher bandwidths: model the leakage from your
+own known transmit signal and subtract it. The alternative is to divide the medium in frequency or
+time, which wastes half of it.
+\end{keyidea}
+
+\subsection{Loading coils}
+
+The voice-band loss of a long unloaded loop rises with frequency (the RC regime of the previous
+section), which muffles speech. Heaviside showed that adding inductance moves the line towards his
+distortionless condition $R/L=G/C$, and from about 1900 the Bell System inserted \term{loading
+coils} into long loops. The North American standard H88 loading places 88\,mH coils every 6000\,ft
+(1.83\,km), with the first coil 3000\,ft from the exchange; loops longer than about 18\,000\,ft
+(5.5\,km) were loaded. The coils turn the cable into a lumped low-pass $LC$ ladder with a cutoff near
+$f_c=1/(\pi\sqrt{L_{\mathrm{coil}}C_{\mathrm{section}}})$, which for H88 on 26-gauge cable is about
+3.6\,kHz. Below the cutoff the loss is flat and lower than the unloaded loss; above it the loss
+rises extremely steeply (Figure~\ref{fig:ch24_loop_impairments}).
+
+\mdcfig{ch24_loop_impairments}{Two legacies of the telephone plant, computed with the two-port
+(ABCD) loop model. Left: 5.5\,km of 26 AWG cable between 600\,$\Omega$ terminations, unloaded and
+with H88 loading coils (88\,mH every 1.83\,km). Loading flattens the voice band and then cuts off
+sharply near 3.6\,kHz, which made long loops good for speech and useless for DSL. Right: a
+300\,m, 24 AWG loop with and without a bridged tap. Each open-ended tap produces notches at the
+frequencies where it is an odd number of quarter wavelengths long; the shorter the tap, the higher
+the first notch.}
+
+Loading was a triumph for telephony and a disaster for data. A loaded loop passes nothing above
+4\,kHz, so before any DSL service could be offered the coils had to be found and removed, a job of
+digging up manholes that still appears in the cost estimates of rural broadband projects. Loading
+also contributed the familiar 3.4\,kHz upper edge of the telephone channel and therefore, through
+the 8\,kHz sampling rate of PCM, much of the timing of the digital network (Chapter~\ref{ch:pcm}).
+The North American \emph{carrier serving area} rules of the 1980s, which define loops suitable for
+digital services, specify no loading coils, at most about 12\,000\,ft of 24-gauge or 9000\,ft of
+26-gauge cable, and limited bridged taps.
+
+\subsection{The switched network and its hierarchy}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  sw/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.6cm,minimum width=1.5cm,align=center,font=\sffamily\scriptsize},
+  stp/.style={draw=accent,fill=accent!6,thick,diamond,aspect=1.6,inner sep=1pt,font=\sffamily\scriptsize},
+  ph/.style={draw=navy!60,fill=white,circle,inner sep=1.3pt,font=\sffamily\tiny}]
+\node[sw] (c1a) at (0,3.6) {Class 1\\regional};
+\node[sw] (c1b) at (5.2,3.6) {Class 1\\regional};
+\node[sw] (c2a) at (0,2.6) {Class 2\\sectional};
+\node[sw] (c2b) at (5.2,2.6) {Class 2\\sectional};
+\node[sw] (c3a) at (0,1.6) {Class 3\\primary};
+\node[sw] (c3b) at (5.2,1.6) {Class 3\\primary};
+\node[sw] (c4a) at (0,0.6) {Class 4\\toll};
+\node[sw] (c4b) at (5.2,0.6) {Class 4\\toll};
+\node[sw] (c5a) at (-1.0,-0.6) {Class 5\\end office};
+\node[sw] (c5b) at (1.0,-0.6) {Class 5\\end office};
+\node[sw] (c5c) at (5.2,-0.6) {Class 5\\end office};
+\foreach \a/\b in {c1a/c2a,c2a/c3a,c3a/c4a,c4a/c5a,c4a/c5b,c1b/c2b,c2b/c3b,c3b/c4b,c4b/c5c}
+  \draw[thick,navy] (\a) -- (\b);
+\draw[thick,navy] (c1a) -- node[above,font=\sffamily\scriptsize]{final route} (c1b);
+\draw[thick,navy,dashed] (c4a) -- node[below,font=\sffamily\scriptsize,pos=0.5]{high-usage trunk} (c4b);
+\draw[thick,navy,dashed] (c3a) -- (c4b);
+\foreach \x in {-1.5,-1.0,-0.5} \draw[navy!60] (\x+0.0,-1.0) -- (\x,-1.4) node[ph,below]{};
+\foreach \x in {0.5,1.0,1.5} \draw[navy!60] (\x,-1.0) -- (\x,-1.4) node[ph,below]{};
+\foreach \x in {4.7,5.2,5.7} \draw[navy!60] (\x,-1.0) -- (\x,-1.4) node[ph,below]{};
+\node[font=\sffamily\scriptsize,text=navy] at (2.6,-1.95) {subscriber loops};
+% SS7 plane
+\node[stp] (s1) at (9.0,2.7) {STP};
+\node[stp] (s2) at (11.0,2.7) {STP};
+\node[sw,fill=accent!6,draw=accent] (scp) at (10.0,3.8) {SCP\\(database)};
+\node[sw] (ssp1) at (8.6,0.9) {SSP\\(switch)};
+\node[sw] (ssp2) at (11.4,0.9) {SSP\\(switch)};
+\draw[thick,accent] (s1) -- (s2); \draw[thick,accent] (s1) -- (scp); \draw[thick,accent] (s2) -- (scp);
+\draw[thick,accent] (ssp1) -- (s1); \draw[thick,accent] (ssp1) -- (s2);
+\draw[thick,accent] (ssp2) -- (s1); \draw[thick,accent] (ssp2) -- (s2);
+\draw[thick,navy] (ssp1) -- (ssp2); \node[font=\sffamily\scriptsize,text=navy] at (10.0,0.25) {voice trunks};
+\node[font=\sffamily\scriptsize\bfseries,text=navy] at (2.6,4.35) {voice network (Bell System, c.\ 1950--1984)};
+\node[font=\sffamily\scriptsize\bfseries,text=accent] at (10.0,4.65) {SS7 signalling network};
+\end{tikzpicture}
+\caption{Left: the five-level switching hierarchy of the North American network before divestiture.
+A call climbed only as far as needed to find a common switch, with high-usage trunks (dashed)
+providing shortcuts that overflowed to the final route. Right: the out-of-band Signalling System
+No.~7 network. Switches (service switching points) exchange signalling messages through duplicated
+signal transfer points, and query service control points for number translation, mobility and
+other services.}
+\label{fig:ch24_pstn}
+\end{figure}
+
+The public switched telephone network (PSTN) is a hierarchy of switches connected by \emph{trunks}.
+In the Bell System's plan, which lasted from the 1950s until the divestiture of 1984, there were five
+classes of switching office (Figure~\ref{fig:ch24_pstn}): many thousands of class~5 end offices,
+where the loops terminate, and above them toll, primary and sectional centres and, at the top, about
+a dozen regional centres in the United States and Canada. A call climbed the
+tree only as far as needed to reach a switch common to both parties, but heavily used pairs of offices
+were also linked directly by \emph{high-usage trunks}, sized by Erlang's traffic formulas
+(Chapter~\ref{ch:multipleaccess}), with calls overflowing to the hierarchical \emph{final route}
+when the direct trunks were busy. From 1984 AT\&T replaced the fixed hierarchy in its long-distance
+network with \emph{dynamic non-hierarchical routing}, in which the computer-controlled toll switches
+chose among alternative two-hop paths according to the time of day and the measured load---an early
+example of a network adapting its routing to traffic.
+
+\subsection{Signalling: from 2600\,Hz to SS7}
+
+A switch must tell the next switch who is being called and when a call starts and ends. For decades
+this \term{signalling} travelled in the voice channel itself. Trunks used a 2600\,Hz tone to mark an
+idle circuit and multi-frequency (MF) tone pairs to send digits. In-band signalling was cheap but had
+a famous weakness: anything that could play 2600\,Hz into the mouthpiece could seize a trunk. The
+``phone phreaks'' of the 1960s and 1970s did exactly that, first with a toy whistle and then with
+electronic \emph{blue boxes}, and the episode is part of computing folklore.
+
+The cure was to move signalling out of band onto a separate data network. AT\&T's Common Channel
+Interoffice Signalling (CCIS, 1976) was followed by the CCITT's \term{Signalling System No.~7}
+(SS7), specified in the ITU-T Q.700 series and deployed worldwide through the 1980s and 1990s.
+SS7 is a packet network with its own protocol stack: the Message Transfer Part provides reliable,
+duplicated delivery; the ISDN User Part (ISUP) sets up and releases calls; and the Transaction
+Capabilities Application Part (TCAP) supports database queries. The nodes are \emph{service switching
+points} (the telephone switches), duplicated \emph{signal transfer points} that route messages, and
+\emph{service control points}, databases that translate toll-free numbers, support number
+portability and, through the Mobile Application Part (MAP), keep track of every mobile phone's
+location. SS7 made the telephone network programmable: the ``intelligent network'' of free-phone
+numbers, calling cards and mobile roaming is built on it. It was designed for a closed club of
+trusted operators, and its lack of authentication has, since the 2010s, allowed location tracking
+and interception of text messages by anyone who obtains access; operators now filter SS7 traffic at
+their borders, and 4G and 5G cores use the Diameter and HTTP-based protocols that replace it.
+
+\begin{inpractice}[The PSTN today]
+The circuit-switched network is being retired. Most operators have moved their trunks to voice over
+IP, and many have announced dates in the late 2020s for switching off their copper PSTN altogether,
+replacing analog lines with voice over broadband. The 64\,kb/s G.711 channel survives as the
+universal fallback codec of VoIP (Chapter~\ref{ch:sourcecoding}); the 125\,$\mu$s timing of the
+digital hierarchy survives in the synchronisation networks that time mobile base stations; and SS7
+survives in the interconnection of mobile networks for roaming and text messages. The copper loops
+themselves are being reused for DSL until fibre arrives, and in some places for powering
+fibre-fed distribution points (Section~\ref{sec:ch24:gfast}).
+\end{inpractice}
+
+%======================================================================
+\section{Voiceband modems}
+\label{sec:ch24:modems}
+%======================================================================
+
+From the early 1960s to the end of the 1990s, the telephone network was also the world's data
+network, and the voiceband modem was the device that adapted digital data to a channel designed
+for speech: roughly 300 to 3400\,Hz, an SNR of 30 to 40\,dB on a good connection, and a
+frequency-dependent delay and attenuation that varied from call to call. Modem history, outlined
+in Chapter~\ref{ch:modulation}, is a compact tour of this book, and Table~\ref{tab:ch24:modems}
+summarises it. Here we look at it from the wire's point of view.
+
+\begin{table}[htbp]\centering\small
+\caption{Landmark voiceband modem standards (rates are the maximum for each standard; years are
+approximate dates of introduction or approval).}
+\label{tab:ch24:modems}
+\begin{tabularx}{\linewidth}{@{}l l l l X@{}}
+\toprule
+Standard & Year & Rate & Symbol rate & Technique\\
+\midrule
+Bell 103 / V.21 & 1962 & 300\,b/s & 300\,Bd & Binary FSK, frequency-split full duplex\\
+Bell 212A / V.22 & 1980 & 1200\,b/s & 600\,Bd & Differential QPSK, frequency split\\
+V.22bis & 1984 & 2400\,b/s & 600\,Bd & 16-QAM, frequency split, adaptive equaliser\\
+V.29 & 1976 & 9600\,b/s & 2400\,Bd & 16-point constellation, four-wire leased lines and fax\\
+V.32 & 1984 & 9600\,b/s & 2400\,Bd & 32-point cross with 8-state trellis code; echo cancellation\\
+V.32bis & 1991 & 14.4\,kb/s & 2400\,Bd & 128-point TCM, echo cancellation\\
+V.34 & 1994/96 & 33.6\,kb/s & up to 3429\,Bd & Line probing, precoding, shell mapping, 4D TCM\\
+V.90 & 1998 & 56\,kb/s down & 8000/s & PCM levels downstream (digital server end)\\
+V.92 & 2000 & 48\,kb/s up & 8000/s & PCM upstream, quick connect, modem on hold\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Full duplex: splitting the band or cancelling the echo}
+
+A dial-up modem must send and receive at once over a two-wire loop. The early standards divided
+the voice band: a V.21 modem originating a call transmits FSK around 1080\,Hz and receives around
+1750\,Hz, and V.22bis used carriers of 1200 and 2400\,Hz, each direction occupying about half the
+channel. This is simple and immune to echo, but it halves the usable bandwidth in each direction.
+
+V.32 (1984) took the other route: both modems transmit across the whole band at the same time, and
+each cancels the echo of its own transmission (Section~\ref{sec:ch12:echo}). The echo
+canceller must handle two echoes: the \emph{near echo} from the local hybrid, strong and short,
+and the \emph{far echo} from the distant four-wire-to-two-wire conversion, weaker but delayed by up
+to a few hundred milliseconds on satellite routes, and subject to the frequency offset of analog
+carrier systems along the way. With a cancellation of 50 to 60\,dB, both directions get the full
+2400\,Bd channel. From V.32 onwards, every high-speed modem, ISDN, HDSL and Gigabit Ethernet has
+cancelled echo rather than splitting the band.
+
+\subsection{V.34: within a few decibels of capacity}
+
+V.34 (1994, extended to 33.6\,kb/s in 1996) was the culmination of analog modem design. At start-up
+the two modems \emph{probe the line}, sending a set of tones and measuring the received spectrum
+and noise, and then choose a symbol rate (2400 to 3429\,Bd) and carrier frequency that best fit the
+channel---a coarse, single-carrier version of the bit loading that DSL would do with many carriers.
+Intersymbol interference is removed by Tomlinson--Harashima-style precoding at the transmitter
+(Section~\ref{sec:ch12:thp}) rather than a DFE at the receiver, so that the trellis decoder sees
+an ISI-free signal; four-dimensional trellis coding gives about 4 to 5\,dB of coding gain; and
+\emph{shell mapping} shapes the constellation for close to 1\,dB of shaping gain
+(Chapter~\ref{ch:modulation}). On a good line V.34 reaches about 93\% of the capacity computed in
+Chapter~\ref{ch:infotheory}. Nothing more could be squeezed from an analog end-to-end voice channel.
+
+\subsection{V.90: changing the channel model}
+
+The 56\,kb/s modems of 1997--98 did not beat Shannon; they changed the channel. By the 1990s the
+network between exchanges was entirely digital, so the only analog stage in a call from a home to
+an Internet service provider was the subscriber's own loop. An ISP connected digitally to the
+network (by T1 or ISDN primary-rate lines) could therefore send \emph{PCM codewords}, and the
+exchange's codec at the subscriber's line card would convert each one to one of the 255 $\mu$-law
+voltage levels on the loop. A V.90 client modem receives those levels at 8000 per second and, after
+equalising the loop, decides which level was sent. The ``quantisation noise'' that limits V.34 has
+vanished, because the transmitter chooses its symbols to be exactly the quantiser's levels
+(Chapter~\ref{ch:infotheory} has the capacity argument).
+
+The practical rate fell short of $8000\times7=56$\,kb/s for three reasons. The $\mu$-law levels near
+zero are spaced only a fraction of a millivolt apart, too close to separate in the loop's noise,
+so a V.90 modem uses a subset of perhaps 64 to 128 levels chosen during training. In North America,
+robbed-bit signalling on some digital trunks (Chapter~\ref{ch:pcm}) corrupts the least significant
+bit of every sixth sample. And regulators limited the average power on the line, which caps the use
+of the large outer levels. Real connections ran at 40 to 53\,kb/s. The upstream direction still
+crossed an analog-to-PCM conversion at the exchange and so stayed at V.34 rates until V.92 (2000)
+applied precoding so that the exchange's codec would quantise the upstream signal onto intended
+levels, reaching up to 48\,kb/s.
+
+\begin{keyidea}[The channel is what you say it is]
+V.34 treated the telephone network as a 3\,kHz analog channel with 35\,dB of SNR and reached its
+capacity. V.90 treated the same network as a digital channel preceded by a known quantiser and a
+short analog loop, and reached a capacity almost twice as high. The physics did not change; the
+\emph{model} did. Many leaps in this chapter come from the same move: DSL used the loop's
+frequencies above 4\,kHz that the voice network had thrown away, vectoring treated crosstalk as a
+known MIMO channel rather than noise, and coherent optics treated the fibre as a linear field
+channel rather than an intensity channel.
+\end{keyidea}
+
+%======================================================================
+\section{The digital transmission hierarchy}
+\label{sec:ch24:hierarchy}
+%======================================================================
+
+Chapter~\ref{ch:pcm} described how T1 and E1 carriers put 24 or 30 PCM voice channels on a pair of
+wires and how these were multiplexed into higher rates. This section completes that story. It
+explains why the first hierarchy was hard to manage, how SONET and SDH fixed it, and how the optical
+transport network now carries everything, mostly Ethernet, over wavelengths.
+
+\subsection{Plesiochronous multiplexing and bit stuffing}
+
+In the plesiochronous digital hierarchy (PDH), each tributary is timed by its own clock, within a
+tolerance of typically $\pm50$ parts per million for a DS1 and $\pm20$\,ppm for a DS3. A multiplexer
+combining four DS1s into a DS2 cannot simply interleave their bits, because their rates differ
+slightly and vary with time. Instead, it runs at a rate slightly higher than the sum of the inputs:
+the DS2 at 6.312\,Mb/s carries $4\times1.544=6.176$\,Mb/s of tributaries plus 136\,kb/s of framing,
+control and \emph{stuffing opportunities}. In each frame, each tributary has one bit position that
+either carries a data bit or a dummy \emph{stuff} bit, according to whether that tributary's buffer
+is running full or empty; \emph{stuffing control} bits, repeated several times and decided by
+majority vote, tell the demultiplexer which. This is \term{positive justification}, and with it the
+multiplexer can absorb any tributary rate within the tolerance. The demultiplexer removes the stuff
+bits and smooths the gaps with a phase-locked loop, leaving a small residual \emph{waiting-time
+jitter}, the slow wander in timing caused by the irregular pattern of stuffing events.
+
+PDH worked, but it was hard to operate. Because every level stuffs independently, a DS1 is buried
+at an unpredictable bit position inside a DS3 inside a 140\,Mb/s or 565\,Mb/s line; to drop or add a
+single 1.5\,Mb/s circuit at an intermediate office, the operator had to demultiplex the whole
+hierarchy level by level and multiplex it up again---the ``multiplexer mountain''. There was little
+built-in performance monitoring, and the North American, European and Japanese hierarchies were
+incompatible above the primary rate.
+
+\subsection{SONET and SDH}
+
+The \term{synchronous optical network} (SONET), developed at Bellcore and standardised by ANSI from
+1988, and its international counterpart, the \term{synchronous digital hierarchy} (SDH, ITU-T G.707),
+made the whole network synchronous to a hierarchy of atomic-referenced clocks and organised all rates
+around a single frame repeating every 125\,$\mu$s.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=0.11cm,y=0.42cm,font=\sffamily\scriptsize]
+% TOH
+\fill[accent!15] (0,0) rectangle (3,-3); \fill[accent!8] (0,-3) rectangle (3,-9);
+\fill[navy!14] (3,0) rectangle (4,-9);
+\fill[navy!5] (4,0) rectangle (90,-9);
+\draw[navy,thick] (0,0) rectangle (90,-9);
+\draw[navy] (3,0) -- (3,-9); \draw[navy] (4,0) -- (4,-9);
+\draw[navy] (0,-3) -- (3,-3);
+\foreach \r in {1,...,8} \draw[navy!25] (4,-\r) -- (90,-\r);
+\node[rotate=90,align=center] at (1.5,-1.5) {SOH};
+\node[rotate=90,align=center] at (1.5,-6) {LOH};
+\node[rotate=90] at (3.5,-4.5) {POH};
+\node[align=center] at (47,-4.5) {\small payload (86 columns $\times$ 9 rows = 774 bytes)\\[2pt]DS3, VT1.5s (DS1s), ATM cells, packets via GFP};
+\draw[decorate,decoration={brace,amplitude=4pt},navy] (0,0.25) -- node[above=4pt]{3 col.} (3,0.25);
+\draw[decorate,decoration={brace,amplitude=4pt},navy] (3,0.25) -- node[above=4pt]{synchronous payload envelope (87 columns), floats; located by the pointer} (90,0.25);
+\draw[decorate,decoration={brace,amplitude=4pt,mirror},navy] (-0.6,0) -- node[left=4pt,align=right]{9 rows} (-0.6,-9);
+\node[anchor=west,align=left,text=accent] at (91,-1.5) {framing A1A2,\\ parity B1, J0};
+\node[anchor=west,align=left,text=accent] at (91,-4.2) {pointer H1H2H3,\\ parity B2,};
+\node[anchor=west,align=left,text=accent] at (91,-6.6) {APS bytes K1K2,\\ DCC, sync S1};
+\node[text=navy] at (45,-9.8) {transmitted row by row, left to right: 810 bytes every 125\,$\mu$s = 51.84\,Mb/s};
+\end{tikzpicture}
+\caption{The SONET STS-1 frame (SDH uses the same structure three times wider as the STM-1). The first
+three columns are transport overhead: section overhead (framing, error monitoring, a data channel) and
+line overhead (the payload pointer, protection-switching bytes, synchronisation status). The payload
+envelope, with its own column of path overhead, can start anywhere in the frame; the pointer says where.}
+\label{fig:ch24_sonet}
+\end{figure}
+
+The basic SONET signal, the STS-1 (synchronous transport signal level 1), is a frame of 9 rows of
+90 bytes, sent row by row every 125\,$\mu$s (Figure~\ref{fig:ch24_sonet}): $9\times90\times8\times8000=
+51.84$\,Mb/s. Higher rates are formed by byte-interleaving $N$ STS-1s into an STS-$N$, carried on
+fibre as an OC-$N$ (optical carrier) at exactly $N\times51.84$\,Mb/s: OC-3 at 155.52\,Mb/s (equal to
+SDH's STM-1), OC-12 at 622.08\,Mb/s, OC-48 at 2.48832\,Gb/s, OC-192 at 9.95328\,Gb/s and OC-768 at
+39.81312\,Gb/s. A ``concatenated'' signal such as STS-3c treats the $N$ payloads as one large
+container, for ATM cells or IP packets.
+
+Three ideas made SONET a success.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Pointers instead of stuffing.] The payload, the \emph{synchronous payload envelope} (SPE),
+floats in the frame. A pointer in the H1 and H2 bytes of the line overhead gives the offset of the
+start of the SPE. If the payload's clock is slightly fast, the multiplexer occasionally sends one
+extra payload byte in the H3 byte (\emph{negative justification}) and decrements the pointer; if it
+is slow, it leaves the byte after H3 empty (\emph{positive justification}) and increments the
+pointer. The pointer moves in whole bytes, at most once every few frames, and any tributary, down to
+a 1.5\,Mb/s \emph{virtual tributary} (VT1.5) carrying a DS1, can be located and extracted directly
+without demultiplexing the rest. An \emph{add--drop multiplexer} can drop and insert individual
+circuits at any node.
+\item[Generous overhead.] Bit-interleaved parity bytes (B1, B2, B3) monitor errors on each section,
+line and path; trace bytes verify connectivity; data communication channels carry management
+traffic; and the K1 and K2 bytes carry the automatic protection switching protocol.
+\item[Survivable rings.] SONET networks are built as rings of add--drop multiplexers, with every
+circuit able to reach its destination either way round. In a \emph{unidirectional path-switched
+ring} (UPSR, SDH's SNCP) every signal is sent both ways and the receiver selects the better copy; in
+a \emph{bidirectional line-switched ring} (BLSR, SDH's MS-SPRing) half the capacity is reserved for
+protection and, on a fibre cut, the two nodes adjacent to the break loop traffic back the other way.
+Either way, service is restored in under 50\,ms (Telcordia GR-253, ITU-T G.841), short enough that
+voice calls survive a cable cut with only a click. The ``50\,ms'' figure became a benchmark that
+packet networks have been measured against ever since.
+\end{description}
+
+\begin{worked}[SONET overhead and payload efficiency]
+How much of an STS-1 is available for payload, and how efficiently does it carry a DS3? How does
+an OC-192c compare with 10\,Gigabit Ethernet?
+
+Each 810-byte STS-1 frame spends $3\times9=27$\,bytes on transport overhead and 9 bytes on path
+overhead, leaving $810-36=774$ bytes. At 8000 frames per second this is
+$774\times64\,\text{kb/s}=49.536$\,Mb/s of payload capacity out of 51.84\,Mb/s: an overhead of only
+4.4\%. A DS3 at 44.736\,Mb/s uses $44.736/51.84=86.3$\% of the line rate; the rest is SONET overhead
+and fixed stuffing in the mapping.
+
+An OC-192c (STS-192c) has 192 times the transport overhead but only one column of path overhead plus
+63 columns of fixed stuff, leaving a payload capacity of 9.58464\,Gb/s, 96.3\% of the 9.95328\,Gb/s
+line rate. Ethernet's designers took this number directly: the 10GBASE-W ``WAN PHY'' runs the 64b/66b
+coded Ethernet stream at a payload rate of 9.58464\,Gb/s so that it fits an OC-192c, while the LAN
+PHY 10GBASE-R runs at 10.3125\,GBd ($10\times66/64$). In practice operators preferred to carry
+the LAN PHY transparently over OTN, the subject of the next subsection.
+\end{worked}
+
+\subsection{The optical transport network}
+
+By 2000, most traffic was IP rather than voice, and each fibre carried many wavelengths. The
+\term{optical transport network} (OTN, ITU-T G.709, first published in 2001) is the successor to
+SONET/SDH for this world, a ``digital wrapper'' around any client signal on a wavelength. An OTN
+frame has 4 rows of 4080 bytes: 16 columns of overhead, 3808 columns of payload (the optical payload
+unit, OPU) and 256 columns of forward error correction. The standard FEC is the Reed--Solomon
+RS(255,239) code, interleaved 16 ways, with 6.7\% overhead and about 6\,dB of net coding gain
+(Chapter~\ref{ch:classiccodes}); stronger proprietary or standardised codes can replace it
+(Chapter~\ref{ch:moderncodes}). The frame is the same at every rate, so its period shrinks as the
+rate grows. The line rates are chosen to carry the corresponding SONET or Ethernet clients:
+OTU1 at about 2.666\,Gb/s (for OC-48), OTU2 at 10.709\,Gb/s (OC-192), OTU3 at 43.018\,Gb/s
+(OC-768) and OTU4 at 111.81\,Gb/s (100\,Gb Ethernet). Beyond 100\,Gb/s, the OTUC$n$ format
+stacks $n$ instances of a roughly 105\,Gb/s frame, so that a 400 or 800\,Gb/s wavelength is simply
+an OTUC4 or OTUC8, and the FlexO interfaces of ITU-T G.709.1 carry them between equipment.
+
+OTN keeps SONET's virtues---overhead for monitoring each segment, protection switching, a
+multiplexing hierarchy of optical data units (ODU0 at 1.25\,Gb/s up to ODUflex of any size)---and
+adds strong FEC, which was essential as rates per wavelength rose and margins shrank. Most long-haul
+traffic in the world travels in OTN frames, carrying Ethernet clients mapped through the generic
+framing procedure (GFP) or directly.
+
+%======================================================================
+\section{Digital subscriber lines}
+\label{sec:ch24:dsl}
+%======================================================================
+
+The subscriber loop's loss rises steeply with frequency (Section~\ref{sec:ch24:tline}), but at
+1\,MHz a 3\,km loop still has a useful SNR. The voice network filtered off everything above
+4\,kHz at the exchange; \term{digital subscriber line} (DSL) technology connects new equipment to the
+bare copper at the exchange or at a street cabinet and uses the whole usable spectrum. The history
+of DSL is a sequence of better and better answers to the question of how much data a given loop
+can carry, and each answer is a chapter of this book in action.
+
+\subsection{ISDN, HDSL and SHDSL}
+
+The first digital service over the loop was the ISDN basic-rate interface (late 1980s), carrying two
+64\,kb/s B channels and a 16\,kb/s D channel. In North America its line code (ANSI T1.601) is 2B1Q,
+4-level PAM at 80\,kBd for a line rate of 160\,kb/s (Chapter~\ref{ch:baseband}); Germany and some
+other countries used the ternary 4B3T code at 120\,kBd. Both directions share the full band, with
+an echo canceller and an adaptive DFE at each end, over loops up to about 5.5\,km. ISDN set the
+template of full-duplex baseband transmission over the loop.
+
+\term{HDSL} (high-bit-rate DSL, early 1990s) was built to deliver T1 and E1 circuits to businesses
+without repeaters. Instead of 1.544\,Mb/s AMI on two pairs with a repeater every 1.8\,km
+(Chapter~\ref{ch:pcm}), HDSL sent 784\,kb/s of 2B1Q over each of two pairs, echo-cancelled, to the
+full carrier-serving-area range of about 3.7\,km of 24-gauge cable. The single-pair successors,
+HDSL2 and the international SHDSL (ITU-T G.991.2), use trellis-coded 16-level PAM (TC-PAM) with
+Tomlinson--Harashima precoding and spectrally shaped transmit filters, carrying 192\,kb/s to
+2.3\,Mb/s (and later about 5.7\,Mb/s with 32 levels) symmetrically. Symmetric business DSL of this
+kind was the workhorse for leased lines and mobile backhaul in the 2000s.
+
+\subsection{ADSL: asymmetric, multicarrier and over the voice}
+
+\begin{history}[How DMT won the loop]
+In 1989 Joseph Lechleider of Bellcore observed that the dominant impairment for a symmetric
+high-speed service on the loop was self-NEXT, and that an \emph{asymmetric} service---fast towards
+the subscriber, slow back---could put the two directions in different bands and escape it. The
+motivating application was video on demand. At Stanford, John Cioffi's group showed that discrete
+multitone modulation, an OFDM variant with bit loading (Chapter~\ref{ch:ofdm}), could approach the
+capacity of the highly frequency-selective loop; Cioffi's company Amati built prototypes. In 1993
+Bellcore ran a comparison of competing ADSL line codes, the ``ADSL Olympics'', in which Amati's DMT
+outperformed the single-carrier carrierless amplitude and phase (CAP) modulation favoured by AT\&T
+Paradyne. DMT was adopted in ANSI T1.413 (1995) and in ITU-T G.992.1 (1999). Video on demand did not
+take off; the World Wide Web did, and its traffic was just as asymmetric. By the mid-2010s several
+hundred million ADSL lines were in service, making it, for a time, the most widely deployed
+broadband technology in the world.
+\end{history}
+
+ADSL (G.992.1) uses a DMT signal with 4.3125\,kHz tones: 256 downstream tones spanning 0 to
+1.104\,MHz, generated by a 512-point real IFFT at 2.208\,MS/s. In the usual Annex~A variant over an
+analog telephone line, tones 6 to 31 (25.875--138\,kHz) carry upstream data and tones 32 to 255
+carry downstream data; a passive \emph{splitter} or in-home \emph{microfilters} separate the voice
+band below 4\,kHz from the DSL band, so that the phone and the modem share the line. Annex~B, for
+lines that also carry ISDN, moves upstream to 138--276\,kHz. The DMT symbol rate is 4000 per second
+after a cyclic prefix and one synchronisation symbol per 68 data symbols; each tone carries up to 15
+bits, determined during training from the measured SNR (Section~\ref{sec:ch17:coded}). A four-dimensional
+16-state trellis code and an outer Reed--Solomon code with a convolutional interleaver protect the
+data, the interleaver spreading the bursts of \emph{impulse noise} (from lightning, appliance motors and
+ringing on neighbouring pairs) across many RS codewords. Its depth is a trade-off between impulse
+protection and latency, and operators offered ``fast'' (non-interleaved) and ``interleaved'' paths for
+gamers and for everyone else. Online reconfiguration---\emph{bit swapping}, which moves bits between
+tones as the noise changes, and later \emph{seamless rate adaptation}---keeps the line up as conditions
+drift.
+
+ADSL2 (G.992.3, 2002) improved the framing, the initialisation and the diagnostics, and ADSL2+
+(G.992.5, 2003) doubled the downstream band to 2.208\,MHz with 512 tones, raising the maximum rate
+from about 8 to about 24\,Mb/s on short loops. Because loss rises so quickly with frequency, the
+extra band helps only loops shorter than about 3\,km, and the rate of all forms of ADSL falls
+steeply with distance (Figure~\ref{fig:ch24_dsl_rate_reach}).
+
+\begin{worked}[The ADSL2+ rate on a 2\,km loop]
+Estimate the downstream rate of ADSL2+ on a 2\,km, 0.4\,mm (26 AWG) loop with a transmit PSD of
+$-40$\,dBm/Hz, background noise of $-140$\,dBm/Hz and FEXT from 10 other ADSL2+ lines in the binder.
+Use an SNR gap of 12\,dB (9.8\,dB for uncoded QAM at a symbol error rate of $10^{-7}$, plus 6\,dB of
+margin, less about 4\,dB of coding gain).
+
+The loop model gives the loss at a few tones; the SNR is $-40-\text{loss}-N$, where $N$ is the noise
+PSD, which near the top of the band is raised slightly above $-140$\,dBm/Hz by FEXT:
+\begin{center}\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Frequency & 0.2\,MHz & 0.5\,MHz & 1.0\,MHz & 1.5\,MHz\\
+\midrule
+Loop loss (dB) & 25 & 36 & 51 & 63\\
+SNR (dB) & 61 & 53 & 45 & 36\\
+$b=\lfloor\log_2(1+\text{SNR}/\Gamma)\rfloor$ & 15 (cap) & 13 & 10 & 8\\
+\bottomrule
+\end{tabular}
+\end{center}
+At 1\,MHz, for example, SNR$/\Gamma=45-12=33$\,dB, a factor of 2000, and $\log_2 2001=10.97$, so 10
+bits. The loading falls by roughly one bit per 100\,kHz above 0.5\,MHz, and every tone up to 2.2\,MHz
+still carries a few bits. Summing over tones 33 to 511 gives about 4470 bits per DMT symbol,
+or $4470\times4000\approx17.9$\,Mb/s of line rate. At 3\,km the same calculation gives about 8\,Mb/s
+with no usable tones above 1.3\,MHz, and at 4\,km about 3.6\,Mb/s. Chapter~\ref{ch:ofdm} does the
+same calculation with a harsher noise model including an AM radio interferer and obtains lower
+rates: real rates depend strongly on the noise environment, which is why operators quote
+rate-versus-reach curves for several noise scenarios. These are line rates; the net rate after
+framing and FEC overhead is roughly 10--15\% lower.
+\end{worked}
+
+\mdcfig[0.85]{ch24_dsl_rate_reach}{Rate versus reach of the main DSL families on 0.4\,mm (26 AWG)
+cable, computed by gap-approximation bit loading (12\,dB gap, $-140$\,dBm/Hz background noise, Unger
+FEXT models with 10 ADSL or 20 VDSL2/G.fast disturbers). ADSL is capped at about 8\,Mb/s by its framing.
+VDSL2 profile 17a (downstream bands of the 998ADE17 plan, 14.5\,dBm aggregate power) gains little
+over ADSL2+ beyond about 1.5\,km, but vectoring adds substantially on short loops. G.fast (106\,MHz,
+time-division duplex, shown as aggregate down plus up rate) reaches about 1\,Gb/s only on loops of
+tens of metres. Each step up in rate requires the fibre to come closer to the home.}
+
+\subsection{VDSL2 and the fibre-fed cabinet}
+
+Figure~\ref{fig:ch24_dsl_rate_reach} makes the economics plain: the only way to get more rate from
+copper is to make the copper shorter. In the 2000s operators began to install DSL equipment in
+street cabinets fed by fibre (\emph{fibre to the cabinet}, FTTC, or \emph{to the node}, FTTN), leaving
+loops of a few hundred metres to a kilometre. \term{VDSL2} (ITU-T G.993.2, 2006) was designed for
+them. It keeps ADSL's DMT, framing and coding but extends the band: profile 8 up to 8.5\,MHz,
+profile 12 to 12\,MHz, profile 17a to 17.664\,MHz with 4096 tones, and profile 30a to 30\,MHz with
+8.625\,kHz tones; the later profile 35b (2015) uses 35\,MHz. The bands alternate between downstream
+and upstream according to a band plan (in Europe, the ``998'' plan with downstream bands up to 3.75,
+5.2--8.5 and 12--17.664\,MHz), so that each direction has some low-loss spectrum on short loops and
+the plan works across loop lengths. Transmit power is limited in aggregate (14.5\,dBm downstream for
+profile 17a) as well as by a PSD mask, so the transmitter spreads its power over the usable tones.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.6cm,minimum width=1.25cm,align=center},
+  fib/.style={very thick,accent},
+  cop/.style={very thick,navy!70,decorate,decoration={snake,amplitude=0.7pt,segment length=4pt}},
+  home/.style={draw=navy,fill=white,thick,minimum height=0.45cm,minimum width=0.75cm,align=center}]
+\node[box,minimum height=6.0cm,minimum width=1.5cm] (co) at (0,-0.45) {Central\\office\\[2pt](OLT,\\DSLAM,\\BNG)};
+\foreach \y/\lab in {2.0/FTTEx, 0.6/FTTC, -0.8/FTTdp, -2.3/FTTH} {\node[anchor=east,text=navy] at (-0.9,\y) {\textbf{\lab}};}
+% FTTEx
+\draw[cop] (0.75,2.0) -- (9.3,2.0); \node[home] at (9.75,2.0) {home};
+\node[above,text=navy] at (5.0,2.1) {copper loop up to about 5\,km: ADSL2+ (G.992.5), 1--24\,Mb/s};
+% FTTC
+\draw[fib] (0.75,0.6) -- (6.4,0.6); \node[box] (cab) at (7.05,0.6) {cabinet\\VDSL2};
+\draw[cop] (7.7,0.6) -- (9.3,0.6); \node[home] at (9.75,0.6) {home};
+\node[above,text=navy] at (3.6,0.65) {fibre to the cabinet};
+\node[above,text=navy] at (8.5,0.7) {0.3--1\,km};
+% FTTdp
+\draw[fib] (0.75,-0.8) -- (7.7,-0.8); \node[box] (dp) at (8.35,-0.8) {DPU\\G.fast};
+\draw[cop] (9.0,-0.8) -- (9.3,-0.8); \node[home] at (9.75,-0.8) {home};
+\node[above,text=navy] at (4.2,-0.75) {fibre to the distribution point};
+\node[below,text=navy] at (8.35,-1.15) {copper $<$250\,m};
+% FTTH
+\draw[fib] (0.75,-2.3) -- (6.2,-2.3);
+\node[draw=accent,fill=accent!6,thick,isosceles triangle,isosceles triangle apex angle=60,inner sep=1pt,minimum size=0.55cm] (spl) at (6.5,-2.3) {};
+\node[above=0.12cm of spl,text=accent] {1:32 splitter};
+\foreach \dy in {0.4,0,-0.4} \draw[fib] (spl.east) -- (9.3,-2.3+\dy);
+\node[home] at (9.75,-1.9) {ONT}; \node[home] at (9.75,-2.3) {ONT}; \node[home] at (9.75,-2.7) {ONT};
+\node[above,text=navy] at (3.4,-2.25) {feeder fibre, up to 20\,km};
+\node[below,text=navy] at (3.4,-2.4) {PON: GPON, XGS-PON, 50G-PON};
+\draw[fib] (2.0,-3.55) -- (2.8,-3.55) node[right,text=navy]{fibre};
+\draw[cop] (4.4,-3.55) -- (5.2,-3.55) node[right,text=navy]{copper pair};
+\end{tikzpicture}
+\caption{Fibre-to-the-x access architectures. Each step pushes the fibre closer to the subscriber and
+shortens the copper, raising the rate: ADSL2+ from the exchange, VDSL2 from a street cabinet, G.fast
+from a distribution point within a few hundred metres, and finally a passive optical network all the
+way to an optical network terminal (ONT) in the home.}
+\label{fig:ch24_fttx}
+\end{figure}
+
+\subsection{Vectoring: crosstalk cancellation as MIMO}
+\label{sec:ch24:vectoring}
+
+On the short loops of VDSL2, the received SNR on each tone is set not by background noise but by
+FEXT from the other VDSL2 lines in the binder (Figure~\ref{fig:ch24_crosstalk_vectoring}). FEXT is not
+noise, however: it is a deterministic, slowly varying linear coupling of signals that the DSLAM
+itself transmits. Consider tone $k$ on the $N$ lines served by one DSLAM. The received samples are
+\begin{equation}
+\vect y_k=\vect H_k\vect x_k+\vect n_k,
+\label{eq:ch24:vectmodel}
+\end{equation}
+where $\vect x_k$ and $\vect y_k$ are the $N$ transmitted and received values on that tone and
+$\vect H_k$ is an $N\times N$ channel matrix whose diagonal holds the direct (through) channels and
+whose off-diagonal entries are the FEXT couplings. This is exactly the MIMO model of
+Chapter~\ref{ch:mimo}, one copy per tone, with one important simplification: the matrix is strongly
+\emph{diagonally dominant}, because each FEXT coupling is 20 to 60\,dB below the direct channel.
+Write $\vect H_k=\vect D_k(\vect I+\vect C_k)$, with $\vect D_k$ diagonal and the crosstalk
+matrix $\vect C_k$ small.
+
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Upstream: joint cancellation.] The receivers of all $N$ lines are in the same DSLAM, so it can
+process $\vect y_k$ jointly. A zero-forcing canceller computes $(\vect I+\vect C_k)^{-1}\vect D_k^{-1}\vect y_k$
+or, to first order, subtracts $\vect C_k$ times the decisions of the other lines, a multiuser
+generalisation of the DFE. Because $\vect H_k$ is close to diagonal, zero forcing loses almost nothing
+to noise enhancement.
+\item[Downstream: precoding.] The receivers are in different homes and cannot cooperate, but the
+transmitters are together. The DSLAM therefore \emph{precodes}, transmitting
+$\vect x_k=\vect P_k\vect u_k$ with $\vect P_k=(\vect I+\vect C_k)^{-1}\approx\vect I-\vect C_k$, so that the
+received signal is $\vect y_k=\vect D_k\vect u_k+\vect n_k$: each line receives its own data with the
+crosstalk pre-cancelled by deliberately added anti-crosstalk. Since $\vect C_k$ is small, the
+precoder barely raises the transmit power, which the PSD mask requires.
+\end{description}
+
+The crosstalk channel must be estimated, and that is the clever part of the vectoring standard,
+ITU-T G.993.5 (2010), which builds on the analysis of Ginis and Cioffi (2002). During the periodic
+synchronisation symbols, every line transmits a known pilot sequence, the sequences of different
+lines being mutually orthogonal (Walsh--Hadamard sequences, as in CDMA, Chapter~\ref{ch:spreadspectrum}).
+Each customer modem reports back its received error samples on those symbols; correlating the errors
+against each line's pilot sequence gives the corresponding column of $\vect C_k$. Precoding can thus
+be added to the downstream of existing customer modems with only a firmware change in the modem to
+report errors.
+
+\mdcfig{ch24_crosstalk_vectoring}{Left: on 1\,km of 26 AWG cable, NEXT from 10 disturbers exceeds the
+through signal above about 2\,MHz, which is why DSL separates the directions in frequency or time;
+FEXT is weaker but rises as $f^2$ relative to the signal. Right: bit loading of VDSL2 profile 17a
+downstream on a 600\,m loop with 20 same-service disturbers. Without vectoring, FEXT costs about a
+quarter of the rate; cancelling the crosstalk by 25\,dB recovers essentially all of it, approaching
+the crosstalk-free bound (wide grey trace).}
+
+With vectoring, the rate of a VDSL2 line approaches its single-line, crosstalk-free value: our model
+gives about 69\,Mb/s without and 91\,Mb/s with vectoring on a 600\,m loop, and the gain is larger on
+shorter loops (about 92 versus 160\,Mb/s at 300\,m), where FEXT matters most. The computational load
+is large: a DSLAM vectoring 192 lines on 4096 tones at 4000 symbols per second performs on the order
+of $192^2\times4096\times4000\approx6\times10^{11}$ complex multiply--accumulates per second in each
+direction, which is why practical systems limit the number of crosstalkers cancelled per line and per
+tone (\emph{partial vectoring}).
+
+\begin{pitfall}[Vectoring needs every line in the binder]
+Crosstalk from a line that is \emph{not} part of the vectored group, called \emph{alien crosstalk},
+cannot be cancelled, because its signal is unknown to the precoder. A single non-vectored VDSL2 line in a
+binder can erase much of the vectoring gain for all its neighbours. That turned a technical constraint
+into a regulatory one: where several operators had used unbundled loops in the same cable, regulators
+had to decide whether one operator could control all VDSL2 lines in a cabinet, or require
+multi-operator ``node-level'' vectoring schemes. When you plan a vectored deployment, inventory every
+signal in the binder.
+\end{pitfall}
+
+\subsection{G.fast and the distribution point}
+\label{sec:ch24:gfast}
+
+\term{G.fast} (ITU-T G.9701, 2014) pushes the same logic to its limit: fibre to a \emph{distribution
+point unit} (DPU) on a pole, in a manhole or in a building's basement, serving perhaps 8 to 48
+subscribers over loops shorter than about 250\,m. To use frequencies up to 106\,MHz (later
+212\,MHz), it makes several changes:
+\begin{itemize}
+\item \emph{Time-division duplexing} with synchronised frames: all lines in a binder transmit
+downstream at the same time and upstream at the same time, so there is no NEXT, and the
+downstream/upstream split of the frame can be set by the operator. The DMT tone spacing is
+51.75\,kHz (twelve times ADSL's) with 2048 tones for 106\,MHz, and the symbol rate is 48\,000 per second.
+\item \emph{Vectoring is built in from the start}, and at these frequencies the FEXT can be as strong as
+the direct signal, so the first-order precoder $\vect I-\vect C$ is not enough. G.fast allows full
+matrix inversion and \emph{nonlinear precoding} with a modulo operation, the multiuser form of
+Tomlinson--Harashima precoding (Section~\ref{sec:ch12:thp}), which avoids the power increase of linear
+precoding when the channel is far from diagonal.
+\item \emph{Reverse power feeding} (ETSI TS 101 548): the DPU, which may have no mains supply, is
+powered over the copper pairs from the customers' homes.
+\end{itemize}
+On loops of 50 to 100\,m G.fast delivers on the order of 1\,Gb/s aggregate in its 106\,MHz profile,
+and about twice that in the 212\,MHz profile; our simple model in Figure~\ref{fig:ch24_dsl_rate_reach}
+gives 1.08\,Gb/s at 50\,m and 0.45\,Gb/s at 200\,m. Its successor, MGfast (ITU-T G.9711), extends the
+band further, to several hundred megahertz, for in-building runs. These are probably the last
+generations of copper access; the next step, shown in Figure~\ref{fig:ch24_fttx}, is fibre all the way.
+
+\begin{inpractice}[DSL by the numbers]
+Typical service figures, which depend strongly on the plant: ADSL2+ from an exchange, 8 to 20\,Mb/s
+within 2\,km, a few megabits per second at 4\,km; VDSL2 17a vectored from a cabinet, about 100\,Mb/s
+at 400 to 500\,m on 0.5\,mm cable; VDSL2 35b, up to about 300\,Mb/s on loops of a few hundred metres;
+G.fast 106a, 500\,Mb/s to 1\,Gb/s aggregate within 100\,m. Cable gauge matters a great deal: 0.5\,mm
+cable reaches roughly 25 to 30\% farther than 0.4\,mm for the same rate. Plant quality matters even
+more: bridged taps, corroded joints and unbalanced pairs (which convert common-mode RF interference
+into differential noise) are the usual causes of a line that underperforms its length, and DSL
+modems report per-tone SNR and \emph{Hlog} (the measured channel magnitude) precisely so that such
+faults can be diagnosed remotely.
+\end{inpractice}
+
+%======================================================================
+\section{Cable networks: HFC and DOCSIS}
+\label{sec:ch24:cable}
+%======================================================================
+
+The second copper network that reaches most homes in North America, and many elsewhere, was built
+for television. Community antenna television (CATV) began in the late 1940s in mountain towns of
+Pennsylvania and Oregon, where a shared antenna on a hilltop fed a coaxial cable to houses in the
+valley. By the 1980s cable systems were trees of 75\,$\Omega$ coax with cascades of 20 to 40 broadband
+amplifiers, carrying dozens of 6\,MHz analog TV channels (8\,MHz in Europe) one way, from the
+\emph{headend} to the subscribers.
+
+\subsection{Hybrid fibre--coax}
+
+Long amplifier cascades accumulate noise and distortion and fail often. In the 1990s operators
+replaced the trunk part of the tree with fibre carrying the whole RF spectrum as an analog intensity
+modulation of a laser, terminating at an \emph{optical node} that converts it back to RF for a short
+coaxial distribution network (Figure~\ref{fig:ch24_hfc}). This \term{hybrid fibre--coax} (HFC)
+architecture shortened cascades to a few amplifiers, and adding a return path in the low part of the
+spectrum (5--42\,MHz in North America, 5--65\,MHz in Europe) made the network two-way. The number of
+homes per node has fallen steadily, from about 2000 in the 1990s to a few hundred, and the newest
+designs are ``node plus zero'' (N+0), with no amplifiers at all after the node.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.7cm,align=center},
+  amp/.style={draw=navy,fill=navy!10,thick,isosceles triangle,isosceles triangle apex angle=60,inner sep=0.5pt,minimum size=0.42cm},
+  tap/.style={draw=navy,fill=white,thick,minimum size=0.22cm,inner sep=0pt},
+  fib/.style={very thick,accent},
+  cx/.style={thick,navy},
+  home/.style={draw=navy,fill=white,thick,minimum height=0.36cm,minimum width=0.55cm,font=\sffamily\tiny}]
+\node[box,minimum height=2.0cm,minimum width=1.9cm] (he) at (0,0) {Headend / hub\\[2pt]CMTS\\video\\(or Remote PHY\\core)};
+\node[box,fill=accent!6,draw=accent] (node) at (4.2,0) {optical\\node};
+\draw[fib] (he.east) -- node[above]{fibre, 10--40\,km} node[below,align=center]{analog RF on light, or\\digital (Remote PHY)} (node.west);
+% main coax
+\draw[cx] (node.east) -- (12.2,0);
+\node[amp] at (7.2,0) {}; \node[amp] at (10.4,0) {};
+\foreach \x in {5.6,6.4,8.2,9.0,9.8,11.2,12.0} {\node[tap] (t\x) at (\x,0) {}; \draw[cx,thin] (\x,0) -- (\x,-0.85); \node[home] at (\x,-1.1) {CM};}
+\draw[cx] (8.6,0) -- (8.6,1.0) -- (11.5,1.0); \node[amp] at (9.4,1.0) {};
+\foreach \x in {10.2,11.0} {\node[tap] at (\x,1.0) {}; \draw[cx,thin] (\x,1.0) -- (\x,1.6); \node[home] at (\x,1.85) {CM};}
+\node[text=navy] at (8.6,-1.65) {taps and drops to cable modems (CM); 75\,$\Omega$ coax};
+\node[text=navy] at (7.2,0.42) {amplifier};
+\draw[fib] (0.1,-2.2) -- (0.9,-2.2) node[right,text=navy]{fibre};
+\draw[cx] (2.2,-2.2) -- (3.0,-2.2) node[right,text=navy]{coax};
+\end{tikzpicture}
+\caption{A hybrid fibre--coax network. The headend's cable modem termination system (CMTS) and video
+equipment drive optical links to nodes, each serving a few hundred homes over a tree of coaxial cable
+with amplifiers and taps. In a distributed access architecture the PHY moves into the node (Remote PHY)
+and the fibre carries Ethernet instead of analog RF.}
+\label{fig:ch24_hfc}
+\end{figure}
+
+The coaxial plant is a channel quite different from a twisted pair. Its loss is lower but still rises
+as $\sqrt f$, so amplifiers are set with an upward \emph{tilt}, launching higher frequencies at
+higher levels. Its echoes come from impedance mismatches at taps, splitters and connectors, typically
+a few hundred nanoseconds to a few microseconds long. And its upstream is shared: the noise and ingress
+picked up by every home on a node---shortwave radio, appliance impulses, and the infamous loose
+connector---are added together at the node, a phenomenon cable engineers call \emph{noise funnelling},
+which makes the upstream far noisier than the downstream.
+
+\subsection{DOCSIS from 1.0 to 3.0}
+
+The CableLabs \term{DOCSIS} specifications (Data Over Cable Service Interface Specification,
+standardised internationally as ITU-T J.112, J.122 and successors) define the cable modem (CM) and the
+\emph{cable modem termination system} (CMTS) at the headend. DOCSIS~1.0 (1997) used one 6\,MHz
+television channel for downstream data with 64- or 256-QAM and the concatenated Reed--Solomon and
+trellis coding of ITU-T J.83 Annex~B: 256-QAM at 5.36\,MBd gives about 38\,Mb/s of payload. The
+upstream used bursts of QPSK or 16-QAM in channels up to 3.2\,MHz wide, shared by time-division
+multiple access: modems request transmission opportunities, and the CMTS broadcasts \emph{MAP}
+messages granting mini-slots. Each modem is \emph{ranged} at start-up---its timing advance, power and
+frequency adjusted by the CMTS---so that bursts from all modems arrive aligned, exactly the
+timing-advance problem of cellular uplinks (Chapter~\ref{ch:multipleaccess}). DOCSIS~2.0 (2001) widened
+the upstream to 6.4\,MHz with 64-QAM, and DOCSIS~3.0 (2006) introduced \emph{channel bonding}, spreading
+one modem's traffic over many channels: 32 downstream and 8 upstream channels were typical of later 3.0
+modems, for roughly 1\,Gb/s downstream.
+
+\subsection{DOCSIS 3.1: OFDM, LDPC and 4096-QAM}
+
+DOCSIS~3.1 (2013) replaced the single-carrier channels with OFDM (Chapter~\ref{ch:ofdm}). A downstream
+OFDM channel is up to 192\,MHz wide, with 4096- or 8192-point FFTs at 204.8\,MS/s, giving subcarrier
+spacings of 50 or 25\,kHz, and a cyclic prefix selectable from 0.94 to 5\,$\mu$s to cover the plant's
+echoes. The FEC is an LDPC code, (16\,200,14\,400) downstream with an outer BCH code, decoded with soft
+decisions (Chapter~\ref{ch:moderncodes}), which gains several decibels over the J.83 code and allows
+4096-QAM downstream, with 8192- and 16384-QAM optional. The upstream uses OFDMA in channels up to
+96\,MHz wide. Rather than bit-loading every subcarrier as DSL does, DOCSIS~3.1 defines a small number
+of \emph{modulation profiles}, each assigning constellations to ranges of subcarriers, and assigns each
+modem the most efficient profile its measured modulation error ratio supports. The spectrum grew too:
+upstream up to 204\,MHz and downstream up to 1218\,MHz (optionally 1794\,MHz), for about 10\,Gb/s
+downstream and 1 to 2\,Gb/s upstream per node.
+
+\mdcfig{ch24_docsis_spectrum}{Spectrum plans of DOCSIS generations (North American values; other
+splits are allowed). DOCSIS 3.0 bonds 6\,MHz single-carrier QAM channels; DOCSIS 3.1 adds OFDM blocks
+up to 192\,MHz wide and a high upstream split; DOCSIS 4.0 either shares 108--684\,MHz between the two
+directions with echo cancellation (full duplex) or extends the spectrum to 1.8\,GHz with an upstream
+split as high as 684\,MHz (extended-spectrum FDD).}
+
+\begin{worked}[The capacity of a DOCSIS 3.1 OFDM channel]
+A 192\,MHz downstream channel uses the 4K FFT (50\,kHz subcarriers, useful symbol time
+$1/50\,\text{kHz}=20\,\mu$s) with a 1.25\,$\mu$s cyclic prefix. Estimate its throughput with 4096-QAM.
+
+The 192\,MHz channel holds 3840 subcarriers, of which about 3800 remain after the guard bands at
+the edges, and roughly 3700 after pilots and the PHY link channel. The OFDM symbol lasts
+$20+1.25=21.25\,\mu$s. With 12 bits per subcarrier the raw rate is
+$3700\times12/21.25\,\mu\text{s}\approx2.09$\,Gb/s. The LDPC code has rate $14\,400/16\,200=0.89$, and
+the outer BCH code removes a little more, leaving about 1.85\,Gb/s of payload per 192\,MHz, or about
+9.6\,b/s/Hz. Five such channels between 258 and 1218\,MHz give roughly the 10\,Gb/s headline figure.
+Note how much this depends on the plant: each step down in constellation (to 2048- or 1024-QAM) costs
+about 8\% of the rate, and requires 3\,dB less SNR---which is why operators measure and maintain
+the plant's MER so carefully.
+\end{worked}
+
+\subsection{DOCSIS 4.0: full duplex and extended spectrum}
+
+DOCSIS~4.0 (CableLabs, about 2020) targets 10\,Gb/s downstream and 6\,Gb/s upstream, and offers two
+options. \emph{Extended-spectrum DOCSIS} keeps frequency-division duplexing but pushes the top of the
+spectrum to 1794\,MHz and lets operators move the upstream/downstream split as high as 684\,MHz,
+which requires new amplifiers and taps. \emph{Full-duplex DOCSIS} (FDX) keeps the plant at 1.2\,GHz but
+uses the band from 108 to 684\,MHz in \emph{both} directions at once. The node, now with no amplifiers
+after it, cancels the echo of its own downstream transmission from the upstream it receives, the same
+echo cancellation as V.32 and Gigabit Ethernet at hundreds of megahertz of bandwidth. Modems cannot
+cancel the upstream transmissions of their neighbours, which leak into their downstream through the
+taps; the CMTS therefore measures which modems interfere with one another and groups them into
+\emph{interference groups} that are never scheduled to transmit upstream in a sub-band while another
+member receives downstream in it. In parallel, the industry moved to \emph{distributed access
+architectures}: the PHY (Remote PHY) or the whole MAC moves into the node, and the fibre from the hub
+carries digital Ethernet rather than analog RF, eliminating the noise and distortion of analog optics.
+
+\begin{inpractice}[Cable versus fibre]
+A DOCSIS~4.0 node delivers 10\,Gb/s shared by a few hundred homes, comparable to an XGS-PON
+(Section~\ref{sec:ch24:pon}) shared by 32 or 64. Cable's advantage is that the coax is already there
+and the upgrade is in the electronics; fibre's is that its capacity is limited by the optics, not the
+medium, and that a passive network has no amplifiers to power and maintain. Many cable operators run
+both: DOCSIS on the existing plant and PON for new builds, sometimes from the same hub under the same
+management system.
+\end{inpractice}
+
+%======================================================================
+\section{Ethernet over copper}
+\label{sec:ch24:ethernet}
+%======================================================================
+
+Ethernet began on coaxial cable (Chapter~\ref{ch:baseband} tells why it used Manchester coding) and
+moved in 1990 to the cheap twisted-pair wiring already installed in office buildings. Its
+twisted-pair physical layers are a parade of the techniques of this book, each generation reaching
+roughly ten times the rate over the same 100\,m of cable (Table~\ref{tab:ch24:ethernet}).
+
+\begin{table}[htbp]\centering\small
+\caption{Twisted-pair Ethernet physical layers (IEEE 802.3; years are approximate approval dates).}
+\label{tab:ch24:ethernet}
+\begin{tabularx}{\linewidth}{@{}l l l l X@{}}
+\toprule
+PHY & Clause/project & Year & Medium & Signalling\\
+\midrule
+10BASE-T & 802.3i & 1990 & 2 pairs Cat 3, 100\,m & Manchester, 20\,MBd\\
+100BASE-TX & 802.3u & 1995 & 2 pairs Cat 5, 100\,m & 4B5B, scrambler, MLT-3 at 125\,MBd\\
+1000BASE-T & 802.3ab & 1999 & 4 pairs Cat 5, 100\,m & PAM-5 at 125\,MBd per pair, 4D 8-state TCM, echo and NEXT cancellation\\
+10GBASE-T & 802.3an & 2006 & 4 pairs Cat 6A, 100\,m & PAM-16 (DSQ128) at 800\,MBd, LDPC, THP\\
+2.5G/5GBASE-T & 802.3bz & 2016 & 4 pairs Cat 5e/6, 100\,m & 10GBASE-T scaled to 1/4 and 1/2 the symbol rate\\
+25G/40GBASE-T & 802.3bq & 2016 & 4 pairs Cat 8, 30\,m & 10GBASE-T scaled up\\
+100BASE-T1 & 802.3bw & 2015 & 1 pair, 15\,m (automotive) & PAM-3 at 66.67\,MBd, full duplex\\
+1000BASE-T1 & 802.3bp & 2016 & 1 pair, 15--40\,m & PAM-3 at 750\,MBd, Reed--Solomon FEC\\
+10BASE-T1S & 802.3cg & 2019 & 1 pair, multidrop & Short-reach shared bus for sensors\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{10 and 100\,Mb/s}
+
+10BASE-T (1990) sends 10\,Mb/s Manchester code at 20\,MBd over one pair in each direction, with link
+pulses to signal that a link is alive. 100BASE-TX (1995) could not afford Manchester's doubled
+bandwidth on Category~5 cable, and instead used 4B5B coding at 125\,MBd, scrambled to spread the
+spectrum and shaped by the three-level MLT-3 code so that most of the energy lies below about 30\,MHz
+(Figure~\ref{fig:ch24_ethernet}). Both use one pair for each direction, so there is no echo, and the
+receiver needs only a simple adaptive equaliser for the cable's $\sqrt f$ loss.
+
+\subsection{1000BASE-T: four pairs, both directions, five levels}
+
+Gigabit Ethernet over copper (IEEE 802.3ab, 1999) had to deliver ten times the rate over the same
+Category~5 cable, specified only to 100\,MHz. The design, a landmark of DSP-based transceivers,
+combined four ideas.
+\begin{enumerate}
+\item \emph{Use all four pairs}, each carrying 250\,Mb/s, at the same 125\,MBd symbol rate as
+100BASE-TX, so the spectrum stays within the cable's specification.
+\item \emph{Send two bits per symbol} with five-level PAM ($\{-2,-1,0,1,2\}$), the extra level
+providing redundancy for a code.
+\item \emph{Code across the pairs}: the four PAM-5 symbols sent at the same instant form a
+four-dimensional point, protected by an 8-state four-dimensional trellis code in the spirit of
+Ungerboeck's TCM (Chapter~\ref{ch:modulation}), whose coding gain more than repays the SNR cost of the
+fifth level. The receiver combines Viterbi decoding with decision feedback in a decision-feedback
+sequence estimator.
+\item \emph{Transmit in both directions on every pair simultaneously}, with a hybrid at each end.
+\end{enumerate}
+The last idea is what made the design hard. Each receiver hears the far-end signal attenuated by the
+cable, its own transmitter's echo from the hybrid and the cable's impedance discontinuities, and the
+near-end crosstalk from the three other local transmitters, as well as far-end crosstalk
+(Figure~\ref{fig:ch24_ethernet}, right). At the upper end of the band the echo is stronger than the signal
+and the NEXT is not far below it. Each of the four receivers therefore runs an adaptive echo canceller and three NEXT
+cancellers---FIR filters of tens to over a hundred taps fed by the local transmit symbols
+(Section~\ref{sec:ch12:echo})---plus an FFE and DFE for the channel. Because the cancellers need the
+transmit and receive clocks to be locked, one end is the timing \emph{master} and the other recovers
+the master's clock and uses it for its own transmitter (\emph{loop timing}).
+
+\mdcfig{ch24_ethernet}{Left: spectra of successive twisted-pair Ethernet PHYs (normalised): Manchester
+10BASE-T, MLT-3 100BASE-TX, PAM-5 1000BASE-T (with its $0.75+0.25D$ transmit shaping) and PAM-16
+10GBASE-T at 800\,MBd. Right: approximate levels at a 1000BASE-T receiver on a worst-case 100\,m
+Category~5e channel, from the TIA-568 limit formulas: the far-end signal falls with the cable's loss,
+while the echo (limited by the channel return loss) and the power-sum NEXT from the three other pairs
+rise to approach it; above about 40\,MHz the echo is the strongest signal at the receiver. Without
+cancellation the link could not work.}
+
+\begin{worked}[How much echo cancellation does 1000BASE-T need?]
+At 62.5\,MHz, the Nyquist frequency of 125\,MBd, a worst-case 100\,m Category~5e channel loses about
+18\,dB, and its return loss may be as poor as about 12\,dB. Suppose the decoder needs an SNR of
+about 22\,dB at the slicer (a rough figure for PAM-5 with the trellis code and some margin).
+
+Relative to the transmitted level, the signal is at $-18$\,dB and the echo at $-12$\,dB, so the echo
+is 6\,dB \emph{stronger} than the signal. For the residual echo to sit, say, 28\,dB below the signal
+(so that, together with NEXT, FEXT and noise, the total stays 22\,dB below), the canceller must
+suppress the echo by $6+28=34$\,dB, which requires an accurate model of an echo response tens of
+symbols long, adapted continuously. NEXT, at about $-30$\,dB at 62.5\,MHz, only 12\,dB below the signal, must be
+cancelled by roughly 16 to 20\,dB. In 1999 this was a demanding piece of mixed-signal DSP; within a few years it
+cost cents per port.
+\end{worked}
+
+\subsection{10GBASE-T and its descendants}
+
+10GBASE-T (802.3an, 2006) raised the symbol rate to 800\,MBd per pair over Category~6A cable
+specified to 500\,MHz. Each pair carries 16-level PAM; pairs of consecutive symbols form a
+two-dimensional point of the 128-point \emph{DSQ128} constellation (a checkerboard subset of the
+$16\times16$ grid, 3.5 bits per symbol), and a (2048,1723) LDPC code protects the bits that select
+between closely spaced points, while the others ride uncoded in the manner of multilevel coding.
+Decision feedback equalisation is incompatible with an LDPC decoder whose decisions arrive thousands
+of symbols late, so the channel's ISI is pre-equalised at the transmitter by Tomlinson--Harashima
+precoding (Section~\ref{sec:ch12:thp}), with coefficients computed by the receiver during training and
+sent back. Echo and NEXT cancellers with hundreds of taps each run at 800\,MBd. Early 10GBASE-T PHYs
+dissipated several watts per port; process scaling brought that to a few watts, and the
+\emph{multi-gigabit} 2.5GBASE-T and 5GBASE-T (802.3bz, 2016), the same design at a quarter and half the
+symbol rate, now connect Wi-Fi~6 and~7 access points over existing Category~5e and~6 cable.
+
+\subsection{Single-pair, backplane and powered Ethernet}
+
+Cars, factories and buildings need Ethernet on a single pair, light, cheap and robust against harsh
+electromagnetic environments. \emph{Automotive Ethernet} began with 100BASE-T1 (802.3bw, 2015), derived
+from Broadcom's BroadR-Reach: full duplex on one unshielded pair with echo cancellation and PAM-3 at
+66.67\,MBd, using the 3B2T mapping of Chapter~\ref{ch:baseband}. 1000BASE-T1 (802.3bp, 2016) runs
+PAM-3 at 750\,MBd with Reed--Solomon FEC, and the multi-gigabit 802.3ch (2020) reaches 10\,Gb/s for
+camera and sensor links; 10BASE-T1S (802.3cg) is a multidrop bus that replaces CAN-type networks.
+
+Inside equipment, the \emph{backplane} and twinaxial \emph{direct-attach copper} (DAC) PHYs are the
+SerDes links of Chapter~\ref{ch:baseband}: 10GBASE-KR (802.3ap, 2007) with NRZ at 10.3125\,GBd, and
+100\,Gb/s-per-lane PAM-4 at 53.125\,GBd in 802.3ck, with 200\,Gb/s per lane following in 802.3dj. They
+use the same FFE/CTLE/DFE equalisers and Reed--Solomon FEC described there.
+
+Finally, \term{Power over Ethernet} (PoE) delivers DC power over the data pairs, using the centre taps
+of the signal transformers so that power and differential data coexist. After a detection handshake
+(the powered device presents a 25\,k$\Omega$ signature) and classification, the switch applies about
+44 to 57\,V. IEEE 802.3af (2003) provided up to 15.4\,W at the switch port, 802.3at (2009) 30\,W, and
+802.3bt (2018) 60 and 90\,W using all four pairs, enough for pan-tilt cameras, Wi-Fi access points,
+small-cell radios and LED lighting. A line-powered device is another echo of the telephone network,
+whose loops have carried $-48$\,V to telephones since the 1890s.
+
+%======================================================================
+\section{Optical fibre}
+\label{sec:ch24:fibre}
+%======================================================================
+
+\begin{history}[From light pipes to the transoceanic fibre]
+Guiding light by total internal reflection in a stream of water was demonstrated in the 1840s, and
+glass fibres were used for imaging from the 1950s, but their loss, around 1000\,dB/km, made them useless
+for communication. In 1966 Charles Kao and George Hockham, at Standard Telecommunication Laboratories in
+Harlow, England, argued that this loss came from impurities, mostly iron and other transition metals,
+rather than from the glass itself, and that a fibre with less than 20\,dB/km would be a practical
+transmission medium. In 1970 Robert Maurer, Donald Keck and Peter Schultz at Corning made fused-silica
+fibre that met the target, the same year in which the first semiconductor lasers operated continuously
+at room temperature. By 1979 researchers at NTT had reached 0.2\,dB/km at 1550\,nm, close to the
+fundamental limit. Commercial systems followed quickly: multimode links at 850\,nm in the late 1970s,
+single-mode links at 1310\,nm in the early 1980s. TAT-8, the first transatlantic fibre cable (1988),
+carried 280\,Mb/s per fibre pair at 1310\,nm through regenerating repeaters.
+
+Then came the amplifier. In 1987 groups at the University of Southampton (Mears, Reekie, Jauncey and
+Payne) and at Bell Labs (Desurvire, Simpson and Becker) demonstrated the erbium-doped fibre amplifier,
+which amplifies light directly over a band of some 30\,nm around 1550\,nm. Many wavelengths could now be
+amplified together, and wavelength-division multiplexing took off: TAT-12/13 (1996) was the first
+transatlantic cable with optical amplifiers, and by 2000 commercial systems carried 80 or more
+wavelengths of 10\,Gb/s. The capacity boom of the late 1990s ended in the telecom crash of 2001,
+leaving a glut of unused (``dark'') fibre that took a decade to fill. Kao received the Nobel Prize in
+Physics in 2009.
+\end{history}
+
+\subsection{Guiding light}
+
+An optical fibre is a cylindrical waveguide of fused silica: a \emph{core} of refractive index $n_1$
+surrounded by a \emph{cladding} of slightly lower index $n_2$, the difference being made by doping the
+core with germanium (or the cladding with fluorine). Light striking the core--cladding boundary at
+more than the critical angle is totally reflected, so the fibre accepts rays within a cone whose
+half-angle is given by the \term{numerical aperture},
+\begin{equation}
+\mathrm{NA}=\sin\theta_{\max}=\sqrt{n_1^2-n_2^2}\approx n_1\sqrt{2\Delta},\qquad
+\Delta=\frac{n_1-n_2}{n_1}.
+\end{equation}
+For standard single-mode fibre $\Delta\approx0.35\%$ and $\mathrm{NA}\approx0.12$; for multimode fibre
+$\Delta\approx1\%$ and $\mathrm{NA}\approx0.2$.
+
+The ray picture is only an approximation: the fibre supports a discrete set of \emph{modes}, field
+patterns that propagate unchanged, and their number is governed by the normalised frequency
+\begin{equation}
+V=\frac{2\pi a}{\lambda}\,\mathrm{NA},
+\end{equation}
+where $a$ is the core radius. When $V<2.405$ (the first zero of the Bessel function $J_0$), only the
+fundamental mode propagates and the fibre is \term{single-mode}. ITU-T G.652 standard single-mode fibre
+(SMF) has a core about 8 to 9\,$\mu$m in diameter, a cable cutoff wavelength below 1260\,nm and a mode
+field diameter of about 9\,$\mu$m at 1310\,nm and 10.4\,$\mu$m at 1550\,nm, corresponding to an effective
+area of about 80\,$\mu$m$^2$. \term{Multimode} fibre has a 50 or 62.5\,$\mu$m core and carries hundreds of
+modes; its large core makes connectors and light sources cheap, but its modes travel at different speeds.
+
+\term{Modal dispersion} is the spread in arrival time between modes. In a step-index multimode fibre the
+fastest ray runs along the axis and the slowest at the critical angle, giving a spread of
+$\Delta\tau\approx Ln_1\Delta/c$: about 50\,ns per kilometre for $\Delta=1\%$, which limits the rate to
+a few tens of megabits per second over a kilometre. A \emph{graded-index} core, with the index falling
+parabolically from the axis, makes the longer paths travel through faster glass and reduces the spread
+by a factor of about $\Delta/8$. Modern laser-optimised multimode fibres are specified by their
+\emph{effective modal bandwidth}: 2000\,MHz$\cdot$km for OM3 and 4700\,MHz$\cdot$km for OM4 at 850\,nm,
+enough for 100\,Gb/s-per-lane links over about 100\,m. Inside data centres, multimode fibre with cheap
+850\,nm VCSELs remains popular for short links; everything longer is single-mode.
+
+\subsection{Attenuation}
+
+The loss of silica fibre (Figure~\ref{fig:ch24_fibre_loss}) is set by three mechanisms.
+\term{Rayleigh scattering} from frozen-in density fluctuations of the glass, on a scale far smaller than
+the wavelength, scales as $\lambda^{-4}$ and dominates at short wavelengths. \emph{Infrared absorption}
+by the vibrations of the silicon--oxygen bonds rises steeply above about 1600\,nm. Between them lies a
+minimum near 1550\,nm, where modern fibre loses 0.17 to 0.2\,dB/km and ultra-low-loss pure-silica-core
+fibres approach 0.15\,dB/km. Impurities add absorption peaks, the most important being the hydroxyl
+(OH$^-$) overtone at 1383\,nm; ``low-water-peak'' fibre (G.652.D) dries the glass so thoroughly that the
+peak almost disappears and the whole range from 1260 to 1625\,nm is usable.
+
+\mdcfig[0.85]{ch24_fibre_loss}{Attenuation of silica single-mode fibre (a simple model fitted to typical
+values). Rayleigh scattering ($\propto\lambda^{-4}$) dominates at short wavelengths and infrared absorption
+beyond 1600\,nm, leaving a minimum of about 0.18\,dB/km near 1550\,nm. Legacy fibre has a water peak at
+1383\,nm, which low-water-peak fibre removes. The shaded regions are the O, E, S, C, L and U bands.}
+
+The usable spectrum is divided into bands: O (original, 1260--1360\,nm), E (extended, 1360--1460\,nm),
+S (short, 1460--1530\,nm), C (conventional, 1530--1565\,nm), L (long, 1565--1625\,nm) and U (ultra-long,
+1625--1675\,nm). Early single-mode systems used the O band, where dispersion is nearly zero, and short-reach
+links still do. Long-haul systems live in the C band, where the loss is lowest and erbium amplifiers work,
+increasingly extended to C+L. The full low-loss window of a modern fibre is about 50\,THz wide, far more
+than any transmission system yet uses.
+
+\begin{inpractice}[Fibre counts and what a link loses]
+A span budget needs more than the fibre's dB/km. Fusion splices lose about 0.02 to 0.1\,dB each, and a
+cable is spliced every 2 to 6\,km; connectors lose 0.2 to 0.5\,dB each; and planners add an ageing and
+repair margin of a few decibels, because every cable cut is repaired with extra splices. In practice a
+terrestrial span is budgeted at about 0.22 to 0.25\,dB/km all-in. Cables themselves carry from a few to
+several thousand fibres (ribbon cables with 3456 or 6912 fibres are common between data centres), so fibre
+is rarely the scarce resource---the expensive parts are the trench, the amplifiers and the transceivers.
+\end{inpractice}
+
+\subsection{Chromatic dispersion}
+
+In single-mode fibre there is only one mode, but its group velocity depends on wavelength, both because
+the index of silica does (\emph{material} dispersion) and because the fraction of the mode's power in the
+core does (\emph{waveguide} dispersion). The \term{chromatic dispersion} parameter
+\begin{equation}
+D=\frac{d}{d\lambda}\left(\frac{1}{v_g}\right)=-\frac{2\pi c}{\lambda^2}\beta_2
+\label{eq:ch24:D}
+\end{equation}
+measures the differential delay per unit wavelength and length, in ps/(nm$\cdot$km), and $\beta_2$ is the
+group-velocity dispersion of Chapter~\ref{ch:equalization}. A signal of spectral width $\Delta\lambda$ is
+spread in time by
+\begin{equation}
+\Delta\tau=|D|\,L\,\Delta\lambda,\qquad \Delta\lambda\approx\frac{\lambda^2}{c}R_s,
+\label{eq:ch24:spread}
+\end{equation}
+where the second form applies to a modulated signal of symbol rate $R_s$ whose spectrum is wider than the
+laser line. In G.652 fibre $D$ passes through zero between 1300 and 1324\,nm and reaches about
+17\,ps/(nm$\cdot$km) at 1550\,nm (Figure~\ref{fig:ch24_dispersion}). Because the delay spread grows with
+$R_s$ through $\Delta\lambda$ and the symbol period shrinks as $1/R_s$, the spread measured in symbols grows
+as $R_s^2$: doubling the symbol rate quarters the distance a given dispersion tolerance allows.
+
+\begin{worked}[Chromatic dispersion over an 80\,km span at 32\,GBd]
+A 32\,GBd signal at 1550\,nm crosses one 80\,km span of G.652 fibre. How much does dispersion spread it?
+
+The accumulated dispersion is $DL=17\times80=1360$\,ps/nm. The signal's spectral width is
+$\Delta\lambda=\lambda^2R_s/c=(1.55\times10^{-6})^2(32\times10^9)/(3\times10^8)=0.256$\,nm, so
+$\Delta\tau=1360\times0.256\approx350$\,ps. The symbol period is 31.25\,ps, so each pulse is smeared over
+about 11 symbols: the received constellation is a featureless cloud (Figure~\ref{fig:ch24_coherent_dsp}).
+For a 10\,Gb/s NRZ signal the same span spreads pulses by about 108\,ps, about one bit, which is roughly
+the limit that intensity-modulated 10\,Gb/s links can tolerate without compensation. A coherent receiver
+undoes 1360\,ps/nm with a fixed all-pass filter of a few dozen taps; a transpacific link accumulates
+more than 150\,000\,ps/nm, which the same receiver also removes, with a filter thousands of taps long
+(Section~\ref{sec:ch12:optical}).
+\end{worked}
+
+\mdcfig{ch24_dispersion}{Left: the dispersion parameter of standard (G.652), dispersion-shifted (G.653)
+and non-zero dispersion-shifted (G.655, an approximate example) fibres. Right: the small-signal response
+of a chirp-free intensity-modulated, directly detected link at 1550\,nm. Because the photodiode detects
+power, the two sidebands of the intensity modulation, phase-rotated in opposite directions by
+dispersion, interfere and cancel at frequencies $f_k=\sqrt{(2k+1)c/(2DL\lambda^2)}$. After 80\,km the
+first null is at 6.8\,GHz, which is why 10\,Gb/s IM/DD links reach about 80\,km and 50--100\,GBd links
+are confined to a few kilometres or to the O band.}
+
+\subsubsection{Why direct detection hates dispersion}
+
+For an intensity-modulated signal, the damage is worse than pulse spreading suggests. A small-signal
+intensity modulation at frequency $f$ places two field sidebands at $\pm f$ around the carrier. Dispersion
+rotates their phases by equal amounts $\phi=\beta_2L(2\pi f)^2/2$ in the same sense, and when the
+photodiode squares the field the two beat notes with the carrier combine as $\cos\phi$:
+\begin{equation}
+H_{\mathrm{IM/DD}}(f)=\cos\!\left(\frac{\pi D L\lambda^2f^2}{c}\right).
+\label{eq:ch24:fading}
+\end{equation}
+The response has deep nulls (Figure~\ref{fig:ch24_dispersion}, right), and because the detector has
+discarded the phase, no receiver equaliser can fill them. That is why the 80\,km limit of 10\,Gb/s
+links was overcome before 2010 by inserting \emph{dispersion-compensating fibre} (with a large negative
+$D$) at every amplifier site, why modern data-centre links at 50 to 100\,GBd run in the O band, and why
+long-haul systems moved to coherent detection, which keeps the field and turns dispersion into a
+harmless all-pass filter.
+
+\begin{pitfall}[Zero dispersion is not always good]
+It seems natural to design fibre with zero dispersion at 1550\,nm, and G.653 dispersion-shifted fibre,
+laid widely in the late 1980s and 1990s (especially in Japan and Italy), did exactly that. It was ideal
+for single-wavelength 10\,Gb/s systems but turned out to be poor for WDM: with no dispersion, neighbouring
+wavelengths stay in phase along the fibre, and the nonlinear \emph{four-wave mixing} between them builds
+up coherently, creating interference products on top of other channels. The industry's response was
+non-zero dispersion-shifted fibre (G.655), with a small but deliberately non-zero $D$ of a few
+ps/(nm$\cdot$km) in the C band. In the coherent era, where the DSP removes any amount of dispersion,
+\emph{large} dispersion is actually beneficial, because it decorrelates the channels and weakens all
+nonlinear interactions; new long-haul builds use G.652 or large-effective-area G.654 fibre.
+\end{pitfall}
+
+\subsection{Polarisation-mode dispersion}
+
+A real fibre is not perfectly circular, and stress and bending make it slightly birefringent, with an
+orientation that varies randomly along the fibre and with time. The result is
+\term{polarisation-mode dispersion} (PMD): the signal splits between two principal states of polarisation
+that arrive with a \emph{differential group delay} (DGD). Because the birefringent sections add like a
+random walk, the mean DGD grows as $\sqrt L$: modern fibre has a PMD coefficient below about
+0.1\,ps/$\sqrt{\text{km}}$, so a 1000\,km link has a mean DGD of about 3\,ps, while older fibre laid in the
+1980s can be ten times worse. The DGD follows a Maxwellian distribution, so a link must be designed for
+an outage probability, typically allowing an instantaneous DGD three times the mean. PMD was a serious
+limit for 40\,Gb/s direct-detection systems; in coherent receivers it is just part of the $2\times2$
+MIMO channel removed by the butterfly equaliser (Section~\ref{sec:ch12:optical}).
+
+\subsection{Nonlinearity}
+
+Silica is nonlinear only very weakly, but in a fibre the light is confined to an area of 80\,$\mu$m$^2$ for
+tens of kilometres, and the effects add up. The dominant mechanism is the \term{Kerr effect}, an
+intensity-dependent refractive index $n=n_0+n_2I$ with $n_2\approx2.6\times10^{-20}$\,m$^2$/W. The
+nonlinear phase acquired over a span is
+\begin{equation}
+\phi_{\mathrm{NL}}=\gamma P L_{\mathrm{eff}},\qquad
+\gamma=\frac{2\pi n_2}{\lambda A_{\mathrm{eff}}}\approx1.3\ \mathrm{W^{-1}km^{-1}},\qquad
+L_{\mathrm{eff}}=\frac{1-e^{-\alpha L}}{\alpha}\approx\frac1\alpha\approx22\ \text{km},
+\end{equation}
+so a channel launched at 1\,mW acquires about 0.03\,rad per span; with a hundred channels and dozens of
+spans, these small phases become the main impairment. The Kerr effect appears in three guises.
+\emph{Self-phase modulation} (SPM): each channel's own intensity modulates its phase, which dispersion
+converts into amplitude distortion. \emph{Cross-phase modulation} (XPM): the intensity of every other
+channel modulates the phase of this one. \emph{Four-wave mixing} (FWM): three frequencies $f_i+f_j-f_k$
+mix to create a new one, on top of another channel if the grid is regular. Two inelastic scattering
+processes also matter. \emph{Stimulated Brillouin scattering} reflects power from a narrow-linewidth
+carrier above a threshold of a few milliwatts, which is why analog cable-TV transmitters dither their
+lasers. \emph{Stimulated Raman scattering} transfers power from short- to long-wavelength channels
+across a wideband C+L system, tilting the spectrum, and is also exploited in Raman amplifiers.
+
+\begin{keyidea}[The nonlinear Shannon limit]
+In a linear channel, raising the launch power always raises the SNR. In a fibre it does so only until
+the Kerr nonlinearity, which grows as the cube of the power, takes over. A useful model, the Gaussian-noise
+(GN) model of Poggiolini and co-workers, treats the nonlinear interference as additional Gaussian noise
+of power $\eta P^3$, so the SNR after $N$ spans is
+\begin{equation}
+\mathrm{SNR}=\frac{P}{N\left(P_{\mathrm{ASE}}+\eta P^3\right)}.
+\label{eq:ch24:gn}
+\end{equation}
+Setting the derivative to zero gives the optimum launch power $P_{\mathrm{opt}}=(P_{\mathrm{ASE}}/2\eta)^{1/3}$,
+at which the nonlinear noise is exactly half the amplifier noise, and the best SNR,
+$\mathrm{SNR}_{\max}=\tfrac23P_{\mathrm{opt}}/(NP_{\mathrm{ASE}})$, which scales as $(NP_{\mathrm{ASE}})^{-2/3}$:
+doubling the distance costs 2\,dB, not 3\,dB, and halving the amplifier noise gains 2\,dB, not 3. The
+capacity of a fibre, $2\log_2(1+\mathrm{SNR}_{\max})$ per polarisation pair per symbol, therefore has a
+maximum, the so-called \emph{nonlinear Shannon limit} (Figure~\ref{fig:ch24_osnr_nli}, right). It is not a
+true capacity bound---the nonlinear interference is deterministic in principle and partly
+compensable---but it is the practical ceiling that every modern system design works against.
+\end{keyidea}
+
+%======================================================================
+\section{Optical transmitters and receivers}
+\label{sec:ch24:trx}
+%======================================================================
+
+\subsection{Light sources and modulators}
+
+The light source of nearly every fibre system is a semiconductor laser. A \emph{Fabry--Perot} laser, a
+gain chip between two cleaved facets, oscillates on several longitudinal modes at once and is used
+only for short, low-rate links. The \emph{distributed-feedback} (DFB) laser etches a Bragg grating along
+its active region so that only one mode lases; its linewidth is typically a few hundred kilohertz to a
+few megahertz. \emph{External-cavity} and widely tunable lasers (the integrable tunable laser assembly,
+ITLA, of coherent modules) reach linewidths of 100\,kHz or below, which coherent QAM needs for its carrier
+recovery. The \emph{vertical-cavity surface-emitting laser} (VCSEL) emits from its top surface, can be
+tested on the wafer and made in arrays, and at 850\,nm is the cheap source of multimode data-centre links.
+
+The simplest transmitter modulates the laser's drive current directly. Directly modulated lasers are
+cheap, but modulating the carrier density also modulates the refractive index, so the optical frequency
+swings with the intensity (\emph{chirp}), broadening the spectrum and worsening dispersion. Faster and
+cleaner transmitters keep the laser running continuously and modulate its output externally. An
+\emph{electro-absorption modulator} (EAM), often integrated with the DFB as an EML, changes its absorption
+with applied field. The \term{Mach--Zehnder modulator} (MZM) splits the light into two arms whose phases
+are shifted by electro-optic effect in lithium niobate, indium phosphide or silicon, and recombines them.
+Driven in push--pull with voltage $V$, its field transfer is
+\begin{equation}
+\frac{E_{\mathrm{out}}}{E_{\mathrm{in}}}=\cos\!\left(\frac{\pi V}{2V_\pi}\right),
+\end{equation}
+where $V_\pi$ is the voltage for a $\pi$ phase difference. Biased at the half-power point it is a
+chirp-free intensity modulator; biased at the null it becomes a \emph{field} modulator whose output goes
+through zero and changes sign, producing BPSK or, in pairs, the IQ modulation of coherent transmitters
+(Figure~\ref{fig:ch24_coherent}). Thin-film lithium niobate and silicon photonic modulators now reach
+analog bandwidths of 50 to more than 100\,GHz.
+
+\subsection{Photodetectors and noise}
+
+A \term{photodiode} converts optical power into current with a \term{responsivity}
+\begin{equation}
+\mathcal R=\frac{\eta q}{h\nu}=\eta\,\frac{\lambda[\mu\mathrm m]}{1.24}\ \ \text{A/W},
+\end{equation}
+where $\eta$ is the quantum efficiency; an ideal InGaAs detector gives 1.25\,A/W at 1550\,nm and
+practical ones 0.8 to 1.0\,A/W. The current carries three kinds of noise. \emph{Shot noise}, from the
+discreteness of photons and electrons, has a one-sided spectral density $2qI$ (Chapter~\ref{ch:noise}).
+\emph{Thermal noise} of the load or transimpedance amplifier (TIA) has density $4kT/R_L$, or is specified
+directly as an input-referred noise current density of typically 10 to 20\,pA/$\sqrt{\text{Hz}}$ for
+multi-gigabit TIAs. And in an amplified system, the \emph{beat noise} between the signal and the
+amplified spontaneous emission of optical amplifiers (Section~\ref{sec:ch24:wdm}) dominates both.
+
+For on--off keying, with photocurrents $I_1$ and $I_0$ and noise standard deviations $\sigma_1$ and
+$\sigma_0$ for the two levels, the optimum threshold gives
+\begin{equation}
+\mathrm{BER}=\tfrac12\operatorname{erfc}\!\left(\frac{Q}{\sqrt2}\right),\qquad Q=\frac{I_1-I_0}{\sigma_1+\sigma_0},
+\label{eq:ch24:qfactor}
+\end{equation}
+so that $Q=6$ gives $10^{-9}$ and $Q=7.03$ gives $10^{-12}$; optical engineers often quote $20\log_{10}Q$
+in decibels. The \term{receiver sensitivity} is the average power needed for a given BER.
+
+An unamplified \emph{PIN} receiver is limited by thermal noise. An \term{avalanche photodiode} (APD)
+multiplies the photocurrent by an internal gain $M$, which lifts the signal above the thermal noise, but
+the multiplication is random and multiplies the shot noise by $M^2F(M)$, with excess noise factor
+\begin{equation}
+F(M)=k_AM+(1-k_A)\left(2-\frac1M\right),
+\end{equation}
+where $k_A$ is the ratio of hole and electron ionisation rates (about 0.02 for silicon, 0.4 to 0.5 for
+InGaAs/InP APDs). Increasing $M$ first raises the SNR, as the signal grows above the fixed thermal noise,
+and then lowers it, as excess shot noise grows faster than the signal; there is an optimum gain,
+typically 5 to 20 (Figure~\ref{fig:ch24_rx_sensitivity}). APDs gain roughly 6 to 10\,dB of sensitivity
+over PINs, which is why they are used in PON optical line terminals and long unamplified links.
+
+The ultimate reference is the \emph{quantum limit}: an ideal photon counter with no thermal noise makes an
+error only when a one-bit produces no photons at all, with probability $e^{-N_1}$ for a mean of $N_1$
+photons. For $10^{-9}$, $N_1=20$, an average of 10 photons per bit.
+
+\mdcfig{ch24_rx_sensitivity}{Left: bit error rate of 10\,Gb/s on--off keying at 1550\,nm against
+received power, for a thermal-noise-limited PIN receiver (input noise 15\,pA/$\sqrt{\text{Hz}}$,
+responsivity 0.9\,A/W), an InGaAs APD with $k_A=0.5$ at its optimum gain, and the quantum limit. Right:
+the APD's Q-factor against gain at three received powers; the optimum gain balances thermal noise against
+excess avalanche noise.}
+
+\begin{worked}[How far from the quantum limit is a real receiver?]
+For the 10\,Gb/s receiver of Figure~\ref{fig:ch24_rx_sensitivity}, the PIN version reaches $10^{-12}$ at
+about $-20$\,dBm and the APD version at about $-29$\,dBm. How many photons per bit are these?
+
+At 1550\,nm a photon carries $h\nu=hc/\lambda=1.28\times10^{-19}$\,J. At $-20$\,dBm, $10\,\mu$W, the
+energy per bit is $10^{-5}/10^{10}=10^{-15}$\,J, or about 7800 photons. The APD needs about 980. The
+quantum limit at $10^{-12}$ is about 14 photons per bit ($e^{-N_1}=2\times10^{-12}$ gives $N_1\approx27$,
+half of that on average). A PIN receiver is therefore some 27\,dB, and an APD some 18\,dB, from the
+quantum limit: the price of thermal noise in the electronics. Optical preamplification with an EDFA
+closes much of the gap, to within about 3\,dB of the quantum limit for amplified on--off keying, and
+coherent detection with a strong local oscillator is shot-noise limited for the same reason: both lift
+the signal far above the electronic noise \emph{before} it is detected.
+\end{worked}
+
+\subsection{Intensity-modulated links and their budgets}
+
+An unamplified \emph{intensity-modulation, direct-detection} (IM/DD) link is designed with a simple power
+budget: the transmitter's launch power minus the receiver sensitivity must exceed the sum of fibre loss,
+connector and splice losses, \emph{power penalties} for impairments (dispersion, finite extinction ratio,
+reflections, crosstalk) and a margin for ageing and repairs. Standards such as IEEE 802.3 specify each
+term so that any compliant transmitter works with any compliant receiver over the specified fibre. Short
+links are dispersion-limited rather than loss-limited at high rates, and the budget therefore always
+includes a dispersion penalty computed for the worst-case wavelength. The worked example of
+Section~\ref{sec:ch24:pon} applies such a budget to a passive optical network.
+
+%======================================================================
+\section{Optical amplifiers and wavelength-division multiplexing}
+\label{sec:ch24:wdm}
+%======================================================================
+
+\subsection{The erbium-doped fibre amplifier}
+
+An \term{erbium-doped fibre amplifier} (EDFA) is a few to a few tens of metres of fibre whose core is
+doped with erbium ions, pumped by a semiconductor laser at 980 or 1480\,nm. The pump raises the ions to an
+excited level; the signal photons, in the 1530--1565\,nm band, stimulate their return to the ground state,
+each emitting a photon identical to the stimulating one. Gains of 20 to 30\,dB with output powers of
+20\,dBm or more are routine, the gain is almost independent of the modulation (the excited state lives
+about 10\,ms, so the amplifier responds only to the average power) and all wavelengths in the band are
+amplified together. L-band EDFAs use longer, differently designed doped fibre to cover 1565--1625\,nm.
+\emph{Raman amplifiers} instead pump the transmission fibre itself about 100\,nm below the signal and
+provide distributed gain along the span, which improves the noise performance because the signal is
+amplified before it has decayed to its lowest level.
+
+Amplification has an unavoidable cost: excited ions also decay \emph{spontaneously}, emitting photons in
+random directions and phases, and those emitted into the guided mode are amplified along with the signal.
+This \term{amplified spontaneous emission} (ASE) is the noise of optical systems. Its power spectral
+density in each polarisation at the amplifier output is
+\begin{equation}
+S_{\mathrm{ASE}}=n_{\mathrm{sp}}h\nu(G-1),
+\end{equation}
+where $G$ is the gain and $n_{\mathrm{sp}}\ge1$ is the spontaneous emission factor, equal to one only with
+complete population inversion. The amplifier's \term{noise figure}, defined as for electronic amplifiers
+by the degradation of the shot-noise-limited SNR, is $\mathrm{NF}\approx2n_{\mathrm{sp}}$ for large gain:
+no phase-insensitive optical amplifier can have a noise figure below 3\,dB, a quantum limit related to the
+uncertainty principle. Practical EDFAs achieve 4.5 to 6\,dB.
+
+\subsection{The OSNR budget}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.7cm,minimum width=0.9cm,align=center},
+  amp/.style={draw=accent,fill=accent!8,thick,isosceles triangle,isosceles triangle apex angle=60,inner sep=0.5pt,minimum size=0.55cm},
+  fib/.style={thick,accent},
+  arr/.style={-{Stealth[length=1.6mm]},thick,navy}]
+\foreach \i/\y in {1/0.75,2/0.25,3/-0.25,4/-0.75} {\node[box,minimum height=0.38cm,minimum width=0.75cm] (tx\i) at (0,\y) {Tx $\lambda_\i$};}
+\node[box,minimum height=1.9cm,minimum width=0.6cm] (mux) at (1.25,0) {M\\U\\X};
+\foreach \i in {1,...,4} \draw[arr] (tx\i.east) -- (mux.west |- tx\i);
+\node[amp] (boost) at (2.25,0) {};
+\node[below=0.25cm of boost] {booster};
+\draw[fib] (mux.east) -- (boost.west);
+\draw[fib] (boost.east) -- (2.9,0);
+\draw[fib] (3.25,0) circle (0.35); \node at (3.25,-0.6) {80\,km};
+\draw[fib] (3.6,0) -- (4.0,0);
+\node[amp] (in1) at (4.3,0) {}; \node[below=0.25cm of in1] {in-line};
+\draw[fib] (in1.east) -- (4.95,0);
+\draw[fib] (5.3,0) circle (0.35); \node at (5.3,-0.6) {80\,km};
+\draw[fib] (5.65,0) -- (6.0,0);
+\node[box,fill=accent!6,draw=accent,minimum height=1.4cm,minimum width=1.3cm] (roadm) at (6.75,0) {ROADM\\(WSS)};
+\draw[arr] (6.5,-1.25) -- node[left]{add} (6.5,-0.72); \draw[arr] (7.0,-0.72) -- node[right]{drop} (7.0,-1.25);
+\draw[fib] (7.4,0) -- (7.8,0);
+\node at (8.15,0) {$\cdots$};
+\node[amp] (pre) at (8.75,0) {}; \node[below=0.25cm of pre] {pre-amp};
+\draw[fib] (pre.east) -- (9.45,0);
+\node[box,minimum height=1.9cm,minimum width=0.6cm] (dmx) at (9.75,0) {D\\E\\M\\U\\X};
+\foreach \i/\y in {1/0.75,2/0.25,3/-0.25,4/-0.75} {\node[box,minimum height=0.38cm,minimum width=0.75cm] (rx\i) at (11.05,\y) {Rx $\lambda_\i$}; \draw[arr] (dmx.east |- rx\i) -- (rx\i.west);}
+\draw[decorate,decoration={brace,amplitude=4pt},navy] (2.0,1.05) -- node[above=4pt]{$N$ spans, each with loss $L_s\approx16$--20\,dB and an amplifier of gain $G=L_s$} (8.9,1.05);
+\end{tikzpicture}
+\caption{A wavelength-division-multiplexed line system. Transmitters on different wavelengths are
+multiplexed onto one fibre and amplified together by a booster, in-line amplifiers every 50 to 100\,km
+and a preamplifier. Reconfigurable optical add--drop multiplexers (ROADMs), built from wavelength-selective
+switches, add, drop or pass through individual wavelengths without electrical conversion.}
+\label{fig:ch24_wdm}
+\end{figure}
+
+A long-haul line (Figure~\ref{fig:ch24_wdm}) consists of $N$ spans, each with loss $L_s$ (in linear units)
+followed by an amplifier of gain $G=L_s$ that restores the power. Each amplifier adds ASE of power
+$\mathrm{NF}\cdot h\nu G B$ in a bandwidth $B$ (both polarisations, high gain), and the contributions of
+identical spans add. The figure of merit is the \term{optical signal-to-noise ratio} (OSNR), conventionally
+the ratio of the channel power to the ASE power in a reference bandwidth of 0.1\,nm, or 12.5\,GHz at
+1550\,nm:
+\begin{equation}
+\mathrm{OSNR}_{\mathrm{dB}}=P_{\mathrm{ch}}[\mathrm{dBm}]-L_s[\mathrm{dB}]-\mathrm{NF}[\mathrm{dB}]
+-10\log_{10}N+58,
+\label{eq:ch24:osnr}
+\end{equation}
+where $58=-10\log_{10}(h\nu B_{\mathrm{ref}}/1\,\mathrm{mW})$ at 1550\,nm. Each decibel of span loss or noise
+figure costs a decibel of OSNR, and each doubling of the number of spans costs 3\,dB. The OSNR is converted
+to the electrical SNR per symbol that the modulation formats of Chapter~\ref{ch:modulation} need by
+$\mathrm{SNR}=\mathrm{OSNR}\cdot B_{\mathrm{ref}}/R_s$ for a dual-polarisation signal of symbol rate $R_s$.
+
+\begin{worked}[An OSNR budget for a 1000\,km link]
+A 1000\,km terrestrial link uses 80\,km spans budgeted at 0.22\,dB/km, so $L_s=17.6$\,dB, with EDFAs of 5\,dB
+noise figure. Thirteen amplified spans (the last slightly short) cover the distance. The launch power is
+1\,dBm per channel. Can it carry 400\,Gb/s as dual-polarisation 16-QAM at 64\,GBd?
+
+From~\eqref{eq:ch24:osnr}: $\mathrm{OSNR}=1-17.6-5-10\log_{10}13+58=1-17.6-5-11.1+58=25.3$\,dB in 0.1\,nm.
+Converting to the 64\,GBd signal bandwidth subtracts $10\log_{10}(64/12.5)=7.1$\,dB, so the ASE-limited SNR
+is 18.2\,dB. Near the optimum launch power the nonlinear interference adds half as much noise again
+(the key idea above), a further $10\log_{10}1.5=1.8$\,dB, leaving about 16.4\,dB. Dual-polarisation 16-QAM
+with a soft-decision FEC that corrects a pre-FEC BER of $2\times10^{-2}$ needs an SNR of about 12.7\,dB in
+theory, and about 14.7\,dB allowing a typical 2\,dB of transceiver implementation penalty. The margin is
+therefore under 2\,dB, which is tight but workable: 400\,Gb/s at 64\,GBd is a format for links of up to
+about 1000\,km. The same link at 32\,GBd with dual-polarisation QPSK (100\,Gb/s), needing about 6.3\,dB of
+SNR, has over 10\,dB of margin and could reach several thousand kilometres
+(Figure~\ref{fig:ch24_osnr_nli}).
+\end{worked}
+
+\mdcfig{ch24_osnr_nli}{Left: linear OSNR from~\eqref{eq:ch24:osnr} against distance for 80\,km spans
+(17.6\,dB loss, 5\,dB NF) at three launch powers, with the approximate OSNR required by 100\,G DP-QPSK at
+32\,GBd and 400\,G DP-16QAM at 64\,GBd (pre-FEC BER $2\times10^{-2}$ plus 2\,dB implementation margin).
+Centre: SNR of a 64\,GBd channel in a fully loaded 4.8\,THz C band against launch power (GN model,
+$\gamma=1.3$\,W$^{-1}$km$^{-1}$, $D=17$\,ps/(nm$\cdot$km)); dotted lines omit nonlinearity. The optimum
+power is about 1\,dBm per channel. Right: the resulting spectral efficiency limit
+$2\log_2(1+\mathrm{SNR}_{\max})$ per 75\,GHz slot against distance.}
+
+\subsection{WDM grids and ROADMs}
+
+Wavelength-division multiplexing puts many independent channels on one fibre, each on its own carrier.
+The ITU-T G.694.1 grid anchors \term{dense WDM} (DWDM) channels at 193.1\,THz (about 1552.5\,nm) with
+fixed spacings of 100, 50, 25 or 12.5\,GHz; the C band holds about 40 channels at 100\,GHz, or 80 to 96 at
+50\,GHz. As symbol rates rose beyond what fits in 50\,GHz, the \emph{flexible grid} of the same
+Recommendation allowed any channel centred on a 6.25\,GHz raster with a width that is a multiple of
+12.5\,GHz, so that a 64\,GBd channel occupies 75\,GHz and a 130\,GBd channel 150\,GHz. The low-cost
+\emph{coarse} WDM grid of G.694.2 uses 18 wavelengths 20\,nm apart from 1271 to 1611\,nm, wide enough for
+uncooled lasers, and is used in access and data-centre links that need no amplifiers.
+
+A modern network is not a set of point-to-point lines but a mesh of nodes, each built around a
+\term{reconfigurable optical add--drop multiplexer} (ROADM). Its core is the \emph{wavelength-selective
+switch} (WSS), in which a diffraction grating spreads the spectrum across a liquid-crystal-on-silicon or
+MEMS array that steers each slice of spectrum to any of several output fibres. A ROADM can drop a
+wavelength to a local transceiver, add one, or pass it through to another direction optically, without
+electrical regeneration, under software control. Modern \emph{colourless, directionless, contentionless}
+ROADMs let any transceiver use any wavelength in any direction, which makes the optical layer as flexible
+as the packet layer above it. Light paths of several thousand kilometres across many ROADMs are common,
+and the OSNR and filtering penalties they accumulate are tracked by the network's planning tools in
+exactly the way of the worked example.
+
+%======================================================================
+\section{Coherent optical communications}
+\label{sec:ch24:coherent}
+%======================================================================
+
+\begin{history}[The coherent revolution, twice]
+Coherent detection of light, mixing the signal with a local laser exactly as a superheterodyne radio
+mixes with a local oscillator (Chapter~\ref{ch:sdr}), was researched intensively in the 1980s because it
+promised 10 to 20\,dB better sensitivity than direct detection and channel selection by electrical
+filtering. It needed lasers with stable, narrow linewidths and polarisation tracking with optical
+hardware, and it was abandoned almost overnight when the EDFA arrived around 1990: an optical
+preamplifier gave direct detection most of the sensitivity benefit at a fraction of the complexity.
+For fifteen years, fibre systems carried on--off keying, with dispersion and PMD managed optically.
+
+The revival came from CMOS. By the mid-2000s analog-to-digital converters running at tens of gigasamples
+per second and DSP chips of millions of gates had become possible, and several groups, notably Kazuro
+Kikuchi's at the University of Tokyo, showed that a \emph{digital} coherent receiver---a free-running local
+laser, four ADCs and DSP for phase and polarisation tracking---could replace all the optical tricks of
+the 1980s. Nortel shipped a 40\,Gb/s dual-polarisation QPSK coherent system in 2008, and 100\,Gb/s
+DP-QPSK at about 28 to 32\,GBd, standardised in an OIF framework, became the industry's long-haul
+workhorse from 2010. Dispersion compensation modules disappeared from new networks. The DSP-based
+coherent transceiver, now shrunk into a pluggable module the size of a pack of chewing gum, is perhaps
+the most complete realisation of this book's ideas in a single product.
+\end{history}
+
+\subsection{Transmitter and receiver}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,
+  box/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.6cm,minimum width=1.0cm,align=center},
+  opt/.style={draw=accent,fill=accent!6,thick,rounded corners=2pt,minimum height=0.6cm,align=center},
+  ol/.style={thick,accent},
+  el/.style={-{Stealth[length=1.5mm]},thick,navy}]
+% ---------------- transmitter
+\node[opt] (las) at (0,2.6) {laser};
+\node[opt] (iqx) at (2.6,3.2) {IQ modulator X\\(nested MZMs)};
+\node[opt] (iqy) at (2.6,2.0) {IQ modulator Y\\(nested MZMs)};
+\node[opt] (pbc) at (5.0,2.6) {PBC};
+\draw[ol] (las.east) -- (0.9,2.6) |- (iqx.west); \draw[ol] (0.9,2.6) |- (iqy.west);
+\draw[ol] (iqx.east) -- (4.1,3.2) |- (pbc.west); \draw[ol] (iqy.east) -- (4.1,2.0) |- (pbc.west);
+\node[box] (dac) at (2.6,4.35) {4 DACs};
+\node[box] (txd) at (5.6,4.35) {TX DSP: FEC, mapping,\\shaping, pre-emphasis};
+\draw[el] (txd) -- (dac); \draw[el] (dac.south) -- (iqx.north);
+\draw[el] (dac.south east) .. controls (4.0,3.8) and (4.0,2.5) .. (iqy.north east);
+\draw[ol] (pbc.east) -- (7.0,2.6) node[right,text=accent]{fibre $\rightarrow$};
+\node[text=navy,font=\sffamily\scriptsize\bfseries] at (0.3,4.35) {Transmitter};
+% ---------------- receiver
+\node[opt] (pbs) at (0,0) {PBS};
+\node[opt] (lo) at (0,-1.6) {local\\laser (LO)};
+\node[opt] (hx) at (2.2,0.5) {90$^\circ$\\hybrid};
+\node[opt] (hy) at (2.2,-1.1) {90$^\circ$\\hybrid};
+\draw[ol] (-1.2,0) node[left,text=accent]{$\rightarrow$} -- (pbs.west);
+\draw[ol] (pbs.east) -- (1.0,0) |- ([yshift=0.12cm]hx.west); \draw[ol] (1.0,0) |- ([yshift=0.12cm]hy.west);
+\draw[ol] (lo.east) -- (1.3,-1.6) |- ([yshift=-0.12cm]hx.west); \draw[ol] (1.3,-1.6) |- ([yshift=-0.12cm]hy.west);
+\node[box,minimum width=1.4cm] (pdx) at (4.2,0.5) {2 balanced\\PD pairs};
+\node[box,minimum width=1.4cm] (pdy) at (4.2,-1.1) {2 balanced\\PD pairs};
+\draw[ol] (hx) -- node[above]{4} (pdx); \draw[ol] (hy) -- node[above]{4} (pdy);
+\node[box] (adc) at (6.1,-0.3) {4 ADCs\\$\sim$1.2--2\\samples/sym};
+\draw[el] (pdx.east) -- (adc.north west); \draw[el] (pdy.east) -- (adc.south west);
+\node[box,minimum width=3.4cm,align=left,anchor=west] (dsp) at (7.3,-0.3) {front-end correction\\CD compensation (FFT)\\timing recovery\\$2\times2$ butterfly (CMA, LMS)\\frequency \& phase recovery\\soft demapping, SD-FEC};
+\draw[el] (adc) -- (dsp);
+\node[text=navy,font=\sffamily\scriptsize\bfseries] at (0.3,1.05) {Receiver};
+\end{tikzpicture}
+\caption{A dual-polarisation coherent transceiver. The transmitter splits a laser between two IQ
+modulators, each a pair of nested Mach--Zehnder modulators driven by DACs, and combines their outputs on
+orthogonal polarisations. The receiver splits the incoming light into two polarisations, mixes each with a
+local laser in a $90^\circ$ hybrid, detects in-phase and quadrature beat signals with balanced
+photodiodes, digitises the four signals and recovers the data in DSP.}
+\label{fig:ch24_coherent}
+\end{figure}
+
+A coherent transmitter (Figure~\ref{fig:ch24_coherent}) imposes a complex baseband signal on the optical
+field. An \emph{IQ modulator} nests two Mach--Zehnder modulators, biased at null, inside a larger
+interferometer with a $90^\circ$ phase shift between its arms, so that the output field is proportional to
+$I(t)+jQ(t)$ for small drive signals, exactly the quadrature modulator of a radio. Two IQ modulators fed by
+one laser and combined on orthogonal polarisations by a polarisation beam combiner give four
+dimensions per symbol: dual-polarisation QPSK carries 4 bits per symbol, DP-16QAM 8 and DP-64QAM 12.
+Four high-speed DACs, driven by a transmit DSP that maps, shapes (root-raised-cosine with roll-off of a
+few per cent) and pre-emphasises the signal, drive the modulators.
+
+The receiver mixes the incoming field $E_s$ with a local oscillator laser $E_{\mathrm{LO}}$ in a
+$90^\circ$ \emph{optical hybrid}, a passive interferometer with four outputs $\tfrac12(E_s\pm E_{\mathrm{LO}})$
+and $\tfrac12(E_s\pm jE_{\mathrm{LO}})$. A photodiode detects power, $|E_s|^2+|E_{\mathrm{LO}}|^2+2\re\{E_sE_{\mathrm{LO}}^*\}$
+up to factors, and subtracting the outputs of two photodiodes (\emph{balanced detection}) cancels the
+direct-detection terms and leaves
+\begin{equation}
+i_I\propto\mathcal R\,\re\{E_sE_{\mathrm{LO}}^*\},\qquad i_Q\propto\mathcal R\,\im\{E_sE_{\mathrm{LO}}^*\}.
+\end{equation}
+The pair is the complex envelope of the signal, multiplied by the LO amplitude and rotated by the
+difference between the two lasers' phases. Three properties follow. The receiver is \emph{linear in the
+field}, so dispersion, PMD and polarisation rotation remain linear operations that DSP can invert, and
+no information is lost in the detector. The LO acts as a gain of $|E_{\mathrm{LO}}|$ before any electronic
+noise, so a strong LO makes the receiver shot-noise limited. And the LO selects the channel: only the
+wavelength within the receiver's electrical bandwidth of the LO is detected, so a coherent receiver can
+tune to any channel of a WDM comb without an optical filter. Because the LO is a free-running laser
+within a few gigahertz of the signal, this is an \emph{intradyne} receiver: the residual frequency and
+phase offsets are removed digitally.
+
+\subsection{The DSP chain}
+
+The receive DSP is a tour of Chapters~\ref{ch:sync} and~\ref{ch:equalization}, running on four streams of
+samples, each at up to 150 to 200\,GS/s, processed in hundreds of parallel lanes.
+\begin{enumerate}
+\item \emph{Front-end correction}: deskew between the four channels, compensation of quadrature and gain
+imbalance between I and Q (for example by Gram--Schmidt orthogonalisation) and of the frequency response of
+the ADCs and photodiodes.
+\item \emph{Chromatic dispersion compensation}: a fixed all-pass filter $\exp(+j\beta_2L\omega^2/2)$, applied in
+the frequency domain with overlap--save FFTs, its length growing with distance and with the square of the
+symbol rate (Section~\ref{sec:ch12:optical}). The accumulated dispersion is estimated blindly at start-up
+by sweeping trial values.
+\item \emph{Timing recovery}: a Gardner or Godard timing-error detector (Chapter~\ref{ch:sync}) driving an
+interpolator.
+\item \emph{Polarisation demultiplexing and adaptive equalisation}: the $2\times2$ butterfly of complex FIR
+filters of Section~\ref{sec:ch12:optical}, adapted blindly with the constant-modulus algorithm and then by
+decision-directed LMS, which undoes polarisation rotation, PMD, residual dispersion and filtering by ROADMs.
+\item \emph{Carrier recovery}: estimation of the frequency offset between the signal laser and the LO (for
+QPSK, from the peak of the spectrum of the signal raised to the fourth power) and tracking of the laser
+phase noise, by the Viterbi--Viterbi fourth-power algorithm for QPSK, by blind phase search for denser
+QAM, or with the help of pilot symbols inserted every few dozen symbols.
+\item \emph{Soft demapping and decoding}: log-likelihood ratios for each bit feed a soft-decision FEC
+(Chapter~\ref{ch:moderncodes}) with 15 to 27\% overhead that corrects pre-FEC bit error rates of
+$10^{-2}$ or more to below $10^{-15}$.
+\end{enumerate}
+
+\mdcfig{ch24_coherent_dsp}{The coherent DSP chain at work (simulation of 32\,GBd dual-polarisation QPSK,
+X polarisation shown): after 80\,km of fibre (1360\,ps/nm), a random polarisation rotation with 8\,ps of
+differential group delay, a 150\,MHz laser frequency offset, 200\,kHz combined laser linewidth and
+16\,dB SNR. The received samples are a cloud; CD compensation alone leaves the two polarisations mixed;
+the blind CMA butterfly restores a constant-modulus ring; frequency-offset removal and Viterbi--Viterbi
+phase recovery yield the QPSK constellation. The code is in \lab{commlib/wireline.py}.}
+
+Figure~\ref{fig:ch24_coherent_dsp} shows the chain acting on a simulated 100\,G-class signal. Each stage
+removes one impairment, and each does it with an algorithm met earlier in the book; what makes a commercial
+receiver hard is doing it at 100 gigabaud with a power budget of a few watts. A coherent DSP ASIC for an
+800\,Gb/s module in a 3\,nm or 5\,nm CMOS process performs on the order of $10^{14}$ operations per
+second.
+
+\subsection{Pushing towards the limit}
+
+Since 2010 coherent systems have improved along every axis available to them
+(Table~\ref{tab:ch24:coherent}). The symbol rate has quadrupled, from about 32 to above 130\,GBd, which
+cuts the cost and power per bit roughly in proportion. Constellations have become denser where the SNR
+allows, and \term{probabilistic constellation shaping} (PCS) of 64-QAM, transmitting the inner points more
+often than the outer ones with a Maxwell--Boltzmann distribution produced by a distribution matcher in the
+probabilistic amplitude shaping architecture of B\"ocherer and colleagues, gains up to about 1\,dB of the
+1.53\,dB shaping limit (Chapter~\ref{ch:infotheory}) and, more importantly in practice, lets the line rate be
+tuned in fine steps to match the SNR of each path. Nokia's PSE-3 chip (2018) brought PCS to commercial
+products, and it is now standard in long-haul transceivers.
+
+\begin{table}[htbp]\centering\small
+\caption{Generations of coherent transceivers (approximate; vendors and years vary).}
+\label{tab:ch24:coherent}
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+Rate/$\lambda$ & First products & Format and symbol rate & Notes\\
+\midrule
+40--100\,Gb/s & 2008--2010 & DP-QPSK, 32\,GBd & First digital coherent generation; long haul\\
+200\,Gb/s & 2013 & DP-16QAM or 8QAM, 32\,GBd & Metro and regional\\
+400\,Gb/s & 2017--2020 & DP-16QAM, 60--64\,GBd & Includes OIF 400ZR pluggables (2020)\\
+800\,Gb/s & 2020--2024 & PCS-64QAM, 90--120\,GBd & 800ZR and 800G long haul\\
+1.2--1.6\,Tb/s & 2023--2025 & PCS, 130--200\,GBd & Very high symbol rates, 3\,nm DSP\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{inpractice}[400ZR: coherent in a pluggable]
+The OIF 400ZR implementation agreement (2020) defined an interoperable coherent interface for data-centre
+interconnect: 400\,Gb/s as DP-16QAM at 59.84\,GBd, with a concatenated FEC (an inner soft-decision code
+and an outer staircase code, about 15\% overhead; Chapter~\ref{ch:moderncodes}), over amplified links up
+to about 120\,km. The whole transceiver, laser, silicon-photonic modulator and receiver, and a 7\,nm DSP,
+fits in a QSFP-DD or OSFP module plugged directly into a router, dissipating roughly 15 to 20\,W. Its
+successors 800ZR and the OpenZR+ and OpenROADM variants, which use a stronger open FEC (oFEC) for longer
+reaches, did to metro transport what VCSEL modules did to the data centre: they made the optical line a
+commodity that the routing layer simply plugs in. The pluggable's power budget, not the fibre, now sets
+what is possible: a 15\,W module cannot afford the elaborate DSP of a 50\,W line card.
+\end{inpractice}
+
+\subsection{Submarine systems}
+
+The longest and most demanding links are the submarine cables, which carry nearly all intercontinental
+traffic. A modern transoceanic cable carries 8 to 24 fibre pairs through repeaters spaced every 50 to
+80\,km, each containing an EDFA per fibre, powered by a constant direct current fed from both shores
+along the cable's copper conductor. The available electrical power, set by the voltage the cable can
+withstand, is the binding constraint. Shannon's formula explains what follows: since capacity grows only
+logarithmically with SNR but linearly with the number of parallel channels, it is better to run many fibre
+pairs at modest power and spectral efficiency than a few pairs at high power. This \term{space-division
+multiplexing} (SDM) design philosophy, together with large-effective-area fibre and C-band coherent
+transceivers, has taken cable design capacities from a few terabits per second around 2010 to roughly 160
+to 250\,Tb/s for cables built around 2017--2021, such as MAREA and Dunant. Laboratory experiments with
+multi-core and few-mode fibres have demonstrated petabit-per-second capacities in a single strand,
+pointing to the next stage of SDM.
+
+\begin{keyidea}[Capacity per watt, not per hertz]
+Radio systems are spectrum-limited and chase bits per hertz. Long-haul fibre systems have tens of terahertz
+available and are limited by nonlinearity and by electrical power, so they chase bits per joule. When the
+medium is cheap and wide, as in a cable with many fibres, the optimum is to spread the traffic over many
+parallel low-SNR channels, the high-SNR wing of the capacity curve being the most expensive place to
+operate. The same logic explains why wireless systems add antennas (MIMO, Chapter~\ref{ch:mimo}) rather than
+power.
+\end{keyidea}
+
+%======================================================================
+\section{Passive optical networks}
+\label{sec:ch24:pon}
+%======================================================================
+
+Running a separate fibre and transceiver from the exchange to every home would be expensive. A
+\term{passive optical network} (PON) shares one fibre and one transceiver at the exchange, the
+\emph{optical line terminal} (OLT), among 32 to 128 homes by means of unpowered optical splitters in the
+field (Figure~\ref{fig:ch24_fttx}). Each home has an \emph{optical network unit} (ONU, or terminal, ONT).
+The network is point-to-multipoint, and its two directions behave very differently.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Downstream: broadcast.] The OLT transmits a continuous TDM stream that the splitter delivers to every
+ONU; each ONU keeps the frames addressed to it. Because every home receives every frame, the payload is
+encrypted (AES in the ITU-T standards).
+\item[Upstream: TDMA.] The ONUs share the fibre towards the OLT in time. The OLT allocates upstream time slots
+with a \emph{bandwidth map} in each downstream frame, using \emph{dynamic bandwidth allocation} driven by the
+ONUs' reported queue occupancies. Because the ONUs are at different distances---up to 20\,km apart in
+fibre---the OLT \emph{ranges} each one at activation, measuring its round-trip delay and assigning an
+equalisation delay so that all appear to be at the same distance, the optical counterpart of cable modem
+ranging and cellular timing advance. The OLT's receiver is a \emph{burst-mode} receiver: bursts from
+different ONUs arrive with power levels differing by up to 15 or 20\,dB and with independent phases, and it
+must set its threshold and recover the clock within a preamble of tens of nanoseconds.
+\end{description}
+The two directions use different wavelengths on the same fibre, separated by WDM filters, and new
+generations use new wavelengths so that they can coexist with the old on the same splitter
+(Table~\ref{tab:ch24:pon}).
+
+\begin{table}[htbp]\centering\small
+\caption{Passive optical network standards (nominal line rates rounded, e.g.\ 2.5 for 2.488\,Gb/s and 10 for 9.953\,Gb/s; years approximate).}
+\label{tab:ch24:pon}
+\begin{tabularx}{\linewidth}{@{}l l l l X@{}}
+\toprule
+Standard & Year & Down/up (Gb/s) & $\lambda$ (nm) & Notes\\
+\midrule
+GPON (G.984) & 2003 & 2.5 / 1.25 & 1490 / 1310 & Mass-market FTTH of the 2010s\\
+EPON (802.3ah) & 2004 & 1 / 1 & 1490 / 1310 & Ethernet framing; widely used in Asia\\
+10G-EPON (802.3av) & 2009 & 10 / 1 or 10 & 1577 / 1270 & \\
+XG-PON (G.987) & 2010 & 10 / 2.5 & 1577 / 1270 & Coexists with GPON on one splitter\\
+NG-PON2 (G.989) & 2015 & $4\times10$ / $4\times10$ & 1524--1625 & Tunable TWDM; limited deployment\\
+XGS-PON (G.9807.1) & 2016 & 10 / 10 & 1577 / 1270 & Symmetric 10G; the current workhorse\\
+50G-PON (G.9804) & 2021 & 50 / 12.5--50 & O band & LDPC FEC, DSP equalisation\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The design of a PON is a power-budget exercise, and the standards define \emph{optical budget classes}
+that bundle a transmitter power range and a receiver sensitivity: GPON class B+ supports 13 to 28\,dB of
+loss between OLT and ONU and class C+ 17 to 32\,dB; XGS-PON classes N1, N2, E1 and E2 support maximum
+losses of 29, 31, 33 and 35\,dB. The splitter dominates: an ideal $1{:}N$ split loses $10\log_{10}N$\,dB
+(15\,dB for 1:32, 18\,dB for 1:64), and real splitters add 1 to 3\,dB of excess loss.
+
+\begin{worked}[A GPON power budget]
+A GPON with class B+ optics serves 32 homes at up to 20\,km. The OLT launches at least $+1.5$\,dBm at
+1490\,nm and the ONU's sensitivity is $-27$\,dBm. Will it close downstream?
+
+Losses: fibre $20\times0.30=6.0$\,dB at 1490\,nm; 1:32 splitter about 17.0\,dB including excess loss; four
+connectors at 0.3\,dB, 1.2\,dB; ten splices at 0.1\,dB, 1.0\,dB. The total is 25.2\,dB, within the class B+
+maximum of 28\,dB. With the minimum launch power, the received power is $1.5-25.2=-23.7$\,dBm, a margin of
+3.3\,dB over the sensitivity. Upstream at 1310\,nm the fibre loses about 0.35\,dB/km, adding 1\,dB, and the
+OLT's APD receiver (sensitivity about $-28$\,dBm) sees an ONU launching at least $+0.5$\,dBm; the margin is
+about 2.3\,dB. Raising the split to 1:64 adds about 3\,dB and exhausts the margin, which is why
+high-split or long-reach designs need class C+ optics. Notice how the splitter, not the fibre, dominates:
+the fibre loss of a PON is almost an afterthought.
+\end{worked}
+
+Today's mass-market fibre-to-the-home is XGS-PON, delivering symmetric 10\,Gb/s per splitter, and 50G-PON
+(ITU-T G.9804.3) is entering service. At 50\,Gb/s the PON inherits the techniques of data-centre optics:
+it operates in the O band to limit dispersion, needs DSP equalisation in the ONU to cope with the bandwidth
+of low-cost optics, and uses an LDPC code to tolerate a pre-FEC BER of about $10^{-2}$.
+
+%======================================================================
+\section{Data-centre optics and free-space optics}
+\label{sec:ch24:dc}
+%======================================================================
+
+The largest volume of optical transceivers by far is inside data centres, where hundreds of thousands of
+servers are connected through several tiers of switches by links of a few metres to a few kilometres. The
+requirements are brutal: lowest cost and power per bit, enormous volume, and a refresh every two to three
+years as switch chips double in capacity (51.2\,Tb/s around 2023, 102.4\,Tb/s around 2025).
+
+\subsection{PAM-4 intensity modulation}
+
+Intra-data-centre links use IM/DD with the PAM-4 signalling of Chapter~\ref{ch:baseband}. A 100\,Gb/s lane
+runs at 53.125\,GBd; 400GBASE-DR4 sends four such lanes over four parallel single-mode fibre pairs up to
+500\,m, and 400GBASE-FR4 multiplexes four lanes on a 20\,nm CWDM grid in the O band over one fibre pair to
+2\,km. The next generation, standardised in IEEE 802.3dj, uses 200\,Gb/s lanes at about 113\,GBd for 800G
+and 1.6T ports. The O band is chosen because the power fading of~\eqref{eq:ch24:fading} would close the eye
+of a 53 to 113\,GBd intensity-modulated signal after a few kilometres in the C band
+(Figure~\ref{fig:ch24_dispersion}); near 1310\,nm the dispersion is almost zero. Each module contains a DSP
+that re-times and equalises the electrical signal from the host and the optical signal from the fibre (an
+FFE of tens of taps and sometimes a short sequence detector, as in Chapter~\ref{ch:equalization}) with a
+Reed--Solomon or concatenated FEC.
+
+\subsection{Linear drive and co-packaged optics}
+
+At 800\,Gb/s per module, the module DSP consumes a large part of the 12 to 16\,W module budget, and a switch
+with 64 such ports spends kilowatts on optics. Two architectures attack this. \emph{Linear pluggable optics}
+(LPO) remove the DSP from the module altogether: the switch chip's own SerDes, with its strong equaliser,
+drives the modulator directly through linear amplifiers, and receives directly from the photodiode's
+linear TIA, roughly halving the module power at the cost of a harder link-budget negotiation between host
+and module. \emph{Co-packaged optics} (CPO) go further, placing optical engines on the same package substrate
+as the switch ASIC, so that the electrical link between them is millimetres rather than tens of centimetres
+long and needs little equalisation; the lasers, which dislike heat, sit in separate replaceable external
+modules. The trend is the same one that ran through the copper story: shorten the electrical channel, and
+the signal processing needed to overcome it shrinks too.
+
+\subsection{Free-space optics}
+
+Light need not be guided. \emph{Free-space optical} (FSO) links send a laser beam through the air between
+buildings or across rivers, offering fibre-like rates without a trench and without spectrum licensing. Their
+nemesis is weather: fog droplets are comparable in size to the wavelength and attenuate the beam by tens to
+hundreds of decibels per kilometre, so terrestrial FSO is limited to short ranges or must be backed up by
+radio, while atmospheric turbulence causes scintillation (fading) and beam wander that require adaptive
+optics or diversity. In space there is no weather, and laser inter-satellite links, now flying in large
+numbers in low-Earth-orbit constellations (Chapter~\ref{ch:satellite}), carry tens to hundreds of gigabits
+per second over thousands of kilometres with telescopes of a few centimetres. Optical feeder links between
+satellites and ground stations, and deep-space optical communication, extend the same idea.
+
+%======================================================================
+\section{Summary}
+\label{sec:ch24:summary}
+%======================================================================
+
+\begin{itemize}
+\item A transmission line is described by its propagation constant $\gamma=\sqrt{(R+j\omega L)(G+j\omega C)}$
+and characteristic impedance $Z_0$. Copper loss in decibels grows as $\sqrt f$ (skin effect) plus a term in
+$f$ (dielectric loss); reflections ($\Gamma=(Z_L-Z_0)/(Z_L+Z_0)$) produce echoes and bridged-tap notches;
+NEXT grows as $f^{1.5}$ and FEXT as $f^2\ell|H|^2$.
+\item The telephone network evolved from manual and electromechanical switching to stored program control
+(1965) and digital switching; the hybrid's imperfect 2-wire/4-wire conversion causes echo, which echo
+cancellers remove; SS7 moved signalling out of band and made the network programmable.
+\item Voiceband modems reached the capacity of the analog voice channel with V.34; V.90 reached 56\,kb/s
+by changing the channel model to a digital PCM channel.
+\item PDH multiplexed asynchronous tributaries by bit stuffing; SONET/SDH introduced byte-synchronous
+125\,$\mu$s frames with pointers, rich overhead and 50\,ms ring protection; OTN wraps any client in frames
+with strong FEC.
+\item DSL's rate falls steeply with loop length. ADSL used DMT with bit loading over the voice band; VDSL2
+from cabinets extended the band to 17--35\,MHz and became FEXT-limited; vectoring cancels FEXT as a
+per-tone MIMO problem (precoding downstream, joint detection upstream); G.fast uses TDD to 106--212\,MHz on
+loops under 250\,m.
+\item HFC cable networks evolved from bonded single-carrier QAM to OFDM with LDPC and 4096-QAM (DOCSIS~3.1),
+and to full-duplex echo-cancelled operation or 1.8\,GHz spectrum (DOCSIS~4.0).
+\item Twisted-pair Ethernet reached 1 and 10\,Gb/s with four pairs in both directions, echo and NEXT
+cancellation, multilevel PAM, trellis or LDPC codes and Tomlinson--Harashima precoding.
+\item Single-mode fibre loses about 0.2\,dB/km at 1550\,nm; chromatic dispersion
+($D\approx17$\,ps/(nm$\cdot$km)) spreads pulses in proportion to $R_s^2L$ in symbols and causes power
+fading in direct detection; PMD grows as $\sqrt L$; the Kerr nonlinearity sets an optimum launch power and
+a nonlinear Shannon limit.
+\item Optical amplifiers (EDFA, Raman) add ASE with a noise figure of at least 3\,dB; the OSNR budget
+$P_{\mathrm{ch}}-L_s-\mathrm{NF}-10\log N+58$\,dB sets the reach of each modulation format. WDM on the
+G.694.1 grid and ROADM meshes multiply capacity and flexibility.
+\item Coherent receivers detect the optical field, so DSP can compensate CD, PMD and polarisation rotation,
+recover carrier phase and decode soft-decision FEC. Symbol rates, constellation shaping and SDM have carried
+capacity per wavelength from 100\,Gb/s to over 1\,Tb/s.
+\item PONs share a fibre among 32--128 homes with a broadcast downstream and ranged TDMA upstream; their
+design is a power budget dominated by the splitter. Data-centre links use PAM-4 IM/DD in the O band, moving
+towards linear-drive and co-packaged optics.
+\end{itemize}
+
+\begin{labbox}[Wireline and optical links]
+The notebook \lab{moderncomms-labs/labs/lab30\_wireline\_optical.py} accompanies this chapter. It builds on
+the new module \lab{commlib/wireline.py}, which implements the RLGC cable model, two-port loop analysis with
+bridged taps and loading coils, the Unger crosstalk models, gap-approximation DMT bit loading, fibre loss and
+dispersion, the IM/DD power-fading response, OSNR and GN-model budgets, and a minimal coherent DSP chain. You
+will compute the loss and impedance of a loop and reproduce Figures~\ref{fig:ch24_line_loss}
+and~\ref{fig:ch24_loop_impairments}; sweep loop length and noise models to draw your own rate-versus-reach
+curves (Figure~\ref{fig:ch24_dsl_rate_reach}); build a small vectored binder with a random FEXT matrix and
+compare linear precoding with no cancellation; propagate an IM/DD PAM-4 signal and a coherent DP-QPSK signal
+through dispersive fibre and see why one fails and the other does not; implement the CMA butterfly and
+Viterbi--Viterbi carrier recovery to reproduce Figure~\ref{fig:ch24_coherent_dsp}; and plan an amplified link
+by finding its optimum launch power and margin. The figure script \lab{book/figscripts/ch24\_figs.py}
+generates every data figure in this chapter.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item A 24 AWG pair has, at 2\,MHz, $R=520$\,$\Omega$/km, $L=0.50$\,mH/km, $C=50$\,nF/km and negligible $G$.
+Compute $Z_0$, the attenuation in dB/km and the phase velocity, first with the high-frequency approximations
+of~\eqref{eq:ch24:hfloss} and then exactly. How long a loop gives 60\,dB of loss at 2\,MHz?
+\item Show from~\eqref{eq:ch24:gammaz0} that in the low-frequency limit $\omega L\ll R$, $G=0$, the
+attenuation in dB is proportional to $\sqrt f$ and the phase of $Z_0$ is $-45^\circ$. Use the result to
+explain why the step response of a long cable rises in a time proportional to $RC\ell^2$.
+\item An open-circuited bridged tap of length $\ell_t$ is connected midway along a loop. Using the input
+admittance $\tanh(\gamma\ell_t)/Z_0$, show that the notches occur at $f_k=(2k+1)v/(4\ell_t)$ when loss is
+neglected. For $v=0.65c$, where are the first two notches of a 60\,m tap? Which DSL systems would they affect?
+\item A hybrid has a balance network of 900\,$\Omega$ in series with 2.16\,$\mu$F. The line presents
+$600-j300$\,$\Omega$ at 1\,kHz. What is the transhybrid loss? If the far end of a circuit with 30\,ms one-way
+delay returns the echo with this loss, plus 6\,dB of circuit loss in each direction, is an echo canceller
+needed according to the 25\,ms rule of thumb?
+\item Using the NEXT model~\eqref{eq:ch24:next}, find the NEXT loss at 80\,kHz and at 1\,MHz for 10 and 49
+disturbers. Explain why ISDN could use echo-cancelled full duplex across its whole band, but ADSL could not
+do so above about 138\,kHz.
+\item Compute the line rate of an STS-1, the payload capacity after transport and path overhead, and the
+fraction of an OC-48 that carries user data when it transports 48 DS3s. How many 64\,kb/s channels does an
+OC-192 carry when it is filled with DS1s in VT1.5s?
+\item Explain positive justification in a DS2 multiplexer. If a DS1 tributary runs at $+50$\,ppm and the
+multiplexer reserves one stuffing opportunity per tributary in each 1176-bit DS2 frame, what fraction of the
+stuffing opportunities carry data? Repeat for $-50$\,ppm.
+\item Using the gap approximation with $\Gamma=12$\,dB, a transmit PSD of $-40$\,dBm/Hz, $-140$\,dBm/Hz noise
+and a loop loss of $25.4\sqrt{f/1\,\text{MHz}}$\,dB per km, estimate the highest usable ADSL2+ tone and the
+approximate downstream rate on a 2.5\,km loop. Compare with Figure~\ref{fig:ch24_dsl_rate_reach}.
+\item For a two-line binder with tone-$k$ channel $\vect H=\begin{bmatrix}h_{11}&h_{12}\\h_{21}&h_{22}\end{bmatrix}$,
+write the zero-forcing precoder $\vect P$ such that $\vect H\vect P$ is diagonal and equal to
+$\mathrm{diag}(h_{11},h_{22})$. If $|h_{12}/h_{11}|=|h_{21}/h_{22}|=0.1$, by how much does precoding raise
+the transmit power? What happens when the ratios approach 1, as in G.fast at 200\,MHz?
+\item A DOCSIS~3.1 downstream OFDM channel of 96\,MHz uses 25\,kHz subcarriers and a 2.5\,$\mu$s cyclic prefix
+with 2048-QAM on all data subcarriers. Estimate its payload rate, assuming 4\% of subcarriers are pilots or
+guard and an LDPC code of rate 0.89.
+\item Single-mode fibre at 1550\,nm has $D=17$\,ps/(nm$\cdot$km). For IM/DD, find the distance at which the
+first power-fading null~\eqref{eq:ch24:fading} falls at half the symbol rate of (a) 10\,Gb/s NRZ, (b)
+28\,GBd PAM-4, (c) 56\,GBd PAM-4. What changes at 1310\,nm with $D=1$\,ps/(nm$\cdot$km)?
+\item Derive~\eqref{eq:ch24:osnr} from the ASE power $\mathrm{NF}\cdot h\nu G B_{\mathrm{ref}}$ per amplifier.
+A 3000\,km link has 100\,km spans of 0.2\,dB/km fibre with 3\,dB of extra loss per span and 5.5\,dB NF
+amplifiers. What launch power per channel gives an OSNR of 15\,dB? Is that power likely to be in the
+nonlinear regime?
+\item Starting from~\eqref{eq:ch24:gn}, derive the optimum launch power and show that at the optimum the
+nonlinear interference equals half the ASE. Show that the optimum SNR falls by 2\,dB for every doubling of
+the number of spans, and by how much it improves if the amplifier noise figure is reduced by 1\,dB.
+\item A GPON uses a 1:64 split with 3\,dB excess loss, 15\,km of fibre at 0.35\,dB/km (upstream), 6
+connectors at 0.4\,dB and a 2\,dB repair margin. Which budget class is needed? What is the maximum reach of
+the same design with a 1:32 split and class B+ optics?
+\item \emph{(Simulation)} Using \lab{commlib/wireline.py}, simulate 32\,GBd DP-QPSK over 1000\,km of fibre
+with CD, a random polarisation rotation and laser phase noise. Find the number of CD-compensation taps
+needed at 2 samples per symbol, compare CMA and decision-directed LMS convergence in the butterfly, and
+measure the BER against SNR with Viterbi--Viterbi carrier recovery for linewidths of 100\,kHz and 1\,MHz.
+\item \emph{(Simulation)} Build a 16-line vectored VDSL2 binder: draw a random FEXT matrix per tone whose
+magnitudes follow~\eqref{eq:ch24:fext} with random phases, compute each line's rate without vectoring, with
+full linear precoding, and with partial vectoring that cancels only the four strongest crosstalkers per tone.
+Plot the rate against the number of cancelled crosstalkers.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item T.~Starr, J.~M.~Cioffi and P.~J.~Silverman, \emph{Understanding Digital Subscriber Line Technology},
+Prentice Hall, 1999. The standard introduction to the loop plant, cable models, crosstalk and DMT; see also
+the follow-up by Starr, Sorbara, Cioffi and Silverman, \emph{DSL Advances} (2003).
+\item G.~Ginis and J.~M.~Cioffi, ``Vectored transmission for digital subscriber line systems,'' \emph{IEEE
+Journal on Selected Areas in Communications}, vol.~20, no.~5, 2002. The paper behind vectoring.
+\item J.~Bellamy, \emph{Digital Telephony}, 3rd ed., Wiley, 2000. The telephone plant, switching,
+signalling, PDH and SONET from an engineer who knew the Bell System from the inside.
+\item G.~P.~Agrawal, \emph{Fiber-Optic Communication Systems}, 4th ed., Wiley, 2010 (5th ed., 2021). The
+standard textbook on fibre, sources, detectors, amplifiers, dispersion and system design; his
+\emph{Nonlinear Fiber Optics} covers the Kerr effects in depth.
+\item K.~C.~Kao and G.~A.~Hockham, ``Dielectric-fibre surface waveguides for optical frequencies,''
+\emph{Proceedings of the IEE}, vol.~113, no.~7, 1966. The paper that started optical communication.
+\item S.~J.~Savory, ``Digital coherent optical receivers: algorithms and subsystems,'' \emph{IEEE Journal of
+Selected Topics in Quantum Electronics}, vol.~16, no.~5, 2010; and K.~Kikuchi, ``Fundamentals of coherent
+optical fiber communications,'' \emph{Journal of Lightwave Technology}, vol.~34, no.~1, 2016. Two clear
+tutorials on the coherent receiver and its DSP.
+\item R.-J.~Essiambre, G.~Kramer, P.~J.~Winzer, G.~J.~Foschini and B.~Goebel, ``Capacity limits of optical
+fiber networks,'' \emph{Journal of Lightwave Technology}, vol.~28, no.~4, 2010. The definitive study of the
+nonlinear Shannon limit.
+\item P.~Poggiolini, ``The GN model of non-linear propagation in uncompensated coherent optical systems,''
+\emph{Journal of Lightwave Technology}, vol.~30, no.~24, 2012. The model behind~\eqref{eq:ch24:gn} and
+Figure~\ref{fig:ch24_osnr_nli}.
+\item P.~J.~Winzer, D.~T.~Neilson and A.~R.~Chraplyvy, ``Fiber-optic transmission and networking: the
+previous 20 and the next 20 years,'' \emph{Optics Express}, vol.~26, no.~18, 2018. A superb historical and
+forward-looking survey, including the case for SDM.
+\item Standards: ITU-T G.992.5 (ADSL2+), G.993.2 and G.993.5 (VDSL2 and vectoring), G.9701 (G.fast), G.707
+(SDH), G.709 (OTN), G.652 (single-mode fibre), G.694.1 (DWDM grid), G.984 and G.9807.1 (GPON, XGS-PON);
+CableLabs CM-SP-PHYv3.1 and CM-SP-PHYv4.0 (DOCSIS PHY); IEEE 802.3 (Ethernet); OIF 400ZR implementation
+agreement. The primary sources for every parameter quoted in this chapter.
+\end{itemize}
