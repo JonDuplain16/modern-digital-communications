@@ -1,0 +1,2110 @@
+\chapter{Turbo, LDPC and Polar Codes}
+\label{ch:moderncodes}
+
+\begin{chapterintro}
+For forty-five years after Shannon proved that reliable communication was possible at any rate
+below capacity, nobody knew how to get there with a decoder that could be built. The codes of
+Chapter~\ref{ch:classiccodes} were elegant and useful, but at the error rates that matter they
+stayed 2 to 3\,dB from the limit, and every attempt to close the gap with longer codes ran into
+decoders whose complexity grew exponentially. Then, within about fifteen years, three families of
+codes arrived that closed it almost completely: turbo codes in 1993, low-density parity-check
+(LDPC) codes rediscovered in 1996, and polar codes in 2009. They share one idea: a long,
+powerful code built from simple pieces, decoded by passing \emph{soft} probabilistic messages
+between those pieces. This chapter develops that idea from the log-likelihood ratio upwards. It
+derives the BCJR algorithm and builds the turbo decoder around it; explains why turbo codes have
+a waterfall and an error floor, and how EXIT charts predict both; develops belief propagation on
+the Tanner graph of an LDPC code, its hardware-friendly min-sum approximations, and density
+evolution, which computes a code's threshold before a single frame is simulated; shows how
+protographs and quasi-cyclic lifting turned LDPC codes into the data channels of 5G, Wi-Fi,
+DVB-S2 and 10GBASE-T; and explains channel polarization, successive-cancellation list decoding
+and the reasons polar codes carry the control channels of 5G. It closes with the short-blocklength
+comparison that decided the 5G coding battle, hybrid ARQ, spatial coupling, the codes of optical
+fibre and flash memory, and a look at what might come next.
+\end{chapterintro}
+
+%======================================================================
+\section{The road to the Shannon limit}
+\label{sec:ch15:road}
+%======================================================================
+
+Chapter~\ref{ch:infotheory} ended with a promise and a warning. The promise: on the binary-input
+additive white Gaussian noise (BI-AWGN) channel, a rate-1/2 code can in principle deliver any
+error rate you like at $\ebno=0.19$\,dB, and a rate-1/3 code at $-0.50$\,dB. The warning: the
+proof used random codes of enormous length, decoded by comparing the received word with every
+codeword. A random code of rate 1/2 and length 1000 has $2^{500}$ codewords; no conceivable
+computer will ever decode it that way.
+
+The history of channel coding is the history of the gap between those two statements.
+Table~\ref{tab:ch15:gap} gives a rough map. Uncoded BPSK needs about 9.6\,dB to reach a bit error
+rate of $10^{-5}$. The first practical codes of the 1950s and 1960s, Hamming and Golay codes
+decoded with hard decisions, recovered between a fraction of a decibel and about two decibels. The constraint-length-7 convolutional
+code with soft-decision Viterbi decoding (Chapter~\ref{ch:classiccodes}), standardised by NASA in
+the 1970s and still inside every Wi-Fi chip, reaches $10^{-5}$ at about 4.4\,dB, 4.2\,dB from the
+rate-1/2 limit. Concatenating it with an outer Reed--Solomon code, as the Voyager missions did,
+brought the requirement to about 2.5\,dB. The most elaborate schemes of the early 1990s---such
+as the constraint-length-15, rate-1/4 code built at JPL for the Galileo mission, whose ``Big Viterbi
+Decoder'' tracked 16\,384 states, concatenated with a Reed--Solomon code---were still of the order
+of 1.5 to 2\,dB away. Most engineers believed that much of the remaining gap was the price of
+practicality. The \term{cutoff rate} $R_0$, the rate up to which sequential decoding works with
+bounded average effort, was widely regarded as the ``practical capacity''; on the BPSK/AWGN
+channel $R_0=1/2$ requires $\ebno\approx2.5$\,dB, about 2.3\,dB more than capacity, and at very
+low rates the gap grows to 3\,dB.
+
+\begin{table}[htbp]\centering\small
+\caption{Approximate $\ebno$ required for a bit error rate of $10^{-5}$ on the AWGN channel with
+BPSK or QPSK, for landmark coding schemes. Values are typical published figures, rounded; the
+BPSK-input Shannon limits are $0.19$\,dB at rate 1/2 and $-0.50$\,dB at rate 1/3.}
+\label{tab:ch15:gap}
+\begin{tabularx}{\linewidth}{@{}l l c c X@{}}
+\toprule
+Scheme & Year & Rate & $\ebno$ (dB) & Remark\\
+\midrule
+Uncoded BPSK & -- & 1 & 9.6 & the reference\\
+Hamming (7,4), hard decisions & 1950 & 0.57 & $\approx$9.2 & less than half a decibel of gain\\
+Convolutional $K=7$, soft Viterbi & 1970s & 1/2 & $\approx$4.4 & NASA standard; 802.11a/g\\
+RS(255,223) + $K=7$ convolutional & 1977 & $\approx$0.44 & $\approx$2.5 & Voyager, CCSDS\\
+Turbo code, $K=65\,536$, 18 iterations & 1993 & 1/2 & 0.7 & Berrou \emph{et al.}; 0.5\,dB from the limit\\
+Irregular LDPC, $n=10^7$ & 2001 & 1/2 & $\approx$0.23 & Chung \emph{et al.}, $10^{-6}$; 0.04\,dB from the limit\\
+5G NR LDPC, a few thousand bits & 2017 & 1/2 & $\approx$1--1.5 & practical blocks at BLER $10^{-2}$\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The breakthrough, when it came, did not come from a better algebraic construction. It came from
+two changes of viewpoint. First, a decoder should not decide bits; it should compute
+\emph{probabilities} of bits and pass them on. Second, a long code does not need a
+long-code decoder: if the code is built from small component codes, each with a cheap
+probabilistic decoder, the components can decode \emph{each other}, iteratively, by exchanging
+probabilities. Both ideas were available in 1963, in Robert Gallager's thesis on low-density
+parity-check codes. Both were ignored for thirty years.
+
+\begin{history}[Geneva, May 1993]
+At the IEEE International Conference on Communications in Geneva in May 1993, Claude Berrou, Alain
+Glavieux and Punya Thitimajshima of the \'Ecole Nationale Sup\'erieure des T\'el\'ecommunications
+de Bretagne presented a paper titled ``Near Shannon limit error-correcting coding and decoding:
+Turbo-codes''. Their rate-1/2 code, two 16-state recursive convolutional encoders joined by a
+$256\times256$ interleaver, reached a bit error rate of $10^{-5}$ at $\ebno=0.7$\,dB after 18
+iterations of decoding, about half a decibel from the Shannon limit. The claim was more than a
+decibel better than anything previously built, and many in the audience assumed a mistake:
+perhaps an error in the SNR normalisation, perhaps a factor of two between $E_b$ and $E_s$.
+Berrou and Glavieux were not coding theorists by background---Berrou was an electronics engineer
+who had been designing Viterbi decoder chips---and the paper's explanation of \emph{why} it worked
+was sketchy. Within months, however, groups at JPL and elsewhere had reproduced the results. The
+name came from the turbocharger: the decoder's output is fed back to its input, as a turbocharger
+feeds exhaust back to drive the intake. Seven years later, Berrou, Glavieux and Thitimajshima's
+paper had become one of the most cited in communications, and turbo codes were written into the
+third-generation mobile standard and NASA's deep-space recommendations.
+\end{history}
+
+The rest of this chapter follows the ideas in logical rather than strict historical order. We
+start with the currency that every modern decoder trades in, the log-likelihood ratio, and the
+algorithm that computes exact bit probabilities on a trellis.
+
+%======================================================================
+\section{Soft information and the BCJR algorithm}
+\label{sec:ch15:soft}
+%======================================================================
+
+\subsection{Log-likelihood ratios}
+
+Chapter~\ref{ch:modulation} introduced the \term{log-likelihood ratio} (LLR) of a bit as the soft
+output of a demodulator. We now make it the central object. For a binary random variable
+$c\in\{0,1\}$ and an observation $y$, define
+\begin{equation}
+L(c\,|\,y)=\ln\frac{P(c=0\,|\,y)}{P(c=1\,|\,y)}.
+\label{eq:ch15:llr}
+\end{equation}
+The sign is the hard decision (positive means 0, with the BPSK mapping $0\mapsto+1$,
+$1\mapsto-1$ used throughout the book and in \texttt{commlib}), and the magnitude is the
+confidence: $|L|=0$ means ``no idea'', $|L|=4.6$ means the decision is wrong with probability
+$1/(1+e^{4.6})\approx1\%$, and $|L|=\infty$ means certainty. Probabilities are recovered as
+\begin{equation}
+P(c=0\,|\,y)=\frac{1}{1+e^{-L}},\qquad P(c=1\,|\,y)=\frac{1}{1+e^{L}}.
+\end{equation}
+By Bayes' rule the posterior LLR splits into two terms,
+\begin{equation}
+L(c\,|\,y)=\underbrace{\ln\frac{p(y\,|\,c=0)}{p(y\,|\,c=1)}}_{L_{\text{ch}}}+
+\underbrace{\ln\frac{P(c=0)}{P(c=1)}}_{L_A},
+\label{eq:ch15:bayes}
+\end{equation}
+the \emph{channel} LLR and the \emph{a-priori} LLR. For BPSK in real Gaussian noise of variance
+$\sigma^2$, $y=x+n$ with $x=1-2c$, the channel LLR is linear in the observation:
+\begin{equation}
+L_{\text{ch}}=\ln\frac{e^{-(y-1)^2/2\sigma^2}}{e^{-(y+1)^2/2\sigma^2}}=\frac{2}{\sigma^2}\,y.
+\label{eq:ch15:chllr}
+\end{equation}
+A receiver that scales its matched-filter samples by $2/\sigma^2$ therefore already produces
+LLRs. Given $x=+1$, $L_{\text{ch}}$ is Gaussian with mean $\mu=2/\sigma^2$ and variance
+$2\mu$. That relationship---variance equal to twice the mean---is the \term{consistency
+condition}, and it holds for any correctly computed LLR whose distribution is Gaussian; we will
+use it in density evolution and EXIT charts.
+
+Two properties make LLRs the natural currency of iterative decoding. First,
+\emph{independent} evidence about the same bit adds: if $y_1$ and $y_2$ are conditionally
+independent given $c$, $L(c\,|\,y_1,y_2)=L(c\,|\,y_1)+L(c\,|\,y_2)$. That is the whole of a
+repetition code's decoder and of the variable-node update of belief propagation. Second, the LLR
+of the modulo-2 sum of two independent bits has a simple closed form. If $c=c_1\oplus c_2$,
+\begin{equation}
+L(c_1\oplus c_2)=2\tanh^{-1}\!\Big(\tanh\frac{L_1}{2}\tanh\frac{L_2}{2}\Big)
+\;\triangleq\;L_1\boxplus L_2,
+\label{eq:ch15:boxplus}
+\end{equation}
+which follows from $P(c=0)-P(c=1)=\tanh(L/2)$ and the fact that the ``bias'' $P(0)-P(1)$ of an XOR
+of independent bits is the product of their biases. The operation $\boxplus$, the
+\term{box-plus} or check-node operation, is the whole of a single parity check's decoder. Its
+magnitude is always smaller than the smaller input magnitude, and a good approximation is
+\begin{equation}
+L_1\boxplus L_2\approx\operatorname{sign}(L_1)\operatorname{sign}(L_2)\min(|L_1|,|L_2|),
+\label{eq:ch15:minapprox}
+\end{equation}
+since an XOR is only as reliable as its least reliable input. Everything in this chapter's
+decoders is built from sums, box-pluses, and their approximations.
+
+\begin{worked}[Box-plus arithmetic]
+Two bits have LLRs $L_1=+2.0$ and $L_2=-1.0$. What is known about $c_1\oplus c_2$?
+
+$\tanh(1.0)=0.762$ and $\tanh(-0.5)=-0.462$, so the product is $-0.352$ and
+$L_1\boxplus L_2=2\tanh^{-1}(-0.352)=-0.735$. The XOR is probably 1 (as the hard decisions
+$0\oplus1$ suggest) but with less confidence than either input. The min-sum
+approximation~\eqref{eq:ch15:minapprox} gives $-1.0$, overestimating the confidence by about a
+third. The exact correction is
+$L_1\boxplus L_2=\operatorname{sign}\cdot\min+\ln(1+e^{-|L_1+L_2|})-\ln(1+e^{-|L_1-L_2|})
+=-1.0+0.313-0.049=-0.735$: a small table lookup restores the exact value.
+\end{worked}
+
+\subsection{A-priori, extrinsic and a-posteriori information}
+
+Consider a decoder for one component code. For each information bit $u_k$ it receives a channel
+LLR $L_{\text{ch},k}$ (from the systematic bit), possibly an a-priori LLR $L_{A,k}$ (from somewhere
+else---another decoder), and channel LLRs for the parity bits. It computes the a-posteriori LLR
+$L(u_k\,|\,\text{everything})$. It can be shown (and we will see it concretely in the BCJR
+algorithm) that for a systematic code this output always decomposes as
+\begin{equation}
+L_{\text{APP},k}=L_{\text{ch},k}+L_{A,k}+L_{E,k}.
+\label{eq:ch15:extrinsic}
+\end{equation}
+The third term, the \term{extrinsic information}, is what the code's structure---the \emph{other}
+bits, through the parity constraints---says about $u_k$. It is the only part of the output that
+is new to whoever supplied $L_{A,k}$. The central rule of iterative decoding follows: \emph{pass
+on only extrinsic information}. If a decoder passed the full APP back to the decoder that gave it
+the a-priori value, that decoder would be told its own opinion as if it were independent
+evidence, count it twice, and become confidently wrong. Subtracting what the receiver already knew
+is the discipline that makes iterative decoding approximately Bayesian.
+
+\begin{keyidea}[Soft in, soft out]
+A \term{soft-input soft-output} (SISO) decoder takes LLRs in and gives LLRs out. Two SISO decoders
+of two different codes on the same bits can help each other: each turns the other's extrinsic
+output into its own a-priori input. Every capacity-approaching decoder of this chapter---turbo,
+LDPC and, in a sequential form, polar---is a network of simple SISO decoders exchanging extrinsic
+LLRs.
+\end{keyidea}
+
+\subsection{The trellis and the MAP decoder}
+
+The Viterbi algorithm of Chapter~\ref{ch:classiccodes} finds the most likely \emph{sequence} of
+states through a trellis. It minimises the probability of a sequence error but outputs only hard
+decisions. The \term{BCJR algorithm}, published by Lalit Bahl, John Cocke, Frederick Jelinek and
+Josef Raviv in 1974, computes instead the a-posteriori probability of each \emph{individual}
+bit, which is exactly the soft output a SISO decoder needs.
+
+Let the encoder be a finite-state machine with states $s\in\{0,\dots,S-1\}$. At time $k$ an input
+bit $u_k$ drives it from state $s'$ to state $s$ and produces output bits whose noisy observations
+we collect in $\vect y_k$. The whole received sequence is $\vect y=(\vect y_1,\dots,\vect y_N)$. The
+APP LLR of $u_k$ is a ratio of sums over trellis branches:
+\begin{equation}
+L(u_k\,|\,\vect y)=\ln\frac{\sum_{(s',s):\,u_k=0}p(s_{k-1}=s',s_k=s,\vect y)}
+{\sum_{(s',s):\,u_k=1}p(s_{k-1}=s',s_k=s,\vect y)}.
+\label{eq:ch15:app}
+\end{equation}
+Because the channel is memoryless and the encoder is Markov, the joint probability of a branch and
+the observations factors into three pieces: everything before the branch, the branch itself, and
+everything after it,
+\begin{equation}
+p(s',s,\vect y)=\alpha_{k-1}(s')\,\gamma_k(s',s)\,\beta_k(s),
+\label{eq:ch15:factor}
+\end{equation}
+with
+\begin{align}
+\alpha_k(s)&=p(s_k=s,\vect y_1,\dots,\vect y_k), \nonumber\\
+\gamma_k(s',s)&=p(s_k=s,\vect y_k\,|\,s_{k-1}=s') = P(u_k)\,p(\vect y_k\,|\,s',s), \\
+\beta_k(s)&=p(\vect y_{k+1},\dots,\vect y_N\,|\,s_k=s). \nonumber
+\end{align}
+The forward and backward quantities obey simple recursions,
+\begin{equation}
+\alpha_k(s)=\sum_{s'}\alpha_{k-1}(s')\,\gamma_k(s',s),\qquad
+\beta_{k-1}(s')=\sum_{s}\gamma_k(s',s)\,\beta_k(s),
+\label{eq:ch15:recursions}
+\end{equation}
+started from the known initial state ($\alpha_0(0)=1$) and, for a terminated trellis, the known final
+state ($\beta_N(0)=1$). The algorithm is therefore: compute all branch metrics $\gamma$; run a forward
+pass for $\alpha$; run a backward pass for $\beta$; and combine them with~\eqref{eq:ch15:app}. It
+costs about three times a Viterbi decoder, and it is exact.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=1.55cm,y=0.62cm,
+  st/.style={circle,draw=navy,fill=navy!8,thick,inner sep=0pt,minimum size=4.2mm,font=\sffamily\tiny},
+  b0/.style={navy!55,thick}, b1/.style={accent!70,thick,dashed}]
+\foreach \k in {0,...,5}{
+  \foreach \s in {0,...,3}{ \node[st] (n\k\s) at (\k,-\s) {\s}; } }
+\foreach \k [evaluate=\k as \kk using int(\k+1)] in {0,...,4}{
+  \draw[b0] (n\k0) -- (n\kk0); \draw[b1] (n\k0) -- (n\kk2);
+  \draw[b0] (n\k1) -- (n\kk2); \draw[b1] (n\k1) -- (n\kk0);
+  \draw[b0] (n\k2) -- (n\kk1); \draw[b1] (n\k2) -- (n\kk3);
+  \draw[b0] (n\k3) -- (n\kk3); \draw[b1] (n\k3) -- (n\kk1); }
+\foreach \k in {0,...,5}{ \node[font=\sffamily\scriptsize,navy] at (\k,0.85) {$k=\k$}; }
+\fill[navy!10,rounded corners] (-0.35,-4.05) rectangle (2.3,-4.85);
+\node[font=\sffamily\scriptsize,navy] at (0.98,-4.45) {$\alpha_{k-1}(s')$: past};
+\fill[accent!10,rounded corners] (2.35,-4.05) rectangle (3.65,-4.85);
+\node[font=\sffamily\scriptsize,accent] at (3.0,-4.45) {$\gamma_k(s',s)$};
+\fill[practc!12,rounded corners] (3.7,-4.05) rectangle (5.35,-4.85);
+\node[font=\sffamily\scriptsize,practc] at (4.52,-4.45) {$\beta_k(s)$: future};
+\draw[-{Stealth[length=2mm]},navy,very thick] (0,1.5) -- (2,1.5) node[midway,above,font=\sffamily\scriptsize]{forward recursion};
+\draw[-{Stealth[length=2mm]},practc,very thick] (5,1.5) -- (3,1.5) node[midway,above,font=\sffamily\scriptsize]{backward recursion};
+\draw[line width=2.2pt,accent!80,opacity=0.5] (n21) -- (n30);
+\node[font=\sffamily\scriptsize,anchor=west] at (5.3,-0.5) {\textcolor{navy!70}{\rule[2pt]{5mm}{1pt}} $u_k=0$};
+\node[font=\sffamily\scriptsize,anchor=west] at (5.3,-1.3) {\textcolor{accent!80}{- - -} $u_k=1$};
+\end{tikzpicture}
+\caption{The BCJR algorithm on a 4-state trellis. The probability of any branch---here the
+highlighted one from state 1 at time 2 to state 0 at time 3---given all the observations is the
+product of a forward metric $\alpha$ (summarising the observations before the branch), the branch
+metric $\gamma$ and a backward metric $\beta$ (summarising the observations after it). Summing
+over all branches labelled $u_k=0$ and all branches labelled $u_k=1$ gives the bit's APP LLR.}
+\label{fig:ch15_bcjr_trellis}
+\end{figure}
+
+\subsection{The log domain: log-MAP and max-log-MAP}
+
+Products of probabilities underflow after a few hundred steps, so practical decoders work with
+logarithms: $A_k(s)=\ln\alpha_k(s)$, $B_k(s)=\ln\beta_k(s)$, $\Gamma_k=\ln\gamma_k$. Products
+become sums, and a sum of probabilities becomes the \term{Jacobian logarithm}
+\begin{equation}
+\max{}^*(a,b)\;\triangleq\;\ln(e^a+e^b)=\max(a,b)+\ln\!\big(1+e^{-|a-b|}\big).
+\label{eq:ch15:maxstar}
+\end{equation}
+The recursions become
+\begin{equation}
+A_k(s)=\max_{s'}{}^*\big[A_{k-1}(s')+\Gamma_k(s',s)\big],\qquad
+B_{k-1}(s')=\max_{s}{}^*\big[\Gamma_k(s',s)+B_k(s)\big],
+\end{equation}
+and the output is
+\begin{equation}
+L(u_k)=\max_{u_k=0}{}^*\big[A_{k-1}(s')+\Gamma_k(s',s)+B_k(s)\big]-\max_{u_k=1}{}^*\big[A_{k-1}(s')+\Gamma_k(s',s)+B_k(s)\big].
+\end{equation}
+This is the \term{log-MAP} algorithm; it is exactly equivalent to BCJR. The correction term
+$\ln(1+e^{-|a-b|})$ is at most $\ln2\approx0.69$ and falls below 0.05 when $|a-b|>3$, so hardware
+implements it with a lookup table of eight or so entries. Dropping it altogether gives
+\term{max-log-MAP}, in which every $\max^*$ becomes a plain $\max$. The forward and backward passes
+are then two Viterbi algorithms running in opposite directions, and the output for each bit is the
+difference between the best path with $u_k=0$ and the best path with $u_k=1$. Max-log-MAP loses
+about 0.3 to 0.5\,dB in a turbo decoder, but it is insensitive to the scaling of the input LLRs
+(an unknown noise variance does no harm) and most of its loss is recovered by multiplying the
+extrinsic output by a factor of about 0.7, a trick found empirically by several groups around
+2000 (Figure~\ref{fig:ch15_turbo_iters}).
+
+With BPSK on the AWGN channel and the LLR form of the inputs, the branch metric of a rate-1/2
+systematic code whose branch $(s',s)$ carries input $u$ and parity $p$, in bipolar form
+$x^u=1-2u$ and $x^p=1-2p$, is
+\begin{equation}
+\Gamma_k(s',s)=\tfrac12x^u\big(L_{\text{ch},k}^{u}+L_{A,k}\big)+\tfrac12x^p\,L_{\text{ch},k}^{p}
+\label{eq:ch15:branch}
+\end{equation}
+(up to a constant that cancels). Substituting into the output shows that the terms involving
+$L^u_{\text{ch},k}+L_{A,k}$ factor out of both sums, leaving exactly the
+decomposition~\eqref{eq:ch15:extrinsic}: the extrinsic output is computed from the parity
+observations and from everything the trellis says about the \emph{other} bits.
+
+\begin{history}[A twenty-year sleeper]
+The BCJR paper appeared in the \emph{IEEE Transactions on Information Theory} in March 1974, from
+IBM's Thomas J.~Watson Research Center, where Bahl, Jelinek and Raviv were working on speech
+recognition. (The same forward--backward recursions are the Baum--Welch algorithm of hidden Markov
+models.) For decoding, it was judged a curiosity: it gave almost exactly the same bit error rate as
+the Viterbi algorithm at roughly three times the cost. What nobody needed in 1974 was a decoder
+whose \emph{output} was soft. When Berrou's turbo decoder needed exactly that in 1993, the BCJR
+algorithm was waiting, and it has been the engine of every turbo decoder since. Hagenauer and
+Hoeher's soft-output Viterbi algorithm (SOVA, 1989) is a cheaper approximation that was also used in
+early turbo decoders.
+\end{history}
+
+%======================================================================
+\section{Turbo codes}
+\label{sec:ch15:turbo}
+%======================================================================
+
+\subsection{Parallel concatenation}
+
+A \term{turbo code} (more precisely a \term{parallel concatenated convolutional code}, PCCC)
+encodes a block of $K$ information bits three times: once as they are (the systematic bits), once
+with a convolutional encoder, and once with a second convolutional encoder that sees the same bits
+in a permuted order (Figure~\ref{fig:ch15_turbo_encoder}). The permutation, the
+\term{interleaver} $\pi$, is the heart of the code. The rate is 1/3 before puncturing; deleting
+some parity bits gives any higher rate.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.5cm and 0.9cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.9cm,minimum width=1.9cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy},
+  reg/.style={draw=navy,thick,minimum size=0.55cm,font=\sffamily\scriptsize},
+  xo/.style={circle,draw=navy,thick,inner sep=0pt,minimum size=3.4mm}]
+\node[font=\sffamily\scriptsize,align=center] (in) at (0,0) {$u_k$\\$K$ bits};
+\node[blk,right=1.6cm of in] (e1) {RSC encoder 1\\$(13,15)_8$};
+\node[blk,below=0.9cm of e1,fill=accent!6,draw=accent] (pi) {interleaver $\pi$};
+\node[blk,right=0.9cm of pi] (e2) {RSC encoder 2\\$(13,15)_8$};
+\node[font=\sffamily\scriptsize,anchor=west] (xs) at (7.2,0.9) {$x_k=u_k$ (systematic)};
+\node[font=\sffamily\scriptsize,anchor=west] (z1) at (7.2,0) {$z_k$ (parity 1)};
+\node[font=\sffamily\scriptsize,anchor=west] (z2) at (7.2,-1.4) {$z'_k$ (parity 2)};
+\draw[arr] (in) -- (e1);
+\coordinate (sp) at (1.0,0);
+\fill[navy] (sp) circle (1.5pt);
+\draw[arr] (sp) |- (xs.west);
+\draw[arr] (sp) |- (pi.west);
+\draw[arr] (e1) -- (z1.west);
+\draw[arr] (pi) -- (e2);
+\draw[arr] (e2) -- (z2.west -| e2.east) -- (z2.west);
+% RSC detail
+\begin{scope}[shift={(0.6,-3.6)}]
+\node[font=\sffamily\scriptsize,anchor=west,navy] at (-0.55,0.95) {Inside each RSC encoder (8 states, TS 36.212):};
+\node[xo] (a1) at (0,0) {\tiny$+$};
+\node[reg] (d1) at (1.3,0) {$D$};
+\node[reg] (d2) at (2.3,0) {$D$};
+\node[reg] (d3) at (3.3,0) {$D$};
+\node[xo] (fb) at (0,-0.9) {\tiny$+$};
+\node[xo] (o1) at (4.6,0.55) {\tiny$+$};
+\node[font=\sffamily\scriptsize] (uin) at (-1.1,0) {$u_k$};
+\draw[arr] (uin) -- (a1);
+\draw[arr] (a1) -- node[above,font=\tiny]{$a_k$} (d1); \draw[arr] (d1) -- (d2); \draw[arr] (d2) -- (d3);
+\draw[arr] (d2.south) |- (fb.east);
+\draw[arr] (d3.south) -- ++(0,-0.9) -- (fb.east);
+\draw[arr] (fb) -- (a1);
+\draw[arr] (0.6,0) |- (o1.west);
+\draw[arr] (d1.north) |- ([yshift=1mm]o1.west);
+\draw[arr] (d3.north) |- ([yshift=-1mm]o1.west);
+\node[font=\sffamily\scriptsize,anchor=west] (zo) at (5.1,0.55) {$z_k$};
+\draw[arr] (o1) -- (zo);
+\node[font=\sffamily\tiny,anchor=west,align=left] at (4.1,-0.7) {feedback $1+D^2+D^3$ (13 octal)\\feed-forward $1+D+D^3$ (15 octal)};
+\end{scope}
+\end{tikzpicture}
+\caption{The turbo encoder of UMTS and LTE (3GPP TS 25.212 and TS 36.212). Two identical
+eight-state recursive systematic convolutional (RSC) encoders see the information bits in natural
+and in interleaved order. Only one copy of the systematic bits is sent, so the rate is 1/3, plus
+twelve tail bits that return both encoders to the zero state. Below: one constituent encoder; the
+feedback makes its impulse response infinite.}
+\label{fig:ch15_turbo_encoder}
+\end{figure}
+
+\subsection{Why the constituent codes must be recursive}
+
+The constituent encoders are \term{recursive systematic convolutional} (RSC) codes: the parity is
+computed from a register driven by the input \emph{plus feedback} from its own contents. The LTE
+code has feedback polynomial $g_0(D)=1+D^2+D^3$ and feed-forward polynomial $g_1(D)=1+D+D^3$; its
+transfer function is $z(D)=u(D)\,g_1(D)/g_0(D)$. The feedback is not a detail. It is what gives
+turbo codes their power, and it is worth understanding exactly why.
+
+A non-recursive (feed-forward) encoder answers a weight-1 input with a finite, low-weight output:
+a single 1 produces one copy of the generator. If the constituent codes were feed-forward, a single
+information 1 would produce low-weight parity in \emph{both} encoders, wherever the interleaver
+moved it, and the code would have codewords of weight about $1+2\cdot 3$ no matter how long the
+block. A recursive encoder answers a weight-1 input with an \emph{infinite} impulse response: the
+parity keeps toggling until the end of the block. Only inputs whose polynomial $u(D)$ is divisible
+by $g_0(D)$ return the encoder to the zero state and produce low-weight parity. Because
+$1+D^2+D^3$ is primitive of degree 3, the lowest-weight such inputs are pairs of ones separated by
+a multiple of $2^3-1=7$ positions: $u(D)=D^i(1+D^7)$ gives a parity sequence of weight 6,
+$D^i(1+D^{14})$ weight 10, and in general $1+D^{7t}$ weight $4t+2$.
+
+Now the interleaver enters. A weight-2 input pattern that is ``bad'' for encoder 1 (separation 7)
+is scattered by $\pi$ to two positions whose separation is, for a good interleaver, almost never a
+multiple of 7 and almost never small; encoder 2 then produces high-weight parity. A low-weight
+codeword needs an input pattern that is bad for \emph{both} encoders simultaneously, and for a
+random interleaver of size $K$ the probability that a given weight-2 pattern survives is of order
+$1/K$. This is the \term{interleaver gain}: Benedetto and Montorsi showed in 1996 that for
+recursive constituent codes the bit error probability in the high-SNR region falls as $K^{-1}$ as
+the interleaver grows, whereas for feed-forward constituents there is no such gain. A turbo code
+does not have a large minimum distance---its $d_{\min}$ grows only slowly (at most
+logarithmically) with $K$---but it has very \emph{few} low-weight codewords, a property sometimes
+called \term{spectral thinning}. At low SNR, where a code's performance is set by the enormous
+number of codewords at moderate distance rather than by the few at the minimum, that is what
+matters.
+
+\subsection{The interleaver}
+
+For short blocks, the interleaver design matters as much as the constituent codes. Its jobs are to
+break the low-weight input patterns described above and to make the two decoders' views of the
+data as independent as possible, so that the extrinsic information one passes to the other is
+genuinely new. Designs have progressed through several generations:
+\begin{itemize}
+\item \textbf{Random} interleavers work well on average for long blocks but occasionally map a
+short pattern to a short pattern.
+\item \textbf{S-random} interleavers (Divsalar and Pollara, 1995) are random permutations with the
+constraint that any two inputs within $S$ positions of each other are mapped at least $S$ apart. A
+spread of $S\approx\sqrt{K/2}$ is achievable and removes the worst weight-2 patterns.
+\item \textbf{Algebraic} interleavers can be computed on the fly instead of stored, and can be
+designed to be \emph{contention-free}: a decoder that splits the block into $P$ windows processed by
+$P$ parallel BCJR engines can read and write its extrinsic memory in $P$ banks without two engines
+ever needing the same bank in the same clock cycle. That property is essential at LTE data rates.
+\end{itemize}
+The UMTS turbo code used a prime-number-based interleaver defined by a multi-step procedure over a
+row--column array. LTE replaced it with the \term{quadratic permutation polynomial} (QPP)
+interleaver of Sun and Takeshita (2005),
+\begin{equation}
+\pi(i)=\big(f_1\,i+f_2\,i^2\big)\bmod K,\qquad i=0,\dots,K-1,
+\label{eq:ch15:qpp}
+\end{equation}
+with $(f_1,f_2)$ tabulated in TS 36.212 for each of the 188 allowed block sizes from $K=40$ to
+$K=6144$. A QPP is a permutation when $f_1$ is coprime to $K$ and every prime factor of $K$ divides
+$f_2$. It is contention-free for every window size that divides $K$, it needs no memory, and it can
+be generated recursively with additions only, since
+$\pi(i+1)=\pi(i)+g(i)$ with $g(i+1)=g(i)+2f_2 \bmod K$.
+
+\begin{worked}[The QPP interleaver for $K=40$]
+The smallest LTE block uses $K=40$, $f_1=3$, $f_2=10$. Check that it is a permutation and
+compute the first few entries.
+
+$K=40=2^3\cdot5$; $f_1=3$ is coprime to 40, and $f_2=10=2\cdot5$ contains both prime factors of
+$K$, so~\eqref{eq:ch15:qpp} is a permutation. The first entries are $\pi(0)=0$,
+$\pi(1)=13$, $\pi(2)=(6+40)\bmod40=6$, $\pi(3)=(9+90)\bmod40=19$, $\pi(4)=(12+160)\bmod40=12$,
+$\pi(5)=(15+250)\bmod 40=25$. With the recursion: $g(0)=f_1+f_2=13$, and $g$ increases by
+$2f_2=20$ each step (mod 40), so $\pi$ advances by $13,33,13,33,\dots$ (mod 40). Two inputs
+$d$ positions apart are mapped to positions that differ by $f_1d+f_2d(2i+d)$, which varies with
+$i$---that is what breaks up regular patterns. The last LTE size, $K=6144$, uses $f_1=263$,
+$f_2=480$.
+\end{worked}
+
+\subsection{Iterative decoding}
+
+The optimal decoder for a turbo code would compute APPs on the joint trellis of both encoders and
+the interleaver, a machine with astronomically many states. The \term{turbo decoder}
+(Figure~\ref{fig:ch15_turbo_decoder}) instead uses two BCJR decoders, one per constituent code, and
+lets them exchange extrinsic information:
+\begin{enumerate}
+\item Decoder 1 receives the systematic LLRs $L_{\text{ch}}^{x}$, the parity-1 LLRs
+$L_{\text{ch}}^{z}$ and an a-priori input $L_{A1}$ (zero in the first iteration). It runs BCJR and
+outputs extrinsic LLRs $L_{E1}=L_{\text{APP}1}-L_{\text{ch}}^{x}-L_{A1}$.
+\item The extrinsic values are interleaved and become decoder 2's a-priori input,
+$L_{A2}=\pi(L_{E1})$. Decoder 2 uses the interleaved systematic LLRs and the parity-2 LLRs and
+outputs $L_{E2}=L_{\text{APP}2}-\pi(L_{\text{ch}}^{x})-L_{A2}$.
+\item These are de-interleaved and become decoder 1's new a-priori input,
+$L_{A1}=\pi^{-1}(L_{E2})$. One pass through both decoders is one \emph{iteration}.
+\item After a fixed number of iterations, or when a CRC passes or the decisions stop changing,
+decide $\hat u_k=0$ if $L_{\text{ch},k}^{x}+L_{A1,k}+L_{E1,k}>0$.
+\end{enumerate}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.6cm and 0.8cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=1.25cm,minimum width=2.1cm,align=center,font=\sffamily\scriptsize},
+  il/.style={draw=accent,fill=accent!6,thick,minimum height=0.7cm,minimum width=0.9cm,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy},
+  sm/.style={circle,draw=navy,thick,inner sep=0pt,minimum size=4mm,font=\scriptsize}]
+\node[blk] (d1) at (0,0) {SISO decoder 1\\(BCJR, code 1)};
+\node[blk] (d2) at (6.2,0) {SISO decoder 2\\(BCJR, code 2)};
+\node[sm] (s1) at (2.1,0.2) {$-$};
+\node[il] (pi1) at (3.4,0.2) {$\pi$};
+\node[sm] (s2) at (8.3,0.2) {$-$};
+\node[il] (pi2) at (3.4,-1.7) {$\pi^{-1}$};
+\node[il] (pi3) at (3.4,1.55) {$\pi$};
+\node[font=\sffamily\scriptsize,anchor=east] (ys) at (-2.1,0.35) {$L^{x}_{\text{ch}}$};
+\node[font=\sffamily\scriptsize,anchor=east] (yp1) at (-2.1,-0.35) {$L^{z}_{\text{ch}}$};
+\node[font=\sffamily\scriptsize,anchor=west] (yp2) at (6.2,-1.05) {$L^{z'}_{\text{ch}}$};
+\draw[arr] (ys) -- ([yshift=3.5mm]d1.west);
+\draw[arr] (yp1) -- ([yshift=-3.5mm]d1.west);
+\draw[arr] ([yshift=2mm]d1.east) -- node[above,font=\tiny]{$L_{\text{APP}1}$} (s1);
+\draw[arr] (s1) -- node[above,font=\tiny]{$L_{E1}$} (pi1);
+\draw[arr] (pi1) -- node[above,font=\tiny]{$L_{A2}$} ([yshift=2mm]d2.west);
+\draw[arr] (-1.6,0.35) |- (pi3.west);
+\draw[arr] (pi3.east) -| ([xshift=-4mm]d2.north west) -- ++(0,-0.3);
+\draw[arr] (yp2) -- (d2.south);
+\draw[arr] ([yshift=2mm]d2.east) -- node[above,font=\tiny]{$L_{\text{APP}2}$} (s2);
+\draw[arr] (s2) -- ++(0,-1.9) -| ++(0,0) -- (pi2.east) node[pos=0.3,above,font=\tiny]{$L_{E2}$};
+\draw[arr] (pi2.west) -| ([xshift=4mm]d1.south west) node[pos=0.2,above,font=\tiny]{$L_{A1}$};
+\draw[arr,accent] (d2.north) ++(0.6,0) -- ++(0,0.9) node[above,font=\sffamily\scriptsize]{decisions $\hat u$ (after $\pi^{-1}$)};
+\draw[navy!60] (2.1,1.0) -- (s1) node[pos=0,above,font=\tiny]{$L^x_{\text{ch}}+L_{A1}$};
+\draw[navy!60] (8.3,1.0) -- (s2) node[pos=0,above,font=\tiny]{$\pi(L^x_{\text{ch}})+L_{A2}$};
+\end{tikzpicture}
+\caption{The iterative turbo decoder. Each SISO decoder subtracts its inputs from its
+a-posteriori output so that only extrinsic information is passed on; interleavers keep the two
+decoders' views of the bits aligned. The loop is what gave turbo codes their name.}
+\label{fig:ch15_turbo_decoder}
+\end{figure}
+
+Figure~\ref{fig:ch15_turbo_iters} shows the decoder at work on the $K=1024$ LTE code. After one
+iteration the code is only about as good as a single convolutional code. Each further iteration
+moves the curve to the left, by a lot at first and then by less, until after about eight iterations
+nothing more is gained; the final curve drops from $10^{-1}$ to $10^{-5}$ in about a decibel. The
+iterations do not converge to the maximum-likelihood decision---iterative decoding on a graph with
+cycles is an approximation---but in the waterfall region they come remarkably close to it.
+
+\mdcfig{ch15_turbo_iters}{Bit error rate of the rate-1/3 LTE turbo code with $K=1024$ (QPP
+interleaver $f_1=31$, $f_2=64$, both encoders terminated, $n=3084$) on the BPSK/AWGN channel, after
+1 to 8 iterations of log-MAP decoding. Also shown: 8 iterations of max-log-MAP, without and with
+the extrinsic scaled by 0.7. Monte Carlo with 200-frame batches, up to 1200 frames per point.}
+
+\begin{pitfall}[Double counting]
+The most common bug in a first turbo decoder is to pass the APP output, or to forget to subtract
+the a-priori input, so that each decoder is fed its own opinion back. The decoder then converges
+fast, confidently and often to the wrong answer; the BER curve looks like an uncoded curve shifted
+by a decibel or two, with no waterfall. The second most common bug is a mismatched LLR sign
+convention between the demapper and the decoder, which produces a BER near 0.5 or, more
+insidiously, one that improves with SNR only because the systematic bits are good. Always check a
+new decoder at high SNR with the a-priori input disabled: it must then behave as a single
+convolutional decoder.
+\end{pitfall}
+
+\subsection{The waterfall and the error floor}
+
+Every turbo code's error-rate curve has two regions (Figures~\ref{fig:ch15_turbo_length}
+and~\ref{fig:ch15_turbo_floor}). In the \term{waterfall} region, just above a threshold SNR, the
+error rate plunges by several decades per decibel: the iterative decoder either converges (and the
+frame is decoded with essentially no errors) or it does not. The position of the waterfall is set
+by the \emph{convergence} of the iterative decoder, which depends on the constituent codes and the
+code rate but hardly at all on the interleaver; its steepness grows with the block length, because
+long blocks average the noise better. At high SNR the curve flattens into an \term{error floor},
+where the rare errors that remain are caused by the code's few low-weight codewords. Those are
+maximum-likelihood errors: even an ideal decoder would make them. Their contribution is well
+approximated by the first terms of the union bound,
+\begin{equation}
+P_b\approx\sum_{d}\frac{w_d}{K}\,A_d\,\Q\!\Big(\sqrt{2Rd\,\ebno}\Big),
+\label{eq:ch15:floor}
+\end{equation}
+where $A_d$ is the number of codewords of weight $d$ and $w_d$ their average information weight.
+For a turbo code the dominant terms come from the weight-2 input patterns of the previous
+subsections, and the factor $w_d/K$ is the interleaver gain.
+
+\mdcfig{ch15_turbo_length}{Frame error rate of LTE-type turbo codes (rate 1/3, QPP interleavers
+of the TS 36.212 form, 8 log-MAP iterations) for four block lengths. Stars mark the
+normal-approximation bound for the best possible code of the same length and rate at FER
+$10^{-2}$ (Section~\ref{sec:ch15:compare}). Monte Carlo: at least 60 frame errors, or 300 to 3000
+frames, per point.}
+
+Figure~\ref{fig:ch15_turbo_length} shows the effect of block length. At $K=40$ the curve is
+shallow and reaches a frame error rate of $10^{-2}$ only at about 2.7\,dB, more than 3\,dB to the
+right of the rate-1/3 limit; at $K=6144$ it falls from 1 to $10^{-2}$ within about 0.4\,dB and
+reaches it at roughly 0.4\,dB, within a decibel of the limit. The stars show the best that
+\emph{any} code of each length and rate could do, according to the normal approximation of
+Chapter~\ref{ch:infotheory}. About half of the short code's distance from the limit is that
+unavoidable finite-length penalty; the turbo codes themselves sit about 0.6\,dB (long blocks) to
+1.2\,dB (short blocks) from the stars.
+
+\mdcfig{ch15_turbo_floor}{The error floor. Bit error rate of two rate-1/3 turbo codes with $K=1024$
+that differ only in the interleaver: the QPP interleaver ($f_1=31$, $f_2=64$) and a random
+permutation (8 log-MAP iterations, up to 1200 frames per point; points with no errors are not
+plotted). Dashed: the contribution~\eqref{eq:ch15:floor} of the low-weight codewords generated by
+weight-2 input patterns, found by exhaustive search. The QPP interleaver has no weight-2 codeword
+lighter than $d=28$; the random one has one of weight 14.}
+
+Figure~\ref{fig:ch15_turbo_floor} shows the floor. In the waterfall region the two interleavers
+are indistinguishable. Below about $10^{-4}$, however, the random interleaver's curve bends over and
+falls by only a factor of two or three per half decibel: the error floor. The search for weight-2
+input patterns finds a codeword of weight only 14 for the random interleaver, while the QPP
+interleaver, whose algebraic structure spreads every pair of nearby positions, has none lighter than
+28. The simulated floor of the random interleaver lies about an order of magnitude \emph{above} the
+weight-2 estimate, a reminder that weight-3, weight-4 and higher input patterns, which the search
+does not include, also produce low-weight codewords; the dashed curves are estimates of one
+contribution, not bounds. Designing interleavers that remove all such patterns up to some weight is
+the aim of the S-random, dithered relative prime (DRP), almost regular permutation (ARP) and QPP
+designs.
+
+\begin{worked}[How low is the floor?]
+Suppose a rate-1/3 turbo code with $K=1024$ has two codewords of weight $d=14$, each produced by a
+weight-2 input. Estimate the floor at $\ebno=2$\,dB.
+
+$\ebno=10^{0.2}=1.585$, so the argument of the Q-function is
+$\sqrt{2\cdot\frac13\cdot14\cdot1.585}=\sqrt{14.8}=3.85$, and $\Q(3.85)\approx5.9\times10^{-5}$.
+Each such codeword causes two bit errors out of 1024 when it is mistaken for the transmitted one,
+so~\eqref{eq:ch15:floor} gives
+$P_b\approx2\times\frac{2}{1024}\times5.9\times10^{-5}\approx2.3\times10^{-7}$.
+The floor falls by only about a factor of 4 per decibel (compare the waterfall, which falls by a
+factor of 100 or more per decibel). A system that needs $10^{-10}$, such as an optical transport
+link or a satellite broadcast of compressed video, either needs a code with no such codewords or an
+outer code to clean up after the inner one---which is why DVB-S2 places a BCH code outside its LDPC
+code, and why optical standards rarely use turbo codes.
+\end{worked}
+
+\subsection{EXIT charts}
+
+Why is there a threshold at all, and where is it? The answer came in 2001 from Stephan ten Brink's
+\term{extrinsic information transfer} (EXIT) chart, one of the most useful pictures in coding theory.
+The idea is to characterise each SISO decoder by a single transfer function: how much information
+about the bits comes \emph{out} of it, as a function of how much goes \emph{in}.
+
+Measure the quality of a set of LLRs $L$ about bits $c$ by the mutual information $I(C;L)$, a number
+between 0 (useless) and 1 (perfect). Ten Brink's key observation was that the a-priori LLRs a
+decoder receives in the middle of the iterations are well modelled as consistent Gaussian variables,
+$L_A=\frac{\sigma_A^2}{2}x+\mathcal N(0,\sigma_A^2)$, whose mutual information is a known function
+of $\sigma_A$ alone:
+\begin{equation}
+I_A=J(\sigma_A)=1-\E\!\left[\log_2\!\big(1+e^{-L_A}\big)\right]_{x=+1}.
+\label{eq:ch15:J}
+\end{equation}
+To measure a decoder's transfer curve $I_E=T(I_A)$ at a given channel SNR, feed it channel LLRs for a
+long block and synthetic a-priori LLRs with a chosen $I_A$, run it once, and measure the mutual
+information of its extrinsic output, conveniently estimated by the time average
+$I_E\approx1-\frac1K\sum_k\log_2(1+e^{-x_kL_{E,k}})$. Figure~\ref{fig:ch15_exit}(a) shows such
+curves for the LTE constituent decoder. Each starts above zero at $I_A=0$ (the decoder learns
+something from the channel alone) and reaches 1 at $I_A=1$; a better channel lifts the whole curve.
+
+In the turbo decoder, decoder 1's extrinsic output is decoder 2's a-priori input and vice versa. Plot
+decoder 1's curve $I_{E1}=T_1(I_{A1})$ and decoder 2's curve with its axes swapped
+($I_{A1}=I_{E2}=T_2(I_{A2})$ with $I_{A2}=I_{E1}$) on the same unit square
+(Figure~\ref{fig:ch15_exit}b). The decoding trajectory is a staircase between the two curves:
+vertical steps for decoder 1, horizontal steps for decoder 2. If the curves intersect, the staircase
+gets stuck at the intersection and the decoder fails, however many iterations it runs. If there is an
+open \term{tunnel} between them, the staircase climbs through it to $(1,1)$ and the block is decoded.
+The threshold is the SNR at which the tunnel first opens, and the number of steps needed to get
+through it---many when the tunnel is narrow---is the number of iterations. The measured trajectory of
+a real decoder with a long random interleaver follows the predicted staircase closely.
+
+\mdcfig{ch15_exit}{EXIT analysis of the rate-1/3 LTE turbo code. (a) Transfer curves of one
+(13,15) RSC decoder (log-MAP) at five values of $\ebno$, each point averaged over 160\,000 bits with
+Gaussian a-priori LLRs. (b) The EXIT chart at $+0.5$\,dB, where a tunnel is open, and at $-0.5$\,dB,
+where the curves cross. The staircase is the trajectory measured inside a real iterative decoder
+($K=10\,000$, random interleaver).}
+
+The chart explains several empirical facts at once. Symmetric decoders' tunnel opens when a
+transfer curve lies above the diagonal everywhere; for the LTE code this happens at about
+$-0.1$\,dB, about 0.4\,dB from the rate-1/3 limit, and that is where the waterfall of a very long
+code begins. Short blocks need more margin, because the Gaussian model and the independence
+assumption hold only on average. A strong constituent code (many states) gives a curve that starts
+low and ends steeply; a weak one gives a flatter curve---and it is the \emph{match} between the two
+curves, not the strength of each, that determines the threshold. That insight turned code design
+into curve fitting: choose component codes, degree distributions or bit mappings whose curves fit
+together with a narrow but open tunnel.
+
+\begin{keyidea}[The area theorem]
+For the binary erasure channel, and approximately for other channels, the area under an EXIT curve
+is fixed by the component code's rate (Ashikhmin, Kramer and ten Brink, 2004). A capacity-achieving
+iterative system therefore needs the two curves to \emph{match}: any area between them is lost rate.
+The narrower the tunnel, the closer to capacity, and the more iterations are needed to crawl
+through it. Approaching capacity costs decoding effort, and the EXIT chart shows exactly how much.
+\end{keyidea}
+
+\subsection{Serial concatenation and the turbo principle}
+
+In a \term{serially concatenated convolutional code} (SCCC; Benedetto, Divsalar, Montorsi and
+Pollara, 1998) an outer code encodes the information, an interleaver permutes the result, and an
+inner \emph{recursive} code encodes it again. The decoder iterates between a SISO decoder for the
+inner code (which produces extrinsic information about the inner code's input, that is, the outer
+code's coded bits) and one for the outer code. Serial concatenation typically has a slightly later
+waterfall than parallel concatenation but a much lower error floor, because the outer code's
+distance multiplies the interleaver gain: the floor falls as $K^{-\lfloor(d_o+1)/2\rfloor}$, where
+$d_o$ is the outer code's free distance. The simplest members of the family are
+\term{repeat--accumulate} (RA) codes (Divsalar, Jin and McEliece, 1998): repeat each bit $q$ times,
+interleave, and pass the result through the accumulator $1/(1+D)$. RA codes are both turbo-like and
+LDPC-like, and their irregular versions are the ancestors of the DVB-S2 and 5G LDPC codes.
+
+The \term{turbo principle}---iterate between SISO modules that exchange extrinsic LLRs through
+interleavers---applies whenever a system can be viewed as a concatenation. \term{Turbo equalization}
+(Chapter~\ref{ch:equalization}) treats an ISI channel as an inner rate-1 code; iterative detection
+and decoding of MIMO (Chapter~\ref{ch:mimo}) treats the spatial multiplexer as one; and
+\term{bit-interleaved coded modulation} with iterative demapping (BICM-ID) treats the constellation
+labelling as one. In each case the EXIT chart of the inner module against the outer decoder predicts
+the gain.
+
+\subsection{Turbo codes in practice}
+
+\begin{table}[htbp]\centering\small
+\caption{Turbo codes in standards. ``Duo-binary'' codes take two bits per trellis step and use
+circular (tail-biting) termination.}
+\label{tab:ch15:turbostd}
+\begin{tabularx}{\linewidth}{@{}l l l >{\raggedright\arraybackslash}X@{}}
+\toprule
+System & Constituent code & Interleaver & Remarks\\
+\midrule
+UMTS/HSPA (TS 25.212) & 8-state RSC (13,15) & prime-based, $K\le5114$ & rate 1/3, 12 tail bits\\
+LTE/LTE-A (TS 36.212) & 8-state RSC (13,15) & QPP, $40\le K\le6144$ & 188 sizes; circular-buffer rate matching\\
+CCSDS 131.0-B (space) & 16-state & algebraic, $K$ = 1784--8920 & rates 1/2 to 1/6\\
+DVB-RCS and RCS2 & duo-binary, 8/16 states & two-level permutation & satellite return links\\
+IEEE 802.16e (WiMAX) & duo-binary, 8 states & ARP-type & convolutional turbo code option\\
+HomePlug AV, IEEE 1901 & duo-binary, 8 states & tabulated & power-line communication\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Table~\ref{tab:ch15:turbostd} lists the main deployments. Turbo codes were the first
+capacity-approaching codes in mass production: every 3G and 4G handset contains a turbo decoder,
+and for about fifteen years the LTE turbo decoder was one of the largest and most power-hungry
+blocks in a modem's baseband. Its critical path is the BCJR recursion, which is inherently
+sequential. Throughput is obtained by splitting each block into windows (typically 32 to 64 steps)
+processed by parallel BCJR engines---made possible by the QPP interleaver's contention-free
+property---with the boundary state metrics initialised from the previous iteration or from short
+``training'' recursions. As LTE-Advanced pushed peak rates past 1\,Gb/s, the turbo decoder's area
+and power, and the difficulty of parallelising it further, became a principal argument for a
+different code in 5G.
+
+\begin{inpractice}[Deep space: turbo codes near the limit]
+The Consultative Committee for Space Data Systems added turbo codes to its telemetry recommendation
+(CCSDS 131.0-B) in 1999, with information block lengths of 1784, 3568, 7136 and 8920 bits and rates
+1/2, 1/3, 1/4 and 1/6. At the low rates they operate roughly 1\,dB from the capacity limit at
+frame error rates of about $10^{-4}$, and more than 2\,dB better than the Reed--Solomon plus
+convolutional concatenation that preceded them. For a spacecraft at Mars, 2\,dB is a 60\% increase
+in data return from the same antenna and transmitter. NASA's Mars Reconnaissance Orbiter, Messenger
+and New Horizons missions, among others, used CCSDS turbo codes. Deep space is an ideal home for
+them: low rates, long blocks, modest data rates and an error-rate target above the floor.
+\end{inpractice}
+
+%======================================================================
+\section{Low-density parity-check codes}
+\label{sec:ch15:ldpc}
+%======================================================================
+
+\begin{history}[The code that was thirty-five years early]
+Robert Gallager's 1960 MIT doctoral thesis, published as a short monograph by MIT Press in 1963,
+defined \emph{low-density parity-check codes}: linear codes whose parity-check matrix has only a
+few ones in each row and column. Gallager proved that such codes, chosen at random with fixed row
+and column weights, have minimum distance growing linearly with the block length, and he described
+iterative decoding algorithms---including one that passes probabilities between the bits and the
+checks, which is belief propagation in all but name---that worked remarkably well in his
+simulations. But the simulations had to run on the computers of 1960, and the concatenated codes of
+Forney (1966) and the Viterbi algorithm (1967) soon offered more practical routes. LDPC codes were
+largely forgotten. Michael Tanner's 1981 paper introduced the bipartite graph representation that now
+bears his name and generalised it to codes built from component codes, but it too drew little
+attention. In 1995--96, prompted by turbo codes, David MacKay and Radford Neal at Cambridge, and
+independently Michael Sipser and Daniel Spielman at MIT, rediscovered sparse-graph codes. MacKay and
+Neal's letter ``Near Shannon limit performance of low density parity check codes'' showed that
+Gallager's codes, decoded by belief propagation, performed almost as well as turbo codes. Within five
+years, Richardson, Shokrollahi and Urbanke had shown how to design \emph{irregular} LDPC codes that
+beat turbo codes, and Chung, Forney, Richardson and Urbanke had simulated one within 0.04\,dB of the
+Shannon limit. Gallager, asked about the rediscovery, remarked that he had not expected anyone to
+need the codes for another few decades.
+\end{history}
+
+\subsection{Parity-check matrices and Tanner graphs}
+
+A binary linear code of length $n$ and dimension $k$ is the null space of an $m\times n$
+parity-check matrix $\vect H$ ($m\ge n-k$): $\vect c$ is a codeword if and only if $\vect H\vect c^T=\vect 0$
+over GF(2) (Chapter~\ref{ch:classiccodes}). An \term{LDPC code} is one whose $\vect H$ is sparse: the
+number of ones grows linearly with $n$, not with $n^2$. A $(d_v,d_c)$-\emph{regular} code has
+exactly $d_v$ ones in every column and $d_c$ in every row; Gallager's favourite was $(3,6)$, which
+has design rate
+\begin{equation}
+R\ge1-\frac{m}{n}=1-\frac{d_v}{d_c}=\frac12.
+\end{equation}
+(The inequality allows for redundant rows.) For $n=2304$, the $(3,6)$ code's $\vect H$ has
+$1152\times2304\approx2.65$ million entries but only 6912 ones.
+
+The \term{Tanner graph} of $\vect H$ is a bipartite graph with a \term{variable node} for each
+code bit (each column), a \term{check node} for each parity check (each row), and an edge wherever
+$H_{ij}=1$ (Figure~\ref{fig:ch15_tanner}). The code is the set of assignments to the variable nodes
+that make every check node's neighbourhood have even parity. The number of edges, $E=nd_v=md_c$,
+measures the decoding complexity per iteration. A \term{cycle} is a closed path in the graph; its
+length is even and at least 4, and the length of the shortest cycle is the \term{girth}.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=1.05cm,y=1cm,
+  vn/.style={circle,draw=navy,fill=navy!10,thick,minimum size=6mm,font=\sffamily\scriptsize},
+  cn/.style={rectangle,draw=accent,fill=accent!10,thick,minimum size=5.5mm,font=\sffamily\scriptsize}]
+\begin{scope}[shift={(-5.2,1.1)}]
+\node[font=\sffamily\small,navy] at (1.4,1.1) {$\vect H$};
+\node[font=\small] at (1.4,0) {$\begin{bmatrix}1&1&0&1&1&0&0\\ 1&0&1&1&0&1&0\\ 0&1&1&1&0&0&1\end{bmatrix}$};
+\node[font=\sffamily\scriptsize] at (1.4,-1.1) {columns $c_0,\dots,c_6$};
+\end{scope}
+\foreach \i in {0,...,6}{ \node[vn] (v\i) at (\i*1.05,0) {$c_{\i}$}; }
+\foreach \j/\x in {0/1.05,1/3.15,2/5.25}{ \node[cn] (c\j) at (\x,2.4) {$\oplus$}; }
+\foreach \j/\list in {0/{0,1,3,4},1/{0,2,3,5},2/{1,2,3,6}}{
+  \foreach \i in \list { \draw[navy!60,thick] (c\j.south) -- (v\i.north); } }
+\draw[accent,line width=2pt,opacity=0.55] (c0.south) -- (v0.north) -- (c1.south) -- (v3.north) -- cycle;
+\node[font=\sffamily\scriptsize,accent,anchor=west] at (6.9,1.6) {a 4-cycle:};
+\node[font=\sffamily\scriptsize,accent,anchor=west] at (6.9,1.25) {$c_0,c_3$ share};
+\node[font=\sffamily\scriptsize,accent,anchor=west] at (6.9,0.9) {two checks};
+\node[font=\sffamily\scriptsize,navy,anchor=east] at (-0.4,0) {variable nodes};
+\node[font=\sffamily\scriptsize,accent,anchor=east] at (0.6,2.4) {check nodes};
+\end{tikzpicture}
+\caption{The Tanner graph of a parity-check matrix (here the $(7,4)$ Hamming code of
+Chapter~\ref{ch:classiccodes}, which is far too dense to be a good LDPC code but small enough to
+draw). Each column is a variable node (circle), each row a check node (square), each 1 an edge. The
+highlighted 4-cycle arises because columns 0 and 3 overlap in two rows; such short cycles degrade
+belief propagation, and good LDPC constructions avoid them.}
+\label{fig:ch15_tanner}
+\end{figure}
+
+\subsection{Degree distributions and irregular codes}
+
+In an \term{irregular} LDPC code the node degrees vary. The standard description counts
+\emph{edges}: $\lambda_i$ is the fraction of edges attached to variable nodes of degree $i$, and
+$\rho_j$ the fraction attached to check nodes of degree $j$, collected in the polynomials
+\begin{equation}
+\lambda(x)=\sum_i\lambda_i x^{i-1},\qquad\rho(x)=\sum_j\rho_jx^{j-1}.
+\label{eq:ch15:degpoly}
+\end{equation}
+(The exponent $i-1$ is the number of \emph{other} edges at a node, which is what matters in message
+passing.) The $(3,6)$ code has $\lambda(x)=x^2$ and $\rho(x)=x^5$. The design rate is
+\begin{equation}
+R=1-\frac{\int_0^1\rho(x)\,dx}{\int_0^1\lambda(x)\,dx}=1-\frac{\sum_j\rho_j/j}{\sum_i\lambda_i/i}.
+\label{eq:ch15:designrate}
+\end{equation}
+Why be irregular? High-degree variable nodes collect many opinions and become reliable quickly,
+then help their neighbours; low-degree nodes are cheap in rate. A well-chosen mix creates a
+\emph{wave} of reliability that sweeps from the high-degree nodes through the rest of the graph.
+Optimised irregular codes have thresholds within hundredths of a decibel of capacity, while regular
+codes stall about 1\,dB away (Section~\ref{sec:ch15:de}).
+
+\begin{worked}[Rate of an irregular ensemble]
+An ensemble has $\lambda(x)=0.3x+0.3x^2+0.4x^7$ (edges on degree-2, 3 and 8 variable nodes) and
+$\rho(x)=x^6$ (all checks of degree 7). What is its design rate, and what fraction of variable nodes
+have degree 2?
+
+$\sum_i\lambda_i/i=0.3/2+0.3/3+0.4/8=0.15+0.10+0.05=0.30$ and $\sum_j\rho_j/j=1/7=0.1429$, so
+$R=1-0.1429/0.30=0.524$. The fraction of \emph{nodes} of degree $i$ is proportional to
+$\lambda_i/i$: degree-2 nodes are $0.15/0.30=50\%$ of the variable nodes even though they carry only
+30\% of the edges. This conversion between edge and node perspectives is a frequent source of
+errors.
+\end{worked}
+
+\subsection{Belief propagation}
+
+Belief propagation (BP), also called the \term{sum-product algorithm}, computes on the Tanner graph
+exactly what the BCJR algorithm computes on a trellis: the marginal APP of each bit, under the
+assumption that the graph has no cycles. Messages are LLRs passed along edges, in two kinds of
+update.
+
+\paragraph{Variable-node update.} A variable node $v$ with channel LLR $L_v$ receives messages
+$r_{c\to v}$ from its check neighbours $\mathcal N(v)$. Each incoming message is independent
+evidence about the same bit (on a tree), so the node's belief is their sum, and the message it
+sends back to check $c$ excludes what $c$ told it:
+\begin{equation}
+q_{v\to c}=L_v+\sum_{c'\in\mathcal N(v)\setminus c}r_{c'\to v},\qquad
+L^{\text{APP}}_v=L_v+\sum_{c'\in\mathcal N(v)}r_{c'\to v}.
+\label{eq:ch15:vn}
+\end{equation}
+
+\paragraph{Check-node update.} A check node $c$ says that the XOR of its neighbours' bits is zero,
+so the bit at $v$ equals the XOR of all the others. By the box-plus rule~\eqref{eq:ch15:boxplus},
+\begin{equation}
+r_{c\to v}=\mathop{\boxplus}_{v'\in\mathcal N(c)\setminus v}q_{v'\to c}
+=2\tanh^{-1}\!\prod_{v'\in\mathcal N(c)\setminus v}\tanh\frac{q_{v'\to c}}{2},
+\label{eq:ch15:tanh}
+\end{equation}
+the \term{tanh rule}. It is often written in a form that separates signs and magnitudes, using the
+function $\phi(x)=-\ln\tanh(x/2)$, which is its own inverse for $x>0$
+(Figure~\ref{fig:ch15_checknode}a):
+\begin{equation}
+r_{c\to v}=\Big(\prod_{v'}\operatorname{sign}q_{v'\to c}\Big)\;
+\phi\Big(\sum_{v'}\phi\big(|q_{v'\to c}|\big)\Big).
+\label{eq:ch15:phi}
+\end{equation}
+The product of tanh becomes a sum in the $\phi$ domain, so hardware can implement the magnitude path
+with two lookup tables and an adder tree.
+
+\paragraph{The algorithm.} Initialise all check-to-variable messages to zero; then iterate: update
+all variable nodes, update all check nodes, and after each iteration make hard decisions from
+$L^{\text{APP}}$. Stop when the decisions satisfy $\vect H\hat{\vect c}^T=\vect 0$ (a free and very
+reliable stopping rule) or after a maximum number of iterations, typically 10 to 50. The cost per
+iteration is a few operations per edge.
+
+If the Tanner graph were a tree, BP would compute the exact APPs. Real codes have cycles, so after
+a few iterations the messages are no longer independent and BP becomes an approximation. For graphs
+whose cycles are long, the approximation is excellent: the neighbourhood of a node looks like a tree
+for $\lfloor(g-2)/4\rfloor$ iterations if the girth is $g$, and random-like dependencies thereafter
+do surprisingly little harm. Short cycles, particularly 4-cycles, cause a node's own message to
+return to it after two iterations, and constructions such as \term{progressive edge growth}
+(PEG; Hu, Eleftheriou and Arnold, 2005; implemented in \texttt{commlib.LDPCCode}) and the shift
+selection of quasi-cyclic codes are designed to avoid them.
+
+\begin{keyidea}[Turbo decoding is belief propagation]
+In 1998 McEliece, MacKay and Cheng, and independently Kschischang and Frey, showed that the turbo
+decoder is an instance of Judea Pearl's belief propagation algorithm (1988) on a graph that contains
+the two trellises and the interleaver, and that Gallager's LDPC decoder is the same algorithm on a
+simpler graph. The factor-graph framework of Kschischang, Frey and Loeliger (2001) unified BCJR,
+Viterbi, turbo decoding, LDPC decoding, the Kalman filter and the FFT as message passing on graphs.
+Once you see the graph, the decoder follows.
+\end{keyidea}
+
+\subsection{Min-sum and its corrections}
+
+The tanh rule needs transcendental functions; hardware designers wanted comparators. Applying the
+approximation~\eqref{eq:ch15:minapprox} to every pair gives the \term{min-sum} check update,
+\begin{equation}
+r_{c\to v}\approx\Big(\prod_{v'\ne v}\operatorname{sign}q_{v'\to c}\Big)\min_{v'\ne v}|q_{v'\to c}|.
+\label{eq:ch15:minsum}
+\end{equation}
+A check node therefore needs only the signs, the smallest magnitude, the second smallest and the
+position of the smallest: every outgoing message is the smallest magnitude of the \emph{others},
+which is the overall minimum except for the edge that supplied it, which receives the second minimum.
+Min-sum needs no knowledge of the noise variance (scaling all inputs scales all messages), which is
+convenient, but its outputs are systematically too large, as Figure~\ref{fig:ch15_checknode}(b) shows:
+the exact output is always smaller in magnitude than the minimum. Two one-parameter corrections
+recover most of the loss:
+\begin{itemize}
+\item \term{normalised min-sum} (NMS) multiplies the magnitude by $\alpha\approx0.7$--$0.85$;
+\item \term{offset min-sum} (OMS) subtracts $\beta\approx0.3$--$0.5$ and clips at zero.
+\end{itemize}
+With tuned parameters both come within about 0.1 to 0.2\,dB of sum-product for most practical codes, and almost every LDPC decoder
+in silicon today, in phones, Wi-Fi chips, SSD controllers and optical DSPs, uses one of them with
+messages quantised to 4 to 6 bits.
+
+\mdcfig{ch15_checknode}{(a) The function $\phi(x)=-\ln\tanh(x/2)$ used in the check-node update;
+it is self-inverse, very large for small arguments and very small for large ones, so the sum in
+\eqref{eq:ch15:phi} is dominated by the least reliable input. (b) Outputs of a degree-6 check node
+(five inputs drawn from $\mathcal N(3.5,2.5^2)$): the exact tanh rule against plain min-sum. Min-sum
+is always over-confident; normalisation and offset pull its output back towards the exact value.}
+
+\mdcfig{ch15_ldpc_decoders}{(a) Frame (solid) and bit (dashed) error rates of a $(3,6)$-regular
+quasi-cyclic LDPC code with $n=2304$ (girth-8 circulant shifts, $Z=384$) under four check-node rules,
+50 flooding iterations, all-zero codeword (valid because the code and decoders are symmetric), at
+least 60 frame errors or 1500 frames per point. (b) Mean number of iterations to satisfy all checks
+with normalised min-sum, for the flooding and the layered schedule (500 frames per point).}
+
+Figure~\ref{fig:ch15_ldpc_decoders}(a) compares the four rules on a regular $(3,6)$ code. Plain
+min-sum loses about half a decibel at a frame error rate of $10^{-2}$, normalised and offset min-sum lose about 0.2\,dB (with these untuned parameters), and all four
+curves sit to the right of the ensemble's BP threshold of 1.11\,dB, which in turn is about
+0.9\,dB from the rate-1/2 limit. That last gap is the price of regularity, and irregular designs
+remove most of it.
+
+\subsection{Schedules: flooding and layered decoding}
+
+The algorithm above updates all variable nodes, then all check nodes, a \term{flooding} schedule.
+The \term{layered} (or serial, or shuffled) schedule instead processes the check nodes in groups,
+called layers, and updates the posterior LLRs of the variables involved immediately after each
+group, so that later layers in the same iteration already use the new information. Layered decoding
+of a check $c$ is
+\begin{equation}
+q_{v\to c}=L^{\text{APP}}_v-r^{\text{old}}_{c\to v},\qquad
+r^{\text{new}}_{c\to v}=\mathop{\boxplus}_{v'\ne v}q_{v'\to c},\qquad
+L^{\text{APP}}_v\leftarrow q_{v\to c}+r^{\text{new}}_{c\to v},
+\end{equation}
+and needs no separate storage for the variable-to-check messages. It converges in roughly half as
+many iterations as flooding (Figure~\ref{fig:ch15_ldpc_decoders}b), which halves the latency and
+the energy per decoded bit, and it is the standard architecture for quasi-cyclic codes, whose block
+rows form natural layers in which each variable appears at most once.
+
+\subsection{Decoding on the erasure channel: peeling}
+
+On the \term{binary erasure channel} (BEC) each bit arrives either correctly or as an erasure ``?'',
+and BP reduces to a simple combinatorial algorithm. A check node with exactly one erased neighbour
+determines it: the erased bit is the XOR of the others. Resolve it, remove it from the graph, and
+repeat. This \term{peeling decoder} either recovers every erasure or stops at a \term{stopping set},
+a set of erased variables every one of whose neighbouring checks sees at least two of them. Peeling
+is exactly BP on the BEC and costs one operation per edge in total. It is the decoder of the fountain
+and Raptor codes used for file delivery in 3GPP multimedia broadcast and DVB (Luby and Shokrollahi),
+and the same successive-resolution idea drives the contention-resolution random access of
+Chapter~\ref{ch:satellite}.
+
+%======================================================================
+\section{Density evolution: computing the threshold}
+\label{sec:ch15:de}
+%======================================================================
+
+How good can an LDPC code with given degree distributions be, in the limit of long blocks? Richardson
+and Urbanke answered in 2001 with \term{density evolution} (DE). Their concentration theorem says
+that the performance of a randomly chosen code from an ensemble concentrates around the ensemble
+average as $n$ grows, and that the average behaves like BP on a cycle-free graph. On a tree, the
+messages at each iteration are independent, so it suffices to track their \emph{probability
+distribution}. There is a threshold channel parameter below which the error probability tends to
+zero with the iterations and above which it does not: the \term{BP threshold}.
+
+\subsection{The erasure channel: a closed form}
+
+On the BEC with erasure probability $\varepsilon$, a message is either correct or erased, so its
+``density'' is a single number: the probability $x_\ell$ that a variable-to-check message is erased
+at iteration $\ell$. A check-to-variable message is erased unless all $d_c-1$ other incoming messages
+are known, with probability $1-(1-x)^{d_c-1}$; averaged over the check-degree distribution this is
+$1-\rho(1-x)$. A variable-to-check message is erased only if the channel erased the bit \emph{and}
+all $d_v-1$ other incoming check messages are erased. Hence
+\begin{equation}
+x_{\ell+1}=\varepsilon\,\lambda\big(1-\rho(1-x_\ell)\big),\qquad x_0=\varepsilon.
+\label{eq:ch15:debec}
+\end{equation}
+Decoding succeeds if $x_\ell\to0$, which happens if and only if
+$\varepsilon\lambda(1-\rho(1-x))<x$ for all $x\in(0,\varepsilon]$. The threshold is therefore
+\begin{equation}
+\varepsilon^*=\min_{x\in(0,1]}\frac{x}{\lambda\big(1-\rho(1-x)\big)}.
+\label{eq:ch15:becthr}
+\end{equation}
+Figure~\ref{fig:ch15_de_bec}(a) shows the recursion as a staircase for the $(3,6)$ ensemble. Below the
+threshold the curve $\varepsilon\lambda(1-\rho(1-x))$ lies under the diagonal and the staircase runs
+down to zero; above it, the curve touches the diagonal and the staircase stops at a nonzero fixed
+point, where a fraction of the bits stays erased forever. The plot is an EXIT chart in disguise.
+
+\mdcfig{ch15_de_bec}{(a) Density evolution for the $(3,6)$ ensemble on the BEC: the map
+$x\mapsto\varepsilon\lambda(1-\rho(1-x))$ below, at and above the threshold $\varepsilon^*=0.4294$,
+with the decoding staircases. (b) Residual erasure rate of the peeling decoder on randomly lifted
+$(3,6)$ codes of increasing length (400 to 4 frames per point). As $n$ grows the curves steepen
+towards the threshold predicted by density evolution; capacity would allow $\varepsilon=0.5$.}
+
+\begin{worked}[The $(3,6)$ threshold on the BEC]
+For $\lambda(x)=x^2$, $\rho(x)=x^5$, the fixed-point condition is
+$\varepsilon\big(1-(1-x)^5\big)^2=x$. Find $\varepsilon^*$.
+
+Write $f(x)=x/(1-(1-x)^5)^2$ and minimise it over $x$. At $x=0.2$: $(0.8)^5=0.328$, so
+$f=0.2/0.672^2=0.443$. At $x=0.26$: $(0.74)^5=0.222$, $f=0.26/0.778^2=0.4296$. At $x=0.3$:
+$(0.7)^5=0.168$, $f=0.3/0.832^2=0.433$. The minimum is near $x=0.26$ with value
+$\varepsilon^*\approx0.4294$ (a finer search confirms 0.42944). A rate-1/2 code could in principle
+tolerate $\varepsilon=0.5$, so the $(3,6)$ ensemble under BP achieves 86\% of capacity on the BEC. The
+$(4,8)$ ensemble, with the same rate, does worse ($\varepsilon^*\approx0.383$): more edges make the
+graph more constrained but make the early iterations harder. Irregular ensembles such as
+$\lambda(x)=0.5x+0.5x^{2}$ paired with suitable check degrees can come arbitrarily close to 0.5.
+\end{worked}
+
+Figure~\ref{fig:ch15_de_bec}(b) shows that real finite codes approach the DE prediction. The error
+curves of the peeling decoder on lifted $(3,6)$ codes steepen as $n$ grows, and for $n$ in the
+hundreds of thousands the transition is within a hundredth of the threshold. The slope at finite
+length follows a scaling law in $\sqrt n\,(\varepsilon-\varepsilon^*)$, the LDPC analogue of the
+channel dispersion of Chapter~\ref{ch:infotheory}.
+
+\subsection{The AWGN channel}
+
+On the BI-AWGN channel the messages are real-valued LLRs and DE must track entire probability
+densities. With the all-zero codeword assumed (justified by symmetry), the channel LLR has density
+$\mathcal N(2/\sigma^2,4/\sigma^2)$. The variable-node update adds independent LLRs, so densities
+\emph{convolve}; the check-node update adds independent variables in the $\phi$ domain, so densities
+convolve after a change of variable. Richardson and Urbanke implemented these convolutions
+numerically with FFTs on quantised densities. A simpler alternative, used in
+Figure~\ref{fig:ch15_de_awgn}, is \emph{Monte Carlo DE}: represent each density by a large
+population of samples and apply the update rules to randomly drawn members.
+
+\mdcfig{ch15_de_awgn}{Density evolution for the $(3,6)$ ensemble on the BI-AWGN channel, by
+population dynamics with 200\,000 samples. (a) The density of variable-to-check LLRs at
+$\sigma=0.82$ drifts to the right and widens, iteration by iteration, as it must for consistent
+densities (variance twice the mean). (b) Bit error probability versus iteration: below the threshold
+$\sigma^*\approx0.881$ ($\ebno\approx1.10$\,dB) the error probability eventually collapses, more
+slowly the closer the channel is to the threshold; above it, it stalls.}
+
+The result for the $(3,6)$ ensemble is $\sigma^*\approx0.881$, that is, $\ebno^*\approx1.10$\,dB,
+compared with the BPSK capacity limit of 0.19\,dB. Figure~\ref{fig:ch15_de_awgn}(b) shows the
+characteristic behaviour near the threshold: at $\sigma=0.87$ the decoder spends thirty iterations
+in a ``bottleneck'' where the messages improve only slowly---the DE curve passing close to the
+diagonal---and then breaks through.
+
+\paragraph{The Gaussian approximation.} Chung, Richardson and Urbanke (2001) observed that the
+densities stay close to consistent Gaussians, $\mathcal N(\mu,2\mu)$, so that one number, the mean,
+suffices. At a degree-$d_v$ variable node means add; at a degree-$d_c$ check node the tanh rule
+becomes, in expectation,
+\begin{equation}
+\mu_c=\phi_G^{-1}\!\Big(1-\big[1-\phi_G(\mu_v)\big]^{d_c-1}\Big),\qquad
+\phi_G(\mu)=1-\E\big[\tanh(L/2)\big]_{L\sim\mathcal N(\mu,2\mu)},
+\label{eq:ch15:ga}
+\end{equation}
+with simple fitted approximations for $\phi_G$. The \term{Gaussian approximation} (GA) predicts
+thresholds within about 0.1\,dB and turns degree-distribution optimisation into a fast linear program
+(in $\lambda$, for fixed $\rho$). It is also, as we will see, the standard way to construct polar
+codes. EXIT charts are the same idea expressed in mutual information instead of mean.
+
+\begin{inpractice}[How close is close?]
+Richardson, Shokrollahi and Urbanke's optimised rate-1/2 ensembles with maximum variable degree 100
+have BI-AWGN thresholds of $\sigma^*\approx0.97$, about 0.06\,dB from capacity; the ensemble of Chung
+\emph{et al.} with maximum degree 8000 has a threshold within 0.0045\,dB. A code with $10^7$ bits
+drawn from it reached $10^{-6}$ within 0.04\,dB of the limit. Such codes are laboratory records: their
+very high degrees make them impractical, and their finite-length behaviour at moderate lengths is
+worse than that of more modest designs. Practical codes, with maximum variable degree around 10 to
+30 and structured graphs, have thresholds about 0.2 to 0.5\,dB from capacity and, at lengths of a
+few thousand bits, operate about 1\,dB from the limit at a frame error rate of $10^{-2}$.
+\end{inpractice}
+
+%======================================================================
+\section{Structured LDPC codes and their standards}
+\label{sec:ch15:qc}
+%======================================================================
+
+\subsection{Encoding}
+
+A random sparse $\vect H$ has a dense generator matrix, so encoding by $\vect c=\vect u\vect G$ costs
+$O(n^2)$ operations and storage---about $1.3$ million XORs and bits of memory for $n=2304$, and 5
+billion for $n=64\,800$. (The encoder in \texttt{commlib.LDPCCode} does exactly this, which is fine
+for teaching.) Practical codes are designed to be encodable directly from $\vect H$. The most common
+structure splits $\vect H=[\vect H_u\;\vect H_p]$ into an information part and a parity part, with
+$\vect H_p$ lower triangular or \emph{dual diagonal} (ones on the diagonal and just below it):
+\begin{equation}
+\vect H_p=\begin{bmatrix}1&&&\\1&1&&\\&1&1&\\&&\ddots&\ddots\end{bmatrix}.
+\end{equation}
+The parity bits are then computed one at a time by back-substitution, $p_i=p_{i-1}\oplus
+(\vect H_u\vect u^T)_i$: an \emph{accumulator}. This is the irregular repeat--accumulate structure of
+DVB-S2. Richardson and Urbanke showed in 2001 that any LDPC matrix can be brought to an
+approximately triangular form with encoding complexity essentially linear in $n$.
+
+\subsection{Protographs and quasi-cyclic lifting}
+
+Modern LDPC codes are not random. They are built in two steps. First, design a small
+\term{protograph} (or base graph): a Tanner graph with a few tens of nodes, possibly with parallel
+edges, whose structure determines the threshold---DE and EXIT analysis extend naturally to
+protographs (Thorpe, 2003). Second, \emph{lift} it: make $Z$ copies of the protograph and permute the
+endpoints of each edge type among the copies. If each permutation is a cyclic shift, the result is a
+\term{quasi-cyclic} (QC) LDPC code, whose parity-check matrix is a $m_b\times n_b$ array of
+$Z\times Z$ blocks, each either zero or a cyclically shifted identity $\vect P^{s}$
+(Figure~\ref{fig:ch15_lifting}). The whole code is described by the \term{base matrix} of shift values
+$s_{ij}$ (with $-1$ for a zero block).
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  vn/.style={circle,draw=navy,fill=navy!10,thick,minimum size=5mm,inner sep=0pt,font=\sffamily\tiny},
+  cn/.style={rectangle,draw=accent,fill=accent!10,thick,minimum size=4.5mm,inner sep=0pt,font=\sffamily\tiny}]
+% protograph
+\begin{scope}
+\foreach \j/\x in {0/0.0,1/0.9,2/1.8,3/2.7}{ \node[vn] (p\j) at (\x,0) {$v_\j$}; }
+\node[cn] (q0) at (0.9,1.6) {$c_0$}; \node[cn] (q1) at (1.8,1.6) {$c_1$};
+\draw[navy!60,thick] (q0.south) -- (p0.north); \draw[navy!60,thick] (q0.south) -- (p1.north); \draw[navy!60,thick] (q0.south) -- (p2.north);
+\draw[navy!60,thick] (q1.south) -- (p0.north); \draw[navy!60,thick] (q1.south) -- (p2.north); \draw[navy!60,thick] (q1.south) -- (p3.north);
+\node[font=\sffamily\scriptsize,navy,align=center] at (1.35,-0.8) {protograph\\(2 checks, 4 variables)};
+\node[font=\sffamily\scriptsize,align=center] at (1.35,2.45) {base matrix\\$\begin{bmatrix}0&1&3&-1\\2&-1&0&1\end{bmatrix}$};
+\end{scope}
+\draw[-{Stealth[length=3mm]},very thick,navy] (3.4,0.8) -- node[above,font=\sffamily\scriptsize]{lift, $Z=4$} (4.8,0.8);
+% lifted H 8x16
+\begin{scope}[shift={(5.2,2.35)},x=0.21cm,y=0.21cm]
+\draw[gray!50] (0,0) rectangle (16,-8);
+\foreach \k in {4,8,12}{ \draw[gray!40] (\k,0) -- (\k,-8); }
+\draw[gray!40] (0,-4) -- (16,-4);
+\foreach \bi/\bj/\s in {0/0/0,0/1/1,0/2/3,1/0/2,1/2/0,1/3/1}{
+  \foreach \r in {0,...,3}{
+    \pgfmathtruncatemacro{\c}{mod(\r+\s,4)}
+    \fill[navy] (\bj*4+\c+0.12,-\bi*4-\r-0.12) rectangle (\bj*4+\c+0.88,-\bi*4-\r-0.88);
+  } }
+\node[font=\sffamily\scriptsize,anchor=west] at (16.6,-1.8) {$\vect P^{0}\;\vect P^{1}\;\vect P^{3}\;\vect 0$};
+\node[font=\sffamily\scriptsize,anchor=west] at (16.6,-5.8) {$\vect P^{2}\;\vect 0\;\;\vect P^{0}\;\vect P^{1}$};
+\node[font=\sffamily\scriptsize,align=center] at (8,-10.3) {lifted $\vect H$ ($8\times16$): each edge of the\\protograph becomes a $4\times4$ circulant};
+\end{scope}
+\end{tikzpicture}
+\caption{Protograph lifting. A small base graph (left) is copied $Z$ times and each edge type is
+replaced by a cyclic permutation among the copies; the shift values form the base matrix. The
+lifted code keeps the degree structure and hence (for large $Z$) the threshold of the protograph,
+while the shifts are chosen to avoid short cycles. A 4-cycle through base-matrix entries
+$s_{i_1j_1},s_{i_1j_2},s_{i_2j_2},s_{i_2j_1}$ exists in the lifted graph exactly when
+$s_{i_1j_1}-s_{i_1j_2}+s_{i_2j_2}-s_{i_2j_1}\equiv0\pmod Z$.}
+\label{fig:ch15_lifting}
+\end{figure}
+
+QC structure is what made LDPC codes an industrial technology. The whole $\vect H$ is stored as a few
+hundred small integers. The decoder processes a block row at a time with $Z$ identical processing
+units, and the routing between memory and processors is a set of barrel shifters rather than an
+arbitrary interconnect. The same base matrix serves many block lengths by changing $Z$, and the
+shifts can be chosen by computer search to maximise the girth. The $n=2304$ code of
+Figure~\ref{fig:ch15_ldpc_decoders} is an all-ones $3\times6$ protograph lifted with $Z=384$ and
+shifts chosen at random until no 4- or 6-cycles remained.
+
+\subsection{5G NR: two base graphs for everything}
+
+The 5G New Radio data channels (PDSCH and PUSCH) use QC-LDPC codes defined in 3GPP TS 38.212 by just
+two base graphs (Figure~\ref{fig:ch15_nr_bg}):
+\begin{itemize}
+\item \textbf{Base graph 1} (BG1) has $46\times68$ entries, 22 systematic columns, and is used for
+large blocks and high rates. The largest code block has $K=22\times384=8448$ information bits.
+\item \textbf{Base graph 2} (BG2) has $42\times52$ entries and 10 systematic columns, and is used for
+small blocks and low rates, up to $K=10\times384=3840$.
+\end{itemize}
+Both have the same architecture. The top-left \emph{core}---4 rows, the systematic columns and 4 parity
+columns with a dual-diagonal-like structure---is a high-rate code on its own (rate $22/24\approx0.92$
+for BG1 after puncturing). Each further row adds one \emph{extension} parity bit that is a single
+parity check on a few earlier bits, attached through an identity column (degree 1). The code is
+therefore \emph{rate compatible} by construction: transmitting more of the extension parity bits
+lowers the rate smoothly down to $22/66=1/3$ for BG1 and $10/50=1/5$ for BG2, exactly what hybrid ARQ
+with incremental redundancy needs (Section~\ref{sec:ch15:harq}). The first two systematic columns
+have very high degree and are always \emph{punctured} (never transmitted); these high-degree punctured
+nodes act as hubs that improve the threshold, a trick borrowed from the protograph designs of
+JPL's AR4JA codes.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=0.1cm,y=0.1cm]
+% BG1: 68 columns x 46 rows
+\fill[navy!25] (0,0) rectangle (22,-4);
+\fill[accent!30] (22,0) rectangle (26,-4);
+\fill[navy!12] (0,-4) rectangle (26,-46);
+\draw[practc,thick] (26,-4) -- (68,-46);
+\fill[navy!45] (0,0) rectangle (2,-46);
+\draw[navy,thick] (0,0) rectangle (68,-46);
+\draw[navy!60] (22,0) -- (22,-46); \draw[navy!60] (26,0) -- (26,-46); \draw[navy!60] (0,-4) -- (68,-4);
+\node at (12,3) {{\sffamily\scriptsize 22 systematic}};
+\node at (24,6.5) {{\sffamily\scriptsize 4}};
+\node at (47,3) {{\sffamily\scriptsize 42 extension parity}};
+\node[anchor=east] at (-1,-2) {{\sffamily\scriptsize core: 4}};
+\node[anchor=east] at (-1,-25) {{\sffamily\scriptsize 42}};
+\node[align=center] at (12,-2.1) {{\sffamily\scriptsize $\vect A$}};
+\node at (24,-2.1) {{\sffamily\scriptsize $\vect B$}};
+\node at (13,-25) {{\sffamily\scriptsize $\vect C$ (sparse)}};
+\node at (55,-22) {{\sffamily\scriptsize $\vect I$ (identity)}};
+\node at (47,-2.1) {{\sffamily\scriptsize $\vect 0$}};
+\node at (34,-52) {\sffamily\small\bfseries\color{navy} BG1: $46\times68$, $K_b=22$};
+\draw[-{Stealth[length=1.5mm]},navy!70] (1,-49) -- (1,-46.5);
+\node[anchor=west] at (-2,-51.5) {{\sffamily\scriptsize punctured}};
+% BG2
+\begin{scope}[shift={(85,0)}]
+\fill[navy!25] (0,0) rectangle (10,-4);
+\fill[accent!30] (10,0) rectangle (14,-4);
+\fill[navy!12] (0,-4) rectangle (14,-42);
+\draw[practc,thick] (14,-4) -- (52,-42);
+\fill[navy!45] (0,0) rectangle (2,-42);
+\draw[navy,thick] (0,0) rectangle (52,-42);
+\draw[navy!60] (10,0) -- (10,-42); \draw[navy!60] (14,0) -- (14,-42); \draw[navy!60] (0,-4) -- (52,-4);
+\node at (5,3) {{\sffamily\scriptsize 10}};
+\node at (12,6.5) {{\sffamily\scriptsize 4}};
+\node at (33,3) {{\sffamily\scriptsize 38 extension parity}};
+\node[anchor=west] at (53,-2) {{\sffamily\scriptsize 4}};
+\node[anchor=west] at (53,-23) {{\sffamily\scriptsize 38}};
+\node at (26,-48) {\sffamily\small\bfseries\color{navy} BG2: $42\times52$, $K_b=10$};
+\end{scope}
+\end{tikzpicture}
+\caption{Structure of the 5G NR LDPC base graphs (TS 38.212, Tables 5.3.2-2 and 5.3.2-3). The core
+($\vect A$, $\vect B$) is a high-rate code with a dual-diagonal-like parity part $\vect B$ that allows
+linear-time encoding; each extension row adds one degree-1 parity bit (the identity part), so
+cutting the matrix at any row gives a lower- or higher-rate code. The first two systematic columns
+(dark) have high degree and are never transmitted. Each nonzero entry is lifted to a $Z\times Z$
+circulant, $Z\in\{2,\dots,384\}$.}
+\label{fig:ch15_nr_bg}
+\end{figure}
+
+\paragraph{Lifting sizes.} The lifting size is $Z=a\times2^j$ with
+$a\in\{2,3,5,7,9,11,13,15\}$ and $Z\le384$, giving 51 values from 2 to 384. They are grouped into eight
+sets by $a$, each with its own table of shift coefficients $V_{ij}$, and the shift actually used is
+$s_{ij}=V_{ij}\bmod Z$. One pair of base graphs and eight shift tables thus define several thousand
+codes with fine granularity in length and rate, all decodable by the same hardware.
+
+\paragraph{Choosing the base graph.} TS 38.212 selects BG2 when the transport block is small or the
+rate low: if $A\le292$, or if $A\le3824$ and $R\le0.67$, or if $R\le0.25$; otherwise BG1
+(Figure~\ref{fig:ch15_nr_basegraph}). A transport block CRC (24 bits if $A>3824$, otherwise 16) is
+appended, and if the result exceeds the maximum code-block size (8448 for BG1, 3840 for BG2) it is
+segmented into code blocks, each with its own 24-bit CRC.
+
+\mdcfig[0.8]{ch15_nr_basegraph}{Base-graph selection for the 5G NR data channels as a function of
+transport-block size $A$ and code rate $R$ (TS 38.212, Section 7.2.2). BG2 covers small blocks and
+low rates, BG1 large blocks at medium and high rates.}
+
+\paragraph{Rate matching.} The encoded bits (excluding the $2Z$ punctured systematic bits) are
+written into a \emph{circular buffer}. Each transmission reads $E$ consecutive bits from it (skipping
+filler bits), starting at one of four positions set by the \term{redundancy version}: for BG1 the
+starting points are at approximately $0$, $17/66$, $33/66$ and $56/66$ of the buffer, for BG2 at $0$,
+$13/50$, $25/50$ and $43/50$ (rounded to multiples of $Z$). RV0 starts at the systematic bits; RV2 and
+RV3 start deep in the parity. If $E$ is smaller than the buffer the code is punctured; if larger, the
+buffer wraps round and bits are repeated. The bits are then interleaved across the bit positions of
+the QAM symbols (a row--column interleaver with as many rows as bits per symbol) and mapped.
+
+\begin{worked}[From a transport block to a 5G LDPC codeword]
+A PDSCH transport block has $A=8000$ bits and is scheduled with target code rate $R=0.5$. Follow it
+through TS 38.212.
+
+Since $A>3824$ and $R>0.25$ (and $R\le0.67$ does not matter because $A>3824$), \textbf{BG1} is used.
+The transport block CRC is 24 bits (as $A>3824$), giving $B=8024$ bits. This is below 8448, so there
+is a single code block and no code-block CRC. For BG1, $K_b=22$, and the lifting size is the smallest
+$Z$ in the table with $22Z\ge8024$, i.e.\ $Z\ge364.7$. The candidates are 352 ($11\times32$, too small)
+and 384 ($3\times128$), so $Z=384$ and $K=22\times384=8448$: the block is padded with
+$8448-8024=424$ filler bits (known zeros, never transmitted, given infinite LLRs at the decoder).
+The mother codeword has $68\times384=26\,112$ bits, of which the first $2Z=768$ are punctured,
+leaving a circular buffer of $66\times384=25\,344$ bits. The first transmission carries
+$E\approx8000/0.5=16\,000$ bits starting at RV0; the decoder sees a code of effective rate about 0.5,
+built from roughly the first 21 rows of the base graph.
+
+Now a small block: $A=200$ bits at $R=0.3$. Since $A\le292$, \textbf{BG2}. The CRC is 16 bits
+($B=216$). For $192<B\le560$ the table gives $K_b=8$, so the smallest $Z$ with $8Z\ge216$ is needed:
+27 is not of the form $a\times2^j$, so $Z=28$ ($7\times4$). For BG2, $K=10Z=280$, with 64 filler bits;
+the circular buffer has $50\times28=1400$ bits.
+\end{worked}
+
+\subsection{Other LDPC standards}
+
+\begin{table}[htbp]\centering\small
+\caption{LDPC codes in some important standards.}
+\label{tab:ch15:ldpcstd}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l l l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Standard & Lengths $n$ & Rates & Structure and remarks\\
+\midrule
+5G NR data (TS 38.212) & $\le$26\,112 & 1/5--0.95 & two QC base graphs, 51 lifting sizes, rate compatible\\
+Wi-Fi 802.11n/ac/ax & 648, 1296, 1944 & 1/2, 2/3, 3/4, 5/6 & QC, 24 block columns, $Z=27,54,81$\\
+WiMAX 802.16e & 576--2304 & 1/2 to 5/6 & QC, $Z=24$ to 96\\
+DVB-S2/S2X, DVB-T2, ATSC 3.0 & 16\,200, 64\,800 & 1/4 to 9/10 & IRA, 360-column groups, outer BCH\\
+10GBASE-T (802.3an) & 2048 & 1723/2048 & RS-based construction, regular\\
+CCSDS 131.0-B & 1280--32\,768 & 1/2--7/8 & AR4JA protographs; near-Earth (8160,7136)\\
+ITU-T G.hn (G.9960) & 336--8640 & 1/2 to 5/6 & QC, home networking over wires\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Table~\ref{tab:ch15:ldpcstd} collects the main deployments. Two deserve comment. The Wi-Fi code,
+introduced as an option in 802.11n and now used for almost all high-throughput links, has three
+lengths and four rates, each defined by a $24$-column base matrix; the rate-1/2 base matrix has 12
+rows. It gains about 2\,dB over the $K=7$ convolutional code at the error rates Wi-Fi operates at,
+which at high SNR is worth one or two MCS steps. The DVB-S2 code (ETSI EN 302 307-1), selected in
+2003 from proposals by seven companies, is an irregular repeat--accumulate code of length 64\,800
+with an outer BCH code correcting 8 to 12 errors. Its information part is built from groups of 360
+columns that are cyclic shifts of each other, so a decoder can use 360 parallel processors; Chapter
+\ref{ch:satellite} describes its place in the DVB-S2 physical layer. At the time it was the most
+complex decoder ever standardised for a consumer product, and it operates roughly 0.6 to 1\,dB from
+the constrained capacity at a packet error rate of $10^{-7}$.
+
+\subsection{Error floors and trapping sets}
+
+LDPC codes have error floors too, but their cause is different from the turbo-code case: not
+low-weight codewords (good LDPC codes have large minimum distance) but \term{trapping sets}, small
+subgraphs on which the iterative decoder gets stuck. An $(a,b)$ trapping set is a set of $a$ variable
+nodes whose induced subgraph has $b$ odd-degree (unsatisfied) check nodes. If those $a$ bits are in
+error, only $b$ checks complain, and if $b$ is small relative to $a$ the variables' other, satisfied
+checks outvote the complaints; the decoder oscillates or converges to a wrong word that is not a
+codeword. On the BEC the analogous objects are stopping sets. Trapping-set floors are sensitive to
+the decoder's quantisation, saturation and scheduling, which makes them notoriously hard to predict
+by simulation: an error rate of $10^{-12}$ at 10\,Gb/s is one error every 100 seconds, and verifying
+it needs FPGA emulation of the decoder running for days.
+
+Remedies are applied at every level. Code design avoids small trapping sets by maximising girth and
+controlling the cycle structure (the approximate cycle extrinsic message degree, ACE, is one metric),
+and by avoiding too many degree-2 variable nodes in cycles. Decoders use careful message
+quantisation, post-processing that detects a stuck decoder and perturbs the LLRs of the bits
+involved in unsatisfied checks, or \emph{backtracking}. Systems add an outer algebraic code with a
+small correction capability, like DVB-S2's BCH code, which removes the few residual errors that a
+trapping set leaves.
+
+\subsection{LDPC decoders in hardware}
+
+LDPC decoding is naturally parallel: every check node can be updated at once. Architectures span a
+wide range:
+\begin{itemize}
+\item \textbf{Partially parallel, layered} decoders process one block row of a QC code per clock
+cycle with $Z$ (or a multiple of $Z$) processing units. They dominate in 5G basebands and Wi-Fi.
+\item \textbf{Fully parallel} decoders instantiate every node and wire the Tanner graph in silicon.
+They reach the highest throughput but the routing congestion limits them to shortish codes;
+10GBASE-T's 2048-bit code was an early example.
+\item \textbf{Unrolled} decoders pipeline each iteration in its own hardware stage and have been
+reported at throughputs of hundreds of Gb/s in research ASICs, at the cost of area.
+\end{itemize}
+Throughput scales as $T\approx(\text{parallelism}\times f_{\text{clk}}\times K)/(\text{cycles per
+iteration}\times I)$, where $I$ is the number of iterations, so early termination (stop as soon as
+the syndrome is zero) raises average throughput and cuts power. The 5G requirement of peak data rates
+up to 20\,Gb/s on the downlink, combined with the need for LDPC's parallelism and early termination,
+was a decisive argument in 2016.
+
+\begin{pitfall}[Believing a waterfall that you have not simulated deep enough]
+A code that looks excellent at a frame error rate of $10^{-3}$ can floor at $10^{-6}$. Monte Carlo
+simulations that stop at 100 frame errors per point cannot see a floor below the last point, and
+software decoders in double precision behave differently from 5-bit hardware. For any system with a
+low target error rate---optical transport, storage, broadcast video---simulate the \emph{quantised}
+decoder, with the exact schedule and the maximum iteration count, on hardware emulation, down to
+at least a decade below the target, or use an outer code.
+\end{pitfall}
+
+%======================================================================
+\section{Polar codes}
+\label{sec:ch15:polar}
+%======================================================================
+
+Turbo and LDPC codes approach capacity in practice, but neither has a proof that it
+\emph{achieves} capacity on general channels with an efficient decoder. (Irregular LDPC ensembles do
+on the erasure channel, and spatially coupled ones do more generally, as Section~\ref{sec:ch15:sc}
+explains.) In 2009 Erdal Ar\i kan published the first explicit construction of codes that provably
+achieve the capacity of any binary-input memoryless symmetric channel with encoding and decoding
+complexity $O(N\log N)$. The idea, \term{channel polarization}, is unlike anything else in coding
+theory, and it is simple enough to explain completely with the erasure channel.
+
+\begin{history}[From the cutoff rate to polarization]
+Erdal Ar\i kan, a student of Gallager's at MIT in the 1980s and later a professor at Bilkent
+University in Ankara, spent much of his career on sequential decoding and the cutoff rate $R_0$.
+Pinsker and Massey had noticed that clever combinations of channels could push the sum of their
+cutoff rates above the original; Ar\i kan was studying when, and how far, this ``boosting'' could
+go. In his 2009 paper in the \emph{IEEE Transactions on Information Theory}, ``Channel polarization:
+a method for constructing capacity-achieving codes for symmetric binary-input memoryless channels'',
+he showed that a recursive combination of two channels into two new ones, applied $n$ times, drives
+every synthetic channel towards either perfect or useless. The paper won the IEEE Information Theory
+Society's best paper award, and its author the Shannon Award in 2018. In between, polar codes went
+from a theoretical curiosity---their performance at practical lengths with the original decoder was
+mediocre---to the control-channel code of 5G, a journey made possible by Tal and Vardy's list
+decoder (2011) and an intensive industrial development effort led by Huawei.
+\end{history}
+
+\subsection{One step of polarization}
+
+Take two independent uses of a binary-input channel $W$ and two input bits $u_1,u_2$. Instead of
+sending them directly, send
+\begin{equation}
+x_1=u_1\oplus u_2,\qquad x_2=u_2,
+\qquad\text{i.e.}\quad (x_1,x_2)=(u_1,u_2)\,\vect F,\quad
+\vect F=\begin{bmatrix}1&0\\1&1\end{bmatrix}.
+\label{eq:ch15:F}
+\end{equation}
+This invertible transform loses nothing: $I(U_1U_2;Y_1Y_2)=2I(W)$. Now decode in order. To decide
+$u_1$, the receiver must work through $x_1=u_1\oplus u_2$ without knowing $u_2$: the effective channel
+for $u_1$, written $W^-$, is \emph{worse} than $W$. Having decided $u_1$, the receiver sees $u_2$
+twice---once directly through $y_2$ and once through $y_1$, since $x_1\oplus u_1=u_2$---so the
+channel for $u_2$, written $W^+$, is \emph{better} than $W$. By the chain rule,
+\begin{equation}
+I(W^-)+I(W^+)=2I(W),\qquad I(W^-)\le I(W)\le I(W^+).
+\label{eq:ch15:conserve}
+\end{equation}
+Capacity is conserved but redistributed.
+
+For the BEC with erasure probability $\varepsilon$ the two new channels are again erasure channels.
+$u_1$ is recovered only if both $y_1$ and $y_2$ arrive, so $W^-$ is a BEC with erasure probability
+$1-(1-\varepsilon)^2=2\varepsilon-\varepsilon^2$; $u_2$ is lost only if both copies are erased, so
+$W^+$ has erasure probability $\varepsilon^2$:
+\begin{equation}
+\varepsilon^-=2\varepsilon-\varepsilon^2,\qquad\varepsilon^+=\varepsilon^2.
+\label{eq:ch15:becpol}
+\end{equation}
+For $\varepsilon=0.5$, one step produces channels with erasure probabilities 0.75 and 0.25.
+
+\subsection{Recursion, polarization and the Kronecker construction}
+
+Apply the step recursively: combine two copies of $W^-$ to get $W^{--}$ and $W^{-+}$, two copies of
+$W^+$ to get $W^{+-}$ and $W^{++}$, and so on. After $n$ levels there are $N=2^n$ synthetic
+\term{bit-channels} $W_N^{(i)}$, one for each sign pattern. On the BEC their erasure probabilities
+follow from~\eqref{eq:ch15:becpol} exactly. Figure~\ref{fig:ch15_polarization}(a) shows the
+result: level by level, the capacities spread towards 0 and 1. Ar\i kan proved that for any binary
+symmetric memoryless channel, as $N\to\infty$, the fraction of bit-channels with capacity near 1
+tends to $I(W)$ and the fraction with capacity near 0 to $1-I(W)$. The channels
+\term{polarize}. The coding strategy follows: send information on the good bit-channels and fix the
+bad ones to known values (zeros), the \term{frozen bits}. The rate approaches capacity.
+
+\mdcfig{ch15_polarization}{Channel polarization on the BEC with erasure probability 0.5 (capacity
+0.5). (a) Capacities $1-Z$ of the $2^n$ bit-channels at each level $n$ (horizontally jittered for
+visibility). (b) Sorted capacities for $N=2^4$ to $2^{20}$: the curve approaches a step at 0.5, but
+slowly. At $N=1024$ about a third of the channels are still ``mediocre'' (erasure probability between
+$10^{-3}$ and $1-10^{-3}$); at $N=2^{20}$, about 5\%.}
+
+The encoder is the $n$-fold Kronecker power of $\vect F$,
+\begin{equation}
+\vect x=\vect u\,\vect G_N,\qquad\vect G_N=\vect F^{\otimes n},
+\label{eq:ch15:polarenc}
+\end{equation}
+where $\vect u$ has the information bits in the positions of the good bit-channels (the
+\term{information set} $\mathcal A$) and zeros elsewhere. (Ar\i kan's original definition includes a
+bit-reversal permutation, $\vect G_N=\vect B_N\vect F^{\otimes n}$; 5G NR and \texttt{commlib} use
+$\vect F^{\otimes n}$ alone, which only relabels the bit-channels.) The product can be computed with
+$\frac N2\log_2N$ XORs in the butterfly network of Figure~\ref{fig:ch15_polar_encoder}, the same
+structure as the FFT.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=1.45cm,y=0.52cm,
+  xo/.style={circle,draw=navy,thick,inner sep=0pt,minimum size=3.6mm,fill=white},
+  dt/.style={circle,fill=navy,inner sep=0pt,minimum size=1.6mm}]
+\foreach \i in {0,...,7}{
+  \draw[navy!50,thick] (0,-\i) -- (4,-\i);
+}
+\foreach \i/\fz in {0/1,1/1,2/1,3/0,4/1,5/0,6/0,7/0}{
+  \ifnum\fz=1
+    \node[anchor=east,font=\sffamily\scriptsize,gray] at (-0.05,-\i) {$u_{\i}=0$ (frozen)};
+  \else
+    \node[anchor=east,font=\sffamily\scriptsize,navy] at (-0.05,-\i) {$\mathbf{u_{\i}}$ (information)};
+  \fi
+  \node[anchor=west,font=\sffamily\scriptsize] at (4.05,-\i) {$x_{\i}\to W$};
+}
+% stage spans 4, 2, 1 at x = 1, 2, 3
+\foreach \s/\x in {4/1,2/2,1/3}{
+  \foreach \i in {0,...,7}{
+    \pgfmathtruncatemacro{\m}{mod(\i,2*\s)}
+    \ifnum\m<\s
+      \pgfmathtruncatemacro{\j}{\i+\s}
+      \draw[navy,thick] (\x,-\i) -- (\x,-\j);
+      \node[xo] at (\x,-\i) {\tiny$+$};
+      \node[dt] at (\x,-\j) {};
+    \fi
+  }
+}
+\node[font=\sffamily\scriptsize,navy] at (1,0.9) {span 4};
+\node[font=\sffamily\scriptsize,navy] at (2,0.9) {span 2};
+\node[font=\sffamily\scriptsize,navy] at (3,0.9) {span 1};
+\end{tikzpicture}
+\caption{The polar encoder $\vect x=\vect u\vect F^{\otimes3}$ for $N=8$ as a butterfly network of
+$\frac N2\log_2N=12$ XORs. Each stage applies the $2\times2$ kernel $\vect F$ to pairs of lines a
+fixed span apart. With $K=4$ and a design for the BEC(0.5), the information set is
+$\mathcal A=\{3,5,6,7\}$, the four bit-channels with the smallest erasure probabilities
+(their erasure probabilities are 0.32, 0.19, 0.12 and 0.004; the best frozen channel, $u_4$, has 0.68).}
+\label{fig:ch15_polar_encoder}
+\end{figure}
+
+\subsection{Choosing the frozen set}
+
+Constructing a polar code means ranking the $N$ bit-channels by reliability for the channel at hand
+and freezing the worst $N-K$. On the BEC the recursion~\eqref{eq:ch15:becpol} gives the erasure
+probabilities exactly. For other channels the bit-channel output alphabets grow exponentially and
+exact computation is impossible, so several approximations are used:
+\begin{itemize}
+\item \textbf{Bhattacharyya bounds.} Track $Z(W)=\sum_y\sqrt{W(y|0)W(y|1)}$, which upper-bounds the
+error probability, with $Z^-\le2Z-Z^2$ and $Z^+=Z^2$ (exact on the BEC). Simple, and the method in
+\texttt{commlib.PolarCode}, but pessimistic for the AWGN channel.
+\item \textbf{Density evolution with quantisation} (Tal and Vardy, 2013) computes upper and lower
+bounds on each bit-channel's error probability by merging output symbols; it is accurate but slow.
+\item \textbf{Gaussian approximation} (Trifonov, 2012) tracks the mean LLR of each bit-channel as
+in~\eqref{eq:ch15:ga}: $\mu^+=2\mu$ for the good channel and
+$\mu^-=\phi_G^{-1}\big(1-(1-\phi_G(\mu))^2\big)$ for the bad. It is fast and accurate, and used for the
+simulations in this chapter.
+\item \textbf{A fixed reliability sequence.} All of the above depend on a design SNR. 5G NR instead
+defines a single ordering $\mathcal Q_0^{1023}$ of the 1024 bit-channel indices from least to most
+reliable (TS 38.212, Table 5.3.1.2-1). It is \emph{nested}: the ordering for any $N\le1024$ is the
+subsequence of indices smaller than $N$. Every encoder and decoder stores just this one table. The
+sequence came from extensive optimisation; it is close to the ``polarization weight'' ordering, in
+which bit-channel $i$ with binary digits $b_j$ gets weight $\sum_jb_j2^{j/4}$.
+\end{itemize}
+
+\subsection{Successive-cancellation decoding}
+
+The decoder implied by the construction decodes $u_0,u_1,\dots,u_{N-1}$ in order, each decision
+using the channel outputs and all previous decisions: \term{successive cancellation} (SC). Frozen
+bits are set to zero; an information bit is set by the sign of its LLR. The LLRs are computed by
+running the butterfly backwards with two operations that are just the soft versions of the two
+channels in~\eqref{eq:ch15:F}. For a pair of LLRs $(a,b)$ at the outputs of a kernel,
+\begin{align}
+f(a,b)&=a\boxplus b\approx\operatorname{sign}(a)\operatorname{sign}(b)\min(|a|,|b|)
+&&\text{(LLR of the upper input, through the XOR)},\nonumber\\
+g(a,b,\hat u)&=b+(1-2\hat u)\,a&&\text{(LLR of the lower input, given the upper)}.
+\label{eq:ch15:fg}
+\end{align}
+The upper input (like $u_1$ in~\eqref{eq:ch15:F}) is seen through an XOR, hence the box-plus;
+the lower input, once the upper is known, is seen twice, hence the sum, with the sign of $a$
+flipped if the upper bit was 1. SC decoding is a depth-first traversal of a binary tree
+(Figure~\ref{fig:ch15_sc_tree}): each node receives a vector of LLRs from its parent, computes $f$ for
+its left child, waits for the left child's hard decisions (partial sums) $\beta_L$, computes $g$ for its
+right child, and returns $(\beta_L\oplus\beta_R,\beta_R)$ to its parent. The complexity is
+$O(N\log N)$, exactly like the encoder.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[level distance=1.05cm,
+  level 1/.style={sibling distance=4.6cm},
+  level 2/.style={sibling distance=2.3cm},
+  level 3/.style={sibling distance=1.15cm},
+  every node/.style={circle,draw=navy,thick,minimum size=5mm,inner sep=0pt,font=\sffamily\tiny,fill=navy!8},
+  edge from parent/.style={draw=navy!60,thick}]
+\node {$N{=}8$}
+  child {node[fill=gray!20] {R0}
+    child {node[fill=gray!20] {} child {node[fill=white] {$u_0$}} child {node[fill=white] {$u_1$}}}
+    child {node {} child {node[fill=white] {$u_2$}} child {node[fill=navy!50,text=white] {$u_3$}}}
+    edge from parent node[draw=none,fill=none,left,font=\sffamily\scriptsize,accent] {$f$}}
+  child {node {}
+    child {node {} child {node[fill=white] {$u_4$}} child {node[fill=navy!50,text=white] {$u_5$}}}
+    child {node[fill=navy!50,text=white] {R1} child {node[fill=navy!50,text=white] {$u_6$}} child {node[fill=navy!50,text=white] {$u_7$}}}
+    edge from parent node[draw=none,fill=none,right,font=\sffamily\scriptsize,practc] {$g$}};
+\node[draw=none,fill=none,font=\sffamily\scriptsize,anchor=west,align=left] at (4.3,-0.2)
+  {$\alpha$ (LLRs) flow down:\\ left child gets $f(\alpha_{\text{top}},\alpha_{\text{bot}})$,\\
+   right child $g(\alpha_{\text{top}},\alpha_{\text{bot}},\beta_L)$;\\
+   $\beta$ (partial sums) flow up:\\ $(\beta_L\oplus\beta_R,\;\beta_R)$};
+\end{tikzpicture}
+\caption{Successive-cancellation decoding as a depth-first traversal of a binary tree, for the
+$N=8$ code of Figure~\ref{fig:ch15_polar_encoder}. Leaves are bit-channels: white frozen, dark
+information. A subtree whose leaves are all frozen (a rate-0 node, R0) needs no computation; one
+whose leaves are all information (rate-1, R1) can be decided at once by hard decisions on its input
+LLRs. Fast-SSC decoders exploit these and other special nodes to shorten the traversal greatly.}
+\label{fig:ch15_sc_tree}
+\end{figure}
+
+\begin{worked}[Decoding a length-4 polar code by hand]
+For the BEC(0.5) design with $N=4$, the bit-channel erasure probabilities are $0.94$, $0.56$, $0.44$ and
+$0.06$, so a $K=2$ code freezes $u_0=u_1=0$ and puts information on $u_2,u_3$. Send $u_2=u_3=1$; with
+$\vect G_4=\vect F^{\otimes2}$ the codeword is $\vect x=(0,1,0,1)$, transmitted as $(+1,-1,+1,-1)$.
+The received LLRs are $\vect L=(+1.5,-0.8,-0.4,-2.0)$: note that the third bit arrived with the wrong
+sign. Decode with min-sum SC.
+
+The root splits $\vect L$ into halves $(1.5,-0.8)$ and $(-0.4,-2.0)$. Left child:
+$f(1.5,-0.4)=-0.4$ and $f(-0.8,-2.0)=+0.8$. Inside it, $u_0$ gets $f(-0.4,0.8)=-0.4$ but is frozen,
+so $\hat u_0=0$; $u_1$ gets $g(-0.4,0.8,0)=0.4$, frozen, $\hat u_1=0$. The left child returns partial
+sums $\beta_L=(0,0)$. Right child: $g(1.5,-0.4,0)=1.1$ and $g(-0.8,-2.0,0)=-2.8$. Inside it, $u_2$ gets
+$f(1.1,-2.8)=-1.1$, so $\hat u_2=1$; $u_3$ gets $g(1.1,-2.8,1)=-2.8-1.1=-3.9$, so $\hat u_3=1$. Both
+information bits are correct despite the channel error: the frozen bits and the structure of
+$\vect G_4$ corrected it.
+\end{worked}
+
+SC decoding achieves capacity as $N\to\infty$, with block error probability falling roughly as
+$2^{-\sqrt N}$. But it is weak at practical lengths (Figure~\ref{fig:ch15_polar_decoders}): the
+mediocre bit-channels that have not yet polarized make errors, and an error in an early bit is never
+corrected---it propagates through every later $g$ computation. At $N=1024$, SC needs about 1.2\,dB
+more than the best decoder below.
+
+\subsection{List decoding and the CRC}
+
+Ido Tal and Alexander Vardy's \term{successive-cancellation list} (SCL) decoder (2011) keeps up to
+$L$ candidate paths. At each information bit every path is extended both ways, each extension is
+scored by a \emph{path metric}, and the $L$ best survive. With LLRs the path metric is updated, to an
+excellent approximation, by
+\begin{equation}
+\mathrm{PM}\leftarrow\mathrm{PM}+\begin{cases}|\alpha_i|&\text{if the decision }\hat u_i\text{
+disagrees with the sign of its LLR }\alpha_i,\\0&\text{otherwise,}\end{cases}
+\label{eq:ch15:pm}
+\end{equation}
+so a path pays a penalty whenever it goes against the evidence (frozen bits included: a frozen zero
+with a strongly negative LLR penalises the path). At the end, the path with the smallest metric wins.
+SCL with $L=32$ comes close to maximum-likelihood decoding of the polar code---and that exposed the
+next problem: the polar code itself has a small minimum distance, so even ML decoding is mediocre
+(the ``SCL, $L=8$'' curve of Figure~\ref{fig:ch15_polar_decoders} floors for exactly this reason).
+
+The fix is to append a CRC to the information bits before polar encoding, and to choose, at the end,
+the most likely path \emph{that passes the CRC}: \term{CRC-aided SCL} (CA-SCL; Niu and Chen, 2012).
+The CRC acts both as an outer code that increases the minimum distance and as a genie that picks the
+right path from the list. Polar codes with CA-SCL decoding are the strongest known practical codes at
+short block lengths. Figure~\ref{fig:ch15_polar_decoders} shows the progression at $N=1024$, $K=512$:
+CA-SCL with $L=32$ reaches a frame error rate of $10^{-2}$ about 1.2\,dB before SC and within about
+0.6\,dB of the normal-approximation bound.
+
+\mdcfig{ch15_polar_decoders}{Frame error rate of rate-1/2 polar codes with $N=1024$ (GA construction
+at 2\,dB, min-sum $f$ function) on the BPSK/AWGN channel: SC, SC-list with $L=8$ and no CRC, and
+CRC-aided SCL with the 5G CRC-11 (so $K=512$ message bits plus 11 CRC bits on 523 bit-channels) and
+$L=8$ or 32. Dashed: the normal-approximation bound for any $(1024,512)$ code. At least 60 frame
+errors or 1500--4000 frames per point.}
+
+\begin{pitfall}[The CRC is not free]
+A CRC of $r$ bits that is used to choose among $L$ list candidates both improves performance and
+weakens error \emph{detection}. Each wrong candidate that is tested has roughly a $2^{-r}$ chance of
+passing, so the probability of an undetected error grows to about $L\cdot2^{-r}$. With $L=8$ and an
+11-bit CRC that is about $4\times10^{-3}$ of the decoding failures---far too high for a control
+channel that must almost never deliver a false command. 5G handles this by using a 24-bit CRC for
+downlink control (giving $L\cdot2^{-24}$, negligible) and by counting the bits the list ``spends''
+when it sets the CRC length. A decoder designer who increases $L$ without accounting for this trades
+undetected errors for frame errors.
+\end{pitfall}
+
+\subsection{Polar codes in 5G NR}
+
+5G NR uses polar codes for the broadcast channel and for control information in both directions
+(TS 38.212, Sections 5.3.1, 7.1 and 7.3). Table~\ref{tab:ch15:nrpolar} summarises the uses.
+
+\begin{table}[htbp]\centering\small
+\caption{Polar codes in 5G NR (3GPP TS 38.212). $A$ is the payload, $K$ the number of bits entering
+the polar encoder, $N\le2^{n_{\max}}$ the mother code length.}
+\label{tab:ch15:nrpolar}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l l l l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Channel & Payload & CRC & $n_{\max}$ & Remarks\\
+\midrule
+PBCH (broadcast) & $A=32$ & 24 (CRC-24C) & 9 & $K=56$, $E=864$, $N=512$\\
+PDCCH (DCI) & up to $\approx$140 & 24 (CRC-24C) & 9 & distributed CRC; last 16 CRC bits masked with the RNTI\\
+UCI, $12\le A\le19$ & 12--19 & 6 + 3 parity-check bits & 10 & PC-polar; on PUCCH or PUSCH\\
+UCI, $A\ge20$ & 20--1706 & 11 & 10 & segmented into two blocks for large $A$ and $E$\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Several details deserve comment.
+\begin{itemize}
+\item \textbf{Very small payloads} ($A\le11$ bits of uplink control) do not use polar codes at all:
+1 and 2 bits use repetition and simplex codes, 3 to 11 bits a $(32,A)$ Reed--Muller code.
+\item \textbf{Distributed CRC.} For downlink control the CRC bits are interleaved among the information
+bits so that each CRC bit depends only on earlier information bits. An SCL decoder can then check
+parts of the CRC as it goes and abandon a candidate PDCCH early. That matters because a terminal
+must attempt blind decoding of dozens of PDCCH candidates in every slot (up to 44 per slot at
+15\,kHz subcarrier spacing), most of which contain nothing for it.
+\item \textbf{Parity-check bits.} For short uplink payloads, three parity-check bits computed by a
+small shift register over the information bits are placed on specific frozen positions, giving the
+list decoder something to check without the cost of a longer CRC.
+\item \textbf{Rate matching.} The coded bits pass through a 32-segment sub-block interleaver into a
+circular buffer. If the number of transmitted bits $E$ is less than $N$, bits are either
+\emph{punctured} (removed from the start; used at low rates, $K/E\le7/16$) or \emph{shortened}
+(removed from the end, with the corresponding bit-channels frozen so that the receiver knows them;
+used at higher rates). If $E>N$, bits are repeated. The frozen set is adjusted to account for the
+punctured or shortened positions. $N$ is chosen as the smallest power of two that keeps the mother
+code rate at or below about $1/8$ relative to $E$, capped by $n_{\max}$, with a rule that prefers the
+smaller $N$ when only a little puncturing is needed.
+\item \textbf{Interleaving.} Uplink control uses a triangular channel interleaver so that the coded
+bits of a high-order constellation symbol are spread across the codeword.
+\end{itemize}
+
+\begin{inpractice}[Polar decoders in silicon]
+SC decoding is sequential in principle, but the tree structure allows a great deal of parallelism.
+Fast simplified SC decoders (Sarkis, Giard, Vardy, Thibeault and Gross, 2014) recognise rate-0,
+rate-1, repetition and single-parity-check subtrees and decode each in one or two clock cycles,
+reducing the latency by an order of magnitude. List decoders add the cost of sorting $2L$ path metrics
+and copying partial sums; $L=8$ is the usual choice in 5G terminals. Because 5G control blocks are
+short (at most 512 bits downlink and 1024 uplink), a CA-SCL decoder is a small block compared with the
+LDPC decoder that shares the modem with it. Fully unrolled and pipelined SC decoders for fixed codes
+have been reported with throughputs of hundreds of Gb/s in research ASICs, which has made polar codes
+candidates for very high-rate links too.
+\end{inpractice}
+
+%======================================================================
+\section{Comparing the families}
+\label{sec:ch15:compare}
+%======================================================================
+
+\subsection{Short blocks}
+
+Chapter~\ref{ch:infotheory} derived the \term{normal approximation} for the largest number of
+information bits $k$ that any code of length $n$ can carry at block error probability $\epsilon$,
+\begin{equation}
+k\approx nC-\sqrt{nV}\,\Q^{-1}(\epsilon)+\tfrac12\log_2n,
+\label{eq:ch15:na}
+\end{equation}
+where $C$ is the capacity and $V$ the channel dispersion (both for the BPSK-input AWGN channel
+here, computed by numerical integration). Inverting it gives the smallest SNR at which a code of
+given $n$, $k$ and $\epsilon$ can exist: the yardstick for real codes. For $(256,128)$ at
+$\epsilon=10^{-3}$ it is about 1.9\,dB, 1.7\,dB above the asymptotic limit.
+
+\mdcfig{ch15_short_compare}{Four code families at $k=128$ information bits and rate about 1/2:
+polar (256,128) with CA-SCL ($L=8$ and 32, CRC-11 included in the 128 bits' overhead), a (3,6)-regular
+PEG LDPC code of length 256 decoded by sum-product (100 iterations), an LTE-type turbo code with
+$K=128$ punctured to rate $\approx$0.48 (QPP $f_1=15$, $f_2=32$, 8 log-MAP iterations), and the $K=7$
+convolutional code with Viterbi decoding, all with $n\approx256$--268 coded bits. Dashed: the
+normal-approximation bound. At least 60 frame errors or up to 8000 frames per point.}
+
+Figure~\ref{fig:ch15_short_compare} compares the families at $k=128$, a typical size for control
+information. At a frame error rate of $10^{-3}$, polar CA-SCL with $L=32$ needs about 2.6\,dB and with
+$L=8$ about 2.9\,dB; the turbo code about 3.0\,dB; the regular LDPC code about 3.3\,dB; and the
+convolutional code about 4.0\,dB. The best is within about 0.7\,dB of the bound. A well-designed
+irregular LDPC code such as NR's BG2 does better than the regular code shown, but at these lengths
+it does not catch CA-SCL polar codes, and LDPC codes at short lengths suffer from the cycles that a
+short, sparse graph cannot avoid. Tail-biting convolutional codes with ML (wrap-around Viterbi)
+decoding---LTE's control-channel code---are surprisingly competitive at the very shortest lengths, a
+few tens of bits, but fall behind as $k$ grows.
+
+\mdcfig{ch15_gap_length}{Required $\ebno$ for a frame error rate of $10^{-2}$ as a function of the
+number of information bits, for BPSK on the AWGN channel. Solid lines: normal approximation for rates
+1/3, 1/2 and 3/4; dotted lines: the corresponding asymptotic (Shannon) limits. Markers: codes
+simulated for this chapter---the rate-1/3 LTE-type turbo codes of Figure~\ref{fig:ch15_turbo_length},
+the four rate-1/2 codes of Figure~\ref{fig:ch15_short_compare}, and the $(3,6)$ QC-LDPC code of
+Figure~\ref{fig:ch15_ldpc_decoders}.}
+
+\subsection{Long blocks}
+
+Figure~\ref{fig:ch15_gap_length} puts the comparison on one chart. The finite-length penalty is
+severe at short lengths---about 2\,dB at $k=100$ for rate 1/2---and falls roughly as $1/\sqrt k$; at
+$k=10\,000$ it is a few tenths of a decibel. Good practical codes track the bound at a roughly
+constant distance of half a decibel to a decibel. At long block lengths, irregular LDPC and turbo
+codes are both within about a decibel of capacity at practical error rates, and the choice between
+them is made on other grounds: decoder throughput and parallelism (LDPC wins), error floors (LDPC
+with good design and an outer code wins), flexibility of length and rate (both can be made flexible;
+NR LDPC shows how), latency and energy per bit (LDPC with layered decoding and early termination),
+and intellectual property and implementation maturity, which in 2016 were real considerations.
+
+\begin{history}[The 5G coding decision, 2016]
+3GPP's study of the New Radio began in 2016 with three candidates for the enhanced mobile broadband
+(eMBB) data channels: an evolution of the LTE turbo code, LDPC codes and polar codes. The debate in
+the RAN1 working group was technical and commercial at once: turbo codes had a decade of deployment;
+LDPC codes had the throughput and parallelism needed for multi-gigabit peak rates and were backed by
+Qualcomm, Samsung, Nokia, Ericsson, Intel and others; polar codes were championed above all by
+Huawei, which had invested heavily in them. At RAN1 meeting \#86bis in Lisbon in October 2016,
+LDPC was agreed for the eMBB data channels. At meeting \#87 in Reno, Nevada, in November 2016, after a
+long session, polar codes were agreed for eMBB control channels in both directions (with the
+broadcast channel following), and the turbo code was dropped. The split matched the technical
+picture---LDPC for long blocks and high throughput, polar CA-SCL for short blocks---and also a
+compromise among the companies. It was the first time a code family invented in the twenty-first
+century had been chosen for a global cellular standard, eight years after its invention.
+\end{history}
+
+\begin{table}[htbp]\centering\small
+\caption{The three families compared, as used in practice.}
+\label{tab:ch15:compare}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X@{}}
+\toprule
+ & Turbo & LDPC & Polar\\
+\midrule
+Construction & two RSCs + interleaver & sparse $\vect H$, protograph + lifting & Kronecker kernel + frozen set\\
+Decoder & iterative BCJR (log-MAP) & BP / layered min-sum & SC, CA-SCL\\
+Parallelism & windows, limited & very high & tree-level; good for short blocks\\
+Best regime & medium blocks, low rates & long blocks, high rates and throughput & short blocks\\
+Error floor & interleaver-dependent & trapping sets; outer code if needed & low with CRC; ML-like\\
+Rate compatibility & puncturing & extension parity (NR) & puncturing/shortening\\
+Key standards & 3G, 4G, CCSDS, DVB-RCS & 5G data, Wi-Fi, DVB-S2, 10GBASE-T & 5G control and PBCH\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%======================================================================
+\section{Hybrid ARQ and rate-compatible codes}
+\label{sec:ch15:harq}
+%======================================================================
+
+A wireless link adapts its modulation and coding scheme to a channel estimate that is always a little
+out of date (Chapter~\ref{ch:channels}). Some blocks will fail. \term{Hybrid automatic repeat
+request} (HARQ) combines forward error correction with retransmission: if the CRC fails, the receiver
+sends a negative acknowledgement, the transmitter sends more, and the receiver \emph{combines} the
+new transmission with the soft information it kept from the old one. There are two ways to combine.
+\begin{itemize}
+\item \textbf{Chase combining} (CC): the retransmission is identical, and the receiver adds the LLRs
+of the two copies. This is maximal-ratio combining: the SNR adds, but the code rate is unchanged.
+\item \textbf{Incremental redundancy} (IR): the retransmission carries \emph{new} parity bits, so the
+receiver ends up with a longer, lower-rate codeword. Information-theoretically, the mutual
+information of the transmissions adds, which is always at least as good as adding SNRs, and much
+better at high SNR, where the logarithm of an SNR sum grows slowly.
+\end{itemize}
+IR needs a \term{rate-compatible} code family: a mother code of low rate whose higher-rate members
+are obtained by puncturing, such that the bits sent in the first transmission are a subset of the
+mother codeword and later transmissions reveal more of it. Turbo codes provide it by puncturing the
+parity streams; the NR LDPC base graphs provide it by construction (each extension row adds a parity
+bit); polar codes are harder, and NR does not use HARQ for polar-coded control channels.
+
+The circular buffer is the mechanism. The coded bits are written once into a buffer, and each
+transmission reads a contiguous segment starting at its redundancy version's position, wrapping
+round as necessary. In NR the usual redundancy version sequence is 0, 2, 3, 1: RV0 contains mostly
+systematic bits (which gives the best first-transmission performance), RV2 and RV3 carry fresh parity,
+and RV1 is sent last. LTE and NR terminals run several HARQ processes in parallel (8 in LTE FDD, up to 16
+in NR) so that the link stays busy while each process waits for its acknowledgement.
+
+\mdcfig{ch15_harq}{Throughput of HARQ on a Rayleigh block-fading channel (independent fade per
+transmission), with a first-transmission rate of 4\,bits per channel use and up to four transmissions,
+using an idealised capacity-based decoding model: a block is decoded once the accumulated mutual
+information (IR) or the information at the accumulated SNR (CC) exceeds the rate. Plain ARQ discards
+failed transmissions. 40\,000 channel realisations per point.}
+
+Figure~\ref{fig:ch15_harq} shows the difference on a fading channel. At an average SNR of 10\,dB,
+plain ARQ delivers about 0.9 bits per channel use, Chase combining about 1.6 and incremental redundancy
+about 2.0. In effect, IR lets the transmitter pick an aggressive initial rate and lets the channel
+decide, after the fact, how much redundancy was needed: it achieves a rate close to the mutual
+information of the realised channel without knowing it in advance.
+
+\begin{worked}[Chase combining versus incremental redundancy]
+A codeword carrying 1.5 bits per transmitted symbol fails on its first transmission at an SNR of
+2\,dB. The retransmission arrives at the same SNR. Using the idealised rule that a codeword is decoded
+when the available mutual information exceeds the information it carries, does either scheme
+succeed?
+
+At 2\,dB ($\gamma=1.58$), one transmission provides $\log_2(1+1.58)=1.37$ bits per symbol, less than
+1.5: failure. With \textbf{Chase combining} the two identical copies add their SNRs to $3.17$, giving
+$\log_2(1+3.17)=2.06$ bits per symbol position, more than 1.5: success. With \textbf{incremental
+redundancy} each symbol position of the original codeword now has two transmitted symbols carrying
+different parity, so the available information is $2\times1.37=2.74$ bits per original position,
+against the 1.5 required: success with a much larger margin, which a real system could have used by
+starting at a higher rate. At low SNR the two schemes are nearly equivalent, because
+$\log_2(1+2\gamma)\approx2\log_2(1+\gamma)$ when $\gamma\ll1$; at high SNR incremental redundancy is
+far better, since doubling the SNR adds only one bit, whereas doubling the length doubles the bits.
+\end{worked}
+
+%======================================================================
+\section{Spatially coupled LDPC codes}
+\label{sec:ch15:sc}
+%======================================================================
+
+For a regular LDPC ensemble, BP decoding has a threshold strictly below what the same code could
+achieve with optimal (MAP) decoding: for the $(3,6)$ ensemble on the BEC, 0.4294 against 0.4881.
+Irregular designs close the gap to capacity by shaping the degree distribution, but they are
+delicate: degree-2 nodes cause error floors, high degrees cause long iterations. In 1999 Alberto
+Jim\'enez Felstr\"om and Kamil Zigangirov introduced \emph{LDPC convolutional codes}, and in 2011
+Shrinivas Kudekar, Tom Richardson and R\"udiger Urbanke explained why they are so good, in one of the
+most striking results of modern coding theory.
+
+A \term{spatially coupled} LDPC code is built from $L$ copies of a protograph placed side by side in a
+chain, with the edges of each copy spread over its neighbours within a window of width $w$. The
+codes at the two ends of the chain have more checks than variables (lower rate), and that small,
+local excess of information acts as a seed. In density evolution, the bits at the ends are decoded
+first, and a \emph{decoding wave} then travels inward along the chain
+(Figure~\ref{fig:ch15_spatial_coupling}a), decoding the middle even at erasure probabilities where an
+uncoupled code would be stuck. Kudekar, Richardson and Urbanke proved \term{threshold saturation}: as
+$L$ and $w$ grow, the BP threshold of the coupled ensemble converges to the MAP threshold of the
+underlying uncoupled ensemble. Since the MAP thresholds of regular ensembles approach capacity as the
+degrees grow, coupled regular codes achieve capacity on the BEC, and (as later proved) on all binary
+memoryless symmetric channels, with BP decoding.
+
+\mdcfig{ch15_spatial_coupling}{Spatial coupling on the BEC, by density evolution of the $(3,6,L,w=3)$
+coupled ensemble. (a) Erasure probability along a chain of $L=64$ positions at $\varepsilon=0.47$
+(above the uncoupled BP threshold), plotted every 80 iterations from dark to light: the ends decode
+first and two waves move inward. (b) The coupled BP threshold versus chain length, compared with the
+uncoupled BP threshold, the MAP threshold of the $(3,6)$ ensemble and the Shannon limit $1-R_L$ of the
+coupled code, whose rate $R_L$ suffers a loss of order $1/L$ from the termination.}
+
+The price is a rate loss of order $w/L$ from the termination, which vanishes as the chain grows
+(Figure~\ref{fig:ch15_spatial_coupling}b: already at $L=16$ the threshold has saturated at 0.488), and
+a long effective block length. Coupled codes are decoded with a \emph{sliding window} that processes a
+few positions at a time, so the latency is set by the window, not the chain. They are attractive where
+streams are long and continuous: optical transport, where several high-performance proposals are
+spatially coupled or ``convolutional'' in structure, and the staircase codes of the next section,
+which are a hard-decision cousin of the same idea.
+
+\begin{keyidea}[Threshold saturation]
+A regular LDPC code is held back not by its structure but by the inability of BP to get started.
+Give it a small amount of side information at a boundary and couple its copies so that knowledge can
+propagate, and BP achieves what an optimal decoder could. The wave picture---a front of known bits
+travelling into a sea of unknown ones---is worth remembering; it reappears in coded random access and
+in compressed sensing.
+\end{keyidea}
+
+%======================================================================
+\section{Beyond radio: optical fibre and storage}
+\label{sec:ch15:optics}
+%======================================================================
+
+\subsection{Optical transport}
+
+Optical links have requirements unlike radio's: output bit error rates of $10^{-15}$ or below,
+line rates of 100\,Gb/s to more than 1\,Tb/s per wavelength, and decoder power budgets of a few watts.
+The history of optical FEC is a sequence of generations (Chapter~\ref{ch:wireline} gives the system
+context):
+\begin{itemize}
+\item \textbf{First generation:} the Reed--Solomon RS(255,239) code of ITU-T G.709, with 6.7\%
+overhead and hard-decision decoding, giving about 6\,dB of net coding gain at $10^{-15}$.
+\item \textbf{Second generation:} concatenated and product-like hard-decision codes (ITU-T G.975.1),
+gaining 8 to 9\,dB at the same overhead.
+\item \textbf{Staircase codes} (Smith, Kschischang and co-workers, 2012) arrange the data in a chain
+of square blocks, each block's rows forming BCH codewords together with the transposed previous
+block. Each bit is protected by two component codes, as in a product code, and decoding proceeds
+iteratively along the chain, a hard-decision cousin of spatial coupling. With 6.7\% overhead
+(rate 239/255) they gain about 9.4\,dB at $10^{-15}$, within roughly 0.5\,dB of the hard-decision
+capacity, and are standardised in ITU-T G.709.2.
+\item \textbf{Soft-decision FEC} for coherent transceivers (Chapter~\ref{ch:wireline}): the OIF 400ZR
+standard uses \emph{CFEC}, a concatenation of an inner soft-decision Hamming code and an outer
+staircase code (about 15\% overhead), and the open \emph{oFEC} of OpenROADM and OpenZR+ uses a
+block-based, soft-decision decoded design that tolerates a pre-FEC BER of roughly $2\times10^{-2}$.
+Long-haul proprietary transceivers use soft-decision LDPC or spatially coupled codes with 15 to 27\%
+overhead.
+\end{itemize}
+The engineering constraint is energy: at 400\,Gb/s, a decoder that spends 10\,pJ per bit dissipates
+4\,W, a large fraction of a pluggable module's budget. That pushes optical FEC towards hard or
+``soft-aided'' decoding of algebraic component codes, where it can be had.
+
+\subsection{Flash memory and hard drives}
+
+NAND flash stores data as charge levels in cells: 2 levels per cell for SLC, 4 for MLC, 8 for TLC and
+16 for QLC. As the number of levels grew and the cells shrank, raw bit error rates rose to around
+$10^{-3}$ or worse near end of life, and the BCH codes of early solid-state drives ran out of strength.
+From the early 2010s, SSD controllers adopted LDPC codes, typically quasi-cyclic with codeword lengths
+of a few kilobytes and rates around 0.9. Soft information is obtained by reading the page several
+times with shifted reference voltages: each extra read refines the LLR of each cell's bits, at a cost
+in latency, so controllers use hard-decision (bit-flipping or min-sum) decoding first and fall back
+to soft reads only when it fails. Hard-disk drives made the same transition earlier: after PRML and
+NPML detection (Chapter~\ref{ch:baseband}), read channels moved in the late 2000s to iterative
+detection, exchanging soft information between a soft-output detector for the recording channel and
+an LDPC decoder---turbo equalization (Chapter~\ref{ch:equalization}) inside every hard drive.
+
+\begin{inpractice}[Where the iterative decoders are]
+A modern smartphone contains, at least, a 5G LDPC decoder and polar decoder, an LTE turbo decoder, a
+Wi-Fi LDPC decoder and the LDPC decoder in its flash controller. A data-centre server adds LDPC in its
+SSDs and soft-decision FEC in its optical transceivers. Satellite TV receivers decode DVB-S2 LDPC
+codes; deep-space ground stations decode CCSDS turbo and LDPC codes. The ideas of this chapter run
+on billions of chips, and most of them use the min-sum check node.
+\end{inpractice}
+
+%======================================================================
+\section{Outlook}
+\label{sec:ch15:outlook}
+%======================================================================
+
+Capacity-approaching codes are, for long blocks, a solved problem; the open questions are elsewhere.
+\begin{itemize}
+\item \textbf{Short blocks and ultra-reliability.} Machine-type and ultra-reliable low-latency
+communication (URLLC) need blocks of tens to hundreds of bits at error rates of $10^{-5}$ to
+$10^{-9}$, where the finite-length penalty dominates. CA-SCL polar codes with large lists,
+polarization-adjusted convolutional (PAC) codes (Ar\i kan, 2019), and short codes with near-ML
+decoding are all close to the normal-approximation bound there.
+\item \textbf{Universal decoders.} \term{Guessing random additive noise decoding} (GRAND; Duffy, Li
+and M\'edard, 2019) inverts the usual approach: it guesses the noise pattern, from most likely to
+least likely, subtracts it, and checks whether the result is a codeword. It works for \emph{any}
+short, high-rate code (including CRCs alone), is ML for well-ordered guesses, and has spawned
+soft-input variants (ORBGRAND) and hardware prototypes.
+\item \textbf{Learned decoders.} Neural BP (Nachmani, Be'ery and Burshtein, 2016) unrolls belief
+propagation into a network and learns a weight for every edge and iteration, recovering some of the
+loss caused by short cycles in short codes---effectively a generalisation of normalised min-sum.
+Fully learned encoders and decoders have reproduced classical performance in some settings, and
+learned components are being studied for 6G (see the final chapter).
+\item \textbf{Coding with modulation and shaping.} Probabilistic amplitude shaping
+(Chapter~\ref{ch:modulation}) combined with LDPC codes approaches the full Gaussian capacity rather than
+the uniform-QAM capacity, and is already in optical transceivers and the newest Wi-Fi and DVB
+proposals.
+\end{itemize}
+
+%======================================================================
+\section{Summary}
+%======================================================================
+
+\begin{itemize}
+\item Modern decoders trade in log-likelihood ratios. Independent evidence adds; the XOR of bits
+combines by the box-plus (tanh) rule, well approximated by sign-times-minimum. Only
+\emph{extrinsic} information may be passed between cooperating decoders.
+\item The BCJR algorithm computes exact bit APPs on a trellis by forward and backward recursions.
+In the log domain it uses the Jacobian logarithm (log-MAP); dropping the correction gives max-log-MAP,
+about 0.3--0.5\,dB worse, most of which an extrinsic scaling of about 0.7 recovers.
+\item Turbo codes concatenate two recursive convolutional codes through an interleaver and decode
+iteratively. Recursion gives the interleaver gain; the interleaver (QPP in LTE) determines the error
+floor; the constituent codes determine the waterfall. EXIT charts predict the threshold as the SNR
+at which a tunnel opens between the two decoders' transfer curves.
+\item LDPC codes are defined by sparse parity-check matrices and decoded by belief propagation on the
+Tanner graph: sums at variable nodes, box-plus at check nodes. Min-sum with normalisation or offset
+is the practical check rule; layered scheduling halves the iterations. Density evolution computes
+the threshold of an ensemble, in closed form on the BEC; irregular degree distributions bring it to
+within hundredths of a decibel of capacity.
+\item Practical LDPC codes are protographs lifted with circulants. 5G NR uses two rate-compatible
+base graphs with 51 lifting sizes; Wi-Fi, DVB-S2, 10GBASE-T, CCSDS and SSDs use QC or IRA codes.
+Error floors come from trapping sets and are handled by design, decoder tweaks or an outer code.
+\item Polar codes polarize $N$ channel uses into nearly perfect and nearly useless bit-channels,
+freeze the bad ones and decode by successive cancellation in $O(N\log N)$. CRC-aided list decoding
+makes them the best practical codes for short blocks, and they carry 5G's broadcast and control
+channels.
+\item The normal approximation is the yardstick at finite length: good codes sit half a decibel to a
+decibel from it. HARQ with incremental redundancy uses rate-compatible codes to adapt the rate after
+the fact. Spatial coupling achieves capacity with BP by threshold saturation; staircase and
+soft-decision codes serve optics, and LDPC codes protect flash memory.
+\end{itemize}
+
+\begin{labbox}[Turbo, LDPC and polar codes in Python]
+\raggedright
+Two notebooks accompany this chapter.
+\begin{itemize}
+\item \lab{moderncomms-labs/labs/lab09\_ldpc\_polar.py} builds a (3,6) LDPC code by progressive edge
+growth with \texttt{commlib.LDPCCode} and counts its 4-cycles; decodes it with sum-product and
+normalised min-sum and plots the waterfall; compares block lengths 96, 576 and 1152; shows the
+distribution of iterations with early stopping (interactive); plots channel polarization on the BEC
+with \texttt{commlib.PolarCode}; and compares SC with CRC-aided SC list decoding ($L=2$ and 8, CRC-11)
+at $N=256$.
+\item \lab{moderncomms-labs/labs/lab23\_turbo\_exit.py} (planned) uses the new module
+\texttt{commlib/turbo.py} to build the LTE turbo encoder with a QPP interleaver, verify the BCJR
+decoder against brute force on a short block, plot BER iteration by iteration, compare log-MAP with
+max-log-MAP, measure EXIT curves and a decoding trajectory, and run density evolution on the BEC for
+regular, irregular and spatially coupled ensembles.
+\end{itemize}
+Every figure in this chapter is produced by \texttt{book/figscripts/ch15\_figs.py}, which also
+contains batched LDPC decoders (flooding and layered; sum-product, min-sum and its corrections), a
+batched CA-SCL polar decoder with Gaussian-approximation construction, and the BI-AWGN normal
+approximation---good starting points for the simulation problems below.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item Show that for BPSK in Gaussian noise the channel LLR is $2y/\sigma^2$ and that, given $x=+1$, it
+is Gaussian with variance equal to twice its mean. Show that any LLR $L$ satisfies the consistency
+condition $p(L\,|\,x=+1)=e^{L}p(-L\,|\,x=+1)$, and that a Gaussian density satisfies it only if its
+variance is twice its mean.
+\item Prove the box-plus rule~\eqref{eq:ch15:boxplus} and the exact identity
+\[L_1\boxplus L_2=\operatorname{sign}(L_1)\operatorname{sign}(L_2)\min(|L_1|,|L_2|)+\ln(1+e^{-|L_1+L_2|})-\ln(1+e^{-|L_1-L_2|}).\]
+What is the largest error of the min-sum approximation, and for which inputs does it occur?
+\item For the 4-state RSC with feedback $1+D+D^2$ and feed-forward $1+D^2$, draw the trellis and
+find the lowest-weight input sequences that return the encoder to state 0. Explain why weight-1
+inputs never do.
+\item Run three steps of the BCJR algorithm by hand for the code of the previous problem with
+$K=2$ information bits and two tail bits, given channel LLRs of your choice, and check the result
+against brute-force enumeration of the four codewords.
+\item Verify that the QPP $\pi(i)=(31i+64i^2)\bmod1024$ is a permutation, and show that it is
+contention-free for 8 parallel windows of 128: for every $i<128$ the eight values
+$\lfloor\pi(i+128j)/128\rfloor$, $j=0,\dots,7$, are distinct.
+\item Using~\eqref{eq:ch15:floor}, estimate the error floor at $\ebno=2.5$\,dB of a rate-1/3 turbo
+code with $K=6144$ whose lightest codewords are three of weight 22, each from a weight-2 input. How
+much would doubling $K$ (with the same low-weight structure) lower it?
+\item An LDPC ensemble has $\lambda(x)=0.25x+0.35x^2+0.4x^5$ and $\rho(x)=0.5x^6+0.5x^7$. Find its
+design rate and its threshold on the BEC from~\eqref{eq:ch15:becthr}. Compare with capacity.
+\item For a degree-4 check node with incoming LLRs $(+3.0,-1.2,+0.4,+2.5)$, compute all four outgoing
+messages with the tanh rule, with min-sum, and with normalised min-sum ($\alpha=0.8$). Which
+outgoing message is most affected by the approximation, and why?
+\item Show that a 4-cycle in a QC-LDPC code lifted from shifts $s_{ij}$ exists if and only if
+$s_{i_1j_1}-s_{i_1j_2}+s_{i_2j_2}-s_{i_2j_1}\equiv0\pmod Z$. Find all 4-cycles of the lifted matrix in
+Figure~\ref{fig:ch15_lifting}.
+\item A 5G PUSCH transport block has $A=20\,000$ bits at $R=0.8$. Determine the base graph, the CRC
+lengths, the number of code blocks, $K_b$, the lifting size and the number of filler bits per code
+block (TS 38.212, Section 5.2.2).
+\item For the BEC with $\varepsilon=0.3$ and $N=8$, compute all eight bit-channel erasure
+probabilities. Choose the best four for a $K=4$ code and compute the code's block erasure
+probability under SC decoding (union bound).
+\item The length-4 polar code of the worked example receives the LLRs
+\[\vect L=(-0.5,\,+1.2,\,-1.8,\,-0.3).\]
+Decode it by SC, and then by SCL with $L=2$ using the path
+metric~\eqref{eq:ch15:pm}. Do the two decoders agree?
+\item \emph{(Simulation)} Using the module \texttt{commlib.turbo}, reproduce Figure~\ref{fig:ch15_turbo_iters}
+for $K=512$, and plot the average number of iterations needed when decoding stops as soon as a CRC-24
+passes. Repeat with max-log-MAP and an extrinsic scaling factor swept from 0.5 to 1.
+\item \emph{(Simulation)} Implement the Gaussian-approximation density evolution~\eqref{eq:ch15:ga}
+for $(d_v,d_c)$-regular ensembles and find the BI-AWGN thresholds of $(3,6)$, $(4,8)$ and $(3,4)$.
+Compare with Figure~\ref{fig:ch15_de_awgn} and with the exact value 0.881 for $(3,6)$.
+\item \emph{(Simulation)} Using the batched polar decoder in \texttt{ch15\_figs.py}, compare the
+FER of $(512,256)$ polar codes built with the Bhattacharyya construction at three design SNRs and with
+the GA construction. How sensitive is CA-SCL ($L=8$) to the design SNR?
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item T.~Richardson and R.~Urbanke, \emph{Modern Coding Theory}, Cambridge University Press, 2008.
+The definitive treatment of LDPC and turbo codes, density evolution, EXIT charts and the BEC; rigorous
+and beautifully organised.
+\item W.~E.~Ryan and S.~Lin, \emph{Channel Codes: Classical and Modern}, Cambridge University Press,
+2009. An engineering text covering BCJR, turbo, LDPC (including QC and protograph designs) and
+iterative decoding in detail.
+\item C.~Berrou, A.~Glavieux and P.~Thitimajshima, ``Near Shannon limit error-correcting coding and
+decoding: Turbo-codes,'' \emph{Proc.\ IEEE ICC}, Geneva, 1993, pp.~1064--1070. The paper that started it.
+\item L.~R.~Bahl, J.~Cocke, F.~Jelinek and J.~Raviv, ``Optimal decoding of linear codes for minimizing
+symbol error rate,'' \emph{IEEE Trans.\ Information Theory}, vol.~20, no.~2, 1974.
+\item R.~G.~Gallager, \emph{Low-Density Parity-Check Codes}, MIT Press, 1963; and D.~J.~C.~MacKay,
+``Good error-correcting codes based on very sparse matrices,'' \emph{IEEE Trans.\ Information Theory},
+vol.~45, no.~2, 1999, the full account of the rediscovery.
+\item S.~ten Brink, ``Convergence behavior of iteratively decoded parallel concatenated codes,''
+\emph{IEEE Trans.\ Communications}, vol.~49, no.~10, 2001. The EXIT chart.
+\item T.~Richardson, A.~Shokrollahi and R.~Urbanke, ``Design of capacity-approaching irregular
+low-density parity-check codes,'' \emph{IEEE Trans.\ Information Theory}, vol.~47, no.~2, 2001.
+\item E.~Ar\i kan, ``Channel polarization: a method for constructing capacity-achieving codes for
+symmetric binary-input memoryless channels,'' \emph{IEEE Trans.\ Information Theory}, vol.~55, no.~7,
+2009; and I.~Tal and A.~Vardy, ``List decoding of polar codes,'' \emph{IEEE Trans.\ Information
+Theory}, vol.~61, no.~5, 2015.
+\item T.~Richardson and S.~Kudekar, ``Design of low-density parity check codes for 5G New Radio,''
+\emph{IEEE Communications Magazine}, vol.~56, no.~3, 2018; and V.~Bioglio, C.~Condo and I.~Land,
+``Design of polar codes in 5G New Radio,'' \emph{IEEE Communications Surveys \& Tutorials}, vol.~23,
+no.~1, 2021. Readable accounts of the two NR codes by people involved in their design.
+\item 3GPP TS 38.212, \emph{NR; Multiplexing and channel coding}, and TS 36.212 for LTE. The
+authoritative definitions of the NR LDPC and polar codes and the LTE turbo code, with rate matching.
+\item S.~Kudekar, T.~Richardson and R.~Urbanke, ``Threshold saturation via spatial coupling: why
+convolutional LDPC ensembles perform so well over the BEC,'' \emph{IEEE Trans.\ Information
+Theory}, vol.~57, no.~2, 2011.
+\item Y.~Polyanskiy, H.~V.~Poor and S.~Verd\'u, ``Channel coding rate in the finite blocklength
+regime,'' \emph{IEEE Trans.\ Information Theory}, vol.~56, no.~5, 2010. The normal approximation used
+as the yardstick in Section~\ref{sec:ch15:compare}.
+\end{itemize}
