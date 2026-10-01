@@ -54,68 +54,56 @@ comms-textbook/
 `book/figscripts/figstyle.py` imports `commlib` via a relative path
 (`../../moderncomms-labs`), so keep the two folders side by side.
 
-## 3. Status at handoff (30 Sep 2026)
+## 3. Status (1 Oct 2026) — first complete edition
 
-### Book — 25 chapters planned, 7 written (~106 pages)
+### Book — COMPLETE: 25 chapters + 2 appendices + bibliography + index (~1,300 pages)
 
 | Ch | Label | Title | Status |
 |----|-------|-------|--------|
-| 1 | ch:history | The Story of Telecommunication | written (~16 pp) — expand |
-| 2 | ch:signals | Signals, Spectra and Systems | written (~12 pp) — expand |
-| 3 | ch:noise | Random Signals and Noise | written (~10 pp) — expand |
-| 4 | ch:analog | Analog Modulation and the Classic Radio (AM, SSB, FM, stereo, superhet) | written (~16 pp) — expand |
-| 5 | ch:pcm | Sampling, Quantization and Digital Telephony (PCM, companding, T1, sigma-delta) | written (~14 pp) |
-| 6 | ch:dsp | Digital Filters and Multirate Processing (FIR/IIR, polyphase, CIC, NCO) | written (~12 pp) |
-| 7 | ch:sdr | The Radio Transceiver and the Software-Defined Radio | written (~10 pp) |
-| 8 | ch:baseband | Baseband Transmission and Pulse Shaping | written (44 pp) |
-| 9 | ch:modulation | Digital Modulation and Optimal Detection (PSK/QAM/FSK/MSK/GMSK, noncoherent) | written (40 pp) |
-| 10 | ch:sync | Synchronization (carrier, timing, frame; PLL theory) | written (43 pp) |
-| 11 | ch:channels | The Wireless Channel (propagation, link budgets, fading, 3GPP models) | written (47 pp) |
-| 12 | ch:equalization | Equalization (ZF/MMSE/LMS/RLS/CMA/DFE/MLSE, turbo equalization) | written (41 pp) |
-| 13 | ch:infotheory | Information Theory | written (47 pp) |
-| 14 | ch:classiccodes | Classical Codes (Hamming, cyclic/CRC, BCH, Reed-Solomon, convolutional, Viterbi) | todo |
-| 15 | ch:moderncodes | Turbo, LDPC and Polar Codes | todo |
-| 16 | ch:sourcecoding | Source Coding: voice, audio, image, video | todo |
-| 17 | ch:ofdm | OFDM and Multicarrier | todo |
-| 18 | ch:spreadspectrum | Spread Spectrum, CDMA and GNSS/GPS | todo |
-| 19 | ch:mimo | MIMO and Antenna Arrays | todo |
-| 20 | ch:multipleaccess | Multiple Access and the Cellular Concept | todo |
-| 21 | ch:cellular | Cellular Generations: AMPS to 5G | todo |
-| 22 | ch:wifi | Wi-Fi, Bluetooth and IoT (LoRa, Zigbee, NB-IoT) | todo |
-| 23 | ch:satellite | Satellite Communications (orbits, link budgets, transponders, DVB-S2, Telstar to Starlink, NTN) | written (45 pp) |
-| 24 | ch:wireline | Wireline and Optical (telephone plant, DSL, cable/DOCSIS, Ethernet SerDes, fibre, coherent optics) | todo |
-| 25 | ch:sixg | The Road to 6G (ISAC, OTFS/AFDM, AI-native PHY, NTN) | todo |
-| A,B | appA, appB | Math reference; Using the labs and GNU Radio (preface promises Appendix B) | todo |
-| — | references | Bibliography | todo |
+| 1 | ch:history | The Story of Telecommunication | done (~49 pp), fact-checked |
+| 2 | ch:signals | Signals, Spectra and Systems | done (~49 pp), fact-checked |
+| 3 | ch:noise | Random Signals and Noise | done (~50 pp), fact-checked |
+| 4 | ch:analog | Analog Modulation and the Classic Radio | done (~53 pp), fact-checked |
+| 5 | ch:pcm | Sampling, Quantization and Digital Telephony | done (~49 pp), fact-checked |
+| 6 | ch:dsp | Digital Filters and Multirate Processing | done (~52 pp), fact-checked |
+| 7 | ch:sdr | The Radio Transceiver and the Software-Defined Radio | done (~46 pp), fact-checked |
+| 8 | ch:baseband | Baseband Transmission and Pulse Shaping | done (44 pp), fact-checked |
+| 9 | ch:modulation | Digital Modulation and Optimal Detection | done (40 pp), fact-checked |
+| 10 | ch:sync | Synchronization | done (43 pp), fact-checked |
+| 11 | ch:channels | The Wireless Channel | done (45 pp), fact-checked |
+| 12 | ch:equalization | Equalization | done (41 pp), fact-checked |
+| 13 | ch:infotheory | Information Theory | done (46 pp), fact-checked |
+| 14 | ch:classiccodes | Classical Error-Control Codes | done (50 pp), fact-checked |
+| 15 | ch:moderncodes | Turbo, LDPC and Polar Codes | done (47 pp), fact-checked |
+| 16 | ch:sourcecoding | Source Coding: Voice, Audio, Images and Video | done (54 pp), fact-checked |
+| 17 | ch:ofdm | OFDM and Multicarrier Transmission | done (45 pp), fact-checked |
+| 18 | ch:spreadspectrum | Spread Spectrum, CDMA and Satellite Navigation | done (49 pp), fact-checked |
+| 19 | ch:mimo | MIMO and Antenna Arrays | done (45 pp), fact-checked |
+| 20 | ch:multipleaccess | Multiple Access and the Cellular Concept | done (47 pp), fact-checked |
+| 21 | ch:cellular | Cellular Generations: From AMPS to 5G | done (57 pp), fact-checked |
+| 22 | ch:wifi | Wi-Fi, Bluetooth and the Internet of Things | done (57 pp), fact-checked |
+| 23 | ch:satellite | Satellite Communications | done (45 pp), fact-checked |
+| 24 | ch:wireline | Wireline and Optical Communications | done (49 pp), fact-checked |
+| 25 | ch:sixg | The Road to 6G | done (46 pp), fact-checked |
+| A | appA | Mathematical Reference | done (~32 pp) |
+| B | appB | Using the Companion Labs | done (~24 pp) |
+| — | references | References (387 entries, generated by book/tools/bib/gen.py) | done |
 
-Existing chapters already `\ref` the planned labels above (55 forward references resolve
-automatically once those chapters exist — keep the labels exactly).
+Every chapter: chapterintro, history/inpractice/keyidea/pitfall/worked boxes, labbox naming exact
+lab files, 15–18 problems, annotated Further Reading. Fact-check passes used web search where
+available; residual "approximately"/"reportedly" hedges mark items not verified against primary sources.
 
-**Length target:** existing chapters are 10–16 pages; Jon wants textbook length. Aim for
-**25–40 pages per chapter**, then go back and deepen Chapters 1–7 to the same standard.
-Target total: 700+ pages.
+**Possible future work** (none required): trim the longest chapters (21, 22, 16 are 54–57 pp) if a
+shorter print edition is wanted; re-verify hedged standards numbers as 3GPP/IEEE documents evolve
+(6G timeline in Ch 25 is stated as of Sept 2026); add GNU Radio flowgraphs for more chapters.
 
-### Planned outline for Chapter 8 (figures already generated)
-1. From bits to waveforms: the PAM model, symbol vs bit rate
-2. Line codes: NRZ, RZ, Manchester, AMI/B8ZS/HDB3, 4B5B, 8b/10b, 64b/66b, 128b/130b, scramblers (fig ch08_linecodes)
-3. Power spectral density of PAM signals (spectral lines from nonzero mean)
-4. ISI and the Nyquist criterion; raised cosine and RRC (figs ch08_isi, ch08_raised_cosine)
-5. The matched filter: Cauchy–Schwarz derivation, correlator equivalence (fig ch08_matched_filter)
-6. Binary detection in AWGN: antipodal vs orthogonal vs on-off (fig ch08_ber_binary)
-7. Eye diagrams: anatomy, jitter, bathtub curves, SerDes compliance masks (figs ch08_eyes, ch08_eye_anatomy, ch08_timing_sensitivity)
-8. Multilevel PAM: PAM-4 in 400G Ethernet / PCIe 6.0 / GDDR (fig ch08_pam4)
-9. Partial response: duobinary, precoding, PRML in disk drives (fig ch08_duobinary)
-10. Faster-than-Nyquist signalling (brief); summary, problems, further reading
-
-### Labs — 12 exist, need expansion and polish
-Labs 01–12 in `moderncomms-labs/labs/` all execute cleanly (topics: baseband/IQ, modulation,
-pulse shaping, synchronization, channels, equalization, OFDM, convolutional codes, LDPC/polar,
-MIMO, air interfaces, frontiers). Jon wants them **expanded, cleaner and easier to use**.
-Ideas: a consistent header/objectives/"what you will see" block; a small shared widget/plot
-helper for a uniform look; more labs to match new chapters (analog AM/FM demodulation,
-superhet receiver sim, PCM/companding, multirate DSP, line codes/eye diagrams, spread
-spectrum/GPS acquisition, satellite link budget calculator, source coding, cellular system
-simulator); a lab index notebook; each chapter's `labbox` should name the exact lab file.
+### Labs — COMPLETE: 37 notebooks (lab00 index + labs 01–36), all execute
+`moderncomms-labs/LAB_QUEUE.md` lists every lab with chapter and spec (all done). Uniform template
+(commlib/labkit.py): header, objectives, roadmap, numbered sections, widgets, "Try it yourself"
+self-checks, key takeaways, hardware pointers. commlib modules (27+): filters, modulation, channel,
+sync, equalize, eqadv, ofdm, ofdmadv, coding, turbo, gf, blockcodes, infotheory, cpm, mimo,
+satellite, spread, linecodes, propagation, sourcecoding, cellular, iot, wireline, sixg, ltephy, rf,
+labkit, plotting, iq. `python book/tools/check_labs.py` verifies every lab named in the book exists.
 
 ## 4. Conventions (follow them — consistency matters in a 700-page book)
 
@@ -168,8 +156,9 @@ simulator); a lab index notebook; each chapter's `labbox` should name the exact 
 - **GNU Radio + NumPy 2:** distro GNU Radio packages are built against NumPy 1.x; a pip NumPy 2
   in the same Python breaks `from gnuradio import gr`. Use radioconda, or run flowgraphs with
   `PYTHONPATH=/usr/lib/python3/dist-packages`. The labs themselves work with NumPy 1.24+ or 2.x.
-- The LDPC PEG construction in `commlib/coding.py` is simplified and leaves a few 4-cycles
-  (lab 9 prints the count) — a good improvement task.
+- The LDPC PEG construction in `commlib/coding.py` was fixed (no 4-cycles; regression test).
+- Slow figure scripts cache Monte Carlo results in `book/figscripts/cache/` (ch12, ch15) and
+  `book/figscripts/_ch14_cache.npz`; delete a cache to force a full re-simulation (ch15 ≈ 50 min).
 - Monte Carlo curves in lab 9 floor at the simulation resolution (1e-3 FER); increase frame counts
   when running on a fast machine.
 - `figstyle.py` looks for TeX Gyre Pagella fonts under `/usr/share/texmf/...`; on macOS it falls
@@ -177,7 +166,7 @@ simulator); a lab index notebook; each chapter's `labbox` should name the exact 
 - A separate, older short-form version of the text lives in a Claude Doc from the chat; this LaTeX
   book supersedes it.
 
-## 6. Suggested first session in Claude Code
+## 6. Original first-session plan (completed)
 1. Run `./setup.sh`, then `cd book && ./build.sh figs` to confirm the environment reproduces the PDF.
 2. Write Chapter 8 from the outline above (figures exist). Build, render, review.
 3. Continue Chapters 9–12 (Part III), then Satellite (23), then the rest. After each chapter,
@@ -200,3 +189,6 @@ simulator); a lab index notebook; each chapter's `labbox` should name the exact 
   fact-check reviewers for Ch 8-16 and Ch 17-25+apps. Check their files build before relaunching.
   Still TODO: bibliography (book/chapters/references.tex, compile from all Further Reading), final full-build
   layout review, update Status table rows for ch14-25 (all written, 41-57 pp).
+- 2026-10-01 (Claude Code): finished everything — Ch 5-7 deepened, labs 23/26/27/29-36, fact-check
+  passes over all chapters (Ch 1-7, 8-16, 17-25+apps), 387-entry bibliography, top-level README,
+  final full build + figure regeneration check. First complete edition pushed.
