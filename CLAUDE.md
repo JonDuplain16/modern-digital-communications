@@ -213,3 +213,8 @@ labkit, plotting, iq. `python book/tools/check_labs.py` verifies every lab named
 - 2026-10-01 (Claude Code): finished everything — Ch 5-7 deepened, labs 23/26/27/29-36, fact-check
   passes over all chapters (Ch 1-7, 8-16, 17-25+apps), 387-entry bibliography, top-level README,
   final full build + figure regeneration check. First complete edition pushed.
+- 2026-10-01 (2nd edition, in progress): tooling + lab studio done; Labs 03, 14 rebuilt; Ch 8 and Ch 23
+  rewritten in new style (74-75 pp each, photos, ~1 visual/page). In flight at usage limit: Ch 1, 4, 9, 11
+  rewrites; lab conversions 01/35/33, 34/15/16, 17/36/13, 02/21/04, 05/22/06, 07/28/18. Not yet started:
+  Ch 2,3,5,6,7,10,12-22,24,25, App A/B rewrites; labs 08/20/09/23, 19/24/25, 10/29/26, 11/27/31, 12/32/30;
+  delete lab00 notebook + build_notebooks once all labs converted; final build + visual check + push.
