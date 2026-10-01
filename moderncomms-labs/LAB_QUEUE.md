@@ -18,3 +18,6 @@
 | 27 | lab27_lte_nr_phy.py | 21 | resource grid, PSS/SSS cell search, PDSCH chain |
 | 28 | lab28_ofdm_system.py | 17 | LMMSE/DFT/LS chest, Doppler+phase-noise ICI & CPE fix, coded OFDM ± BICM on EPA/ETU, clipping+filtering w/ Rapp PA ACLR/EVM, WOLA/f-OFDM spectra, DSL bit loading, OFDM radar range–Doppler (helpers in ch17_figs.py) |
 | 29 | lab29_arrays_beamforming.py | 19 | planar array + EIRP calc, beam squint PS vs TTD, MUSIC/MVDR DOA, NR Type I codebook + SSB sweep, hybrid precoding by OMP, LOS-MIMO spacing (helpers in ch19_figs.py) |
+| 30 | lab30_wireline_optical.py | 24 | loop loss & DSL rate vs reach, crosstalk/vectoring, fibre CD + DSP compensation, coherent DP-QPSK chain, OSNR budget |
+| 31 | lab31_wifi_ble_lora.py | 22 | 802.11 preamble detect/CFO/LTF chest, MAC efficiency + aggregation + rate anomaly, Minstrel-like RA, BLE GFSK + battery calc, 802.15.4 O-QPSK, LoRa mod/demod SER vs theory + ToA/duty/link budget, RFID range (commlib/iot.py) |
+| 32 | lab32_6g_waveforms.py | 25 | OTFS vs OFDM, near-field focusing, ISAC range-Doppler, RIS |
