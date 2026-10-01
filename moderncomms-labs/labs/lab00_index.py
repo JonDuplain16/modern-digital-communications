@@ -32,7 +32,7 @@
 # * The last cell prints the run time and your self-check score.
 #
 # All labs share the small library `commlib/` (modulation, filters, channels, synchronisation, equalisers, OFDM,
-# codes, MIMO, satellite links, line codes) and `commlib/labkit.py` (the common look, widgets and self-checks). The
+# codes, MIMO, satellite links, line codes, information theory, block codes, CPM, propagation, source coding, spread spectrum) and `commlib/labkit.py` (the common look, widgets and self-checks). The
 # library is short and written to be read: when a lab calls `cl.gardner_sync`, open `commlib/sync.py` and look.
 
 # %%
@@ -96,10 +96,17 @@ lk.check("LDPC encoder produces valid codewords", None, cond=code.syndrome_ok(cw
 # | 16 | `lab16_pcm_companding` | 5 | Aliasing, ZOH, SQNR, dither, μ-law/A-law, delta modulation, sigma-delta, T1 framing |
 # | 17 | `lab17_multirate_dsp` | 6 | FIR/IIR design, polyphase decimation/interpolation, CIC and compensation, NCO, multi-stage DDC |
 # | 18 | `lab18_satellite_link` | 23 | DTH and Ka link budgets, GEO look angles, LEO passes and Doppler, P.618 rain, ACM vs CCM, TWTA and APSK |
+# | 19 | `lab19_information_theory` | 13 | Entropy of English and images, Markov sources, Huffman and block coding, Blahut–Arimoto, hard vs soft BPSK, CM and BICM capacity of QAM, finite blocklength, water-filling and bit loading |
+# | 20 | `lab20_block_codes` | 14 | Hamming and syndrome decoding, (72,64) SECDED, CRC calculator and detection test, GF(2^m), BCH and Reed–Solomon step by step, erasures, burst interleaving |
+# | 21 | `lab21_cpm_evm` | 9 | MSK/GMSK/GFSK, 99% bandwidth, MSK as OQPSK and the Laurent receiver, differential and discriminator detection, PAPR CCDF, EVM signatures and budgets |
+# | 22 | `lab22_propagation_link_budget` | 11 | Antenna gain, Fresnel clearance and knife-edge, two-ray, Hata/COST-231/TR 38.901 and O2I, gas and rain, Jakes–Reudink coverage, link-budget planner |
+# | 24 | `lab24_source_coding` | 16 | Huffman and canonical codes, adaptive arithmetic coding, LPC analysis and vocoder, toy baseline JPEG, masking threshold and shaped noise |
+# | 25 | `lab25_spread_spectrum_gps` | 18 | m-sequences, Gold/Kasami and C/A codes, DSSS against a jammer, Rake, near–far and MUD, CDMA capacity, GPS acquisition, tracking, nav bits, position fix |
+# | 28 | `lab28_ofdm_system` | 17 | LS/DFT/LMMSE channel estimation, ICI from CFO, Doppler and phase noise, coded OFDM, CFR and PA (EVM/ACLR), WOLA and filtered OFDM, DMT bit loading, OFDM radar |
 #
 # **Suggested paths.** *A first course in digital communications:* 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8.
-# *Wireless systems:* 5 → 7 → 10 → 11 → 12. *Radio and DSP fundamentals:* 14 → 15 → 16 → 17 → 1.
-# *Wireline/SerDes:* 3 → 13 → 6. *Space:* 18 after 2, 5 and 8.
+# *Wireless systems:* 5 → 22 → 7 → 28 → 10 → 11 → 25 → 12. *Radio and DSP fundamentals:* 14 → 15 → 16 → 17 → 1 → 21.
+# *Information and coding:* 19 → 8 → 20 → 9 → 24. *Wireline/SerDes:* 3 → 13 → 6 → 28 (DMT). *Space and navigation:* 18 and 25 after 2, 5 and 8.
 #
 # The table below is generated from the notebooks themselves (title and the measured run time of the pre-built copy).
 

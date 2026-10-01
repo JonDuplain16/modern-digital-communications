@@ -1,12 +1,13 @@
 # Modern Digital Communications — Labs and SDR Examples
 
-Companion code for the textbook *Modern Digital Communications*. Eighteen interactive Python
+Companion code for the textbook *Modern Digital Communications*. Twenty-five interactive Python
 simulation labs (plus a start-here index), a small shared DSP library, and five GNU Radio 3.10
 flowgraphs for the Ettus USRP B200. **Start with `labs/lab00_index.ipynb`.**
 
 ```
-commlib/     shared library: modulation, filters, channels, sync, equalizers (+ eqadv), OFDM,
-             coding (Viterbi, LDPC, polar), MIMO, IQ file I/O, satellite links, line codes,
+commlib/     shared library: modulation, filters, channels, sync, equalizers (+ eqadv), OFDM (+ ofdmadv),
+             coding (Viterbi, LDPC, polar; blockcodes, gf), MIMO, IQ file I/O, satellite links, line codes,
+             information theory, CPM/EVM, propagation, source coding, spread spectrum/GNSS,
              and labkit (the common look-and-feel, widgets and self-checks used by every lab)
 labs/        labNN_*.ipynb (pre-executed, with figures) + labNN_*.py sources (jupytext percent format)
 gnuradio/    grNN_*.py hardware flowgraphs + grcommon.py helpers
@@ -52,6 +53,13 @@ graded **Exercises**. Run times below are for the full notebook on a desktop PC.
 | 16 | 5 | Sampling, ZOH, quantization, dither, μ-law/A-law, delta and sigma-delta, T1 | aliasing, delta-mod step | 2 s |
 | 17 | 6 | FIR/IIR design, polyphase, CIC + compensation, NCO, multi-stage DDC | FIR window vs Parks–McClellan | 2 s |
 | 18 | 23 | Satellite link budgets, GEO/LEO geometry and Doppler, P.618 rain, ACM vs CCM, TWTA | DTH budget, orbit explorer | 3 s |
+| 19 | 13 | Entropy of text and images, Huffman, Blahut–Arimoto, CM/BICM capacity, finite blocklength, water-filling | Markov source, block Huffman, constellation capacity, DSL loading | 5 s |
+| 20 | 14 | Hamming/SECDED, CRC calculator and detection test, GF(2^m), BCH and Reed–Solomon step by step, bursts and interleaving | syndrome decoder, CRC, GF table, RS errors/erasures, interleaver depth | 9 s |
+| 21 | 9 | MSK/GMSK/GFSK, 99% bandwidth, Laurent receiver vs differential/discriminator, PAPR CCDF, EVM signatures and budget | BT and h, GMSK eye, impairment explorer | 33 s |
+| 22 | 11 | Antennas, Fresnel/knife-edge, two-ray, Hata/COST-231/TR 38.901 + O2I, gas and rain, Jakes–Reudink coverage, link-budget planner | path profile, models, coverage planner | 13 s |
+| 24 | 16 | Huffman/canonical, adaptive arithmetic coder, LPC vocoder, toy JPEG, masking threshold and shaped noise | arithmetic orders, LPC pitch, JPEG quality, noise offset | 18 s |
+| 25 | 18 | m-sequences/Gold/Kasami/C/A, DSSS vs jammer, Rake, near–far + MUD, IS-95 capacity, GPS acquisition, tracking, position fix | jammer, near–far, acquisition grid, DOP | 8 s |
+| 28 | 17 | LS/DFT/LMMSE channel estimation, CFO/Doppler/phase-noise ICI, coded OFDM, CFR + PA (EVM/ACLR), WOLA/f-OFDM, DMT bit loading, OFDM radar | pilots, phase noise, CFR/PA, spectra, DSL reach, radar | 25 s |
 
 ### Writing or editing a lab
 Edit `labs/labNN_*.py` (jupytext percent format: `# %%` code cells, `# %% [markdown]` text cells), then

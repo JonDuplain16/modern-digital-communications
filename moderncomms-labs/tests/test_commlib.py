@@ -211,6 +211,104 @@ def test_mimo():
     assert np.allclose(cl.alamouti_decode(r, h), s)
 
 
+def test_infotheory():
+    from commlib import infotheory as it
+    assert abs(it.entropy([0.5, 0.25, 0.125, 0.125]) - 1.75) < 1e-12
+    assert abs(it.markov_entropy_rate([[0.9, 0.1], [0.3, 0.7]]) - 0.572) < 1e-3
+    code = it.huffman_code(dict(a=0.4, b=0.2, c=0.2, d=0.1, e=0.1))
+    assert abs(sum(p * len(code[s]) for s, p in dict(a=0.4, b=0.2, c=0.2, d=0.1, e=0.1).items()) - 2.2) < 1e-12
+    C, p, _, _ = it.blahut_arimoto(np.array([[1.0, 0.0], [0.5, 0.5]]), 5000)
+    assert abs(C - float(it.z_capacity(0.5))) < 1e-9
+    assert abs(it.biawgn_capacity(1.0) - 0.7215) < 1e-3                # Chapter 13 worked example
+    assert abs(it.qam_cm(16, 10.0) - it.mi_2d_mc(cl.get_constellation("16qam"), 10.0, 40000)) < 0.02
+    assert abs(it.fbl_snr_penalty_db(512, 0.5, 1e-5) - 1.83) < 0.02      # URLLC example
+    pw, mu = it.waterfill(np.array([0.1, 0.2, 0.5, 1.0]), 1.0)
+    assert abs(pw.sum() - 1.0) < 1e-12 and np.all(pw >= 0)
+
+
+def test_blockcodes():
+    from commlib import blockcodes as bc
+    h = bc.hamming_code(3)
+    c = h.encode([1, 0, 1, 1])
+    assert list(c) == [1, 0, 1, 1, 0, 1, 0]                            # Chapter 14 worked example
+    for j in range(7):
+        r = c.copy(); r[j] ^= 1
+        assert np.array_equal(h.decode(r)[0], [1, 0, 1, 1])
+    assert h.dmin() == 3 and bc.extended_hamming_code(3).dmin() == 4
+    s = bc.hsiao_secded_72_64()
+    u = RNG.integers(0, 2, 64); cw = s.encode(u)
+    assert np.all(s.H.sum(axis=0) % 2 == 1)
+    r = cw.copy(); r[[3, 40]] ^= 1
+    assert s.decode(r)[2] == "detected"
+    r = cw.copy(); r[17] ^= 1
+    m, _, st = s.decode(r)
+    assert st == "corrected" and np.array_equal(m, u)
+    assert list(bc.crc_append([1, 1, 0, 1, 0, 1, 1, 0, 1, 1], [1, 0, 0, 1, 1])[-4:]) == [1, 1, 1, 0]
+    x = np.arange(24)
+    assert np.array_equal(bc.block_deinterleave(bc.block_interleave(x, 4, 6), 4, 6), x)
+
+
+def test_cpm():
+    from commlib import cpm
+    bits = RNG.integers(0, 2, 20000)
+    x, _ = cpm.gmsk_baseband(bits, 16, 0.3)
+    assert abs(cpm.occupied_bandwidth(x, 16) - 0.91) < 0.03            # Chapter 9: 99% BW of GMSK 0.3
+    assert np.allclose(np.abs(x), 1)
+    c = RNG.integers(0, 2, 4000)
+    xm, _ = cpm.gmsk_baseband(cpm.msk_precode(c), 8, None)
+    rx = cpm.LaurentReceiver(8, None); rx.calibrate(xm[:4000], c[:500])
+    assert np.mean(rx.detect(xm, len(c))[:-3] != c[:-3]) == 0
+    assert np.mean((cpm.differential_detect(xm, 8) > 0) != cpm.msk_precode(c)) == 0
+    assert abs(cpm.evm_budget_db(-41.2, -45, -38, -40) - (-34.4)) < 0.1  # 1024-QAM budget example
+
+
+def test_propagation():
+    from commlib import propagation as pr
+    assert abs(float(pr.dish_gain_dbi(0.6, 12e9)) - 35.7) < 0.1
+    assert abs(float(pr.knife_edge_loss(0.0)) - 6.02) < 0.01
+    assert abs(pr.radius_for_mapl(130.7, lambda d: pr.cost231(1800, 30, 1.5, d, 0)) - 0.70) < 0.01
+    m, pe = pr.edge_margin_for_area(0.95, 3.5, 8)
+    assert abs(m - 8.7) < 0.05 and abs(pe - 0.862) < 0.005
+    k, a = pr.rain_k_alpha(20.0)
+    assert abs(float(k) - 0.092) < 0.002 and abs(float(a) - 1.057) < 0.005
+    assert abs(float(pr.o2i_loss_db(28, "high")) - 37.9) < 0.1
+
+
+def test_sourcecoding():
+    from commlib import sourcecoding as sc
+    text = "the quick brown fox jumps over the lazy dog " * 30
+    ac = sc.ArithmeticCoder(order=1)
+    bits = ac.encode(text)
+    assert sc.ArithmeticCoder(order=1, alphabet=ac.alphabet).decode(bits, len(text)) == text
+    canon = sc.canonical_huffman({"a": 2, "b": 2, "c": 2, "d": 3, "e": 3})
+    assert sc.huffman_decode(sc.huffman_encode("abcde", canon), canon) == list("abcde")
+    lo, hi, cw = sc.arith_interval("abac", {"a": 0.6, "b": 0.3, "c": 0.1})
+    assert abs((hi - lo) - 0.0108) < 1e-12 and lo <= int(cw, 2) / 2 ** len(cw) < hi
+    a, k, E = sc.levinson(np.array([1.0, 0.8, 0.5]), 2)
+    assert np.allclose(a, [1, -1.11111, 0.38889], atol=1e-4)
+    img = np.tile(np.linspace(0, 255, 64), (64, 1))
+    rec, nbits = sc.toy_jpeg(img, 75)
+    assert sc.psnr(img, rec) > 35 and nbits < 64 * 64 * 2
+
+
+def test_ofdmadv():
+    from commlib import ofdm as co, ofdmadv as oa
+    N, Nu = 256, 200
+    cfg = co.OFDMConfig(N, Nu, 32)
+    k = cfg.k.astype(float)
+    d, p = oa.tdl_pdp("EPA", 3.84e6)
+    H = oa.tdl_freq_response("EPA", k, N, 3.84e6, RNG)
+    pidx = np.arange(0, Nu, 4)
+    Hl, Hd, Hm = oa.chest_all(H[pidx], k[pidx], k, 1e-6, d, p, N, 32)
+    assert np.mean(np.abs(Hm - H) ** 2) < 1e-3
+    assert abs(float(oa.sir_cfo_db(0.023)) - 27.5) < 0.3                  # 28 GHz budget example
+    f = np.arange(33, 512) * 4312.5
+    assert abs(4000 * oa.dmt_bit_loading(oa.dsl_snr_db(f, 3.0)).sum() / 1e6 - 5.64) < 0.05
+    X = np.exp(2j * np.pi * RNG.random((128, 32)))
+    P = oa.radar_map(oa.radar_echo(X, [(30.0, 0.0, 1.0)], 120e3, 8.9e-6, 28e9), X)
+    assert np.unravel_index(np.argmax(P), P.shape)[0] == round(30.0 / (3e8 / (2 * 128 * 120e3)))
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
