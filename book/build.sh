@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 MK="$LOCALAPPDATA/Programs/MiKTeX/miktex/bin/x64"
 [ -d "$MK" ] && export PATH="$MK:$PATH"
 PY=python3; command -v python3 >/dev/null && python3 -c "" 2>/dev/null || PY=python
-if [ "$1" == "figs" ]; then for s in figscripts/ch*_figs.py; do (cd figscripts && $PY $(basename $s)) || exit 1; done; fi
+if [ "$1" == "figs" ]; then for s in figscripts/*_figs.py; do (cd figscripts && $PY $(basename $s)) || exit 1; done; fi
 LATEX="pdflatex -interaction=nonstopmode -halt-on-error"
 [ "$MK" ] && [ -d "$MK" ] && LATEX="pdflatex -interaction=nonstopmode --enable-installer"
 $LATEX main.tex > build.log 2>&1

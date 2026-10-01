@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chapter 8 hardware lab: measure real coding gain with a K=7 convolutional code.
+"""Chapter 14 hardware lab: measure real coding gain with a K=7 convolutional code.
 
 TX: frames = [63-symbol BPSK m-sequence preamble | 22 blocks of (16 pilots + <=48 data)]
     carrying 1012 coded BPSK symbols (500 info bits + 6 tail bits through the (133,171)
@@ -10,7 +10,7 @@ RX: AGC -> FLL band-edge (coarse CFO) -> polyphase clock sync (1 sample/symbol)
 
 Why pilots instead of a Costas loop? The code works at Es/N0 near 0 dB, where a
 decision-directed loop cycle-slips constantly. Pilot-aided estimation is what DVB-S2,
-5G NR (DM-RS/PT-RS) and satellite modems use at low SNR: see Chapter 4. Try
+5G NR (DM-RS/PT-RS) and satellite modems use at low SNR: see Chapters 10 and 21. Try
 --pilot-spacing to trade overhead against tracking.
 
 The console shows, per second: estimated Es/N0, uncoded (channel) BER and decoded BER,

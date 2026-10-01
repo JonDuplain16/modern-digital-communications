@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chapter 7 hardware lab: an 802.11a-like packet OFDM link through the B200.
+"""Chapter 17 hardware lab: an 802.11a-like packet OFDM link through the B200.
 
 Uses GNU Radio's reference OFDM transceiver (gr-digital ofdm_tx / ofdm_rx):
 64-point FFT, 16-sample cyclic prefix, 48 data + 4 pilot subcarriers, Schmidl & Cox
@@ -13,7 +13,7 @@ RX: B200 -> ofdm_rx -> CRC-checked packets -> packet error rate and throughput r
     python3 gr04_ofdm_link.py --rate 2e6 --bps 2                     # hardware loopback
     python3 gr04_ofdm_link.py --sim --nogui --duration 8
 
-Things to try (Chapter 7): raise --bps to 3 (8-PSK) and find the SNR where the
+Things to try (Chapter 17): raise --bps to 3 (8-PSK) and find the SNR where the
 packet error rate collapses; add --multipath and note that the link still works
 without an equalizer because the 16-sample CP (1.6 us at 10 MS/s) exceeds the channel
 length; push --cfo past half a subcarrier spacing (rate/64/2) and watch sync fail.

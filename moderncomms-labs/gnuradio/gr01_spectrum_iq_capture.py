@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chapter 1 hardware lab: live spectrum/waterfall and IQ recording with the B200.
+"""Chapters 2 and 7 hardware lab: live spectrum/waterfall and IQ recording with the B200.
 
     python3 gr01_spectrum_iq_capture.py --freq 100e6 --rate 2e6            # FM band
     python3 gr01_spectrum_iq_capture.py --freq 915e6 --out ../data/capture.cfile --duration 5

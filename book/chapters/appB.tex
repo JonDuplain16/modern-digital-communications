@@ -1,0 +1,1057 @@
+\chapter{Using the Companion Labs}
+\label{appB}
+
+\begin{chapterintro}
+The book comes with a body of runnable code: some thirty-five Python simulation labs, a compact
+signal-processing library called \texttt{commlib} that the labs and the book's data figures
+share, and five GNU Radio flowgraphs that take the same experiments onto an Ettus USRP B200. This
+appendix explains how to install it all on Windows, macOS or Linux, how a lab is organised and how
+to run, modify and rebuild one, what each lab covers, and what each \texttt{commlib} module offers,
+with short code examples. It then shows how to regenerate the book's figures, how to install GNU
+Radio and drive the B200 safely and legally, which hardware experiments go with which chapters, and
+how to fix the problems people actually run into.
+\end{chapterintro}
+
+%======================================================================
+\section{What is in the box}
+\label{sec:appB:overview}
+%======================================================================
+
+The companion code lives in the folder \texttt{moderncomms-labs/}, next to the book's LaTeX sources.
+It has three parts that are designed to be used together.
+
+\begin{description}[leftmargin=1.2em,itemsep=3pt,font=\normalfont\bfseries]
+\item[The labs] (\texttt{labs/labNN\_*.ipynb}) are Jupyter notebooks, each a guided simulation of the
+ideas in one or two chapters. They are shipped \emph{already executed}, so every figure and table is
+visible before you run anything; run them to make the sliders live and to attempt the exercises.
+Each notebook is generated from a plain Python source file (\texttt{labNN\_*.py}) that you can read,
+diff and edit in any editor.
+\item[\texttt{commlib}] is the shared library: constellations and error-rate formulas, pulse shaping,
+channel models, synchronisation loops, equalisers, OFDM, channel codes, MIMO, satellite geometry and
+link budgets, spread spectrum and GNSS, line codes, and more. It is deliberately small and written to
+be read. When a lab calls \texttt{cl.gardner\_sync}, open \texttt{commlib/sync.py} and look: the
+algorithm is a few dozen lines, written the way Chapter~\ref{ch:sync} explains it.
+\item[The GNU Radio flowgraphs] (\texttt{gnuradio/gr0N\_*.py}) are complete transmitters and receivers
+for the USRP B200. Every one also runs \emph{without} hardware, through a software channel, so you
+can study it before you own a radio.
+\end{description}
+
+The same \texttt{commlib} also generates the data figures in this book (Section~\ref{sec:appB:figs}).
+A BER curve in Chapter~\ref{ch:modulation} and the curve you produce in Lab~2 therefore come from
+the same code, and if you find a discrepancy between the book and a lab, one of them has a bug worth
+reporting.
+
+\begin{keyidea}[Simulation first, hardware second]
+Almost everything in this book can be learned, and most of it is best learned, in simulation. A
+simulator lets you switch off one impairment at a time, run a billion bits overnight and compare
+against theory exactly. Hardware then teaches the lessons a simulator cannot: that oscillators
+drift, that the DC offset is real, that the spectrum is crowded. The labs are the core of the
+course; the B200 experiments are the capstone.
+\end{keyidea}
+
+%======================================================================
+\section{Repository layout}
+\label{sec:appB:layout}
+%======================================================================
+
+\begin{lstlisting}[language={}]
+comms-textbook/
+  setup.sh                   one-time environment setup (Linux, macOS, WSL)
+  book/                      LaTeX sources of this book
+    figscripts/chNN_figs.py  one script per chapter; writes figs/chNN_*.pdf
+    figscripts/figstyle.py   shared Matplotlib style; imports commlib
+    build.sh, build_chapter.sh
+  moderncomms-labs/
+    README.md                quick start
+    requirements.txt         Python dependencies for the labs
+    commlib/                 the shared library (one module per topic)
+    labs/
+      lab00_index.ipynb      START HERE: environment check and index
+      labNN_topic.py         lab source (jupytext "percent" format)
+      labNN_topic.ipynb      the same lab, pre-executed, with figures
+    gnuradio/
+      grcommon.py            shared helpers: USRP or simulated channel
+      gr01_ ... gr05_*.py    five hardware flowgraphs (all accept --sim)
+    tests/
+      test_commlib.py        library self-tests
+      build_notebooks.py     convert + execute labs/*.py -> .ipynb
+      build_all.sh           the same, one process per lab
+      dump_figs.py           stitch a notebook's figures into one PNG
+    data/                    IQ recordings and data files used by labs
+\end{lstlisting}
+
+The \texttt{book/} and \texttt{moderncomms-labs/} folders must stay side by side: the figure scripts
+find \texttt{commlib} through the relative path \texttt{../../moderncomms-labs}.
+
+%======================================================================
+\section{Installation}
+\label{sec:appB:install}
+%======================================================================
+
+\subsection{Requirements}
+
+The labs need Python~3.10 or later and the packages in \texttt{requirements.txt}
+(Table~\ref{tab:appB:reqs}). They are tested with both NumPy~1.x (from 1.24) and NumPy~2.x. Nothing
+else is required: no compiled extensions, no GPU, no hardware. A 2015-era laptop runs every lab;
+the slowest (the LDPC and polar code lab) takes about a minute on a desktop PC.
+
+\begin{table}[htbp]\centering\small
+\caption{Python packages used by the labs (\texttt{requirements.txt}).}\label{tab:appB:reqs}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Package & Minimum version & Used for\\
+\midrule
+numpy & 1.24 & all numerical work (1.x or 2.x)\\
+scipy & 1.10 & filter design, special functions, sparse matrices, statistics\\
+matplotlib & 3.7 & all figures\\
+ipywidgets & 8.0 & sliders and menus in interactive panels\\
+jupyterlab & 4.0 & running the notebooks in a browser\\
+jupytext & 1.15 & converting \texttt{labNN\_*.py} to notebooks (rebuilding only)\\
+nbformat & 5.9 & writing notebooks (rebuilding only)\\
+pillow & 9.0 & \texttt{tests/dump\_figs.py} only\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Linux and macOS}
+
+Create a virtual environment inside the labs folder, install the requirements and start JupyterLab:
+\begin{lstlisting}[language=bash]
+cd moderncomms-labs
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+python tests/test_commlib.py        # all tests should print PASS
+jupyter lab labs/
+\end{lstlisting}
+On macOS, use a Python from \texttt{python.org}, Homebrew (\texttt{brew install python}) or conda
+rather than the system Python. On Debian and Ubuntu, \texttt{sudo apt install python3-venv} provides
+the \texttt{venv} module if it is missing. From the repository root, \texttt{./setup.sh} performs the
+same steps for the whole project (one virtual environment, \texttt{.venv}, at the top level), checks
+the LaTeX tool chain needed to build the book and runs the self-tests.
+
+\subsection{Windows}
+
+Install Python~3.10 or later from \texttt{python.org} (tick ``Add python.exe to PATH'') or use
+Anaconda/Miniconda. In PowerShell:
+\begin{lstlisting}[language=bash]
+cd moderncomms-labs
+python -m venv .venv
+.venv\Scripts\Activate.ps1          # cmd.exe: .venv\Scripts\activate.bat
+pip install -r requirements.txt
+python tests\test_commlib.py
+jupyter lab labs\
+\end{lstlisting}
+If PowerShell refuses to run the activation script, allow local scripts once with
+\begin{lstlisting}[language=bash]
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+\end{lstlisting}
+\begin{sloppypar}
+Git Bash works too, with the Linux commands; there the activation line is
+\texttt{source .venv/Scripts/activate}. Windows Subsystem for Linux (WSL2) behaves
+exactly like Ubuntu and is the easiest route if you also want to build the book or use GNU Radio's
+Linux packages.
+\end{sloppypar}
+
+\subsection{Conda}
+
+With Anaconda, Miniconda or Miniforge, a dedicated environment keeps the labs separate from
+everything else:
+\begin{lstlisting}[language=bash]
+conda create -n mdc python=3.12 numpy scipy matplotlib ipywidgets \
+             jupyterlab jupytext nbformat pillow
+conda activate mdc
+\end{lstlisting}
+If you will use GNU Radio, install \emph{radioconda} instead (Section~\ref{sec:appB:gnuradio}) and add
+the lab packages to it with \texttt{conda}/\texttt{mamba}, not \texttt{pip}, so that conda remains in
+charge of NumPy.
+
+\subsection{Editors: JupyterLab and VS Code}
+
+JupyterLab~4 runs in the browser and supports the interactive widgets out of the box. Visual Studio
+Code with the Python and Jupyter extensions opens the \texttt{.ipynb} files directly; choose the
+\texttt{.venv} interpreter as the kernel. VS Code also recognises the \texttt{\# \%\%} cell markers in
+the \texttt{labNN\_*.py} sources, so you can run a lab cell by cell from the plain Python file and get
+the same figures in the interactive window. Any lab can also be run as an ordinary script
+(\texttt{python labs/lab03\_pulse\_shaping.py}); the interactive panels are then drawn once at their
+default settings.
+
+%======================================================================
+\section{Running and reading a lab}
+\label{sec:appB:running}
+%======================================================================
+
+Start with \texttt{labs/lab00\_index.ipynb}. Its first cells import every dependency, print the
+versions and run a few library self-tests (a 16-QAM bit error rate against theory, a Viterbi decode,
+an LDPC encode); all should print \texttt{PASS}. It then lists every lab, with suggested paths through
+them, and measures the run time and figure count of each pre-built notebook.
+
+To run any lab, open it and choose \emph{Kernel} $\to$ \emph{Restart Kernel and Run All Cells}. Most
+finish in under ten seconds; the coding labs take up to a minute because they decode many thousands
+of frames. Then work through it in order: read the text cell, run the code, compare the result with
+the \emph{What you should see} paragraph, move the sliders, and attempt the questions.
+
+\subsection{The anatomy of a lab}
+
+Every lab follows the same template, so that once you know one you know them all.
+\begin{enumerate}[leftmargin=1.5em,itemsep=2pt]
+\item A \textbf{title block}: the companion chapter, the time needed and difficulty, a list of what
+you will learn, the prerequisites and a roadmap table that marks the interactive sections.
+\item A \textbf{set-up cell} that makes \texttt{commlib} importable from either the \texttt{labs/}
+folder or the repository root, caps the BLAS thread count (Section~\ref{sec:appB:trouble}), imports
+\texttt{commlib as cl} and \texttt{labkit as lk}, and seeds a random-number generator so that every
+run reproduces the shipped figures.
+\item \textbf{Numbered sections}, each opening with the physics and the key equations, then code, then a
+\emph{What you should see} paragraph that tells you how to read the figure and what number to expect.
+\item \textbf{Interactive panels} built with \texttt{lk.interact} and \texttt{lk.slider}/\texttt{lk.choice}.
+\item \textbf{Try it yourself} questions: a line \texttt{answer = None} for you to fill in and a
+self-check, \texttt{lk.check(...)}, that prints \texttt{PASS}, \texttt{FAIL} (with a hint) or
+\texttt{TODO}.
+\item Closing \textbf{Key takeaways}, \textbf{Going further (USRP B200 / GNU Radio)} and graded
+\textbf{Exercises} (warm-up, core, stretch), then \texttt{lk.summary()}, which prints the run time and
+your self-check score.
+\end{enumerate}
+
+The listing below is a complete miniature lab in this style; paste it into a notebook cell to see the
+pieces working together.
+
+\begin{lstlisting}
+import numpy as np
+import commlib as cl
+from commlib import labkit as lk
+
+# seeds, applies the course plot style, starts the clock
+rng = lk.setup(seed=7, lab="99")
+qpsk = cl.get_constellation("qpsk")
+
+# one Monte Carlo batch -> (errors, bits)
+def trial(n):
+    b = cl.random_bits(2 * n, rng)
+    y, _ = cl.awgn_esn0(qpsk.modulate(b), esn0_db=ebn0 + 3.0, rng=rng)
+    return np.sum(qpsk.demodulate(y) != b), 2 * n
+
+ebn0s = np.arange(0, 9)
+sim = []
+# run until 200 errors (or 1e6 bits) per point
+for ebn0 in ebn0s:
+    sim.append(lk.ber_mc(trial, min_errors=200, batch=20_000))
+f, ax = lk.fig("ber")
+lk.ber_plot(ax, ebn0s, sims={"QPSK": sim},
+            theory={"QPSK": cl.ber_bpsk(ebn0s)})
+lk.show(f, title="QPSK in AWGN")
+
+def scatter(esn0_db=12.0, mod="16qam"):    # an interactive panel
+    c = cl.get_constellation(mod)
+    x = c.modulate(cl.random_bits(4000 * c.k, rng))   # c.k = bits per symbol
+    y, _ = cl.awgn_esn0(x, esn0_db, rng=rng)
+    f, ax = lk.fig("square")
+    lk.constellation(ax, y, ref=c.points, title=f"{mod}, Es/N0 = {esn0_db} dB")
+    lk.show(f)
+
+lk.interact(scatter, esn0_db=lk.slider(12.0, 0.0, 30.0, 0.5, "Es/N0 (dB)"),
+            mod=lk.choice(["qpsk", "16qam", "64qam"], "16qam", "modulation"))
+
+# Try it yourself: QPSK BER at Eb/N0 = 6 dB?
+answer = None
+lk.check("QPSK BER at 6 dB", answer, cl.ber_bpsk(6.0), rtol=0.2)
+lk.summary()                               # run time and self-check tally
+\end{lstlisting}
+
+Run as it stands, the self-check prints \texttt{TODO}; replace \texttt{None} with
+\texttt{sim[6]} and it prints \texttt{PASS} (the simulated value is about $2.5\times10^{-3}$, the
+theory $2.39\times10^{-3}$). The \texttt{lk.interact} call shows live controls inside Jupyter and
+falls back to a single call at the default values anywhere else, which is how the pre-built
+notebooks and plain-script runs work.
+
+\begin{inpractice}[How to get the most from a lab]
+Predict before you run. Before each code cell, write down what you expect to see: the shape of the
+spectrum, the BER at 6\,dB, whether the loop will lock. The surprises are where the learning is.
+Then change one thing at a time. Every lab is seeded; if you change the seed (\texttt{lk.setup(seed=...)})
+and a conclusion changes, the conclusion was noise. Finally, read the library code behind each call
+the first time you meet it: the labs are designed so that you could rewrite \texttt{commlib} from them.
+\end{inpractice}
+
+%======================================================================
+\section{Rebuilding notebooks and running the tests}
+\label{sec:appB:rebuild}
+%======================================================================
+
+The \texttt{.ipynb} files are generated. The source of truth is the \texttt{labNN\_*.py} file, written in
+the jupytext ``percent'' format: \texttt{\# \%\%} starts a code cell and \texttt{\# \%\% [markdown]} a text
+cell whose lines are Markdown behind \texttt{\#} comments. After editing a source, regenerate its
+notebook:
+\begin{lstlisting}[language=bash]
+# one lab (any name prefix works)
+python tests/build_notebooks.py lab07
+python tests/build_notebooks.py lab13 lab14     # several
+# all labs, with a timing summary
+python tests/build_notebooks.py
+python tests/build_notebooks.py --no-exec       # convert only, do not execute
+# do not stop at the first failure
+python tests/build_notebooks.py --keep-going
+# one process per lab (isolates failures)
+bash tests/build_all.sh
+# all figures of a notebook in one PNG
+python tests/dump_figs.py lab07_ofdm out.png
+python tests/dump_figs.py lab07_ofdm out.png 1,3   # only figures 1 and 3
+\end{lstlisting}
+\texttt{build\_notebooks.py} executes each lab in-process, without a Jupyter kernel, so it works the
+same on Linux, macOS and Windows and in continuous integration. It captures printed text, every
+Matplotlib figure in the order \texttt{plt.show()} is called and \texttt{labkit}'s tables, notes and
+self-checks, records each cell's run time in the notebook metadata (which \texttt{lab00} reads to
+report run times), and exits with a non-zero status if a lab raises an exception. It sets the
+environment variable \texttt{MDC\_STATIC=1}, which tells \texttt{labkit} to render interactive panels
+once at their defaults.
+
+The library has its own tests:
+\begin{lstlisting}[language=bash]
+python tests/test_commlib.py        # or: python -m pytest -q tests/
+\end{lstlisting}
+The fifteen tests check that simulated QPSK, 16-QAM and 64-QAM error rates match theory, that LLR
+signs are consistent, that RRC filters satisfy the Nyquist criterion, that the Gardner and
+Mueller--M\"uller timing loops and the carrier PLL converge, that the equalisers, the OFDM chain and
+LS channel estimation work, that Viterbi decoding (single and batched) and LDPC and polar decoding
+correct errors, that the PEG LDPC construction has no 4-cycles, and that the MIMO detectors and
+\texttt{labkit} helpers behave. Run them after any change to \texttt{commlib}.
+
+\paragraph{Writing a new lab.} Copy the lab closest to what you want, keep its set-up cell, and use
+\texttt{lk.setup}, \texttt{lk.fig}/\texttt{lk.show}, \texttt{lk.interact} with \texttt{lk.slider},
+\texttt{lk.islider} and \texttt{lk.choice}, \texttt{lk.table}, \texttt{lk.check} and \texttt{lk.summary}.
+Put reusable signal processing in a \texttt{commlib} module rather than in the notebook, add a test for
+it, rebuild the notebook and look at every figure with \texttt{dump\_figs.py} before you share it.
+
+%======================================================================
+\section{The lab catalogue}
+\label{sec:appB:catalogue}
+%======================================================================
+
+Tables~\ref{tab:appB:labs1}--\ref{tab:appB:labs3} list the labs with their companion chapters.
+The file names are those in the folder \texttt{labs/}, where each lab exists as a \texttt{.py}
+source and a pre-executed \texttt{.ipynb} notebook. The numbering follows the order in which the labs were written, not
+the chapter order, so use the chapter column (or the paths below) to choose what to run next.
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{Companion labs, part 1.}\label{tab:appB:labs1}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabularx}{\linewidth}{@{}l>{\ttfamily\raggedright}p{0.35\linewidth}c>{\raggedright\arraybackslash}X@{}}
+\toprule
+Lab & \normalfont File & Ch. & Topics\\
+\midrule
+0 & lab00\_index & -- & Start here: environment check, self-tests, index and learning paths\\
+1 & lab01\_baseband & 2, 7 & Complex baseband, real vs.\ IQ sampling, digital down-conversion, IQ imbalance and blind correction, phase noise, ADC dynamic range, sensitivity\\
+2 & lab02\_modulation & 9 & PSK/QAM/APSK constellations, signal space, ML regions, BER vs.\ theory, Gray coding, union bound, FSK and DPSK, MSK/GMSK, LLRs\\
+3 & lab03\_pulse\_shaping & 8 & Raised cosine and RRC, Nyquist criterion, ISI, matched filter, eye diagrams, timing sensitivity, ACLR vs.\ filter length, faster-than-Nyquist\\
+4 & lab04\_synchronization & 10 & Synchronisation impairments, $M$-th power and data-aided CFO vs.\ MCRB, PLL jitter and acquisition, Gardner timing, Zadoff--Chu frame sync, burst receiver\\
+5 & lab05\_channels & 11 & Path loss, two-ray model, shadowing, link budget, Rayleigh and Rician fading, Doppler, level crossings, TDL models, coherence bandwidth, channel sounding\\
+6 & lab06\_equalization & 12 & ZF and MMSE, noise enhancement, length and delay, LMS/NLMS/RLS, CMA, DFE, MLSE\\
+7 & lab07\_ofdm & 17 & Orthogonality, cyclic prefix, CFO and ICI, Schmidl--Cox, pilot channel estimation, PAPR and DFT-s-OFDM, NR numerology\\
+8 & lab08\_convolutional & 13, 14 & Capacity, Hamming codes, CRC, convolutional codes and Viterbi decoding, puncturing, interleaving\\
+9 & lab09\_ldpc\_polar & 15 & PEG LDPC construction, sum-product and min-sum decoding, block length, channel polarisation, SC and CA-SCL decoding\\
+10 & lab10\_mimo & 19 & MRC and Alamouti, MIMO capacity, water-filling, ZF/MMSE/SIC/ML detection, beamforming, massive-MIMO precoding\\
+11 & lab11\_air\_interfaces & 20--22 & Frequency reuse, Erlang B, NR resource grid, OFDMA scheduling, DFT-s-OFDM, link adaptation, CSMA/CA, 4096-QAM EVM\\
+12 & lab12\_frontiers & 25 & OTFS vs.\ OFDM, OFDM radar (ISAC), reconfigurable intelligent surfaces, a learned demapper\\
+13 & lab13\_line\_codes\_eyes & 8 & Line codes and their spectra, PRBS and scramblers, 8b/10b running disparity, jitter and bathtub curves, NRZ vs.\ PAM-4 over a lossy channel with FFE, precoded duobinary\\
+14 & lab14\_analog\_am\_fm & 4 & AM and envelope detection, DSB and SSB, FM spectra and Carson's rule, discriminator and PLL demodulation, FM threshold, FM stereo multiplex\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{Companion labs, part 2.}\label{tab:appB:labs2}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabularx}{\linewidth}{@{}l>{\ttfamily\raggedright}p{0.35\linewidth}c>{\raggedright\arraybackslash}X@{}}
+\toprule
+Lab & \normalfont File & Ch. & Topics\\
+\midrule
+15 & lab15\_superhet\_receiver & 4, 7 & Superheterodyne chain, image rejection, IF selectivity, AGC, zero-IF and low-IF receivers with IQ imbalance\\
+16 & lab16\_pcm\_companding & 5 & Aliasing, zero-order hold, SQNR, dither, $\mu$-law and A-law, delta and sigma-delta modulation, T1 framing\\
+17 & lab17\_multirate\_dsp & 6 & FIR and IIR design, polyphase decimation and interpolation, CIC filters and compensation, NCO, multi-stage DDC\\
+18 & lab18\_satellite\_link & 23 & DTH and Ka-band link budgets, GEO look angles, LEO passes and Doppler, ITU-R P.618 rain fade, ACM vs.\ CCM, TWTA and APSK\\
+19 & lab19\_information\_theory & 13 & Entropy, Huffman coding, Blahut--Arimoto, constrained-input capacity, water-filling\\
+20 & lab20\_block\_codes & 14 & Hamming and SECDED, CRC calculator, GF($2^m$) arithmetic, Reed--Solomon with burst errors, interleaving\\
+21 & lab21\_cpm\_evm & 9 & MSK, GMSK and GFSK generation and detection, spectra and 99\% bandwidth, PAPR CCDF, EVM under impairments\\
+22 & lab22\_propagation\_link\_budget & 11 & A coverage planner: Friis, Hata/COST-231, 3GPP TR 38.901 LOS/NLOS/O2I, knife-edge diffraction, two-ray, ITU-R P.838 rain, coverage probability\\
+23 & lab23\_turbo\_exit & 15 & Turbo encoder and BCJR decoder, per-iteration BER, EXIT charts, density evolution on the BEC\\
+24 & lab24\_source\_coding & 16 & Huffman and adaptive arithmetic coding of text, LPC analysis and resynthesis, a toy JPEG (rate vs.\ PSNR), masking-shaped noise\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{Companion labs, part 3.}\label{tab:appB:labs3}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabularx}{\linewidth}{@{}l>{\ttfamily\raggedright}p{0.35\linewidth}c>{\raggedright\arraybackslash}X@{}}
+\toprule
+Lab & \normalfont File & Ch. & Topics\\
+\midrule
+25 & lab25\_spread\_spectrum\_gps & 18 & PN and Gold codes, DSSS with a jammer, RAKE, near--far problem, GPS C/A FFT acquisition, DLL/PLL tracking, position fix\\
+26 & lab26\_cellular\_system & 20 & Hexagonal-grid SIR maps, Erlang traffic, ALOHA and CSMA, Poisson-point-process coverage, proportional-fair scheduling\\
+27 & lab27\_lte\_nr\_phy & 21 & LTE/NR resource grid, PSS/SSS cell search, a PDSCH processing chain\\
+28 & lab28\_ofdm\_system & 17 & LS/DFT/LMMSE channel estimation, Doppler and phase-noise ICI with CPE correction, coded OFDM and BICM on EPA/ETU, clipping and filtering with a Rapp PA, WOLA and f-OFDM spectra, DSL bit loading, OFDM radar\\
+29 & lab29\_arrays\_beamforming & 19 & Planar arrays and EIRP, beam squint with phase shifters vs.\ true time delay, MUSIC and MVDR direction finding, NR Type I codebook and SSB beam sweep, hybrid precoding by OMP, LOS-MIMO spacing\\
+30 & lab30\_wireline\_optical & 24 & Loop loss and DSL rate versus reach, crosstalk and vectoring, fibre chromatic dispersion and its DSP compensation, a coherent DP-QPSK receiver chain, OSNR budget\\
+31 & lab31\_wifi\_ble\_lora & 22 & 802.11 preamble detection, CFO and LTF channel estimation, MAC efficiency and aggregation, rate adaptation, BLE GFSK and battery life, 802.15.4 O-QPSK, LoRa SER and time on air, RFID range\\
+32 & lab32\_6g\_waveforms & 25 & OTFS vs.\ OFDM, near-field beam focusing, ISAC range--Doppler processing, RIS\\
+33 & lab33\_noise\_detection & 3 & Noise generation and statistics, filtered-noise PSD, envelope statistics, noise-figure cascade, ROC curves and Neyman--Pearson detection\\
+34 & lab34\_telegraph\_history & 1 & Morse keying and its spectrum, Morse vs.\ Huffman on your own text, ISI on Kelvin's RC cable, analog repeater chain vs.\ regenerator chain\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Suggested paths.}
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \emph{Foundations and history}: 34, 1, 33, 16.
+\item \emph{A first course in digital communications}: 1, 3, 2, 4, 5, 6, 7, 8.
+\item \emph{Radio and DSP fundamentals}: 14, 15, 16, 17, 1.
+\item \emph{Wireline, SerDes and optics}: 3, 13, 6, 30.
+\item \emph{Information, coding and compression}: 19, 20, 8, 9, 23, 24.
+\item \emph{Wireless systems}: 5, 22, 7, 28, 10, 29, 11, 26, 27, 31, then 12 and 32 for what comes next.
+\item \emph{Space and navigation}: 2, 5 and 8 first, then 18 and 25.
+\end{itemize}
+
+%======================================================================
+\section{A tour of \texttt{commlib}}
+\label{sec:appB:commlib}
+%======================================================================
+
+\subsection{Conventions}
+
+The library follows a few rules everywhere, and knowing them avoids most surprises.
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item Signals are NumPy arrays of complex baseband samples; real signals are real arrays. Bits are
+integer arrays of 0s and 1s.
+\item Constellations have unit average energy, so $E_s=1$ and \texttt{awgn\_esn0} needs only the
+target $E_s/N_0$. Oversampled waveforms built with unit-energy pulses use the \texttt{sps} argument.
+\item Frequencies are normalised (cycles per sample) unless a function takes a sample rate
+\texttt{fs}; decibel arguments end in \texttt{\_db}.
+\item Log-likelihood ratios are $L=\ln\big(P(b=0)/P(b=1)\big)$, and BPSK maps $0\mapsto+1$,
+$1\mapsto-1$, so a positive LLR favours 0. For BPSK in real Gaussian noise of variance $\sigma^2$,
+$L=2y/\sigma^2$.
+\item Random functions take an \texttt{rng} argument (a \texttt{numpy.random.Generator} or a seed) so
+that results are reproducible.
+\end{itemize}
+
+The statement \texttt{import commlib as cl} brings the core modules into one namespace. They are
+\texttt{modulation}, \texttt{filters}, \texttt{channel}, \texttt{sync}, \texttt{equalize}, \texttt{ofdm},
+\texttt{coding}, \texttt{mimo}, \texttt{iq} and \texttt{plotting}. The topic modules added for later
+chapters are imported explicitly, as in \texttt{from commlib import satellite}. Tables~\ref{tab:appB:modules} and~\ref{tab:appB:modules2} list them all.
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{The modules of \texttt{commlib}. ``Core'' modules are available directly as \texttt{cl.name}.}\label{tab:appB:modules}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}lc>{\raggedright\arraybackslash}X@{}}
+\toprule
+\normalfont Module & Ch. & Contents\\
+\midrule
+modulation & 9 & \texttt{Constellation} (modulate, demodulate, exact/max-log LLRs), \texttt{get\_constellation} (BPSK to 4096-QAM), \texttt{qfunc}, closed-form BER/SER\\
+cpm & 9 & MSK precoding, GMSK/GFSK waveforms, Laurent receiver, differential and discriminator detection, occupied bandwidth, PAPR CCDF, EVM/MER and EVM budgets\\
+filters & 8 & RC/RRC taps, \texttt{shape}, matched filter, fractional delay, cubic interpolation, eye traces, Welch PSD\\
+channel & 11 & AWGN, CFO, Wiener phase noise, IQ imbalance, fractional delay, multipath, Jakes fading, 3GPP EPA/EVA/ETU TDL, path loss, Rapp PA\\
+sync & 10 & PLL gains, decision-directed PLL, Costas loop, Gardner and Mueller--M\"uller timing, $M$-th-power CFO, Zadoff--Chu, frame sync, Schmidl--Cox\\
+equalize & 12 & Convolution matrix, ZF and MMSE FIR, LMS, CMA, LMS-DFE\\
+eqadv & 12 & Finite-length MMSE-DFE, NLMS, RLS, DD-LMS, Viterbi MLSE, BCJR for ISI, Tomlinson--Harashima precoding\\
+ofdm & 17 & \texttt{OFDMConfig}, CP-OFDM and DFT-s-OFDM, comb pilots, LS estimation, PAPR and CCDF, 5G NR numerology\\
+ofdmadv & 17 & TDL frequency responses, LS/DFT/LMMSE channel estimation, ICI from CFO and Doppler, CPE correction, clipping and filtering, ACLR, WOLA and filtered OFDM, DMT bit loading, OFDM radar\\
+coding & 14, 15 & Hamming(7,4), CRC, \texttt{ConvCode} (Viterbi, batched), \texttt{LDPCCode} (PEG, BP/min-sum), \texttt{PolarCode} (SC/CA-SCL)\\
+turbo & 15 & RSC codes, QPP interleaver, BCJR, \texttt{TurboCode}, EXIT functions, BEC density evolution and thresholds, spatial coupling\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{The modules of \texttt{commlib} (continued).}\label{tab:appB:modules2}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}lc>{\raggedright\arraybackslash}X@{}}
+\toprule
+\normalfont Module & Ch. & Contents\\
+\midrule
+blockcodes & 14 & Linear block codes, Hamming/extended Hamming, SECDED and Hsiao (72,64), CRC division, interleavers, Gilbert--Elliott channel, RS/BCH performance\\
+gf & 14 & GF($2^m$) arithmetic, minimal polynomials, Berlekamp--Massey, \texttt{ReedSolomon} (errors and erasures), \texttt{BCH}, CRC catalogue\\
+sourcecoding & 16 & Canonical Huffman, adaptive context models, arithmetic coding, Levinson--Durbin LPC and LSFs, a toy JPEG and PSNR, Bark scale, absolute threshold and masking\\
+infotheory & 13 & Entropy, Markov sources, Huffman, Kraft, DMC mutual information, Blahut--Arimoto, AWGN/BI-AWGN/QAM/BICM capacity, normal approximation, water-filling, bit loading\\
+mimo & 19 & Rayleigh and correlated channels, ZF/MMSE/ML/SIC detection, capacity, water-filling, Alamouti, MRC, ULA steering and array factor\\
+spread & 18 & LFSRs, m-sequences, Gold and Kasami codes, Walsh/OVSF, GPS C/A codes, spreading, RAKE, multiuser detection, CDMA capacity, GPS signal synthesis, acquisition, tracking, positioning, DOP\\
+cellular & 20 & Erlang B/C, hexagonal reuse geometry, SIR, ALOHA/CSMA/Bianchi DCF, RACH, PPP coverage, Jain fairness, schedulers\\
+iot & 22 & LoRa chirps (modulate, demodulate, SER, time on air, sensitivity), GFSK, 802.15.4 O-QPSK chips, Wi-Fi legacy preamble, MAC timing, RFID ranges\\
+propagation & 11 & Path-loss models (free space, two-ray, Hata, COST-231, TR 38.901, O2I), Fresnel zones and knife-edge diffraction, gas and rain loss, sensitivity, cell-edge and area coverage, RMS delay spread\\
+satellite & 23 & Orbits and Kepler, ground tracks, look angles, LEO passes and Doppler, antennas, noise temperature and $G/T$, \texttt{LinkBudget}, P.838/P.618 rain, Saleh TWTA, DVB-S2 MODCODs and APSK, ACM\\
+wireline & 24 & Twisted-pair RLGC and ABCD models, bridged taps, NEXT/FEXT, DMT rates, fibre loss and dispersion, CD compensation, OSNR, GN model, CMA butterfly, Viterbi--Viterbi\\
+linecodes & 8 & Line-code waveforms, 8b/10b, PRBS, scramblers, run lengths and RDS, backplane channel, pulse response, ZF FFE\\
+sixg & 25 & Delay-Doppler channels, OTFS and AFDM, near-field array responses, RIS gain, OFDM radar\\
+iq & 7 & GNU Radio \texttt{.cfile} read/write and SigMF metadata\\
+labkit & -- & Course look-and-feel: set-up, figures, eyes, PSDs, BER plots, Monte Carlo, widgets, tables, self-checks\\
+plotting & -- & Older plotting helpers kept for compatibility (prefer \texttt{labkit})\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The listings that follow show each area in a few lines. Run in order in one Python session (from
+the \texttt{moderncomms-labs} folder, or with it on \texttt{sys.path}), they work as shown and print
+the values given in the comments; the only exceptions are the names that a comment marks as inputs
+you supply, such as the channel LLRs \texttt{llr\_c} of a codeword.
+
+\subsection{Modulation, noise and error rates}
+
+\begin{lstlisting}
+import numpy as np
+import commlib as cl
+rng = np.random.default_rng(1)
+
+# unit energy, Gray labelled; qam.k == 4
+qam = cl.get_constellation("16qam")
+bits = cl.random_bits(4 * 200_000, rng)
+# returns (signal, N0)
+y, n0 = cl.awgn_esn0(qam.modulate(bits), esn0_db=14.0, rng=rng)
+ber = np.mean(qam.demodulate(y) != bits)
+# ~9.5e-03 vs 9.4e-03
+print(f"simulated {ber:.2e}  theory {cl.ber_mqam_gray(14.0, 16):.2e}")
+# soft bits for a decoder (max-log by default)
+llr = qam.llr(y, n0)
+\end{lstlisting}
+
+\subsection{Pulse shaping, filters and spectra}
+
+\begin{lstlisting}
+sps, beta = 8, 0.25
+# unit-energy root-raised cosine
+h = cl.rrc_taps(beta, sps, span=10)
+sym = cl.get_constellation("qpsk").modulate(cl.random_bits(2000, rng))
+tx = cl.shape(sym, h, sps)                     # upsample and filter
+rx = cl.matched_filter(tx, h)
+# total delay of the two filters
+d = len(h) - 1
+# one sample per symbol at the eye centre
+z = rx[d::sps][:len(sym)]
+# residual ISI, about -40 dB
+print(10 * np.log10(np.mean(np.abs(z - sym) ** 2)))
+# frequency in units of the symbol rate
+f, P = cl.welch_psd(tx, fs=sps, nfft=1024)
+\end{lstlisting}
+
+\subsection{Channels and impairments}
+
+\begin{lstlisting}
+# CFO of 0.001 cycles/sample
+y = cl.apply_cfo(tx, 1e-3)
+# Wiener phase noise
+y = y * np.exp(1j * cl.phase_noise(len(y), 1e-5, rng=rng))
+y = cl.iq_imbalance(y, gain_db=0.5, phase_deg=3.0)
+# 3GPP EVA, 70 Hz Doppler
+y = cl.tdl_channel(y, fs=15.36e6, profile="EVA", fd_hz=70.0, rng=rng)
+# 20 dB SNR per sample
+y = cl.awgn(y, 20.0, rng=rng)
+# 100.0 dB at 1 km, 2.4 GHz
+print(cl.fspl_db(1000.0, 2.4e9))
+\end{lstlisting}
+
+\subsection{Synchronisation and equalisation}
+
+\begin{lstlisting}
+# symbols, detector output, timing estimate
+syms, ted, tau = cl.gardner_sync(rx, sps, bn=0.005)
+
+# a symbol-spaced ISI channel
+h_ch = np.array([0.3, 1.0, 0.5, -0.2])
+w, delay = cl.mmse_fir(h_ch, L=15, n0=0.01)           # 15-tap MMSE equaliser
+a = cl.get_constellation("qpsk").modulate(cl.random_bits(4000, rng))
+r = cl.awgn(np.convolve(a, h_ch)[:len(a)], 20.0, rng=rng)
+# aligned so that a_hat[n] estimates a[n]
+a_hat = cl.apply_fir(r, w, delay)
+
+# RLS, NLMS, MMSE-DFE, MLSE, BCJR, THP
+from commlib import eqadv
+qpsk = cl.get_constellation("qpsk")
+out, err, w_rls = eqadv.rls_equalizer(r, a[:300], L=11, lam=0.99,
+                                      constellation=qpsk)
+\end{lstlisting}
+
+\subsection{OFDM}
+
+\begin{lstlisting}
+cfg = cl.OFDMConfig(nfft=64, n_used=48, ncp=16)       # 802.11a-like layout
+qam = cl.get_constellation("16qam")
+grid = qam.modulate(cl.random_bits(4 * 48 * 10, rng)).reshape(10, 48)
+# 10 symbols of 80 samples
+x = cl.ofdm_modulate(grid, cfg)
+# back to the (10, 48) grid
+Y = cl.ofdm_demodulate(x, cfg, n_sym=10)
+# per-symbol PAPR, about 7-8 dB
+print(cl.papr_db(x, cfg.sym_len).max())
+# 30.0 kHz for 5G NR mu = 1
+print(cl.nr_numerology(1)["scs_khz"])
+\end{lstlisting}
+
+\subsection{Channel codes}
+
+\begin{lstlisting}
+# the industry-standard rate-1/2 code
+cc = cl.ConvCode(K=7, gens=(0o133, 0o171))
+u = cl.random_bits(500, rng)
+s = 1 - 2.0 * cc.encode(u)                            # BPSK: 0 -> +1
+sigma2 = 0.5
+y = s + np.sqrt(sigma2) * rng.standard_normal(len(s))
+# soft-decision Viterbi from LLRs
+u_hat = cc.decode(2 * y / sigma2)
+
+ldpc = cl.LDPCCode(n=576, rate=0.5)                   # PEG construction
+c = ldpc.encode(cl.random_bits(ldpc.k, rng))
+# llr_c: channel LLRs of the transmitted codeword c
+c_hat = ldpc.decode(llr_c, iters=50, method="minsum")
+polar = cl.PolarCode(N=256, K=128, design_snr_db=1.0)
+# successive-cancellation list, L = 8
+m_hat = polar.decode(llr_p, L=8)
+
+from commlib import turbo
+# rate 1/3, LTE (13,15) constituent codes
+tc = turbo.TurboCode(K=1024)
+# u_batch has shape (B, 1024)
+x = tc.flatten(tc.encode(u_batch))
+# (B, 1024) hard decisions
+u_hat = tc.decode(llr_x, iters=8)
+
+from commlib import gf
+# the CCSDS/DVB outer code
+rs = gf.ReedSolomon(255, 223)
+cw = rs.encode(rng.integers(0, 256, 223))
+cw[[3, 50, 100, 200]] ^= 0x5A                         # four symbol errors
+msg, n_corrected = rs.decode(cw)                      # n_corrected == 4
+\end{lstlisting}
+
+\subsection{Information theory, MIMO and multiple access}
+
+\begin{lstlisting}
+from commlib import infotheory as it, cellular as cel
+# C = 0.398 bit/use
+C, p_opt, lo, hi = it.blahut_arimoto(np.array([[0.9, 0.1], [0.2, 0.8]]))
+# p = [0.55, 0.45, 0], level 0.65
+p, level = it.waterfill([0.1, 0.2, 1.0], 1.0)
+# 0.0085, 28 channels
+print(cel.erlang_b(20.0, 30), cel.erlang_b_channels(20.0, 0.02))
+
+# i.i.d. CN(0,1) 4x4 channel
+H = cl.rayleigh_mimo(4, 4, rng=rng)
+# b/s/Hz
+print(cl.capacity_equal_power(H, 10.0), cl.capacity_waterfilling(H, 10.0))
+x_hat = cl.mmse_detect(H, y4, n0=0.01)                # y4 = H @ x + noise
+\end{lstlisting}
+
+\subsection{Satellite links}
+
+\begin{lstlisting}
+from commlib import satellite as sat
+lb = sat.LinkBudget("Ku-band DTH downlink, clear sky")
+lb.add("Satellite EIRP", 52.0, "dBW")
+lb.add("Free-space loss, 38 000 km", -sat.fspl_db(38_000e3, 12e9))
+lb.add("Atmospheric + pointing", -0.8)
+g = sat.dish_gain_dbi(0.6, 12e9)                 # 60 cm dish at 12 GHz
+tsys = sat.system_noise_temp(40, 75)             # antenna 40 K, LNB 75 K
+lb.add("G/T, 60 cm dish", sat.g_over_t_dbk(g, tsys), "dB/K")
+lb.add("Boltzmann constant", -sat.K_BOLTZ_DB, "dB")
+# itemised table with running totals
+print(lb)
+# C/N0 = 89.2 dB-Hz -> Es/N0 = 14.9 dB
+esn0 = lb.total() - 10 * np.log10(27.5e6)
+print(sat.acm_select(esn0))                  # ('32APSK 5/6', 4.12, 14.28)
+# about 9 dB
+print(sat.rain_atten_p618(12.0, 30.0, 0.01, 42.0, lat_deg=45.0))
+\end{lstlisting}
+
+\subsection{Spread spectrum and GNSS}
+
+\begin{lstlisting}
+from commlib import spread
+fs = 4.092e6                                          # 4 samples per C/A chip
+sv = dict(prn=7, cn0=45.0, doppler=2300.0, code_phase=311.5)
+# 20 ms of synthetic GPS L1 C/A signal plus noise
+x, truth = spread.gps_baseband([sv], fs, 0.02, rng=rng)
+bins = np.arange(-5000, 5001, 250)                    # Doppler search grid (Hz)
+res = spread.acquire(x, fs, prn=7, dopplers=bins, n_noncoh=10)
+# 2250 Hz bin, 311.5 chips
+print(res["doppler"], res["code_phase"])
+# DLL + Costas PLL
+trk = spread.track(x, fs, 7, res["doppler"], res["code_phase"])
+\end{lstlisting}
+
+\subsection{Line codes and serial links}
+
+\begin{lstlisting}
+from commlib import linecodes as lc
+b = lc.prbs(31, 10_000)                                # PRBS31
+# 64b/66b scrambler x^58 + x^39 + 1
+s = lc.scramble_ss(b)
+assert np.array_equal(lc.descramble_ss(s), b)
+# every data byte as 8b/10b
+t = lc.enc8b10b(np.arange(256))
+# 5, 4
+print(lc.run_lengths(t).max(), np.abs(lc.running_digital_sum(t)).max())
+# 25 dB at Nyquist
+h = lc.backplane(fs=16 * 26.5625e9, loss_db=25.0, f_ref=13.28e9)
+taps, cursor, phase = lc.ffe_zf(lc.pulse_response(h, 16), 16, ntaps=5, pre=1)
+wave = lc.encode_line(b[:100], "manchester", sps=16)
+\end{lstlisting}
+
+\subsection{The other topic modules}
+
+\texttt{iot} generates and detects LoRa chirps (\texttt{lora\_symbols}, \texttt{lora\_demod}) and
+computes time on air with the formula of the Semtech SX1276 data sheet (\texttt{lora\_time\_on\_air(20,
+sf=9)} gives 0.185\,s for a 20-byte packet); it also builds GFSK, the 802.15.4 chip table and the
+802.11 legacy preamble. \texttt{wireline} models copper loops from RLGC parameters (26-AWG pair:
+\texttt{attenuation\_db\_per\_km(1e6)} $\approx25$\,dB/km), crosstalk and DMT bit loading, fibre
+loss and dispersion, and the DSP of a coherent optical receiver. \texttt{sixg} contains the OTFS and
+AFDM modulators, near-field array responses, RIS link gains and an OFDM radar processor. \texttt{iq}
+reads and writes the complex-float files that GNU Radio's File Sink produces
+(\texttt{read\_cfile}, \texttt{write\_cfile}) with a SigMF metadata sidecar
+(\texttt{write\_sigmf\_meta}).
+
+\subsection{\texttt{labkit}: the look and feel}
+
+\texttt{labkit} keeps all the notebooks consistent. \texttt{setup(seed, lab)} seeds a generator, applies
+the course Matplotlib style and starts the clock; \texttt{fig(size)} creates figures with named size
+presets (\texttt{"wide"}, \texttt{"tall"}, \texttt{"square"}, \texttt{"row2"}, \texttt{"row3"},
+\texttt{"row4"}, \texttt{"grid4"}, \texttt{"ber"}); \texttt{constellation}, \texttt{eye},
+\texttt{eye\_density} (a persistence-style eye like a sampling oscilloscope), \texttt{psd} and
+\texttt{ber\_plot} draw the standard plots; \texttt{ber\_mc} runs a Monte Carlo trial until it has
+enough errors; \texttt{slider}, \texttt{islider}, \texttt{choice} and \texttt{interact} build the
+interactive panels; \texttt{table}, \texttt{note}, \texttt{check} and \texttt{summary} produce the
+formatted output. \texttt{db} and \texttt{undb} convert with a floor that avoids $-\infty$.
+
+%======================================================================
+\section{Reproducing the book's figures}
+\label{sec:appB:figs}
+%======================================================================
+
+\begin{sloppypar}
+Every data figure in this book is a vector PDF generated by a Python script, one per chapter, in
+\texttt{book/figscripts/}. For example, \texttt{ch08\_figs.py} writes the files
+\texttt{book/figs/ch08\_*.pdf}, and \texttt{appA\_figs.py} writes the figures of Appendix~\ref{appA}. Each script begins with
+\texttt{from figstyle import *}, which sets the book's fonts and colours, defines the standard figure
+widths \texttt{W1} and \texttt{W2} (inches), puts \texttt{commlib} on the path and provides
+\texttt{save(fig, name)}. Each figure is one function named after the figure, so a figure's file name
+tells you where its code is. Figure~\ref{fig:appA_qfunc}, for instance, is the file
+\texttt{appA\_qfunc.pdf}, written by the function \texttt{qfunc\_bounds} in \texttt{appA\_figs.py};
+the raised-cosine figure of Chapter~\ref{ch:baseband} is \texttt{ch08\_raised\_cosine.pdf}, written by
+the function \texttt{raised\_cosine} in \texttt{ch08\_figs.py}.
+\end{sloppypar}
+
+\begin{lstlisting}[language=bash]
+cd book/figscripts
+python ch08_figs.py          # regenerate all Chapter 8 figures
+cd ..
+./build.sh figs              # every chNN_figs.py, then the whole book
+bash build_chapter.sh ch08   # one chapter in an isolated temporary build
+\end{lstlisting}
+To change a figure, edit its function, rerun the script and rebuild. Because the scripts call the
+same \texttt{commlib} functions as the labs, a figure is also a worked example of the library: copy
+the function into a notebook, replace \texttt{save} with \texttt{plt.show()}, and you have an
+interactive version. A few expensive Monte Carlo figures cache their results in
+\texttt{figscripts/cache/}; delete the cache file to force a fresh run. The fonts are TeX Gyre
+Pagella when it can be found (from TeX Live or MiKTeX) and otherwise fall back to Palatino or DejaVu
+Serif, which changes the look slightly but not the content.
+
+%======================================================================
+\section{GNU Radio and the USRP B200}
+\label{sec:appB:gnuradio}
+%======================================================================
+
+\subsection{The radio}
+
+The Ettus Research USRP B200 is a single-board, USB-powered software-defined radio built around the
+Analog Devices AD9364 RF transceiver (Chapter~\ref{ch:sdr}). It has one transmit and one receive
+chain, tunes continuously from 70\,MHz to 6\,GHz and streams up to 56\,MHz of instantaneous
+bandwidth over USB~3.0 (Ettus data sheet). Its two SMA ports are labelled \texttt{TX/RX} (transmit, or
+receive when not transmitting) and \texttt{RX2} (receive only). The transmit gain control spans
+0--89.75\,dB and the receive gain 0--76\,dB. Two figures from the data sheet matter for safety: the
+maximum transmit power is of the order of +10\,dBm, and the maximum safe receive input is about
+$-15$\,dBm. A direct cable from \texttt{TX/RX} to \texttt{RX2} could therefore put roughly 25\,dB more
+power into the receiver than it is rated for.
+
+\subsection{Installing GNU Radio}
+
+The scripts in \texttt{gnuradio/} target GNU Radio~3.10 with UHD~4 and were developed with
+GNU Radio~3.10.9 on Ubuntu~24.04.
+
+\begin{description}[leftmargin=1.2em,itemsep=3pt,font=\normalfont\bfseries]
+\item[radioconda (recommended, all platforms).] radioconda is a conda distribution that bundles GNU
+Radio, UHD and other SDR drivers with a matching Python and NumPy. Download the installer for your
+platform from its GitHub releases page,
+\url{https://github.com/ryanvolz/radioconda}. Install it, open the radioconda prompt and add the lab packages with conda so that NumPy stays consistent:
+\begin{lstlisting}[language=bash]
+mamba install scipy matplotlib ipywidgets jupyterlab jupytext nbformat pillow
+# fetch the FPGA/firmware images UHD loads into the B200
+uhd_images_downloader
+# should list the B200 (serial number, type=b200)
+uhd_find_devices
+# full report; loads the FPGA image the first time
+uhd_usrp_probe
+\end{lstlisting}
+On Windows the B200 also needs a USB driver, and on Linux a udev rule so that ordinary users may open
+it; the radioconda and UHD installation guides give the exact steps for each.
+\item[Ubuntu and Debian packages.] Install with
+\begin{lstlisting}[language=bash]
+sudo apt install gnuradio uhd-host
+sudo uhd_images_downloader
+\end{lstlisting} These packages are built against the distribution's NumPy.
+If a newer NumPy has been installed with \texttt{pip} into the same Python, GNU Radio will fail to
+import (Section~\ref{sec:appB:trouble}); keep the labs in their own virtual environment.
+\item[Windows Subsystem for Linux.] Possible with USB pass-through, but radioconda on native Windows
+is simpler for hardware work.
+\end{description}
+
+The flowgraphs are plain Python, the same code GNU Radio Companion generates, so they run with
+\texttt{python gr02\_psk\_link.py} from the \texttt{gnuradio/} folder. They import \texttt{commlib} from
+the parent folder (\texttt{gr05} uses its Viterbi decoder), so keep the repository intact.
+
+\subsection{Common options and simulation mode}
+
+All five scripts share the command-line options in Table~\ref{tab:appB:gropts}, defined in
+\texttt{grcommon.py}. The most important is \texttt{-{}-sim}: it replaces the B200 by GNU Radio's
+\texttt{channel\_model} block preceded by a throttle, adding white noise at the requested SNR per
+sample, a carrier offset (\texttt{-{}-cfo}), a sample-clock offset (\texttt{-{}-ppm}) and, with
+\texttt{-{}-multipath}, the three-path channel $[1,\,0,\,0.35+0.25j,\,0,\,-0.15]$ (taps at 0, 2 and 4
+samples). Every experiment should be run in simulation first: if it does not work there, it will not
+work over the air. With \texttt{-{}-nogui} the scripts print statistics to the console instead of
+opening Qt windows, and \texttt{-{}-duration} stops them after a fixed time, which makes them usable in
+scripts and on headless machines.
+
+\begin{table}[htbp]\centering\small
+\caption{Options shared by all flowgraphs (\texttt{grcommon.base\_parser}).}\label{tab:appB:gropts}
+\begin{tabularx}{\linewidth}{@{}>{\ttfamily}l>{\raggedright\arraybackslash}X@{}}
+\toprule
+\normalfont Option & Meaning\\
+\midrule
+-{}-args & UHD device arguments (default \texttt{type=b200})\\
+-{}-freq & RF centre frequency in Hz (default 915\,MHz)\\
+-{}-rate & sample rate in samples per second (per-script default)\\
+-{}-tx-gain, -{}-rx-gain & B200 gains in dB (0--89.75 and 0--76); start low\\
+-{}-sim & use the software channel instead of the radio\\
+-{}-snr & simulation only: SNR per sample in dB (default 20)\\
+-{}-cfo & carrier offset in Hz; on hardware it is applied as an RX local-oscillator offset\\
+-{}-ppm & simulation only: sample-clock offset in parts per million\\
+-{}-multipath & simulation only: add the three-tap channel\\
+-{}-nogui & no Qt windows; print statistics to the console\\
+-{}-duration & stop after this many seconds (0 runs until Ctrl-C)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{The five flowgraphs}
+
+\paragraph{\texttt{gr01\_spectrum\_iq\_capture.py}: spectrum, waterfall and IQ recording
+(Chapters~\ref{ch:signals} and~\ref{ch:sdr}).} A receive-only script: it never transmits. It shows a
+4096-point spectrum and a waterfall with sliders for centre frequency (70\,MHz to 6\,GHz) and receive
+gain, and with \texttt{-{}-nogui} prints the mean power in dBFS once a second. With \texttt{-{}-out
+file.cfile} it records complex-float samples (with \texttt{-{}-duration}, a fixed number of them) and
+writes a SigMF \texttt{.sigmf-meta} sidecar describing the rate and frequency; load the recording with
+\texttt{commlib.read\_cfile} as in Lab~1. \texttt{-{}-no-dc-corr} turns off UHD's automatic DC-offset
+correction so that you can see the zero-IF receiver's DC spur (Chapter~\ref{ch:sdr}). In simulation it
+synthesises two tones 20\,dB apart, an IQ-imbalance image 30\,dB below the stronger tone, an optional
+DC term and noise, the impairments Lab~1 teaches you to recognise.
+\begin{lstlisting}[language=bash]
+# FM broadcast band
+python gr01_spectrum_iq_capture.py --freq 100e6 --rate 2e6
+python gr01_spectrum_iq_capture.py --freq 915e6 --duration 5 \
+       --out ../data/capture.cfile
+python gr01_spectrum_iq_capture.py --sim --nogui --duration 3 --out sim.cfile
+\end{lstlisting}
+
+\paragraph{\texttt{gr02\_psk\_link.py}: a complete QPSK link (Chapters~\ref{ch:modulation},
+\ref{ch:sync} and~\ref{ch:equalization}).} The transmitter sends a repeating block of 1024
+pseudo-random bytes as differentially encoded QPSK with root-raised-cosine shaping ($\beta=0.35$,
+four samples per symbol by default). The receiver is a textbook chain: AGC; a band-edge FLL for
+coarse frequency correction; a polyphase-filterbank clock synchroniser (32 RRC matched filters) for
+timing; a 15-tap fractionally spaced CMA equaliser; a Costas loop for fine phase; a slicer;
+differential decoding, which removes the Costas loop's $90^\circ$ ambiguity; and a BER counter that
+aligns itself to the known pattern by circular correlation. The GUI overlays the constellation after
+each stage so you can see what every block contributes, shows the spectrum before and after the FLL
+and the Costas loop's frequency estimate, and has a slider for the Costas loop bandwidth. Options
+\texttt{-{}-sps}, \texttt{-{}-amplitude}, \texttt{-{}-fll-bw}, \texttt{-{}-timing-bw}, \texttt{-{}-phase-bw} and
+\texttt{-{}-cma-mu} expose every loop. In simulation the link converged to a BER below $10^{-4}$ with a
+2\,kHz offset at 18\,dB SNR.
+\begin{lstlisting}[language=bash]
+python gr02_psk_link.py --sim --cfo 2000 --multipath --ppm 50 --snr 15
+# headless BER measurement
+python gr02_psk_link.py --sim --nogui --duration 10
+# hardware, cabled loopback
+python gr02_psk_link.py --cfo 2000
+\end{lstlisting}
+
+\paragraph{\texttt{gr03\_channel\_sounder.py}: a correlation channel sounder
+(Chapter~\ref{ch:channels}).} The transmitter repeats a Zadoff--Chu sequence (length 255, root 7 by
+default). Because its periodic autocorrelation is a perfect impulse, the receiver's matched filter
+output, squared and cut into one vector per period, is the channel's power-delay profile. The script
+averages the profiles exponentially, aligns them on the strongest tap, displays the result in dB and
+every two thousand periods prints the taps within 20\,dB of the peak and the RMS delay spread; with
+\texttt{-{}-out} it saves the averaged profile as a NumPy file. The delay resolution is one sample
+($1/\text{rate}$: 100\,ns at the default 10\,MS/s) and the longest unambiguous excess delay is 255
+samples. In simulation with \texttt{-{}-multipath} it recovers the three-tap profile and reports an RMS
+delay spread of 88\,ns, the value you can compute by hand from the taps. In cabled loopback it shows a
+single tap: your system's own impulse response, which you should remember to subtract when you
+later use antennas.
+
+\paragraph{\texttt{gr04\_ofdm\_link.py}: packet OFDM (Chapter~\ref{ch:ofdm}).} This script wraps GNU
+Radio's reference OFDM transceiver (\texttt{ofdm\_tx}/\texttt{ofdm\_rx}): a 64-point FFT with a 16-sample
+cyclic prefix, 48 data and 4 pilot subcarriers, Schmidl--Cox synchronisation, a BPSK header and a
+payload of BPSK, QPSK or 8-PSK (\texttt{-{}-bps 1}, \texttt{2} or \texttt{3}), each packet protected by a
+CRC-32. The transmitter cycles through 64 numbered 96-byte packets, separated by 160 zero samples so
+that the detector resets between bursts. The receiver checks the CRC, the content and the sequence
+numbers and reports packet error rate and goodput every second. In simulation it delivered every
+packet at 20\,dB SNR and about 99\% with multipath and a 5\,kHz offset. Things to try: raise
+\texttt{-{}-bps} to 3 and find the SNR at which the packet error rate collapses; add multipath and note
+that no equaliser beyond the one-tap-per-subcarrier correction is needed because the cyclic prefix
+is longer than the channel; push \texttt{-{}-cfo} beyond half a subcarrier spacing ($\text{rate}/128$)
+and watch synchronisation fail.
+
+\paragraph{\texttt{gr05\_coded\_link.py}: measured coding gain (Chapters~\ref{ch:classiccodes}
+and~\ref{ch:sync}).} Each frame carries 500 information bits encoded by the industry-standard $K=7$,
+rate-$\tfrac12$ (133,\,171) convolutional code from \texttt{commlib}, sent as 1012 BPSK symbols in 22
+blocks, each preceded by 16 pilot symbols, after a 63-symbol m-sequence preamble. The receiver runs
+an AGC, a narrow FLL and the polyphase clock synchroniser, then a Python block that finds the
+preamble by correlation, estimates the carrier phase from each pilot group and interpolates it across
+the data, estimates $E_s/N_0$, counts raw channel errors and decodes with soft-decision Viterbi. It
+prints $E_s/N_0$, raw BER, decoded BER and frame error rate, so you can place your operating point on
+the curves of Lab~8. Pilots replace a Costas loop because the code works near $E_s/N_0=0$\,dB, where
+a decision-directed loop slips cycles constantly: the same reason DVB-S2 and 5G NR use pilots
+(Chapter~\ref{ch:sync}). In simulation, \texttt{-{}-snr} is per sample; with four samples per symbol
+$E_s/N_0$ is 6\,dB higher and $E_b/N_0$ another 3\,dB higher. At $E_s/N_0=2.9$\,dB the simulated link
+measured a raw BER of $2.4\times10^{-2}$ (theory $2.3\times10^{-2}$) and no decoded errors.
+
+\subsection{Safety and the law}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\small,
+  att/.style={draw=accent,fill=accent!8,thick,minimum height=1.0cm,minimum width=2.0cm,align=center},
+  arr/.style={-{Stealth[length=2.5mm]},thick,navy}]
+\node[draw=navy,fill=navy!6,thick,minimum height=3.0cm,minimum width=2.8cm,align=center] (b200) at (0,0)
+  {USRP B200\\[3pt]{\footnotesize to host PC}\\{\footnotesize over USB 3.0}};
+\coordinate (tx) at (1.4,0.8);
+\coordinate (rx) at (1.4,-0.8);
+\fill[navy] (tx) circle (2.2pt); \fill[navy] (rx) circle (2.2pt);
+\node[anchor=south east,font=\sffamily\footnotesize] at ([xshift=-2pt]tx) {TX/RX};
+\node[anchor=north east,font=\sffamily\footnotesize] at ([xshift=-2pt]rx) {RX2};
+\node[att] (a1) at (4.0,0.8) {30\,dB\\attenuator};
+\node[att] (a2) at (7.0,0.8) {30\,dB\\attenuator};
+\draw[arr] (tx) -- (a1);
+\draw[arr] (a1) -- (a2);
+\draw[arr] (a2.east) -- ++(0.7,0) |- (rx);
+\node[align=left,text=accent,font=\sffamily\footnotesize,anchor=north west] at (2.4,-1.05)
+  {TX output up to about $+10$\,dBm; RX safe input about $-15$\,dBm\\
+   $\Rightarrow$ at least 30\,dB of attenuation, 60\,dB preferred};
+\end{tikzpicture}
+\caption{Cabled loopback for the B200 experiments. Connect \texttt{TX/RX} to \texttt{RX2} only through
+fixed attenuators: at least 30\,dB, and 60\,dB (two 30\,dB pads) for comfort. A single B200 shares one
+reference oscillator between transmitter and receiver, so the loopback carrier offset is essentially
+zero; use \texttt{-{}-cfo} to inject one.}
+\label{fig:appB_loopback}
+\end{figure}
+
+\begin{pitfall}[Never connect TX directly to RX]
+The B200's transmitter can deliver more power than its receiver can survive. Always use the cabled
+loopback of Figure~\ref{fig:appB_loopback} with at least 30\,dB of attenuation (60\,dB is safer, and
+the receive gain has range to spare), start with a low \texttt{-{}-tx-gain} and raise it slowly while
+watching the received level, and keep a 50\,$\Omega$ load or attenuator on any transmit port that is
+active. Discharge static before handling the SMA connectors.
+\end{pitfall}
+
+Cabled experiments radiate essentially nothing and need no licence. \emph{Radiating} is different:
+every transmission is regulated by the national administration under the ITU Radio Regulations, and
+an SDR has not been certified as a transmitter for any particular service. In practice:
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item Transmit over the air only where you are clearly entitled to: under an amateur radio licence,
+on amateur frequencies and within its rules (station identification, power limits, no obscured
+content), under an experimental licence, or, where national rules allow it, at the very low powers
+permitted in licence-exempt bands. Typical examples are 902--928\,MHz and 2400--2483.5\,MHz in ITU
+Region~2 (in the USA, FCC Part~15) and the short-range-device bands 433.05--434.79\,MHz and
+863--870\,MHz in Europe (ERC Recommendation 70-03), which come with power and duty-cycle limits. The
+scripts default to 915\,MHz; in Region~1 use \texttt{-{}-freq 433.92e6} or \texttt{868e6}. Check your own
+country's rules before radiating anything.
+\item Never transmit in bands used for navigation, aviation, emergency services or cellular
+networks. A few milliwatts at 1575\,MHz can jam GPS receivers nearby.
+\item Receiving is permitted almost everywhere, but many jurisdictions restrict intercepting, recording
+or disclosing the content of other people's communications. The receive experiments below use public
+broadcasts, beacons and synchronisation signals; keep it that way.
+\end{itemize}
+
+\subsection{Hardware experiments by chapter}
+
+Table~\ref{tab:appB:hwexp} suggests an experiment for most chapters. Receive-only experiments need an
+antenna suited to the band; transmit experiments use the cabled loopback unless you hold the right
+licence. Each lab's \emph{Going further} section gives more detail.
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{Suggested B200 experiments. ``Loopback'' means the attenuated cable of Figure~\ref{fig:appB_loopback}.}\label{tab:appB:hwexp}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.2\linewidth}@{}}
+\toprule
+Ch. & Experiment & Tools\\
+\midrule
+2, 7 & Record a few seconds of the FM band and of a quiet band; find the DC spur (\texttt{-{}-no-dc-corr}) and the IQ image of a strong station; estimate and correct the imbalance offline & gr01, Lab 1\\
+3 & Terminate \texttt{RX2} in 50\,$\Omega$ and measure the noise level in dBFS versus receive gain; relate it to $-174$\,dBm/Hz, the bandwidth and the receiver's noise figure; check that the samples are Gaussian & gr01, Labs 1, 33\\
+4 & Record an FM broadcast station at 1--2\,MS/s; demodulate it offline with the discriminator of Lab 14 and find the 19\,kHz pilot, the 38\,kHz stereo subcarrier and the 57\,kHz RDS signal & gr01, Lab 14\\
+5, 6 & Decimate a wideband recording to one channel with a multistage DDC; compare CIC-plus-compensator and single-stage FIR designs on real data & gr01, Lab 17\\
+8, 9 & Edit the transmit roll-off in gr02 so that TX and RX filters mismatch and watch the constellation spread; measure the transmitted spectrum and its shoulders & gr02, gr01, Lab 3\\
+10 & Sweep \texttt{-{}-cfo} until the FLL loses lock; vary the Costas bandwidth while watching phase jitter and cycle slips & gr02, Lab 4\\
+11 & Build a known two-path channel from a power splitter and two cables of different lengths (about 5\,ns of delay per metre of typical coax) and measure it with the sounder; with a licence, measure indoor profiles & gr03, Lab 5\\
+12 & Run gr02 through the two-path cable channel and watch the CMA equaliser open the eye & gr02, Lab 6\\
+14, 15 & Lower \texttt{-{}-tx-gain} in gr05 until raw errors appear; compare raw and decoded BER with Lab 8's curves & gr05, Lab 8\\
+17 & Measure packet error rate versus modulation, gain and injected offset; compare with Lab 7 & gr04, Lab 7\\
+18 & With an active GPS antenna and an external bias tee, record L1 (1575.42\,MHz) at 4\,MS/s and acquire satellites with \texttt{spread.acquire}; widen the Doppler search to cover the B200 oscillator's error & gr01, Lab 25\\
+21 & Record a cellular downlink carrier (receive only) and find PSS/SSS to recover the physical cell identity & gr01, Lab 27\\
+22 & Record the BLE advertising channels or Wi-Fi beacons at 2.4\,GHz and detect preambles; dechirp a LoRa transmission from your own device & gr01, Lab 31\\
+23 & Record a low-Earth-orbit amateur or weather satellite pass at VHF/UHF and compare the measured Doppler curve with \texttt{satellite.leo\_pass} & gr01, Lab 18\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\FloatBarrier
+%======================================================================
+\section{Troubleshooting}
+\label{sec:appB:trouble}
+%======================================================================
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{Common problems and their fixes.}\label{tab:appB:trouble}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.28\linewidth}>{\raggedright\arraybackslash}X@{}}
+\toprule
+Symptom & Cause and fix\\
+\midrule
+\texttt{ModuleNotFoundError: commlib} & The lab was started from a folder other than \texttt{labs/} or the repository root. Start Jupyter from \texttt{moderncomms-labs/}, or add that folder to \texttt{sys.path} (the set-up cell of every lab does this for the two usual locations).\\
+\texttt{from gnuradio import gr} fails with an ``initialization failed'' or NumPy ABI error & Distribution GNU Radio packages are compiled against NumPy~1.x; a \texttt{pip}-installed NumPy~2.x in the same Python breaks them. Use radioconda, run the flowgraphs with the system packages first on the path (e.g.\ \texttt{PYTHONPATH=/usr/lib/python3/dist-packages python3 gr02\_psk\_link.py}), or keep the labs in a separate virtual environment. The labs themselves work with NumPy 1.24+ and 2.x.\\
+A lab with small matrix solves (equalisers, MIMO) runs 10--100 times slower than expected on a many-core machine & OpenBLAS thread start-up and contention. The labs set \texttt{OPENBLAS\_NUM\_THREADS=2} in their first cell, and the build and test scripts set it (with \texttt{OMP\_NUM\_THREADS} and \texttt{MKL\_NUM\_THREADS}) before importing NumPy. If you import NumPy yourself first, set these variables in the shell instead.\\
+Sliders do not appear; the panel is drawn once & The notebook is not running in a live kernel, \texttt{ipywidgets} is missing or older than 8, or \texttt{MDC\_STATIC=1} is set in your environment. In VS Code install the Jupyter extension and select the \texttt{.venv} kernel.\\
+Figures use a different font from the book & \texttt{figstyle.py} looks for TeX Gyre Pagella in the TeX Live and MiKTeX font folders and falls back to Palatino or DejaVu Serif. Install the \texttt{tex-gyre} fonts (or edit the glob in \texttt{figstyle.py}) and delete Matplotlib's font cache.\\
+Garbled characters or \texttt{UnicodeEncodeError} on Windows & The console is using a legacy code page. The scripts reconfigure their output to UTF-8; for your own scripts set \texttt{PYTHONIOENCODING=utf-8}.\\
+A notebook rebuild fails & \texttt{build\_notebooks.py} prints the failing cell and traceback and exits non-zero; fix the \texttt{.py} source, not the \texttt{.ipynb}. Use \texttt{-{}-keep-going} or \texttt{build\_all.sh} to see every failure at once.\\
+\texttt{uhd\_find\_devices} finds nothing & Check the USB~3.0 cable and port, the Windows USB driver or Linux udev rule, and that \texttt{uhd\_images\_downloader} has been run.\\
+The console fills with \texttt{O} (or \texttt{U}) characters & UHD reports receive overflows (or transmit underflows): the host cannot keep up. Lower \texttt{-{}-rate}, close the GUI (\texttt{-{}-nogui}), use a USB~3.0 port and avoid virtual machines.\\
+Qt windows fail to open & Missing PyQt5 or no display (SSH, WSL without a display server). Use \texttt{-{}-nogui}.\\
+The hardware link never locks but \texttt{-{}-sim} works & Check the loopback wiring and attenuation, raise \texttt{-{}-tx-gain} in small steps, and look at the raw spectrum with gr01 at the same frequency to confirm the signal is there and not clipped.\\
+Monte Carlo curves stop at $10^{-3}$ or $10^{-4}$ & The simulation ran out of frames before seeing errors. Increase the frame or bit count (and the run time); the floor is the simulation's resolution, not the code's.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\FloatBarrier
+\furtherreading
+\begin{itemize}
+\item The GNU Radio project, \emph{GNU Radio Wiki and Tutorials}, \url{https://wiki.gnuradio.org}. Start
+with the beginner tutorials and the pages on the \texttt{digital} module's synchronisation blocks
+used in gr02 and gr05.
+\item Ettus Research, \emph{USRP Hardware Driver and USRP Manual}, \url{https://files.ettus.com/manual/},
+and the B200/B210 product data sheet: installation, device arguments, gain ranges and RF limits.
+\item R.~Volz, \emph{radioconda}, \url{https://github.com/ryanvolz/radioconda}. Installers and
+platform notes, including USB drivers and permissions.
+\item M.~Lichtman, \emph{PySDR: A Guide to SDR and DSP using Python}, \url{https://pysdr.org}. A free
+online companion that covers much of the same ground in a hands-on style, including the USRP.
+\item T.~F.~Collins, R.~Getz, D.~Pu and A.~M.~Wyglinski, \emph{Software-Defined Radio for Engineers},
+Artech House, 2018. SDR hardware and receiver algorithms built around the AD936x family used in the
+B200.
+\item \emph{SigMF: the Signal Metadata Format}, \url{https://github.com/sigmf/SigMF}. The specification
+behind the \texttt{.sigmf-meta} files written by gr01.
+\item The jupytext documentation, \url{https://jupytext.readthedocs.io}, for the percent format used
+by the lab sources.
+\item ITU, \emph{Radio Regulations} (current edition); for the USA, 47 CFR Part~15 (licence-exempt
+devices) and Part~97 (amateur service); for Europe, ERC Recommendation 70-03 on short-range devices.
+The rules you must know before radiating anything.
+\end{itemize}

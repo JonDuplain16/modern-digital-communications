@@ -1,0 +1,1438 @@
+\chapter{Mathematical Reference}
+\label{appA}
+
+\begin{chapterintro}
+This appendix collects the mathematics a communications engineer reaches for every week:
+Fourier transform properties and pairs in continuous and discrete time, the special
+functions that appear in error-rate formulas (the Q-function and its bounds, Marcum's Q,
+Bessel and gamma functions), a table of the probability distributions that describe noise
+and fading, Gaussian random vectors, random processes and their spectra, the linear algebra
+of MIMO and equalisation (including complex gradients), constrained optimisation with
+water-filling as the worked example, the decibel and its many dialects, physical constants,
+frequency-band names, and the series and integrals that keep recurring. Derivations are
+short; the chapters that use each result are cross-referenced so you can see it at work.
+Keep a finger in this appendix as you read the book.
+\end{chapterintro}
+
+%======================================================================
+\section{Notation and conventions}
+\label{sec:appA:notation}
+%======================================================================
+
+Table~\ref{tab:appA:notation} lists the conventions used throughout the book. Two of them
+cause more confusion than all the others combined, so they are worth stating up front.
+First, the Fourier transform is written in \emph{hertz}, $X(f)=\int x(t)e^{-j2\pi ft}\,dt$,
+not in radians per second. With this choice there are no stray factors of $2\pi$ in the
+inverse transform, in Parseval's theorem or in the convolution theorem, and bandwidths read
+directly in Hz. Second, $\sinc x=\sin(\pi x)/(\pi x)$ is the \emph{normalised} sinc, whose
+zeros fall on the non-zero integers; the unnormalised $\sin x/x$ never appears without being
+written out.
+
+\begin{table}[htbp]\centering\small
+\caption{Notation used in this book.}\label{tab:appA:notation}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Meaning\\
+\midrule
+$x(t)$, $x[n]$ & continuous-time signal; discrete-time sequence\\
+$X(f)$, $X(e^{j\omega})$, $X[k]$, $X(z)$ & Fourier transform; DTFT; DFT; $z$-transform\\
+$\tilde x(t)$ or $x_b(t)$ & complex envelope (baseband equivalent): $x(t)=\re\{\tilde x(t)e^{j2\pi f_c t}\}$\\
+$*$, $\circledast$ & linear convolution; circular convolution\\
+$z^*$, $\vect{A}^T$, $\vect{A}^H$ & complex conjugate; transpose; conjugate (Hermitian) transpose\\
+$\vect{a}$, $\vect{A}$, $\vect{I}_n$ & column vector; matrix; $n\times n$ identity\\
+$\|\vect{a}\|$, $\|\vect{A}\|_F$ & Euclidean norm; Frobenius norm\\
+$\operatorname{tr}$, $\det$, $\operatorname{diag}$, $\operatorname{vec}$, $\otimes$ & trace; determinant; diagonal matrix; column stacking; Kronecker product\\
+$\E[\cdot]$, $\operatorname{Var}[\cdot]$, $\Pr\{\cdot\}$ & expectation; variance; probability\\
+$\mathcal{N}(\mu,\sigma^2)$, $\mathcal{CN}(\vect{\mu},\vect{C})$ & real Gaussian; circularly symmetric complex Gaussian\\
+$\delta(t)$, $\delta[n]$ & Dirac delta; Kronecker delta\\
+$u(t)$, $\operatorname{rect}(t)$, $\Lambda(t)$ & unit step; unit rectangle ($|t|<\tfrac12$); unit triangle ($|t|<1$)\\
+$\sinc x$ & $\sin(\pi x)/(\pi x)$, with $\sinc 0=1$\\
+$\Q(x)$ & Gaussian tail probability $\Pr\{\mathcal N(0,1)>x\}$\\
+$\log$, $\ln$, $\log_2$ & base 10 in decibel formulas, natural, base 2 (bits)\\
+$E_s$, $E_b$, $N_0$ & energy per symbol; energy per bit; one-sided noise PSD (W/Hz)\\
+$T$, $R_s=1/T$, $R_b$ & symbol period; symbol rate (baud); bit rate\\
+$(x)^+$ & $\max(x,0)$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Complex baseband.} A real bandpass signal centred on $f_c$ is written
+$x(t)=\re\{\tilde x(t)e^{j2\pi f_c t}\}=x_I(t)\cos 2\pi f_c t-x_Q(t)\sin 2\pi f_c t$ with
+$\tilde x=x_I+jx_Q$. Its spectrum is $X(f)=\tfrac12[\tilde X(f-f_c)+\tilde X^*(-f-f_c)]$, and its
+energy is half the energy of the envelope, $\int x^2\,dt=\tfrac12\int|\tilde x|^2\,dt$ (for
+$f_c$ well above the bandwidth). Real white noise of two-sided PSD $N_0/2$ becomes complex
+baseband noise of PSD $N_0$, with $N_0/2$ in each of $I$ and $Q$
+(Chapters~\ref{ch:signals} and~\ref{ch:noise}). Some texts scale the envelope by $\sqrt2$ so
+that energies match; this book does not, so watch the factor of two when comparing formulas.
+
+%======================================================================
+\section{Fourier analysis}
+\label{sec:appA:fourier}
+%======================================================================
+
+\subsection{The continuous-time Fourier transform}
+
+The transform pair is
+\begin{equation}
+X(f)=\int_{-\infty}^{\infty}x(t)\,e^{-j2\pi ft}\,dt,\qquad
+x(t)=\int_{-\infty}^{\infty}X(f)\,e^{j2\pi ft}\,df.
+\label{eq:appA:ft}
+\end{equation}
+It exists in the ordinary sense for absolutely integrable or finite-energy signals and, with
+Dirac deltas allowed, for periodic signals and constants as well. Tables~\ref{tab:appA:ftprops}
+and~\ref{tab:appA:ftpairs} collect the properties and pairs that recur in this book;
+Chapter~\ref{ch:signals} develops them.
+
+\begin{table}[htbp]\centering\small
+\caption{Properties of the Fourier transform, $x(t)\leftrightarrow X(f)$, $y(t)\leftrightarrow Y(f)$.}\label{tab:appA:ftprops}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Property & Time domain & Frequency domain\\
+\midrule
+Linearity & $a\,x(t)+b\,y(t)$ & $a\,X(f)+b\,Y(f)$\\
+Time shift & $x(t-t_0)$ & $e^{-j2\pi f t_0}X(f)$\\
+Frequency shift & $x(t)\,e^{j2\pi f_0t}$ & $X(f-f_0)$\\
+Modulation & $x(t)\cos 2\pi f_0 t$ & $\tfrac12X(f-f_0)+\tfrac12X(f+f_0)$\\
+Scaling & $x(at)$, $a\neq0$ & $\frac{1}{|a|}X(f/a)$\\
+Time reversal & $x(-t)$ & $X(-f)$\\
+Conjugation & $x^*(t)$ & $X^*(-f)$\\
+Real signal & $x(t)=x^*(t)$ & $X(-f)=X^*(f)$ (Hermitian symmetry)\\
+Real and even & $x(t)=x(-t)$ real & $X(f)$ real and even\\
+Duality & $X(t)$ & $x(-f)$\\
+Convolution & $x(t)*y(t)$ & $X(f)\,Y(f)$\\
+Multiplication & $x(t)\,y(t)$ & $X(f)*Y(f)$\\
+Correlation & $\int x(\tau)y^*(\tau-t)\,d\tau$ & $X(f)\,Y^*(f)$\\
+Differentiation & $\frac{d^n}{dt^n}x(t)$ & $(j2\pi f)^nX(f)$\\
+Frequency derivative & $t\,x(t)$ & $\frac{-1}{j2\pi}\frac{d}{df}X(f)$\\
+Integration & $\int_{-\infty}^{t}x(\tau)\,d\tau$ & $\frac{X(f)}{j2\pi f}+\tfrac12X(0)\delta(f)$\\
+Area & $\int x(t)\,dt=X(0)$ & $\int X(f)\,df=x(0)$\\
+Hilbert transform & $\hat x(t)=x(t)*\frac{1}{\pi t}$ & $-j\operatorname{sgn}(f)\,X(f)$\\
+Analytic signal & $x(t)+j\hat x(t)$ & $2u(f)X(f)$\\
+Parseval & $\int x(t)y^*(t)\,dt$ & $\int X(f)Y^*(f)\,df$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]\centering\small
+\caption{Fourier transform pairs. $T>0$, $a>0$, $0\le\beta\le1$.}\label{tab:appA:ftpairs}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Signal & $x(t)$ & $X(f)$\\
+\midrule
+Impulse & $\delta(t)$ & $1$\\
+Constant & $1$ & $\delta(f)$\\
+Complex exponential & $e^{j2\pi f_0t}$ & $\delta(f-f_0)$\\
+Cosine & $\cos 2\pi f_0 t$ & $\tfrac12[\delta(f-f_0)+\delta(f+f_0)]$\\
+Sine & $\sin 2\pi f_0 t$ & $\tfrac1{2j}[\delta(f-f_0)-\delta(f+f_0)]$\\
+Rectangular pulse & $\operatorname{rect}(t/T)$ & $T\sinc(fT)$\\
+Sinc pulse & $\sinc(t/T)$ & $T\operatorname{rect}(fT)$\\
+Triangle & $\Lambda(t/T)$ & $T\sinc^2(fT)$\\
+Gaussian & $e^{-\pi t^2/T^2}$ & $T\,e^{-\pi f^2T^2}$\\
+One-sided exponential & $e^{-at}u(t)$ & $\dfrac{1}{a+j2\pi f}$\\
+Two-sided exponential & $e^{-a|t|}$ & $\dfrac{2a}{a^2+(2\pi f)^2}$\\
+Damped cosine & $e^{-at}\cos(2\pi f_0t)\,u(t)$ & $\dfrac{a+j2\pi f}{(a+j2\pi f)^2+(2\pi f_0)^2}$\\
+Signum & $\operatorname{sgn}(t)$ & $\dfrac{1}{j\pi f}$\\
+Unit step & $u(t)$ & $\tfrac12\delta(f)+\dfrac{1}{j2\pi f}$\\
+Hilbert kernel & $\dfrac{1}{\pi t}$ & $-j\operatorname{sgn}(f)$\\
+Impulse train (comb) & $\sum_n\delta(t-nT)$ & $\frac1T\sum_k\delta(f-k/T)$\\
+Gaussian-filtered (GMSK) & $\frac{\sqrt{2\pi}B}{\sqrt{\ln2}}\,e^{-2\pi^2B^2t^2/\ln2}$ & $e^{-(\ln 2/2)(f/B)^2}$ ($B$ = 3-dB bandwidth)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two more pairs are used constantly. The \term{raised-cosine} pulse with roll-off $\beta$ and its
+spectrum are
+\begin{gather}
+x_{\mathrm{RC}}(t)=\sinc\Big(\frac tT\Big)\frac{\cos(\pi\beta t/T)}{1-(2\beta t/T)^2}
+\quad\leftrightarrow\notag\\
+X_{\mathrm{RC}}(f)=\begin{cases}T,& |f|\le\frac{1-\beta}{2T},\\[2pt]
+\frac T2\Big[1+\cos\Big(\frac{\pi T}{\beta}\big(|f|-\frac{1-\beta}{2T}\big)\Big)\Big],&\frac{1-\beta}{2T}<|f|\le\frac{1+\beta}{2T},\\[2pt]
+0,&|f|>\frac{1+\beta}{2T},\end{cases}
+\label{eq:appA:rc}
+\end{gather}
+and the \term{root-raised-cosine} pulse, whose spectrum is $\sqrt{T\,X_{\mathrm{RC}}(f)}$ and whose
+energy is $T$, is
+\begin{equation}
+x_{\mathrm{RRC}}(t)=\frac{\sin\big(\pi(1-\beta)t/T\big)+4\beta(t/T)\cos\big(\pi(1+\beta)t/T\big)}{\pi(t/T)\big[1-(4\beta t/T)^2\big]}.
+\label{eq:appA:rrc}
+\end{equation}
+Both are derived in Chapter~\ref{ch:baseband}.
+The RRC pulse as written has peak value $1-\beta+4\beta/\pi$ at $t=0$; at $t=\pm T/(4\beta)$ the
+formula is $0/0$ and the limit is
+$\frac{\beta}{\sqrt2}\big[(1+\tfrac2\pi)\sin\tfrac{\pi}{4\beta}+(1-\tfrac2\pi)\cos\tfrac{\pi}{4\beta}\big]$.
+Numerical code must handle both points; \lab{commlib.rrc\_taps} does.
+
+\subsection{Energy, power and Parseval's theorem}
+
+\term{Parseval's theorem} (also called Plancherel's or Rayleigh's energy theorem) says the
+transform preserves inner products:
+\begin{equation}
+\int_{-\infty}^{\infty}x(t)\,y^*(t)\,dt=\int_{-\infty}^{\infty}X(f)\,Y^*(f)\,df,\qquad
+E_x=\int|x(t)|^2dt=\int|X(f)|^2df.
+\label{eq:appA:parseval}
+\end{equation}
+$|X(f)|^2$ is therefore the \term{energy spectral density}. Two signals with non-overlapping
+spectra are orthogonal; this single observation underlies FDMA, the quadrature carriers of QAM
+and the orthogonality of OFDM subcarriers. For a power signal, the power spectral density is
+the limit $S_x(f)=\lim_{T_0\to\infty}\E|X_{T_0}(f)|^2/T_0$ of the energy spectrum of a
+$T_0$-second segment, which for a wide-sense stationary process equals the Fourier transform of
+the autocorrelation (Section~\ref{sec:appA:processes}).
+
+For a periodic signal with period $T_0$ the Fourier series
+\begin{equation}
+x(t)=\sum_{k=-\infty}^{\infty}c_k\,e^{j2\pi kt/T_0},\qquad c_k=\frac1{T_0}\int_{T_0}x(t)\,e^{-j2\pi kt/T_0}\,dt
+\end{equation}
+gives line spectra $X(f)=\sum_k c_k\delta(f-k/T_0)$ and the power form of Parseval's theorem,
+$\frac1{T_0}\int_{T_0}|x|^2dt=\sum_k|c_k|^2$. A square wave of amplitude $\pm1$ has
+$|c_k|=2/(\pi |k|)$ for odd $k$, so 81\% of its power ($8/\pi^2$) is in the fundamental pair.
+
+\subsection{Sampling identities}
+
+Sampling $x(t)$ every $T_s=1/f_s$ seconds multiplies it by an impulse train, so by the comb pair
+and the multiplication property the spectrum of the sampled signal is periodic:
+\begin{equation}
+x_s(t)=\sum_n x(nT_s)\,\delta(t-nT_s)\;\leftrightarrow\;X_s(f)=f_s\sum_{k}X(f-kf_s).
+\label{eq:appA:sampled}
+\end{equation}
+The same fact, stated without impulses, is the \term{Poisson summation formula}
+\begin{equation}
+\sum_{n=-\infty}^{\infty}x(nT_s)\,e^{-j2\pi fnT_s}=f_s\sum_{k=-\infty}^{\infty}X(f-kf_s),
+\label{eq:appA:poisson}
+\end{equation}
+which links the DTFT of the samples to the folded continuous spectrum. If $X(f)=0$ for
+$|f|\ge f_s/2$, the copies do not overlap and the signal is recovered by ideal low-pass
+interpolation,
+\begin{equation}
+x(t)=\sum_{n}x(nT_s)\,\sinc\!\left(\frac{t-nT_s}{T_s}\right)
+\label{eq:appA:interp}
+\end{equation}
+(the Whittaker--Kotelnikov--Shannon theorem, Chapter~\ref{ch:pcm}). Applied to a pulse rather
+than a signal, \eqref{eq:appA:poisson} is the Nyquist zero-ISI criterion of
+Chapter~\ref{ch:baseband}: $p(nT)=\delta[n]$ if and only if $\sum_kP(f-k/T)=T$.
+
+\paragraph{Bandpass sampling.} A real signal occupying $f_L\le|f|\le f_H$ (bandwidth
+$B=f_H-f_L$) can be sampled without aliasing at any rate satisfying
+\begin{equation}
+\frac{2f_H}{n}\le f_s\le\frac{2f_L}{n-1},\qquad n=1,2,\dots,\left\lfloor f_H/B\right\rfloor,
+\label{eq:appA:bandpass}
+\end{equation}
+the largest $n$ giving the lowest usable rate, which approaches $2B$ when $f_H$ is an integer
+multiple of $B$. Complex (IQ) sampling of the complex envelope needs only $f_s\ge B$
+(Chapter~\ref{ch:sdr}).
+
+\subsection{The discrete-time Fourier transform}
+
+For a sequence $x[n]$ the DTFT and its inverse are
+\begin{equation}
+X(e^{j\omega})=\sum_{n=-\infty}^{\infty}x[n]\,e^{-j\omega n},\qquad
+x[n]=\frac1{2\pi}\int_{-\pi}^{\pi}X(e^{j\omega})\,e^{j\omega n}\,d\omega,
+\label{eq:appA:dtft}
+\end{equation}
+periodic in $\omega$ with period $2\pi$. When $x[n]=x_c(nT_s)$, the frequency variables are
+related by $\omega=2\pi f/f_s$ and $X(e^{j\omega})=f_s\sum_kX_c(f-kf_s)$ by~\eqref{eq:appA:poisson}.
+The engineer's normalised frequency $\nu=f/f_s$ in cycles per sample (used throughout
+\texttt{commlib}) is $\omega/2\pi$.
+
+\begin{table}[htbp]\centering\small
+\caption{DTFT properties and pairs. $|a|<1$ where stated; $\omega$ is in radians per sample.}\label{tab:appA:dtft}
+\begin{tabular}{@{}lll@{}}
+\toprule
+ & $x[n]$ & $X(e^{j\omega})$\\
+\midrule
+Shift & $x[n-n_0]$ & $e^{-j\omega n_0}X(e^{j\omega})$\\
+Modulation & $e^{j\omega_0n}x[n]$ & $X(e^{j(\omega-\omega_0)})$\\
+Convolution & $x[n]*y[n]$ & $X(e^{j\omega})Y(e^{j\omega})$\\
+Multiplication & $x[n]\,y[n]$ & $\frac1{2\pi}\int_{-\pi}^{\pi}X(e^{j\theta})Y(e^{j(\omega-\theta)})\,d\theta$\\
+Parseval & $\sum_n|x[n]|^2$ & $\frac1{2\pi}\int_{-\pi}^{\pi}|X(e^{j\omega})|^2d\omega$\\
+Upsampling by $L$ & $x[n/L]$ ($n$ multiple of $L$, else 0) & $X(e^{j\omega L})$\\
+Downsampling by $M$ & $x[nM]$ & $\frac1M\sum_{k=0}^{M-1}X(e^{j(\omega-2\pi k)/M})$\\
+\midrule
+Impulse & $\delta[n]$ & $1$\\
+Exponential & $a^n u[n]$ & $\dfrac{1}{1-ae^{-j\omega}}$\\
+Rectangular window & $1$ for $0\le n\le N-1$ & $e^{-j\omega(N-1)/2}\,\dfrac{\sin(N\omega/2)}{\sin(\omega/2)}$\\
+Ideal low-pass & $\dfrac{\omega_c}{\pi}\sinc\!\left(\dfrac{\omega_c n}{\pi}\right)$ & $1$ for $|\omega|<\omega_c$, else 0 (per period)\\
+Complex exponential & $e^{j\omega_0 n}$ & $2\pi\sum_k\delta(\omega-\omega_0-2\pi k)$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ratio $\sin(N\omega/2)/(N\sin(\omega/2))$ in Table~\ref{tab:appA:dtft} is the
+\term{Dirichlet kernel} or periodic sinc. It is the spectrum of every finite observation, the
+array factor of every uniform linear array (Chapter~\ref{ch:mimo}) and the response of every
+moving-average and CIC filter (Chapter~\ref{ch:dsp}).
+
+\subsection{The discrete Fourier transform}
+
+The $N$-point DFT and its inverse are
+\begin{equation}
+X[k]=\sum_{n=0}^{N-1}x[n]\,e^{-j2\pi kn/N},\qquad
+x[n]=\frac1N\sum_{k=0}^{N-1}X[k]\,e^{j2\pi kn/N}.
+\label{eq:appA:dft}
+\end{equation}
+$X[k]$ samples the DTFT of the $N$-point block at $\omega_k=2\pi k/N$. The DFT treats its input as
+one period of a periodic sequence, which explains all its properties
+(Table~\ref{tab:appA:dft}): shifts are circular, products of DFTs correspond to
+\emph{circular} convolution, and a block that does not contain an integer number of cycles
+leaks into every bin. The FFT computes~\eqref{eq:appA:dft} in $\tfrac N2\log_2N$ complex
+multiplications for radix-2 $N$, instead of $N^2$.
+
+\begin{table}[htbp]\centering\small
+\caption{DFT properties ($N$-point; indices modulo $N$; $W_N=e^{-j2\pi/N}$).}\label{tab:appA:dft}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Property & $x[n]$ & $X[k]$\\
+\midrule
+Circular shift & $x[(n-m)_N]$ & $W_N^{km}X[k]$\\
+Modulation & $W_N^{-ln}x[n]$ & $X[(k-l)_N]$\\
+Circular convolution & $x[n]\circledast y[n]=\sum_m x[m]\,y[(n-m)_N]$ & $X[k]\,Y[k]$\\
+Multiplication & $x[n]\,y[n]$ & $\frac1N X[k]\circledast Y[k]$\\
+Conjugation & $x^*[n]$ & $X^*[(-k)_N]$\\
+Real input & $x[n]$ real & $X[(-k)_N]=X^*[k]$\\
+Parseval & $\sum_n|x[n]|^2$ & $\frac1N\sum_k|X[k]|^2$\\
+Duality & $X[n]$ & $N\,x[(-k)_N]$\\
+\midrule
+Impulse & $\delta[n]$ & $1$\\
+Constant & $1$ & $N\delta[k]$\\
+On-bin tone & $e^{j2\pi k_0n/N}$ & $N\delta[k-k_0]$\\
+Off-bin tone & $e^{j2\pi(k_0+\epsilon)n/N}$ & $e^{j\pi(N-1)(k_0+\epsilon-k)/N}\dfrac{\sin\pi(k_0+\epsilon-k)}{\sin(\pi(k_0+\epsilon-k)/N)}$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{keyidea}[Why a cyclic prefix works]
+Linear convolution with a channel of length $L$ becomes circular convolution if each block is
+preceded by a copy of its last $L-1$ samples. By the circular-convolution row of
+Table~\ref{tab:appA:dft}, the receiver's DFT then sees $Y[k]=H[k]X[k]$: one complex
+multiplication per subcarrier. That is the whole trick of OFDM (Chapter~\ref{ch:ofdm}), and it
+is also the frequency-domain equaliser of single-carrier systems and the overlap-save fast
+convolution of Chapter~\ref{ch:dsp}. Section~\ref{sec:appA:circulant} states the same fact in
+matrix language.
+\end{keyidea}
+
+\paragraph{Resolution and zero padding.} An $N$-point record at rate $f_s$ gives bins
+$\Delta f=f_s/N$ apart; the ability to separate two tones is set by the record length
+$T_0=N/f_s$ and the window, not by zero padding, which only interpolates the same DTFT more
+finely. Table~\ref{tab:appA:windows} gives the classic window figures of merit after
+Harris (1978), in bins of $f_s/N$.
+
+\begin{table}[htbp]\centering\small
+\caption{Common windows. Main-lobe width is null to null; ENBW is the equivalent noise
+bandwidth; scalloping loss is the worst-case gain loss for a tone midway between bins.}\label{tab:appA:windows}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Window & Main lobe & Peak sidelobe & Sidelobe decay & ENBW & Scalloping\\
+ & (bins) & (dB) & (dB/octave) & (bins) & loss (dB)\\
+\midrule
+Rectangular & 2 & $-13.3$ & $-6$ & 1.00 & 3.92\\
+Hann & 4 & $-31.5$ & $-18$ & 1.50 & 1.42\\
+Hamming & 4 & $-42.7$ & $-6$ & 1.36 & 1.78\\
+Blackman & 6 & $-58.1$ & $-18$ & 1.73 & 1.10\\
+Blackman--Harris (4-term) & 8 & $-92$ & $-6$ & 2.00 & 0.83\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{The $z$-transform}
+
+The two-sided $z$-transform
+\begin{equation}
+X(z)=\sum_{n=-\infty}^{\infty}x[n]\,z^{-n}
+\label{eq:appA:z}
+\end{equation}
+converges in an annulus called the region of convergence (ROC); on the unit circle it reduces
+to the DTFT, $X(e^{j\omega})=X(z)|_{z=e^{j\omega}}$, provided the ROC contains $|z|=1$. A causal
+LTI system is stable if and only if all poles of its transfer function lie strictly inside the
+unit circle. Table~\ref{tab:appA:z} lists the pairs used in Chapters~\ref{ch:dsp},
+\ref{ch:sync} and~\ref{ch:equalization}.
+
+\begin{table}[htbp]\centering\small
+\caption{$z$-transform pairs and properties.}\label{tab:appA:z}
+\begin{tabular}{@{}lll@{}}
+\toprule
+$x[n]$ & $X(z)$ & ROC\\
+\midrule
+$\delta[n-m]$ & $z^{-m}$ & all $z$ (except $0$ or $\infty$)\\
+$a^n u[n]$ & $\dfrac{1}{1-az^{-1}}$ & $|z|>|a|$\\
+$-a^n u[-n-1]$ & $\dfrac{1}{1-az^{-1}}$ & $|z|<|a|$\\
+$n\,a^n u[n]$ & $\dfrac{az^{-1}}{(1-az^{-1})^2}$ & $|z|>|a|$\\
+$r^n\cos(\omega_0n)\,u[n]$ & $\dfrac{1-r\cos\omega_0\,z^{-1}}{1-2r\cos\omega_0\,z^{-1}+r^2z^{-2}}$ & $|z|>r$\\
+$r^n\sin(\omega_0n)\,u[n]$ & $\dfrac{r\sin\omega_0\,z^{-1}}{1-2r\cos\omega_0\,z^{-1}+r^2z^{-2}}$ & $|z|>r$\\
+$u[n]-u[n-N]$ & $\dfrac{1-z^{-N}}{1-z^{-1}}$ & $z\ne0$\\
+\midrule
+$x[n-m]$ & $z^{-m}X(z)$ & same\\
+$a^nx[n]$ & $X(z/a)$ & scaled by $|a|$\\
+$x[-n]$ & $X(1/z)$ & inverted\\
+$x^*[n]$ & $X^*(z^*)$ & same\\
+$n\,x[n]$ & $-z\,\dfrac{dX}{dz}$ & same\\
+$x[n]*y[n]$ & $X(z)Y(z)$ & at least the intersection\\
+$\sum_{m\le n}x[m]$ (accumulator) & $\dfrac{X(z)}{1-z^{-1}}$ & includes $|z|>1$\\
+Initial value (causal $x$) & $x[0]=\lim_{z\to\infty}X(z)$ & \\
+Final value & $\lim_{n\to\infty}x[n]=\lim_{z\to1}(1-z^{-1})X(z)$ & if the limit exists\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The accumulator $1/(1-z^{-1})$ and the final-value theorem together explain why a type-2
+phase-locked loop (one with an integrator in its loop filter) tracks a frequency step with zero
+steady-state phase error (Chapter~\ref{ch:sync}). Analog prototypes are carried into discrete
+time by the \term{bilinear transform}
+\begin{equation}
+s=\frac{2}{T_s}\,\frac{1-z^{-1}}{1+z^{-1}},\qquad \Omega=\frac{2}{T_s}\tan\frac{\omega}{2},
+\label{eq:appA:bilinear}
+\end{equation}
+which maps the left half-plane onto the unit disc and warps frequency; designs are pre-warped
+with the second relation (Chapter~\ref{ch:dsp}). The Laplace pairs $e^{-at}u(t)\leftrightarrow
+1/(s+a)$ and $\delta(t)\leftrightarrow1$ are the continuous counterparts of the first two rows.
+
+%======================================================================
+\section{Special functions}
+\label{sec:appA:special}
+%======================================================================
+
+\subsection{Pulses and kernels}
+
+The \term{rectangle} $\operatorname{rect}(t)$ equals 1 for $|t|<\tfrac12$ and 0 outside; the
+\term{triangle} $\Lambda(t)=(1-|t|)^+=\operatorname{rect}*\operatorname{rect}$; the sinc
+$\sinc x=\sin(\pi x)/(\pi x)$ has unit area, unit energy ($\int\sinc^2=1$), zeros at the
+non-zero integers and sidelobes that decay as $1/(\pi|x|)$: the first is at $x\approx1.43$
+with height $-0.217$ ($-13.3$\,dB). Its square, the spectrum of a rectangular NRZ pulse, has its
+first null at $f=1/T$ and contains 90.3\% of its power within $|f|<1/T$. The Dirichlet kernel
+$D_N(\omega)=\sin(N\omega/2)/(N\sin(\omega/2))$ is the periodic counterpart and approaches
+$\sinc(N\omega/2\pi)$ for small $\omega$.
+
+\subsection{The Gaussian Q-function and the error function}
+
+The \term{Q-function} is the tail of the standard normal distribution,
+\begin{equation}
+\Q(x)=\frac{1}{\sqrt{2\pi}}\int_x^{\infty}e^{-u^2/2}\,du=\tfrac12\operatorname{erfc}\!\left(\frac{x}{\sqrt2}\right),
+\label{eq:appA:q}
+\end{equation}
+where $\operatorname{erfc}(x)=\frac{2}{\sqrt\pi}\int_x^\infty e^{-u^2}du=2\Q(\sqrt2\,x)$ is the
+complementary error function,
+and $\Q(-x)=1-\Q(x)$, $\Q(0)=\tfrac12$ and $\frac{d}{dx}\Q(x)=-\phi(x)$, where
+$\phi(x)=e^{-x^2/2}/\sqrt{2\pi}$ is the standard normal density. Almost every error rate in
+Chapters~\ref{ch:baseband}--\ref{ch:modulation} is a Q-function of a distance divided by a noise
+standard deviation: binary antipodal signalling gives $P_b=\Q(\sqrt{2E_b/N_0})$. Numerical
+libraries provide \texttt{erfc} (and \texttt{scipy.special.ndtr}, \texttt{scipy.stats.norm.sf});
+\texttt{commlib.qfunc} wraps it.
+
+\paragraph{Craig's form.} For $x\ge0$, Craig (1991) showed that
+\begin{equation}
+\Q(x)=\frac1\pi\int_0^{\pi/2}\exp\!\left(-\frac{x^2}{2\sin^2\theta}\right)d\theta,\qquad
+\Q^2(x)=\frac1\pi\int_0^{\pi/4}\exp\!\left(-\frac{x^2}{2\sin^2\theta}\right)d\theta.
+\label{eq:appA:craig}
+\end{equation}
+The argument now appears only in the exponent and the limits are finite, so averaging over a
+random SNR becomes an integral of the SNR's moment-generating function
+(Section~\ref{sec:appA:mgfmethod}). This is the key to almost every closed-form fading error
+rate in Chapters~\ref{ch:channels} and~\ref{ch:mimo}.
+
+\paragraph{Bounds and approximations.} For $x>0$,
+\begin{equation}
+\frac{x}{1+x^2}\,\phi(x)<\Q(x)<\frac{\phi(x)}{x},\qquad
+\Q(x)\le\tfrac12e^{-x^2/2},\qquad
+\Q(x)\approx\tfrac1{12}e^{-x^2/2}+\tfrac14e^{-2x^2/3}.
+\label{eq:appA:qbounds}
+\end{equation}
+The first pair is tight for large $x$ (the ratio of the bounds tends to 1); the second is the
+Chernoff bound, loose by a factor that grows like $x$ but convenient because it has the exact
+exponent and multiplies nicely; the third, from Chiani, Dardari and Simon (2003), is a sum of
+exponentials that is accurate to about 1\,dB over the whole range and can be averaged over fading
+in closed form. Figure~\ref{fig:appA_qfunc} compares them, and Table~\ref{tab:appA:qvalues}
+gives the values engineers memorise.
+
+\mdcfig{appA_qfunc}{The Gaussian Q-function and its standard bounds. Left: values on a log
+scale. Right: the error of each approximation relative to the exact value, in dB. The Chernoff
+bound has the right exponent but is about 2--5\,dB pessimistic in the useful range; the
+asymptotic bounds $\phi(x)/x$ and $\phi(x)(1-x^{-2})/x$ bracket $\Q(x)$ tightly once $x>3$
+(error rates below $10^{-3}$).}
+
+\begin{table}[htbp]\centering\small
+\caption{The Q-function and its inverse. The last column is the $E_b/N_0$ at which binary
+antipodal signalling ($P_b=\Q(\sqrt{2E_b/N_0})$) reaches the error rate in the first column.}\label{tab:appA:qvalues}
+\begin{tabular}{@{}cc@{\qquad}ccc@{}}
+\toprule
+$x$ & $\Q(x)$ & $\Q(x)$ & $x=\Q^{-1}(\cdot)$ & BPSK $E_b/N_0$ (dB)\\
+\midrule
+0.0 & $5.000\times10^{-1}$ & $10^{-1}$ & 1.2816 & $-0.86$\\
+1.0 & $1.587\times10^{-1}$ & $10^{-2}$ & 2.3263 & 4.32\\
+2.0 & $2.275\times10^{-2}$ & $10^{-3}$ & 3.0902 & 6.79\\
+3.0 & $1.350\times10^{-3}$ & $10^{-4}$ & 3.7190 & 8.40\\
+3.5 & $2.326\times10^{-4}$ & $10^{-5}$ & 4.2649 & 9.59\\
+4.0 & $3.167\times10^{-5}$ & $10^{-6}$ & 4.7534 & 10.53\\
+4.5 & $3.398\times10^{-6}$ & $10^{-7}$ & 5.1993 & 11.31\\
+5.0 & $2.867\times10^{-7}$ & $10^{-8}$ & 5.6120 & 11.97\\
+5.5 & $1.899\times10^{-8}$ & $10^{-9}$ & 5.9978 & 12.55\\
+6.0 & $9.866\times10^{-10}$ & $10^{-10}$ & 6.3613 & 13.06\\
+6.5 & $4.016\times10^{-11}$ & $10^{-12}$ & 7.0345 & 13.93\\
+7.0 & $1.280\times10^{-12}$ & $10^{-15}$ & 7.9413 & 14.99\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{inpractice}[The ``Q-factor'' of optical and SerDes engineers]
+Optical-link and SerDes engineers quote a link's quality as a \emph{Q-factor}, the eye opening
+divided by the sum of the noise standard deviations on the two rails, so that $\text{BER}=\Q(Q)$
+for binary signalling. Read Table~\ref{tab:appA:qvalues} sideways: $Q=7.03$ (often written
+$20\log_{10}Q=16.9$\,dB) is the classic $10^{-12}$ target, and $Q\approx3.1$ ($10^{-3}$) is the
+pre-FEC threshold of many modern links that rely on Reed--Solomon or LDPC codes to clean up the
+rest (Chapters~\ref{ch:baseband} and~\ref{ch:wireline}).
+\end{inpractice}
+
+\subsection{Marcum's Q-function}
+
+The generalised \term{Marcum Q-function} of order $M$ is
+\begin{equation}
+\Q_M(a,b)=\int_b^\infty x\left(\frac xa\right)^{M-1}\exp\!\left(-\frac{x^2+a^2}{2}\right)I_{M-1}(ax)\,dx,
+\label{eq:appA:marcum}
+\end{equation}
+where $I_\nu$ is the modified Bessel function below. $\Q_1(a,b)$ is the probability that a
+Rician envelope with line-of-sight amplitude $a$ and unit-variance Gaussian components exceeds
+$b$; equivalently $\Q_M(a,b)=\Pr\{\chi'^2_{2M}(a^2)>b^2\}$, the tail of a noncentral chi-square
+variable with $2M$ degrees of freedom. Special values: $\Q_1(a,0)=1$, $\Q_1(0,b)=e^{-b^2/2}$
+(Rayleigh), and $\Q_1(a,b)\approx\Q(b-a)$ when $a$ and $b$ are both large. It gives the
+detection probability of a noncoherent radar or energy detector, the error rate of noncoherent
+FSK and DPSK with diversity, and the outage probability of Rician links
+(Chapters~\ref{ch:modulation} and~\ref{ch:channels}). In Python,
+$\Q_M(a,b)=$ \texttt{scipy.stats.ncx2.sf(b**2, 2*M, a**2)}.
+
+\subsection{Bessel functions}
+
+The Bessel function of the first kind of integer order $n$ and the modified Bessel function
+of the first kind are
+\begin{equation}
+J_n(x)=\frac1\pi\int_0^\pi\cos(n\theta-x\sin\theta)\,d\theta,\qquad
+I_n(x)=\frac1\pi\int_0^\pi e^{x\cos\theta}\cos(n\theta)\,d\theta.
+\label{eq:appA:bessel}
+\end{equation}
+
+\paragraph{$J_n$ and FM.} The Jacobi--Anger expansion
+\begin{equation}
+e^{j\beta\sin\theta}=\sum_{n=-\infty}^{\infty}J_n(\beta)\,e^{jn\theta}
+\label{eq:appA:jacobi}
+\end{equation}
+says that a carrier phase-modulated by a sinusoid with index $\beta$ has spectral lines at
+$f_c+nf_m$ with amplitudes $J_n(\beta)$ (Chapter~\ref{ch:analog}). Useful facts:
+$J_{-n}(x)=(-1)^nJ_n(x)$; $\sum_nJ_n^2(x)=1$ (power is conserved); for small $x$,
+$J_0(x)\approx1-x^2/4$ and $J_1(x)\approx x/2$; and the carrier vanishes at the zeros of $J_0$,
+$\beta=2.405$, 5.520, 8.654, 11.79, which is how FM deviation meters are calibrated (the
+``Bessel null'' method). Carson's rule follows from the fact that $J_n(\beta)$ is small for
+$|n|>\beta+1$.
+
+\paragraph{$I_0$ and noncoherent detection.} $I_0(x)=\frac1{2\pi}\int_0^{2\pi}e^{x\cos\theta}d\theta$
+is what remains when a Gaussian likelihood is averaged over a uniformly distributed carrier
+phase, so it appears in the Rician density, the noncoherent receiver (Chapter~\ref{ch:modulation}),
+the von Mises phase distribution of a PLL (Chapter~\ref{ch:sync}) and the Kaiser window
+(Chapter~\ref{ch:dsp}). Series and asymptote:
+\begin{equation}
+I_0(x)=\sum_{k=0}^{\infty}\frac{(x/2)^{2k}}{(k!)^2}\approx1+\frac{x^2}{4}\;(x\ll1),\qquad
+I_0(x)\approx\frac{e^x}{\sqrt{2\pi x}}\;(x\gg1).
+\label{eq:appA:i0}
+\end{equation}
+Large arguments overflow in floating point; use the exponentially scaled form
+$I_0(x)e^{-x}$ (\texttt{scipy.special.i0e}) and work with logarithms. The modified Bessel function
+of the second kind $K_\nu$ appears in the density of a product of two Gaussians and in the
+$K$-distribution used for composite fading and sea clutter.
+
+\mdcfig{appA_bessel_marcum}{Left: Bessel functions $J_0$--$J_3$, the amplitudes of FM sidebands
+versus modulation index. Centre: modified Bessel functions $I_0$ and $I_1$ with the large-argument
+asymptote. Right: Marcum $\Q_1(a,b)$, the probability that a Rician envelope with line-of-sight
+amplitude $a$ (unit-variance components) exceeds a threshold $b$; $a=0$ is the Rayleigh case
+$e^{-b^2/2}$.}
+
+\subsection{Gamma, incomplete gamma and related functions}
+
+The \term{gamma function} $\Gamma(z)=\int_0^\infty t^{z-1}e^{-t}dt$ extends the factorial:
+$\Gamma(n)=(n-1)!$, $\Gamma(z+1)=z\Gamma(z)$, $\Gamma(\tfrac12)=\sqrt\pi$. Stirling's
+approximation is $\ln n!\approx n\ln n-n+\tfrac12\ln(2\pi n)$. The lower and upper incomplete
+gamma functions split the defining integral at $x$,
+\begin{equation}
+\gamma(s,x)=\int_0^x t^{s-1}e^{-t}dt,\qquad \Gamma(s,x)=\int_x^\infty t^{s-1}e^{-t}dt,\qquad
+P(s,x)=\frac{\gamma(s,x)}{\Gamma(s)},
+\label{eq:appA:incgamma}
+\end{equation}
+and the regularised form $P(s,x)$ (\texttt{scipy.special.gammainc}) is the CDF of a gamma variable.
+It therefore gives, without further work, the CDF of chi-square ($P(k/2,x/2)$), of the power of a
+Nakagami-$m$ signal, of the output SNR of $L$-branch maximal-ratio combining in Rayleigh fading
+($P(L,x/\bar\gamma)$) and of the Poisson distribution ($\Pr\{N\le k\}=1-P(k+1,\lambda)$). The
+beta function is $B(a,b)=\Gamma(a)\Gamma(b)/\Gamma(a+b)$.
+
+The \term{exponential integral} $E_1(x)=\int_x^\infty e^{-t}t^{-1}dt$ gives the ergodic capacity
+of a Rayleigh channel with receiver CSI,
+\begin{equation}
+\E\big[\log_2(1+\bar\gamma|h|^2)\big]=\log_2(e)\;e^{1/\bar\gamma}\,E_1(1/\bar\gamma),
+\label{eq:appA:ergodic}
+\end{equation}
+which at $\bar\gamma=10$\,dB is 2.91\,b/s/Hz against 3.46 for an unfaded AWGN channel at the same
+mean SNR (Chapters~\ref{ch:infotheory} and~\ref{ch:mimo}).
+
+%======================================================================
+\section{Probability and random variables}
+\label{sec:appA:probability}
+%======================================================================
+
+\subsection{Essentials}
+
+A random variable $X$ has CDF $F_X(x)=\Pr\{X\le x\}$ and density $f_X(x)=F_X'(x)$. Its mean is
+$\E X=\int xf_X(x)dx$, its variance $\operatorname{Var}X=\E X^2-(\E X)^2$, and its
+\term{moment-generating function} (MGF) and characteristic function are
+\begin{equation}
+M_X(s)=\E\big[e^{sX}\big],\qquad \Phi_X(\omega)=\E\big[e^{j\omega X}\big]=M_X(j\omega),
+\end{equation}
+with $\E X^n=M_X^{(n)}(0)$. The MGF of a sum of independent variables is the product of their
+MGFs, which is why the MGF is the natural tool for diversity combining. Other workhorses:
+
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \emph{Bayes' rule}: $\Pr\{A|B\}=\Pr\{B|A\}\Pr\{A\}/\Pr\{B\}$; with densities,
+$p(x|y)=p(y|x)p(x)/p(y)$. MAP detection maximises $p(y|x)p(x)$; ML detection maximises $p(y|x)$.
+\item \emph{Total probability}: $\Pr\{B\}=\sum_i\Pr\{B|A_i\}\Pr\{A_i\}$ over a partition $\{A_i\}$.
+\item \emph{Change of variables}: if $Y=g(X)$ with roots $x_i$ of $g(x_i)=y$, then
+$f_Y(y)=\sum_if_X(x_i)/|g'(x_i)|$. For vectors, divide by $|\det\vect{J}|$, the Jacobian.
+\item \emph{Sums}: the density of $X+Y$ for independent $X,Y$ is $f_X*f_Y$.
+\item \emph{Inequalities}: Markov, $\Pr\{X\ge a\}\le\E X/a$ for $X\ge0$; Chebyshev,
+$\Pr\{|X-\mu|\ge k\sigma\}\le1/k^2$; Chernoff, $\Pr\{X\ge a\}\le\min_{s>0}e^{-sa}M_X(s)$;
+Jensen, $g(\E X)\le\E g(X)$ for convex $g$.
+\item \emph{Limit theorems}: the sample mean converges to $\E X$ (law of large numbers) and the
+normalised sum of many independent finite-variance terms tends to a Gaussian (central limit
+theorem, Chapter~\ref{ch:noise}).
+\item \emph{Monte Carlo accuracy}: estimating a probability $p$ from $N$ trials gives relative
+standard deviation $\sqrt{(1-p)/(Np)}\approx1/\sqrt{\text{number of errors}}$; 100 errors give
+about $\pm20\%$ at 95\% confidence. This is the stopping rule of \texttt{labkit.ber\_mc}.
+\end{itemize}
+
+\subsection{A table of distributions}
+
+Tables~\ref{tab:appA:dists} and~\ref{tab:appA:moments} summarise the continuous distributions of
+communications, and Table~\ref{tab:appA:discrete} the discrete ones. The Rayleigh, Rice and
+Nakagami entries describe the \emph{envelope} of a fading channel normalised to mean power
+$\Omega=\E R^2$; the power $R^2$ is then exponential, noncentral chi-square or gamma
+respectively. Figures~\ref{fig:appA_fading_pdfs} and~\ref{fig:appA_chi2} plot the shapes.
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{Continuous distributions: density and CDF. $\Q$ is the Gaussian tail function,
+$\Q_M$ Marcum's function, $P(s,x)$ the regularised lower incomplete gamma function.}\label{tab:appA:dists}
+\renewcommand{\arraystretch}{1.55}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Distribution & Density $f(x)$ & CDF $F(x)$\\
+\midrule
+Gaussian $\mathcal N(\mu,\sigma^2)$ & $\frac{1}{\sqrt{2\pi\sigma^2}}e^{-(x-\mu)^2/2\sigma^2}$ & $1-\Q\big(\frac{x-\mu}{\sigma}\big)$\\
+Complex Gaussian $\mathcal{CN}(0,\sigma^2)$ & $\frac{1}{\pi\sigma^2}e^{-|z|^2/\sigma^2}$, $z\in\C$ & ---\\
+Uniform $\mathcal U(a,b)$ & $\frac1{b-a}$, $a\le x\le b$ & $\frac{x-a}{b-a}$\\
+Exponential (rate $\lambda$) & $\lambda e^{-\lambda x}$, $x\ge0$ & $1-e^{-\lambda x}$\\
+Rayleigh ($\sigma$) & $\frac{x}{\sigma^2}e^{-x^2/2\sigma^2}$, $x\ge0$ & $1-e^{-x^2/2\sigma^2}$\\
+Rice ($\nu,\sigma$) & $\frac{x}{\sigma^2}e^{-(x^2+\nu^2)/2\sigma^2}I_0\big(\frac{x\nu}{\sigma^2}\big)$ & $1-\Q_1\big(\frac\nu\sigma,\frac x\sigma\big)$\\
+Nakagami-$m$ ($m\ge\frac12$, $\Omega$) & $\frac{2m^m x^{2m-1}}{\Gamma(m)\Omega^m}e^{-mx^2/\Omega}$ & $P\big(m,\frac{mx^2}{\Omega}\big)$\\
+Gamma ($k,\theta$) & $\frac{x^{k-1}e^{-x/\theta}}{\Gamma(k)\theta^k}$, $x\ge0$ & $P(k,x/\theta)$\\
+Chi-square $\chi^2_k$ & $\frac{x^{k/2-1}e^{-x/2}}{2^{k/2}\Gamma(k/2)}$, $x\ge0$ & $P\big(\frac k2,\frac x2\big)$\\
+Noncentral $\chi'^2_k(\lambda)$ & $\frac12e^{-(x+\lambda)/2}\big(\frac x\lambda\big)^{k/4-1/2}I_{k/2-1}(\sqrt{\lambda x})$ & $1-\Q_{k/2}(\sqrt\lambda,\sqrt x)$\\
+Log-normal ($\mu,\sigma$) & $\frac{1}{x\sigma\sqrt{2\pi}}e^{-(\ln x-\mu)^2/2\sigma^2}$, $x>0$ & $1-\Q\big(\frac{\ln x-\mu}{\sigma}\big)$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]\centering\footnotesize
+\caption{Continuous distributions: moments and MGF $M(s)=\E e^{sX}$. $L_{1/2}$ is a Laguerre
+polynomial; ``---'' means no simple closed form.}\label{tab:appA:moments}
+\renewcommand{\arraystretch}{1.55}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Distribution & Mean & Variance & MGF $M(s)$\\
+\midrule
+Gaussian & $\mu$ & $\sigma^2$ & $e^{\mu s+\sigma^2s^2/2}$\\
+Complex Gaussian & $0$ & $\E|z|^2=\sigma^2$ & $|z|^2$ is exponential, mean $\sigma^2$\\
+Uniform & $\frac{a+b}2$ & $\frac{(b-a)^2}{12}$ & $\frac{e^{sb}-e^{sa}}{s(b-a)}$\\
+Exponential & $\frac1\lambda$ & $\frac1{\lambda^2}$ & $\frac{\lambda}{\lambda-s}$, $s<\lambda$\\
+Rayleigh & $\sigma\sqrt{\pi/2}$ & $\big(2-\frac\pi2\big)\sigma^2$ & $\E R^2=2\sigma^2$\\
+Rice & $\sigma\sqrt{\frac\pi2}\,L_{1/2}\big(-\frac{\nu^2}{2\sigma^2}\big)$ & $\nu^2+2\sigma^2-(\E R)^2$ & $\E R^2=\nu^2+2\sigma^2$, $K=\frac{\nu^2}{2\sigma^2}$\\
+Nakagami-$m$ & $\frac{\Gamma(m+\frac12)}{\Gamma(m)}\sqrt{\frac\Omega m}$ & $\Omega-(\E R)^2$ & $\E R^2=\Omega$; $R^2\sim$ Gamma$(m,\Omega/m)$\\
+Gamma & $k\theta$ & $k\theta^2$ & $(1-\theta s)^{-k}$\\
+Chi-square & $k$ & $2k$ & $(1-2s)^{-k/2}$\\
+Noncentral $\chi'^2$ & $k+\lambda$ & $2(k+2\lambda)$ & $\frac{\exp(\lambda s/(1-2s))}{(1-2s)^{k/2}}$\\
+Log-normal & $e^{\mu+\sigma^2/2}$ & $(e^{\sigma^2}-1)e^{2\mu+\sigma^2}$ & ---\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]\centering\small
+\caption{Discrete distributions ($0<p<1$, $\lambda>0$).}\label{tab:appA:discrete}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Distribution & $\Pr\{X=k\}$ & Mean & Variance & MGF\\
+\midrule
+Bernoulli & $p^k(1-p)^{1-k}$, $k\in\{0,1\}$ & $p$ & $p(1-p)$ & $1-p+pe^s$\\
+Binomial $(n,p)$ & $\binom nk p^k(1-p)^{n-k}$ & $np$ & $np(1-p)$ & $(1-p+pe^s)^n$\\
+Geometric (trials to success) & $p(1-p)^{k-1}$, $k\ge1$ & $\frac1p$ & $\frac{1-p}{p^2}$ & $\frac{pe^s}{1-(1-p)e^s}$\\
+Poisson $(\lambda)$ & $\frac{\lambda^ke^{-\lambda}}{k!}$ & $\lambda$ & $\lambda$ & $e^{\lambda(e^s-1)}$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{How the distributions connect.}
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item If $Z_1,\dots,Z_k$ are independent $\mathcal N(0,1)$, $\sum Z_i^2\sim\chi^2_k$; with means
+$\mu_i$, $\sum Z_i^2\sim\chi'^2_k(\lambda)$ with $\lambda=\sum\mu_i^2$.
+\item If $z\sim\mathcal{CN}(0,\sigma^2)$, then $|z|$ is Rayleigh with parameter $\sigma/\sqrt2$,
+$|z|^2$ is exponential with mean $\sigma^2$ ($=\tfrac{\sigma^2}{2}\chi^2_2$), and $\arg z$ is
+uniform. Adding a constant (line of sight) makes $|z|$ Rician.
+\item The sum of $L$ independent exponentials with mean $\bar\gamma$ is Gamma$(L,\bar\gamma)$
+(Erlang): the SNR after $L$-branch maximal-ratio combining in i.i.d.\ Rayleigh fading.
+\item Nakagami-$m$ with $m=1$ is Rayleigh and with $m=\tfrac12$ is one-sided Gaussian; a Rician
+channel with factor $K$ is approximated by Nakagami with $m=(K+1)^2/(2K+1)$.
+\item Shadowing quoted as ``$\sigma=8$\,dB'' is log-normal with $\sigma_{\ln}=\frac{\ln10}{10}\sigma_{\mathrm{dB}}=0.230\,\sigma_{\mathrm{dB}}$.
+\item Poisson arrivals at rate $\lambda$ have exponential inter-arrival times with mean $1/\lambda$;
+the number in a window of length $t$ is Poisson$(\lambda t)$ (Chapter~\ref{ch:multipleaccess}).
+\end{itemize}
+
+\mdcfig{appA_fading_pdfs}{Envelope densities of the standard fading models at unit mean power.
+Left: Rician fading from Rayleigh ($K=0$) to a strong line of sight ($K=10$). Right: Nakagami-$m$,
+from worse than Rayleigh ($m=\tfrac12$) to nearly constant ($m=10$). The behaviour near $r=0$,
+which sets the diversity order, goes as $r^{2m-1}$.}
+
+\mdcfig{appA_chi2}{Left: central chi-square densities with $k$ degrees of freedom (the energy
+of $k$ unit-variance Gaussian components); $k=2$ is the exponential power of Rayleigh fading.
+Right: noncentral chi-square with two degrees of freedom, the output of an energy detector or the
+power of a Rician signal, for increasing signal energy $\lambda$.}
+
+\subsection{Error probability in fading: the MGF method}
+\label{sec:appA:mgfmethod}
+
+Suppose the instantaneous SNR $\gamma$ is random and the conditional error rate is
+$\Q(\sqrt{2g\gamma})$, with $g=1$ for BPSK. Using Craig's form~\eqref{eq:appA:craig} and swapping
+the order of integration,
+\begin{equation}
+\bar P=\E_\gamma\big[\Q(\sqrt{2g\gamma})\big]=\frac1\pi\int_0^{\pi/2}M_\gamma\!\left(-\frac{g}{\sin^2\theta}\right)d\theta,
+\label{eq:appA:mgfmethod}
+\end{equation}
+a single finite integral of the MGF of $\gamma$. Table~\ref{tab:appA:mgf} gives the MGFs; for
+$L$ independent diversity branches with maximal-ratio combining, the MGF is the product of the
+branch MGFs. The approach is due to Simon and Alouini, whose book is the standard reference.
+
+\begin{table}[htbp]\centering\small
+\caption{MGFs of the SNR $\gamma$ (mean $\bar\gamma$) for common fading models.}\label{tab:appA:mgf}
+\renewcommand{\arraystretch}{1.5}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Fading & $M_\gamma(s)$ & BPSK average $P_b$ (closed form)\\
+\midrule
+Rayleigh & $\dfrac{1}{1-s\bar\gamma}$ & $\tfrac12\Big(1-\sqrt{\tfrac{\bar\gamma}{1+\bar\gamma}}\Big)\approx\dfrac1{4\bar\gamma}$\\
+Nakagami-$m$ & $\Big(1-\dfrac{s\bar\gamma}{m}\Big)^{-m}$ & $\propto\bar\gamma^{-m}$ at high SNR\\
+Rice ($K$) & $\dfrac{1+K}{1+K-s\bar\gamma}\exp\!\Big(\dfrac{Ks\bar\gamma}{1+K-s\bar\gamma}\Big)$ & via~\eqref{eq:appA:mgfmethod}\\
+$L$-branch MRC, i.i.d.\ Rayleigh & $(1-s\bar\gamma)^{-L}$ & $\approx\binom{2L-1}{L}(4\bar\gamma)^{-L}$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{worked}[BPSK in Rayleigh fading at 20 dB]
+At $\bar\gamma=20$\,dB $=100$, the exact Rayleigh result gives
+$P_b=\tfrac12(1-\sqrt{100/101})=2.48\times10^{-3}$, and the high-SNR form $1/(4\bar\gamma)$ gives
+$2.5\times10^{-3}$. The same BPSK link without fading at 20\,dB would have
+$P_b=\Q(\sqrt{200})\approx10^{-45}$. The 40-odd orders of magnitude are the price of deep fades,
+and they explain why every wireless system since GSM spends so much effort on diversity, coding
+and interleaving. With two-branch MRC the approximation in Table~\ref{tab:appA:mgf} gives
+$3/(400)^2\approx1.9\times10^{-5}$: a hundredfold improvement from one extra antenna.
+\end{worked}
+
+\subsection{Gaussian random vectors}
+
+A real Gaussian vector $\vect x\sim\mathcal N(\bm{\mu},\vect C)$ of dimension $n$ has density
+\begin{equation}
+f(\vect x)=\frac{1}{(2\pi)^{n/2}\det(\vect C)^{1/2}}\exp\!\Big(-\tfrac12(\vect x-\bm{\mu})^T\vect C^{-1}(\vect x-\bm{\mu})\Big).
+\end{equation}
+Everything about it is determined by $\bm{\mu}$ and $\vect C$, and Gaussianity survives every
+linear operation:
+\begin{itemize}[leftmargin=1.5em,itemsep=2pt]
+\item \emph{Linear transforms}: $\vect y=\vect A\vect x+\vect b\sim\mathcal N(\vect A\bm{\mu}+\vect b,\;\vect A\vect C\vect A^T)$.
+\item \emph{Whitening}: with $\vect C=\vect L\vect L^T$ (Cholesky), $\vect L^{-1}(\vect x-\bm{\mu})\sim\mathcal N(\vect0,\vect I)$.
+Generating correlated noise reverses the step: $\vect x=\bm{\mu}+\vect L\vect w$ with white $\vect w$.
+\item \emph{Uncorrelated implies independent} for jointly Gaussian variables (and only for them).
+\item \emph{Conditioning}: for jointly Gaussian $(\vect x,\vect y)$,
+\begin{equation}
+\E[\vect x|\vect y]=\bm{\mu}_x+\vect C_{xy}\vect C_{yy}^{-1}(\vect y-\bm{\mu}_y),\qquad
+\operatorname{Cov}[\vect x|\vect y]=\vect C_{xx}-\vect C_{xy}\vect C_{yy}^{-1}\vect C_{yx}.
+\label{eq:appA:condgauss}
+\end{equation}
+The conditional mean is linear in $\vect y$; it is the MMSE estimator, which is why LMMSE channel
+estimation and MMSE equalisation are optimal, not merely convenient, in Gaussian settings
+(Chapters~\ref{ch:equalization} and~\ref{ch:ofdm}).
+\item \emph{Quadratic forms}: $\E[\vect x^T\vect A\vect x]=\operatorname{tr}(\vect A\vect C)+\bm{\mu}^T\vect A\bm{\mu}$.
+\end{itemize}
+
+\paragraph{Circularly symmetric complex Gaussian vectors.} A complex vector $\vect z$ is
+\emph{proper} (circularly symmetric) if $\E[(\vect z-\bm{\mu})(\vect z-\bm{\mu})^T]=\vect 0$,
+i.e.\ its pseudo-covariance vanishes; then its real and imaginary parts have equal covariance and
+a skew-symmetric cross-covariance, and $\vect z\sim\mathcal{CN}(\bm{\mu},\vect C)$ has density
+\begin{equation}
+f(\vect z)=\frac{1}{\pi^n\det\vect C}\exp\!\big(-(\vect z-\bm{\mu})^H\vect C^{-1}(\vect z-\bm{\mu})\big).
+\label{eq:appA:cn}
+\end{equation}
+Thermal noise at complex baseband and the entries of a Rayleigh MIMO channel are of this type.
+Linear maps preserve it, $\vect A\vect z\sim\mathcal{CN}(\vect A\bm{\mu},\vect A\vect C\vect A^H)$, and
+$\mathcal{CN}(\vect0,\sigma^2\vect I)$ is invariant under any unitary transformation, which is why
+white noise stays white after an FFT, a rotation or the SVD of a MIMO channel. For a scalar
+$z\sim\mathcal{CN}(0,\sigma^2)$, $\E|z|^4=2\sigma^4$. The differential entropy is
+$\log_2\det(\pi e\vect C)$ bits, the source of the $\log\det$ form of MIMO capacity
+(Chapter~\ref{ch:mimo}). Improper signals (BPSK, offset QPSK, some interference) need the
+pseudo-covariance as well; \emph{widely linear} processing exploits it.
+
+%======================================================================
+\section{Random processes}
+\label{sec:appA:processes}
+%======================================================================
+
+A process $x(t)$ is \term{wide-sense stationary} (WSS) if its mean is constant and its
+autocorrelation $R_x(\tau)=\E[x(t+\tau)x^*(t)]$ depends only on the lag $\tau$. The
+\term{Wiener--Khinchin theorem} identifies its power spectral density as
+\begin{equation}
+S_x(f)=\int_{-\infty}^{\infty}R_x(\tau)\,e^{-j2\pi f\tau}d\tau,\qquad
+\E|x(t)|^2=R_x(0)=\int S_x(f)\,df.
+\label{eq:appA:wk}
+\end{equation}
+For a real process $S_x$ is real, even and non-negative. Passing $x$ through an LTI filter $h$ gives
+\begin{equation}
+S_y(f)=|H(f)|^2S_x(f),\qquad R_{yx}(\tau)=h(\tau)*R_x(\tau),\qquad R_y(\tau)=h(\tau)*h^*(-\tau)*R_x(\tau).
+\label{eq:appA:lti}
+\end{equation}
+The cross-correlation result is the basis of channel sounding: drive a system with white noise
+(or a sequence with an impulse-like autocorrelation) and the input--output cross-correlation is
+the impulse response.
+
+\paragraph{White noise and noise bandwidth.} Real thermal noise is modelled as white with
+two-sided PSD $N_0/2$ and $R(\tau)=\tfrac{N_0}2\delta(\tau)$, with $N_0=kT$
+(Chapter~\ref{ch:noise}). The \term{noise-equivalent bandwidth} of a filter is the width of the
+ideal rectangle with the same peak gain that passes the same noise power:
+\begin{equation}
+B_N=\frac{1}{|H(f_0)|^2}\int_0^\infty|H(f)|^2df .
+\label{eq:appA:enbw}
+\end{equation}
+A one-pole RC low-pass has $B_N=\tfrac\pi2f_{3\,\mathrm{dB}}$; an $n$-pole Butterworth approaches
+$f_{3\,\mathrm{dB}}$ as $n$ grows. A root-raised-cosine matched filter, considered at complex
+baseband over positive and negative frequencies, passes exactly $N_0R_s$ of noise power whatever
+its roll-off, which is why $E_s/N_0$ and the SNR at the sampler coincide.
+
+\paragraph{Bandpass noise.} Gaussian noise filtered to a band around $f_c$ can be written
+$n(t)=n_I(t)\cos2\pi f_ct-n_Q(t)\sin2\pi f_ct$, where $n_I$ and $n_Q$ are low-pass, have the same
+variance as $n(t)$ and, for a PSD symmetric about $f_c$, are independent. Their PSD is
+$S_n(f-f_c)+S_n(f+f_c)$ restricted to low frequencies: white bandpass noise of PSD $N_0/2$ and
+width $B$ gives $n_I$ and $n_Q$ of PSD $N_0$ over $|f|<B/2$, each with power $N_0B$. The envelope
+$\sqrt{n_I^2+n_Q^2}$ is Rayleigh and the phase uniform.
+
+\paragraph{Discrete time.} For a WSS sequence, $R_x[m]=\E[x[n+m]x^*[n]]$ and
+$S_x(e^{j\omega})=\sum_mR_x[m]e^{-j\omega m}$. A first-order autoregressive process
+$x[n]=ax[n-1]+w[n]$ with white $w$ of variance $\sigma_w^2$ has $R_x[m]=\sigma_w^2a^{|m|}/(1-a^2)$
+and $S_x=\sigma_w^2/|1-ae^{-j\omega}|^2$; it is the usual model for a slowly varying channel
+gain tracked by a Kalman filter. Sampled white noise of PSD $N_0$ (complex) at rate $f_s$ after an
+ideal anti-alias filter has variance $N_0f_s$ per sample.
+
+\paragraph{Ergodicity.} Time averages of one realisation converge to ensemble averages for an
+ergodic process. Every Monte Carlo BER simulation and every spectrum analyser assume it.
+
+\paragraph{Phase noise.} Free-running oscillator phase is well modelled as a Wiener process:
+$\phi(t+\tau)-\phi(t)\sim\mathcal N(0,2\pi\Delta\nu|\tau|)$. The resulting carrier
+$e^{j\phi(t)}$ has a Lorentzian spectrum whose full width at half maximum is $\Delta\nu$, the
+\emph{linewidth}. This is the model of \texttt{commlib.phase\_noise} and of laser phase noise in
+coherent optics (Chapters~\ref{ch:sdr} and~\ref{ch:wireline}).
+
+\paragraph{Cyclostationarity.} Modulated signals are not stationary: a PAM signal
+$s(t)=\sum_ka_kp(t-kT)$ has an autocorrelation $R_s(t+\tau,t)$ that is periodic in $t$ with
+period $T$. Such a process is \term{cyclostationary}. Averaging over one period gives the
+stationary PSD used throughout the book,
+\begin{equation}
+\bar S_s(f)=\frac1T|P(f)|^2S_a(e^{j2\pi fT}),\qquad S_a(e^{j\omega})=\sum_mR_a[m]e^{-j\omega m},
+\label{eq:appA:pampsd}
+\end{equation}
+for zero-mean symbols (Chapter~\ref{ch:baseband} adds the spectral lines of a non-zero mean). The
+periodic part is described by the cyclic autocorrelation
+$R^\alpha(\tau)=\frac1T\int_0^TR_s(t+\tau,t)e^{-j2\pi\alpha t}dt$ at cycle frequencies
+$\alpha=k/T$, and its Fourier transform, the spectral correlation function, has features at the
+symbol rate and twice the carrier that noise does not. Squaring a signal to recover its symbol
+clock, the Gardner detector and cyclostationary feature detection in spectrum sensing all
+exploit them (Chapter~\ref{ch:sync}).
+
+%======================================================================
+\section{Linear algebra for communications}
+\label{sec:appA:linalg}
+%======================================================================
+
+Equalisers, MIMO detectors, precoders, channel estimators and LDPC decoders are all matrix
+computations. This section lists what the book uses, with complex matrices throughout.
+
+\subsection{Special matrices and decompositions}
+
+A square matrix $\vect A$ is \emph{Hermitian} if $\vect A^H=\vect A$ (real symmetric in the real
+case), \emph{unitary} if $\vect A^H\vect A=\vect I$, \emph{normal} if $\vect A\vect A^H=\vect A^H\vect A$,
+and \emph{positive definite} ($\vect A\succ0$) if $\vect x^H\vect A\vect x>0$ for every
+$\vect x\ne\vect 0$. Covariance and Gram matrices ($\vect H^H\vect H$) are Hermitian positive
+semidefinite. Unitary matrices preserve lengths and inner products: they are the rotations and
+reflections of $\C^n$, and the unitary DFT matrix is one of them.
+
+\begin{description}[leftmargin=1.2em,itemsep=3pt,font=\normalfont\itshape]
+\item[Eigendecomposition.] A Hermitian matrix has real eigenvalues and orthonormal eigenvectors:
+$\vect A=\vect U\bm{\Lambda}\vect U^H$. Then $\operatorname{tr}\vect A=\sum\lambda_i$,
+$\det\vect A=\prod\lambda_i$, and the Rayleigh quotient satisfies
+$\lambda_{\min}\le\vect x^H\vect A\vect x/\vect x^H\vect x\le\lambda_{\max}$. The eigenvalue spread
+$\lambda_{\max}/\lambda_{\min}$ of the input correlation matrix sets the convergence speed of LMS
+(Chapter~\ref{ch:equalization}); the dominant eigenvector of a spatial covariance is the
+best fixed beam (Chapter~\ref{ch:mimo}).
+\item[Singular value decomposition.] Every $m\times n$ matrix factors as
+$\vect H=\vect U\bm{\Sigma}\vect V^H$ with unitary $\vect U$, $\vect V$ and non-negative singular
+values $\sigma_1\ge\sigma_2\ge\dots$ on the diagonal of $\bm{\Sigma}$. The rank is the number of
+non-zero $\sigma_i$; the $\sigma_i^2$ are the eigenvalues of $\vect H^H\vect H$. Precoding with
+$\vect V$ and combining with $\vect U^H$ turns a MIMO channel into $\operatorname{rank}\vect H$
+parallel scalar channels with gains $\sigma_i$, the basis of MIMO capacity and water-filling
+(Chapter~\ref{ch:mimo}). The best rank-$r$ approximation (Eckart--Young) keeps the $r$ largest
+terms. The condition number $\sigma_{\max}/\sigma_{\min}$ predicts the noise enhancement of
+zero-forcing.
+\item[QR and Cholesky.] $\vect H=\vect Q\vect R$ with unitary $\vect Q$ and upper-triangular
+$\vect R$ turns detection into back-substitution: it is the first step of successive
+interference cancellation and the sphere decoder. A positive definite $\vect A$ factors as
+$\vect A=\vect L\vect L^H$ (Cholesky), the cheapest way to solve normal equations and to whiten
+correlated noise.
+\item[Pseudo-inverse and least squares.] For full column rank $\vect A$, the least-squares
+solution of $\vect y\approx\vect A\vect x$ is $\hat{\vect x}=\vect A^+\vect y$ with
+$\vect A^+=(\vect A^H\vect A)^{-1}\vect A^H=\vect V\bm{\Sigma}^+\vect U^H$, and
+$\vect P=\vect A\vect A^+$ is the orthogonal projection onto the column space. The regularised
+(MMSE) version is $(\vect A^H\vect A+\sigma^2\vect I)^{-1}\vect A^H\vect y
+=\vect A^H(\vect A\vect A^H+\sigma^2\vect I)^{-1}\vect y$, the second form being cheaper when $\vect A$
+is wide.
+\item[Norms.] $\|\vect A\|_F^2=\operatorname{tr}(\vect A^H\vect A)=\sum_{ij}|a_{ij}|^2=\sum\sigma_i^2$;
+the spectral norm $\|\vect A\|_2=\sigma_{\max}$.
+\end{description}
+
+\subsection{Identities}
+
+\begin{table}[htbp]\centering\small
+\caption{Matrix identities. Dimensions are assumed compatible and inverses to exist.}\label{tab:appA:matid}
+\renewcommand{\arraystretch}{1.45}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Identity & Where it is used\\
+\midrule
+$(\vect A+\vect U\vect C\vect V)^{-1}=\vect A^{-1}-\vect A^{-1}\vect U(\vect C^{-1}+\vect V\vect A^{-1}\vect U)^{-1}\vect V\vect A^{-1}$ & matrix inversion lemma (Woodbury)\\
+$(\vect A+\vect u\vect v^H)^{-1}=\vect A^{-1}-\dfrac{\vect A^{-1}\vect u\vect v^H\vect A^{-1}}{1+\vect v^H\vect A^{-1}\vect u}$ & Sherman--Morrison: the RLS update\\
+$(\vect I+\vect A\vect B)^{-1}\vect A=\vect A(\vect I+\vect B\vect A)^{-1}$ & push-through: MMSE forms\\
+$\det(\vect I_m+\vect A\vect B)=\det(\vect I_n+\vect B\vect A)$ & Sylvester: MIMO capacity either side\\
+$\operatorname{tr}(\vect A\vect B\vect C)=\operatorname{tr}(\vect C\vect A\vect B)$ & cyclic trace\\
+$\begin{bmatrix}\vect A&\vect B\\\vect C&\vect D\end{bmatrix}^{-1}=\begin{bmatrix}\vect S^{-1}&-\vect S^{-1}\vect B\vect D^{-1}\\-\vect D^{-1}\vect C\vect S^{-1}&\vect D^{-1}+\vect D^{-1}\vect C\vect S^{-1}\vect B\vect D^{-1}\end{bmatrix}$ & block inverse, $\vect S=\vect A-\vect B\vect D^{-1}\vect C$\\
+$\det\begin{bmatrix}\vect A&\vect B\\\vect C&\vect D\end{bmatrix}=\det(\vect D)\det(\vect A-\vect B\vect D^{-1}\vect C)$ & Schur complement\\
+\midrule
+$\operatorname{vec}(\vect A\vect X\vect B)=(\vect B^T\otimes\vect A)\operatorname{vec}(\vect X)$ & channel estimation, Kronecker models\\
+$(\vect A\otimes\vect B)(\vect C\otimes\vect D)=\vect A\vect C\otimes\vect B\vect D$ & mixed product\\
+$(\vect A\otimes\vect B)^{-1}=\vect A^{-1}\otimes\vect B^{-1}$,\; $(\vect A\otimes\vect B)^H=\vect A^H\otimes\vect B^H$ & \\
+$\operatorname{tr}(\vect A\otimes\vect B)=\operatorname{tr}\vect A\operatorname{tr}\vect B$,\; $\det(\vect A_{n\times n}\otimes\vect B_{m\times m})=\det(\vect A)^m\det(\vect B)^n$ & \\
+$\operatorname{tr}(\vect A^H\vect B)=\operatorname{vec}(\vect A)^H\operatorname{vec}(\vect B)$ & \\
+eigenvalues of $\vect A\otimes\vect B$ are all products $\lambda_i(\vect A)\lambda_j(\vect B)$ & planar arrays, 2-D DFT\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The Kronecker channel model.} A MIMO channel with receive correlation $\vect R_r$ and
+transmit correlation $\vect R_t$ is often modelled as
+$\vect H=\vect R_r^{1/2}\vect G\vect R_t^{1/2}$ with $\vect G$ i.i.d.\ $\mathcal{CN}(0,1)$. By the first
+vec identity, $\operatorname{Cov}[\operatorname{vec}\vect H]=\vect R_t^T\otimes\vect R_r$
+(\texttt{commlib.correlated\_mimo}). The array response of an $N_x\times N_y$ planar array is
+likewise a Kronecker product of two linear-array responses.
+
+\subsection{Complex gradients (Wirtinger calculus)}
+
+A real cost $J(\vect z)$ of a complex vector, such as a mean-square error, is not
+complex-differentiable, but it can be optimised by treating $\vect z$ and $\vect z^*$ as
+independent variables. With $z=x+jy$,
+\begin{equation}
+\frac{\partial}{\partial z}=\frac12\Big(\frac{\partial}{\partial x}-j\frac{\partial}{\partial y}\Big),\qquad
+\frac{\partial}{\partial z^*}=\frac12\Big(\frac{\partial}{\partial x}+j\frac{\partial}{\partial y}\Big).
+\label{eq:appA:wirtinger}
+\end{equation}
+A stationary point of a real $J$ satisfies $\partial J/\partial\vect z^*=\vect0$, and the direction of
+steepest \emph{ascent} is $\partial J/\partial\vect z^*$ (not $\partial J/\partial\vect z$).
+Table~\ref{tab:appA:wirtinger} gives the derivatives that recur, in the convention that the gradient
+with respect to a column vector is a column vector.
+
+\begin{table}[htbp]\centering\small
+\caption{Wirtinger and matrix derivatives. $\vect a$, $\vect A$ constant.}\label{tab:appA:wirtinger}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{@{}lll@{}}
+\toprule
+$J$ & $\partial J/\partial\vect z^*$ & Notes\\
+\midrule
+$\vect a^H\vect z$ & $\vect 0$ & depends on $\vect z$ only\\
+$\vect z^H\vect a$ & $\vect a$ & \\
+$\vect z^H\vect A\vect z$ & $\vect A\vect z$ & $\vect A$ Hermitian: real quadratic form\\
+$\|\vect y-\vect H\vect z\|^2$ & $-\vect H^H(\vect y-\vect H\vect z)$ & zero gives the normal equations\\
+$\E|d-\vect w^H\vect u|^2$ (in $\vect w$) & $\vect R\vect w-\vect p$ & $\vect R=\E\vect u\vect u^H$, $\vect p=\E\vect u d^*$; Wiener: $\vect w=\vect R^{-1}\vect p$\\
+\midrule
+$J(\vect X)$ & $\partial J/\partial\vect X$ & \\
+\midrule
+$\operatorname{tr}(\vect A\vect X)$ & $\vect A^T$ & \\
+$\ln\det\vect X$ & $\vect X^{-T}$ & log-likelihoods, capacity\\
+$\operatorname{tr}(\vect X^H\vect A\vect X)$ (in $\vect X^*$) & $\vect A\vect X$ & \\
+$\vect x^T\vect A\vect x$ (real) & $(\vect A+\vect A^T)\vect x$ & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{worked}[Deriving LMS in two lines]
+An adaptive equaliser with taps $\vect w$ and input vector $\vect u_n$ produces $\vect w^H\vect u_n$
+and makes the error $e_n=d_n-\vect w^H\vect u_n$. The instantaneous cost is $|e_n|^2=e_ne_n^*$, and
+since $e_n$ depends on $\vect w^*$ through $\vect w^H\vect u_n=\sum w_i^*u_i$ while $e_n^*$ depends
+only on $\vect w$, $\partial|e_n|^2/\partial\vect w^*=-\vect u_ne_n^*$. A step down the gradient is
+\[
+\vect w\leftarrow\vect w+\mu\,\vect u_n\,e_n^*,
+\]
+the LMS algorithm of Chapter~\ref{ch:equalization} (and of \texttt{commlib.nlms\_equalizer}, which
+divides $\mu$ by $\|\vect u_n\|^2$). Using the expected cost instead gives $\vect R\vect w=\vect p$,
+the Wiener--Hopf equations.
+\end{worked}
+
+\subsection{Toeplitz and circulant matrices}
+\label{sec:appA:circulant}
+
+Linear convolution of a length-$N$ input with a length-$L$ channel is multiplication by an
+$(N+L-1)\times N$ \term{Toeplitz} matrix (constant along diagonals): this is
+\texttt{commlib.conv\_matrix}, and the autocorrelation matrix of any WSS sequence is Hermitian
+Toeplitz. Toeplitz systems can be solved in $O(N^2)$ operations by the Levinson--Durbin recursion
+(the engine of LPC speech coding, Chapter~\ref{ch:sourcecoding}), and by Szeg\H{o}'s theorem the
+eigenvalues of a large Toeplitz covariance matrix are distributed like samples of the process's
+PSD.
+
+A \term{circulant} matrix is Toeplitz with wrap-around: each row is the previous one rotated right,
+so $\vect C\vect x$ is the circular convolution of $\vect x$ with the first column $\vect c$. Every
+circulant matrix is diagonalised by the DFT:
+\begin{equation}
+\vect C=\vect F^H\operatorname{diag}(\lambda_0,\dots,\lambda_{N-1})\,\vect F,\qquad
+\lambda_k=\sum_{n=0}^{N-1}c_n\,e^{-j2\pi kn/N},\qquad [\vect F]_{kn}=\tfrac1{\sqrt N}e^{-j2\pi kn/N}.
+\label{eq:appA:circulant}
+\end{equation}
+The eigenvectors are the complex exponentials, independent of $\vect c$, and the eigenvalues are the
+channel's frequency response at the DFT bins. Adding a cyclic prefix makes the channel matrix seen
+by the receiver circulant, so the receiver's FFT diagonalises it: OFDM in one line
+(Chapter~\ref{ch:ofdm}). The same structure lets single-carrier frequency-domain equalisers and
+DFT-spread OFDM invert a channel with one division per bin, and makes the 2-D DFT diagonalise the
+doubly-circulant matrices of OTFS.
+
+%======================================================================
+\section{Optimisation}
+\label{sec:appA:optimisation}
+%======================================================================
+
+\paragraph{Unconstrained.} A differentiable function has zero gradient at an interior optimum;
+for a convex function (non-negative-definite Hessian everywhere) every such point is a global
+minimum. Gradient descent $\vect x\leftarrow\vect x-\mu\nabla J$ converges for small enough $\mu$ on
+smooth convex problems; Newton's method $\vect x\leftarrow\vect x-\nabla^2J^{-1}\nabla J$ converges
+quadratically near the optimum. LMS is stochastic gradient descent and RLS is a recursive
+Newton method on the least-squares cost.
+
+\paragraph{Equality constraints: Lagrange multipliers.} To minimise $J(\vect x)$ subject to
+$g_i(\vect x)=0$, form the Lagrangian $\mathcal L=J+\sum_i\nu_ig_i$ and set its gradient to zero. The
+multiplier $\nu_i$ measures how fast the optimum changes as constraint $i$ is relaxed.
+
+\begin{worked}[The minimum-variance (MVDR) beamformer]
+Minimise the output power $\vect w^H\vect R\vect w$ of an array subject to unit gain in the look
+direction, $\vect w^H\vect a=1$. The Lagrangian
+$\vect w^H\vect R\vect w+\nu(1-\vect w^H\vect a)+\nu^*(1-\vect a^H\vect w)$ has
+$\partial/\partial\vect w^*=\vect R\vect w-\nu\vect a=\vect0$, so $\vect w=\nu\vect R^{-1}\vect a$.
+The constraint fixes $\nu=1/(\vect a^H\vect R^{-1}\vect a)$:
+\[
+\vect w_{\mathrm{MVDR}}=\frac{\vect R^{-1}\vect a}{\vect a^H\vect R^{-1}\vect a}.
+\]
+This is the Capon beamformer of Chapter~\ref{ch:mimo}; with white noise ($\vect R\propto\vect I$)
+it reduces to the matched (conventional) beamformer $\vect a/\|\vect a\|^2$.
+\end{worked}
+
+\paragraph{Inequality constraints: the KKT conditions.} For the convex problem
+$\min J(\vect x)$ subject to $h_i(\vect x)\le0$ and $g_j(\vect x)=0$ (convex $J$ and $h_i$, affine
+$g_j$, and a strictly feasible point), $\vect x^\star$ is optimal if and only if there are multipliers
+$\lambda_i$ and $\nu_j$ with
+\begin{equation}
+\nabla J(\vect x^\star)+\sum_i\lambda_i\nabla h_i(\vect x^\star)+\sum_j\nu_j\nabla g_j(\vect x^\star)=\vect0,\quad
+h_i\le0,\; g_j=0,\quad \lambda_i\ge0,\quad \lambda_ih_i(\vect x^\star)=0.
+\label{eq:appA:kkt}
+\end{equation}
+These are the Karush--Kuhn--Tucker conditions: stationarity, primal feasibility, dual feasibility and
+\emph{complementary slackness}. The last one says each inequality is either active or has a zero
+multiplier.
+
+\paragraph{Water-filling.} Allocate total power $P$ over $K$ parallel channels with gains $g_k$
+(SNR per unit power) to maximise $\sum_k\log_2(1+g_kp_k)$ subject to $\sum p_k\le P$ and
+$p_k\ge0$. The problem is concave; applying~\eqref{eq:appA:kkt} with multiplier $\nu$ for the
+power constraint and $\lambda_k$ for $p_k\ge0$ gives $g_k/(1+g_kp_k)=(\nu-\lambda_k)\ln 2$, and
+complementary slackness turns this into
+\begin{equation}
+p_k=\Big(\mu-\frac{1}{g_k}\Big)^+,\qquad\text{with the ``water level'' }\mu\text{ chosen so that }\sum_kp_k=P.
+\label{eq:appA:waterfill}
+\end{equation}
+Picture the inverse gains $1/g_k$ as the uneven floor of a vessel and pour in $P$ units of water:
+deep (good) channels get more, and channels whose floor lies above the water get nothing.
+It is the capacity-achieving allocation over frequency for a known ISI channel and over
+eigenmodes for MIMO (Chapters~\ref{ch:infotheory} and~\ref{ch:mimo}); DSL bit loading is its
+discrete cousin (Chapter~\ref{ch:wireline}).
+
+\begin{worked}[Water-filling over three channels]
+Let $g=(10,5,1)$ and $P=1$, so the floor is $1/g=(0.1,0.2,1)$. Try all three channels: the water
+level would be $\mu=(1+0.1+0.2+1)/3=0.767$, below the third floor, so drop channel 3 and retry
+with two: $\mu=(1+0.1+0.2)/2=0.65$, which is above both remaining floors. The allocation is
+$p=(0.55,\,0.45,\,0)$ and the rate $\log_2(6.5)+\log_2(3.25)=4.40$\,b/s/Hz, against 3.95 with
+equal power $1/3$ per channel. \texttt{commlib.infotheory.waterfill([0.1, 0.2, 1.0], 1.0)}
+returns the same allocation and level.
+\end{worked}
+
+Other optimisation patterns in the book: max--min and proportional fairness in scheduling
+(maximise $\sum\log r_k$, Chapter~\ref{ch:multipleaccess}); the Blahut--Arimoto alternating
+maximisation for channel capacity (Chapter~\ref{ch:infotheory}); and the Cauchy--Schwarz
+inequality $|\langle\vect a,\vect b\rangle|\le\|\vect a\|\|\vect b\|$, with equality iff
+$\vect a\propto\vect b$, which solves the matched-filter, maximal-ratio-combining and
+beam-steering problems at a stroke.
+
+%======================================================================
+\section{Decibels and the units engineers mix}
+\label{sec:appA:db}
+%======================================================================
+
+A power ratio in decibels is $10\log_{10}(P_2/P_1)$; for voltages or fields across the same
+impedance it is $20\log_{10}(V_2/V_1)$. Adding a suffix makes the decibel an \emph{absolute}
+level by naming the reference. The rules that prevent most link-budget errors are:
+\begin{enumerate}[leftmargin=1.5em,itemsep=2pt]
+\item Gains and losses (plain dB) add to levels: $\mathrm{dBm}+\mathrm{dB}=\mathrm{dBm}$.
+\item Two absolute levels never add in dB. Two 0\,dBm signals together make 3\,dBm, not
+0\,dBm\,+\,0\,dBm; convert to watts, add, and convert back.
+\item Subtracting levels with the same reference gives a ratio in dB: signal (dBm) minus noise
+(dBm) is SNR (dB).
+\item Densities carry their bandwidth: a level in dBm/Hz plus $10\log_{10}B$ (dB-Hz) is a level in dBm.
+\end{enumerate}
+
+\begin{table}[htbp]\centering\small
+\caption{Decibel units.}\label{tab:appA:dbunits}
+\begin{tabular}{@{}lp{0.38\linewidth}p{0.36\linewidth}@{}}
+\toprule
+Unit & Reference & Typical use\\
+\midrule
+dB & a ratio (no reference) & gain, loss, SNR, $E_b/N_0$\\
+dBm, dBW & 1\,mW; 1\,W ($\mathrm{dBW}=\mathrm{dBm}-30$) & transmit and received power\\
+dBm/Hz, dBW/Hz & 1\,mW (1\,W) in 1\,Hz & noise and signal densities, $N_0$\\
+dB$\mu$V & 1\,$\mu$V (in $50\,\Omega$: $\mathrm{dB}\mu\mathrm{V}=\mathrm{dBm}+107$) & receiver sensitivity, EMC\\
+dB$\mu$V/m & field strength of 1\,$\mu$V/m & broadcast coverage, EMC limits\\
+dBW/m$^2$ & power flux density of 1\,W/m$^2$ & satellite PFD limits\\
+dBi & gain of an isotropic antenna & antenna gain, EIRP\\
+dBd & gain of a half-wave dipole ($\mathrm{dBi}=\mathrm{dBd}+2.15$) & land-mobile antennas, ERP\\
+dBc & the carrier (or wanted signal) power & spurs, harmonics, ACLR\\
+dBc/Hz & carrier power, per Hz of offset bandwidth & oscillator phase noise\\
+dB-Hz & 1\,Hz & $C/N_0$, bandwidth as $10\log_{10}B$\\
+dBK & 1\,K & noise temperature, $T_{\mathrm{sys}}$\\
+dB/K & ratio of gain to 1\,K & receive figure of merit $G/T$\\
+dBW/K/Hz & 1\,W per kelvin per hertz & Boltzmann's constant, $-228.6$\\
+dBFS & full scale of a converter & ADC/DAC levels, digital headroom\\
+dBsm & 1\,m$^2$ & radar cross-section\\
+dBm0, dBr & level relative to a reference point & telephone transmission plans\\
+neper (Np) & natural-log ratio: $1\,\mathrm{Np}=8.686$\,dB & transmission-line attenuation\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]\centering\small
+\caption{Quick conversions.}\label{tab:appA:dbquick}
+\begin{tabular}{@{}rr@{\qquad}rr@{\qquad}rr@{}}
+\toprule
+dB & power ratio & dBm & power & dBm in 50\,$\Omega$ & RMS voltage\\
+\midrule
+0 & 1.000 & $+60$ & 1\,kW & $+30$ & 7.07\,V\\
+1 & 1.259 & $+30$ & 1\,W & $+10$ & 707\,mV\\
+2 & 1.585 & $+20$ & 100\,mW & $0$ & 224\,mV\\
+3 & 1.995 & $+10$ & 10\,mW & $-10$ & 70.7\,mV\\
+4 & 2.512 & $0$ & 1\,mW & $-47$ & 1\,mV\\
+5 & 3.162 & $-30$ & 1\,$\mu$W & $-60$ & 224\,$\mu$V\\
+6 & 3.981 & $-60$ & 1\,nW & $-107$ & 1\,$\mu$V\\
+7 & 5.012 & $-90$ & 1\,pW & $-120$ & 224\,nV\\
+8 & 6.310 & $-120$ & 1\,fW & & \\
+9 & 7.943 & $-174$ & $kT_0$ in 1\,Hz & & \\
+10 & 10.00 & & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Mental arithmetic: 3\,dB is a factor of 2 (1.995), 10\,dB a factor of 10, 1\,dB is 26\%, 0.1\,dB
+is 2.3\%, and $10\log_{10}(1+x)\approx4.34x$ for small $x$. A 6\,dB voltage step is a factor of 2
+in voltage and 4 in power.
+
+\paragraph{Noise.} The thermal noise density at the standard reference temperature
+$T_0=290$\,K is
+\begin{equation}
+kT_0=1.380649\times10^{-23}\times290=4.00\times10^{-21}\,\mathrm{W/Hz}\;=\;-204.0\,\mathrm{dBW/Hz}\;=\;-174.0\,\mathrm{dBm/Hz},
+\label{eq:appA:kt0}
+\end{equation}
+so a receiver of noise figure NF and bandwidth $B$ has noise floor
+$-174+10\log_{10}B+\mathrm{NF}$ dBm. Table~\ref{tab:appA:noisefloor} gives the thermal floor for
+common channel widths and the conversion between noise figure and noise temperature,
+$T_e=T_0(F-1)$.
+
+\begin{table}[htbp]\centering\small
+\caption{Thermal noise floors ($kT_0B$) and noise figure versus noise temperature.}\label{tab:appA:noisefloor}
+\begin{tabular}{@{}lr@{\qquad\qquad}rr@{}}
+\toprule
+Bandwidth & $kT_0B$ (dBm) & NF (dB) & $T_e$ (K)\\
+\midrule
+1\,Hz & $-174.0$ & 0.5 & 35\\
+1\,kHz & $-144.0$ & 1.0 & 75\\
+25\,kHz (narrowband FM) & $-130.0$ & 1.5 & 120\\
+200\,kHz (GSM) & $-121.0$ & 2.0 & 170\\
+1\,MHz & $-114.0$ & 3.0 & 289\\
+3.84\,MHz (WCDMA) & $-108.2$ & 4.0 & 438\\
+20\,MHz (LTE, Wi-Fi) & $-101.0$ & 6.0 & 865\\
+100\,MHz (5G NR FR1) & $-94.0$ & 10.0 & 2610\\
+400\,MHz (5G NR FR2) & $-88.0$ & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The link equation in decibels.}
+\begin{gather}
+P_r\,[\mathrm{dBm}]=P_t+G_t+G_r-L_{\mathrm{fs}}-L_{\mathrm{other}},\\
+L_{\mathrm{fs}}=20\log_{10}d_{\mathrm{km}}+20\log_{10}f_{\mathrm{MHz}}+32.45,\\
+\frac{C}{N_0}\,[\mathrm{dB\text{-}Hz}]=\mathrm{EIRP}\,[\mathrm{dBW}]-L+\frac GT\,[\mathrm{dB/K}]+228.6,\\
+\frac{E_b}{N_0}=\frac{C}{N_0}-10\log_{10}R_b,\qquad
+\frac{E_s}{N_0}=\frac{E_b}{N_0}+10\log_{10}(r\log_2M),
+\end{gather}
+with code rate $r$ and constellation size $M$ (Chapters~\ref{ch:noise}, \ref{ch:channels}
+and~\ref{ch:satellite}). The received power from a field strength $E$ with an isotropic antenna is
+$P_r[\mathrm{dBm}]=E[\mathrm{dB}\mu\mathrm{V/m}]-20\log_{10}f_{\mathrm{MHz}}-77.2$. Noise figures
+of cascaded stages combine by Friis's formula $F=F_1+(F_2-1)/G_1+(F_3-1)/(G_1G_2)+\cdots$.
+
+\paragraph{Mismatch.} A load with reflection coefficient $\Gamma$ has return loss
+$-20\log_{10}|\Gamma|$, VSWR $(1+|\Gamma|)/(1-|\Gamma|)$ and mismatch loss
+$-10\log_{10}(1-|\Gamma|^2)$ (Table~\ref{tab:appA:vswr}). A VSWR of 2 reflects 11\% of the power
+but costs only half a decibel, which is why antenna specifications tolerate it.
+
+\begin{table}[htbp]\centering\small
+\caption{VSWR, return loss and mismatch loss.}\label{tab:appA:vswr}
+\begin{tabular}{@{}ccccc@{}}
+\toprule
+VSWR & $|\Gamma|$ & Return loss (dB) & Reflected power & Mismatch loss (dB)\\
+\midrule
+1.1 & 0.048 & 26.4 & 0.2\% & 0.01\\
+1.2 & 0.091 & 20.8 & 0.8\% & 0.04\\
+1.5 & 0.200 & 14.0 & 4.0\% & 0.18\\
+2.0 & 0.333 & 9.5 & 11.1\% & 0.51\\
+3.0 & 0.500 & 6.0 & 25.0\% & 1.25\\
+5.0 & 0.667 & 3.5 & 44.4\% & 2.55\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Converters.} dBFS is measured relative to the largest signal a converter can
+represent. By the usual convention a full-scale sine is 0\,dBFS, and an ideal $N$-bit quantiser
+then has $\mathrm{SNR}=6.02N+1.76$\,dB (Chapter~\ref{ch:pcm}). Some instruments reference a
+full-scale \emph{square} wave instead, which moves the numbers by 3\,dB: always check.
+
+\begin{pitfall}[Bandwidths, sides and the factor of two]
+Many ``3 dB errors'' in link budgets come from mixing one-sided and two-sided densities
+($N_0$ versus $N_0/2$), real and complex noise, or peak and RMS amplitudes. Settle them before
+starting: in this book $N_0$ is the one-sided density, complex baseband noise has variance $N_0$
+per sample at one sample per symbol, and every power is an average unless marked ``peak''.
+Similarly, ``EIRP'' is referenced to an isotropic radiator, ``ERP'' to a dipole: they differ by
+2.15\,dB.
+\end{pitfall}
+
+%======================================================================
+\section{Constants and frequency bands}
+\label{sec:appA:constants}
+%======================================================================
+
+\begin{table}[htbp]\centering\small
+\caption{Physical and geophysical constants. SI defining constants are exact; Earth values are
+from WGS-84 and IERS conventions.}\label{tab:appA:constants}
+\footnotesize
+\begin{tabular}{@{}lll@{}}
+\toprule
+Quantity & Value & Notes\\
+\midrule
+Speed of light $c$ & 299\,792\,458\,m/s (exact) & $\approx3\times10^8$; 1\,ns $\approx$ 30\,cm\\
+Boltzmann constant $k$ & $1.380\,649\times10^{-23}$\,J/K (exact) & $-228.6$\,dBW/K/Hz\\
+Planck constant $h$ & $6.626\,070\,15\times10^{-34}$\,J\,s (exact) & photon energy $hf$\\
+Elementary charge $q$ & $1.602\,176\,634\times10^{-19}$\,C (exact) & shot noise $2qI$\\
+Reference temperature $T_0$ & 290\,K & IEEE noise-figure reference\\
+$kT_0$ & $4.00\times10^{-21}$\,W/Hz & $-174$\,dBm/Hz\\
+Permittivity of free space $\varepsilon_0$ & $8.854\times10^{-12}$\,F/m & \\
+Permeability of free space $\mu_0$ & $1.2566\times10^{-6}$\,H/m & $\approx4\pi\times10^{-7}$\\
+Impedance of free space $\eta_0$ & 376.73\,$\Omega$ & $\approx120\pi$; $S=E^2/\eta_0$\\
+Cosmic microwave background & 2.725\,K & cold-sky floor\\
+\midrule
+Earth equatorial radius (WGS-84) & 6\,378.137\,km & flattening $1/298.257$\\
+Earth mean radius & 6\,371.0\,km & \\
+Effective Earth radius (radio) & $\approx8\,500$\,km & $k=4/3$ standard refraction\\
+Earth gravitational parameter $GM$ & $3.986\,004\,418\times10^{14}$\,m$^3$/s$^2$ & Kepler: $T=2\pi\sqrt{a^3/GM}$\\
+Earth rotation rate & $7.292\,115\times10^{-5}$\,rad/s & \\
+Sidereal day & 86\,164.09\,s & 23\,h\,56\,min\,4\,s\\
+Geostationary orbit radius & 42\,164\,km & altitude 35\,786\,km, speed 3.075\,km/s\\
+GEO one-way delay (sub-satellite point) & 119\,ms & 240--280\,ms ground--satellite--ground\\
+Mean Earth--Moon distance & 384\,400\,km & \\
+Astronomical unit & $1.495\,978\,707\times10^{11}$\,m (exact) & \\
+\midrule
+Light in silica fibre & $\approx2.04\times10^8$\,m/s & $\approx$ 4.9\,$\mu$s/km\\
+GPS L1, L2, L5 carriers & 1575.42, 1227.60, 1176.45\,MHz & $154f_0$, $120f_0$, $115f_0$, $f_0=10.23$\,MHz\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The radio spectrum is named in two overlapping ways (Figure~\ref{fig:appA_bands}). The ITU
+divides it into decades, band $N$ running from $0.3\times10^N$ to $3\times10^N$\,Hz
+(Recommendation ITU-R V.431; the symbols VLF to THF belong to bands 4 to 12, and ELF, SLF and ULF
+are customary names for the bands below). Radar and satellite engineers use the IEEE letter bands
+of IEEE Std 521, which grew out of wartime secrecy codes. Tables~\ref{tab:appA:itubands}
+and~\ref{tab:appA:ieeebands} list both with typical services.
+
+\mdcfig{appA_bands}{The two naming systems for the radio spectrum. Top: the ITU decade bands
+on a logarithmic axis from 3\,Hz to 3\,THz, with representative services. Bottom: the microwave
+region from 1 to 300\,GHz with the IEEE radar letter bands.}
+
+\begin{table}[htbp]\centering\small
+\caption{ITU frequency bands (ITU-R V.431).}\label{tab:appA:itubands}
+\begin{tabular}{@{}clllp{0.38\linewidth}@{}}
+\toprule
+Band & Symbol & Frequency & Wavelength & Typical services\\
+\midrule
+4 & VLF & 3--30\,kHz & 100--10\,km & submarine communication, lightning sensing (historically Omega navigation)\\
+5 & LF & 30--300\,kHz & 10--1\,km & longwave broadcast, time signals (60, 77.5\,kHz), Loran-C/eLoran (100\,kHz)\\
+6 & MF & 0.3--3\,MHz & 1\,km--100\,m & AM broadcast, maritime, NDBs\\
+7 & HF & 3--30\,MHz & 100--10\,m & shortwave broadcast, amateur, aviation (oceanic), over-the-horizon radar\\
+8 & VHF & 30--300\,MHz & 10--1\,m & FM and DAB broadcast, aviation voice, marine, TV\\
+9 & UHF & 0.3--3\,GHz & 1\,m--10\,cm & TV, cellular, GNSS, Wi-Fi 2.4\,GHz, Bluetooth\\
+10 & SHF & 3--30\,GHz & 10--1\,cm & 5G mid-band, Wi-Fi 5/6\,GHz, satellite, radar, microwave links\\
+11 & EHF & 30--300\,GHz & 10--1\,mm & 5G FR2, E-band backhaul, automotive radar, radio astronomy\\
+12 & THF & 0.3--3\,THz & 1--0.1\,mm & research: sub-THz 6G, imaging\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]\centering\small
+\caption{IEEE radar letter bands (IEEE Std 521) and optical bands of single-mode fibre.}\label{tab:appA:ieeebands}
+\begin{tabular}{@{}llp{0.52\linewidth}@{}}
+\toprule
+Band & Range & Typical use\\
+\midrule
+L & 1--2\,GHz & GNSS, Iridium and Inmarsat, air-traffic radar, LTE/NR bands\\
+S & 2--4\,GHz & Wi-Fi 2.4\,GHz, weather and naval radar, 5G n77/n78, satellite radio\\
+C & 4--8\,GHz & satellite TV/feeder (3.7--4.2/5.9--6.4\,GHz), Wi-Fi 5/6\,GHz, weather radar\\
+X & 8--12\,GHz & military satellite, deep-space links, marine and police radar\\
+Ku & 12--18\,GHz & direct-to-home TV, VSAT, Starlink user links\\
+K & 18--27\,GHz & water-vapour absorption near 22\,GHz; Ka-band downlinks begin near 17.7\,GHz\\
+Ka & 27--40\,GHz & HTS satellites, 5G FR2 bands n257, n260, n261, Ka-band uplinks\\
+V & 40--75\,GHz & 60\,GHz unlicensed (oxygen absorption), inter-satellite links\\
+W & 75--110\,GHz & automotive radar (76--81\,GHz), E-band backhaul (71--76/81--86\,GHz, straddling V and W)\\
+mm & 110--300\,GHz & D band (110--170\,GHz) research for 6G, imaging\\
+\midrule
+O, E, S & 1260--1360, 1360--1460, 1460--1530\,nm & original, extended and short-wavelength fibre bands\\
+C, L, U & 1530--1565, 1565--1625, 1625--1675\,nm & conventional (EDFA) band, long, ultra-long\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{pitfall}[Which ``Ka-band''?]
+Letter bands are conventions, not allocations, and different communities draw them differently:
+satellite operators routinely call 17.7--21.2\,GHz ``Ka-band downlink'' though IEEE Std 521 places
+it in K band, and the NATO/EU band letters (A to M) are a completely different system in which
+``C band'' means 0.5--1\,GHz. Always quote the frequency in a specification; quote the letter only
+as a nickname.
+\end{pitfall}
+
+%======================================================================
+\section{Series, sums and integrals}
+\label{sec:appA:series}
+%======================================================================
+
+\paragraph{Finite and infinite sums.}
+\begin{gather}
+\sum_{n=0}^{N-1}r^n=\frac{1-r^N}{1-r},\qquad \sum_{n=0}^{\infty}r^n=\frac1{1-r},\qquad
+\sum_{n=0}^{\infty}nr^n=\frac{r}{(1-r)^2}\quad(|r|<1),\\
+\sum_{n=0}^{N-1}e^{j\omega n}=e^{j\omega(N-1)/2}\frac{\sin(N\omega/2)}{\sin(\omega/2)},\qquad
+\sum_{n=0}^{N-1}e^{j2\pi kn/N}=\begin{cases}N,&k\equiv0\pmod N\\0,&\text{otherwise,}\end{cases}\\
+\sum_{n=1}^{N}n=\frac{N(N+1)}{2},\qquad\sum_{n=1}^{N}n^2=\frac{N(N+1)(2N+1)}{6},\qquad
+\sum_{k=0}^{n}\binom nk a^kb^{n-k}=(a+b)^n.
+\end{gather}
+The second line is the orthogonality of DFT basis vectors and of OFDM subcarriers. The geometric
+sum with $r=\rho$ gives the mean queue length of an M/M/1 system and the impulse response energy
+of a one-pole filter.
+
+\paragraph{Expansions for small $x$.}
+\begin{gather}
+e^x=1+x+\tfrac{x^2}{2}+\cdots,\qquad \ln(1+x)=x-\tfrac{x^2}2+\cdots,\qquad (1+x)^a=1+ax+\cdots,\\
+\sin x=x-\tfrac{x^3}{6}+\cdots,\qquad \cos x=1-\tfrac{x^2}2+\cdots,\\
+\tan^{-1}x=x-\tfrac{x^3}3+\cdots,\qquad \log_2(1+x)\approx1.443x .
+\end{gather}
+The last is why capacity grows linearly with power at low SNR (Chapter~\ref{ch:infotheory}).
+
+\paragraph{Trigonometric identities.} With $e^{j\theta}=\cos\theta+j\sin\theta$:
+\begin{gather}
+\cos a\cos b=\tfrac12[\cos(a-b)+\cos(a+b)],\qquad \sin a\sin b=\tfrac12[\cos(a-b)-\cos(a+b)],\\
+\sin a\cos b=\tfrac12[\sin(a+b)+\sin(a-b)],\qquad \cos^2a=\tfrac12(1+\cos2a),\qquad \sin^2a=\tfrac12(1-\cos2a),\\
+\cos(a\pm b)=\cos a\cos b\mp\sin a\sin b,\qquad \sin(a\pm b)=\sin a\cos b\pm\cos a\sin b,\\
+A\cos\theta+B\sin\theta=\sqrt{A^2+B^2}\,\cos(\theta-\tan^{-1}(B/A)).
+\end{gather}
+The product formulas are the whole theory of mixers: multiplying by a local oscillator produces
+sum and difference frequencies (Chapters~\ref{ch:analog} and~\ref{ch:sdr}).
+
+\paragraph{Gaussian integrals.} For $a>0$,
+\begin{gather}
+\int_{-\infty}^{\infty}e^{-ax^2}dx=\sqrt{\frac\pi a},\qquad
+\int_{-\infty}^{\infty}x^2e^{-ax^2}dx=\frac{\sqrt\pi}{2a^{3/2}},\qquad
+\int_0^\infty xe^{-ax^2}dx=\frac1{2a},\\
+\int_{-\infty}^{\infty}e^{-ax^2+bx}dx=\sqrt{\frac\pi a}\,e^{b^2/4a},\\
+\int_{\R^n}e^{-\frac12\vect x^T\vect A\vect x+\vect b^T\vect x}d\vect x=\frac{(2\pi)^{n/2}}{\sqrt{\det\vect A}}\,e^{\frac12\vect b^T\vect A^{-1}\vect b},\\
+\int_{\C^n}e^{-\vect z^H\vect A\vect z}d\vect z=\frac{\pi^n}{\det\vect A}.
+\end{gather}
+Completing the square in the exponent, the trick behind all of these, is also how the Gaussian
+pdf's MGF and the conditional-Gaussian result~\eqref{eq:appA:condgauss} are derived.
+
+\paragraph{Other recurring integrals.}
+\begin{gather}
+\int_{-\infty}^{\infty}\sinc x\,dx=\int_{-\infty}^{\infty}\sinc^2x\,dx=1,\qquad
+\int_0^\infty x^ne^{-ax}dx=\frac{n!}{a^{n+1}},\qquad
+\int_0^\infty e^{-ax}\cos bx\,dx=\frac{a}{a^2+b^2},\\
+\int_0^{2\pi}e^{x\cos\theta}d\theta=2\pi I_0(x),\qquad
+\int_0^\infty xe^{-ax^2}I_0(bx)\,dx=\frac{1}{2a}e^{b^2/4a},\qquad
+\int_{-\infty}^{\infty}\frac{dx}{1+x^2}=\pi.
+\end{gather}
+The fifth integral shows that the Rice density integrates to one, and is the key step in the
+error rate of noncoherent FSK.
+
+\paragraph{Inequalities.} $\ln x\le x-1$ (with equality at $x=1$; it proves that relative entropy
+is non-negative); Cauchy--Schwarz; the triangle inequality; Jensen's inequality; and
+Hadamard's inequality $\det\vect A\le\prod_ia_{ii}$ for positive semidefinite $\vect A$, which
+shows that a $\log\det$ capacity is largest when the transmit covariance is aligned with the
+channel's eigenvectors so that the streams do not interfere (Chapter~\ref{ch:mimo}). For binomial
+coefficients, $\binom nk\le2^{nh(k/n)}$ with $h$ the binary entropy function, the counting
+argument behind the channel coding theorem (Chapter~\ref{ch:infotheory}).
+
+\furtherreading
+\begin{itemize}
+\item F.~W.~J.~Olver et al.\ (eds.), \emph{NIST Digital Library of Mathematical Functions},
+\url{https://dlmf.nist.gov}. The modern, free successor to Abramowitz and Stegun's
+\emph{Handbook of Mathematical Functions} (1964): definitions, series, asymptotics and identities
+for every special function in this appendix.
+\item I.~S.~Gradshteyn and I.~M.~Ryzhik, \emph{Table of Integrals, Series, and Products}, 8th ed.,
+Academic Press, 2014. When an integral will not yield, it is probably in here.
+\item A.~Papoulis and S.~U.~Pillai, \emph{Probability, Random Variables and Stochastic Processes},
+4th ed., McGraw-Hill, 2002. The engineering standard for distributions, transformations and random
+processes, including cyclostationarity.
+\item M.~K.~Simon and M.-S.~Alouini, \emph{Digital Communication over Fading Channels}, 2nd ed.,
+Wiley, 2005. Craig's form, the MGF method, Marcum Q bounds and closed-form error rates for every
+fading model.
+\item J.~W.~Craig, ``A new, simple and exact result for calculating the probability of error for
+two-dimensional signal constellations,'' \emph{Proc.\ IEEE MILCOM}, 1991; and M.~Chiani, D.~Dardari
+and M.~K.~Simon, ``New exponential bounds and approximations for the computation of error
+probability in fading channels,'' \emph{IEEE Trans.\ Wireless Communications}, vol.~2, no.~4, 2003.
+\item R.~A.~Horn and C.~R.~Johnson, \emph{Matrix Analysis}, 2nd ed., Cambridge University Press, 2013;
+and K.~B.~Petersen and M.~S.~Pedersen, \emph{The Matrix Cookbook} (freely available), a compact list
+of identities and derivatives.
+\item A.~Hj{\o}rungnes, \emph{Complex-Valued Matrix Derivatives}, Cambridge University Press, 2011.
+Wirtinger calculus done carefully, with applications to signal processing and communications.
+\item S.~Boyd and L.~Vandenberghe, \emph{Convex Optimization}, Cambridge University Press, 2004 (free
+online). Duality, KKT conditions and water-filling as a worked example.
+\item R.~M.~Gray, ``Toeplitz and circulant matrices: a review,'' \emph{Foundations and Trends in
+Communications and Information Theory}, vol.~2, no.~3, 2006. Szeg\H{o}'s theorem and why circulants
+approximate Toeplitz matrices.
+\item F.~J.~Harris, ``On the use of windows for harmonic analysis with the discrete Fourier
+transform,'' \emph{Proc.\ IEEE}, vol.~66, no.~1, 1978. The source of Table~\ref{tab:appA:windows}.
+\item R.~N.~Bracewell, \emph{The Fourier Transform and Its Applications}, 3rd ed., McGraw-Hill, 2000.
+A physical, picture-rich treatment of transforms, pairs and sampling.
+\end{itemize}

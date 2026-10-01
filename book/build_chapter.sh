@@ -14,7 +14,7 @@ cat > "$W/only.tex" <<TEX
 \begin{document}
 \hypertarget{toc}{}
 \mainmatter\pagestyle{fancy}
-\setcounter{chapter}{$((10#${CH#ch}-1))}
+$(case "$CH" in app*) printf "%s" "\appendix\setcounter{chapter}{$(( $(printf %d "'${CH#app}") - 65 ))}";; *) printf "%s" "\setcounter{chapter}{$((10#${CH#ch}-1))}";; esac)
 \include{chapters/$CH}
 \printindex
 \end{document}

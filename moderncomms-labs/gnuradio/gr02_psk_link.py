@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chapters 4 and 6 hardware lab: a complete QPSK link through the B200.
+"""Chapters 9, 10 and 12 hardware lab: a complete QPSK link through the B200.
 
 TX: known pseudo-random bytes -> differential QPSK -> RRC (beta 0.35) -> B200 TX/RX port
 RX: B200 RX2 port -> AGC -> FLL band-edge (coarse CFO) -> polyphase clock sync (timing)
@@ -13,7 +13,7 @@ Cabled loopback: TX/RX -> 30 dB (or more) attenuator -> RX2.   NEVER connect wit
     python3 gr02_psk_link.py --sim --nogui --duration 10    # headless BER measurement
 
 Differential encoding removes the Costas loop's 90-degree phase ambiguity at a cost of
-roughly 2x the bit errors near threshold (Chapter 4). The GUI shows the constellation
+roughly 2x the bit errors near threshold (Chapter 9). The GUI shows the constellation
 after each receiver stage so you can see what every block contributes.
 """
 import numpy as np

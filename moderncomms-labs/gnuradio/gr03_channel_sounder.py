@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chapter 5 hardware lab: a correlation channel sounder with the B200.
+"""Chapter 11 hardware lab: a correlation channel sounder with the B200.
 
 TX: a Zadoff-Chu sequence of length N (default 255, root 7), transmitted periodically.
     Its periodic autocorrelation is a perfect impulse, so the receive correlation is
