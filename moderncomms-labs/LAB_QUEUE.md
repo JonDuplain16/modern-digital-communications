@@ -17,3 +17,4 @@
 | 26 | lab26_cellular_system.py | 20 | hex-grid SIR maps, Erlang, ALOHA/CSMA sim, PPP coverage, PF scheduler |
 | 27 | lab27_lte_nr_phy.py | 21 | resource grid, PSS/SSS cell search, PDSCH chain |
 | 28 | lab28_ofdm_system.py | 17 | LMMSE/DFT/LS chest, Doppler+phase-noise ICI & CPE fix, coded OFDM ± BICM on EPA/ETU, clipping+filtering w/ Rapp PA ACLR/EVM, WOLA/f-OFDM spectra, DSL bit loading, OFDM radar range–Doppler (helpers in ch17_figs.py) |
+| 29 | lab29_arrays_beamforming.py | 19 | planar array + EIRP calc, beam squint PS vs TTD, MUSIC/MVDR DOA, NR Type I codebook + SSB sweep, hybrid precoding by OMP, LOS-MIMO spacing (helpers in ch19_figs.py) |
