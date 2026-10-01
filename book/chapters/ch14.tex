@@ -1,0 +1,2189 @@
+\chapter{Classical Error-Control Codes}
+\label{ch:classiccodes}
+
+\begin{chapterintro}
+Chapter~\ref{ch:infotheory} ended with a promise and a puzzle. Shannon proved that every
+channel has a capacity and that, below it, codes exist whose error probability can be made as
+small as we like; he did not say how to build them, and his random codes cannot be decoded in
+any reasonable time. This chapter tells the story of the first fifty years of the answer: the
+\emph{classical} codes, built from algebra and from finite-state machines, that put
+error control into every modem, disk drive, compact disc, spacecraft and cellular phone long
+before turbo and LDPC codes closed the last few decibels. We start with why coding pays and
+what it costs, then develop linear block codes from the ground up: generator and parity-check
+matrices, syndromes, Hamming distance and the bounds that limit what any code can do. Hamming
+and Golay codes lead to the SECDED memory protection inside every server. A gentle
+introduction to finite fields opens the door to cyclic codes, the CRC that guards almost every
+packet ever sent, BCH codes and the Reed--Solomon codes of the CD, DVB, QR codes and RAID-6.
+Interleaving and concatenation show how codes are combined to defeat bursts. The second half
+turns to convolutional codes and the Viterbi algorithm, which carried Voyager's pictures,
+802.11 and digital television, then to sequential decoding and Reed--Muller codes, and closes
+with the protocols (ARQ and hybrid ARQ) that let a receiver simply ask again.
+\end{chapterintro}
+
+%======================================================================
+\section{Why code?}
+\label{sec:ch14:why}
+%======================================================================
+
+An uncoded binary link over a Gaussian channel is at the mercy of a single number. With
+antipodal signalling the bit error probability is $\Q(\sqrt{2E_b/N_0})$
+(Chapter~\ref{ch:baseband}); to reach $10^{-5}$ it needs $E_b/N_0=9.6$\,dB, and each further
+factor of ten in reliability costs roughly another decibel. The only knobs are transmit
+power, antenna gain and distance. Channel coding adds a new knob. By sending $n$ channel bits
+for every $k$ information bits, with the extra $n-k$ bits computed from the information in a
+cleverly structured way, the receiver can detect and correct errors that the channel has made.
+The ratio $R=k/n$ is the \term{code rate}.
+
+\subsection{The simplest codes}
+
+The most obvious way to protect a bit is to repeat it. The \term{repetition code} of length
+three sends $000$ for a zero and $111$ for a one, and the receiver takes a majority vote. On a
+binary symmetric channel that flips each bit independently with probability $p$, the vote is
+wrong only if two or three bits flip:
+\begin{equation}
+P_e = 3p^2(1-p)+p^3\approx 3p^2 .
+\label{eq:ch14:rep3}
+\end{equation}
+With $p=10^{-2}$ the error rate falls to about $3\times10^{-4}$. But the code has rate $1/3$:
+it triples the bandwidth and, at fixed transmitter power, gives each channel bit only a
+third of the energy. Redo the comparison at equal energy per \emph{information} bit and the
+repetition code turns out to be \emph{worse} than sending the bit once with three times the
+energy. Repetition is the wrong kind of redundancy: it spends energy without buying distance
+efficiently. The whole art of coding is to find redundancy that pays for itself.
+
+The second-simplest code points the way. Append to every block of $k$ bits a single
+\term{parity bit}, the modulo-2 sum of the block, so that every transmitted word has an even
+number of ones. Any single error makes the parity odd and is \emph{detected}, at the modest
+cost of one bit in $k+1$. Parity cannot say \emph{which} bit is wrong, but it was enough for
+the paper-tape readers, the memory of early computers and the seven-bit ASCII terminals of the
+1960s. Richard Hamming's insight, in 1950, was that several overlapping parity checks can
+locate an error as well as detect it.
+
+\subsection{Coding gain}
+
+The benefit of a code is measured as \term{coding gain}: the reduction in $E_b/N_0$ needed to
+reach a target error rate, compared with uncoded transmission of the same information at the
+same modulation. The comparison must be made at equal energy per \emph{information} bit, because
+the code spends energy on redundant bits: each coded bit carries energy $E_c=RE_b$, so the
+channel error rate before decoding is \emph{higher} than for an uncoded system. A code earns its
+keep only if its error correction more than repays that loss.
+
+Figure~\ref{fig:ch14_coding_gain} shows the landscape of the classical codes on the
+additive white Gaussian noise (AWGN) channel with BPSK. At a bit error rate of $10^{-5}$, the
+Hamming (7,4) code with hard decisions gains well under a decibel; the Golay code and a long BCH
+code gain about 2 and 3.5\,dB; the rate-1/2 convolutional code with constraint length 7 and soft
+Viterbi decoding gains about 5.5\,dB; and the concatenation of that code with a Reed--Solomon
+outer code, the combination that carried pictures back from Uranus and Neptune, gains about 7\,dB
+and reaches $10^{-5}$ at roughly 2.3\,dB. The Shannon limit for rate~$1/2$ binary signalling,
+0.19\,dB (Chapter~\ref{ch:infotheory}), sits a further 2\,dB or so to the left. That remaining gap
+is the subject of Chapter~\ref{ch:moderncodes}.
+
+\mdcfig[0.88]{ch14_coding_gain}{The classical codes on the AWGN channel with BPSK. Block codes
+with hard-decision decoding (dashed) are computed from the standard approximation
+of~\eqref{eq:ch14:pbblock}; the convolutional and concatenated curves are Monte Carlo
+simulations with the union bound (dotted) continuing the convolutional curve to low error rates.
+The concatenated curve assumes ideal interleaving between the codes. Coding gain is read
+horizontally at the target error rate.}
+
+It helps to separate two numbers. The \term{asymptotic coding gain}, the gain as
+$E_b/N_0\to\infty$, depends only on the rate and the minimum distance $d$ of the code (defined in
+Section~\ref{sec:ch14:block}). With soft-decision maximum-likelihood decoding it is
+\begin{equation}
+G_{\infty}^{\text{soft}}=10\log_{10}(R\,d)\ \text{dB},\qquad
+G_{\infty}^{\text{hard}}\approx10\log_{10}\!\big(R\,(t+1)\big)\ \text{dB},
+\label{eq:ch14:acg}
+\end{equation}
+where $t=\lfloor(d-1)/2\rfloor$ is the number of errors a hard-decision decoder can correct. The
+\emph{real} coding gain at a practical error rate is smaller, because codes have many nearest
+neighbours and the asymptote is approached slowly. For the $K=7$ convolutional code, $R=1/2$ and
+$d=10$ give an asymptotic gain of 7\,dB, of which about 5.5\,dB is realised at $10^{-5}$ and
+almost 6\,dB at $10^{-7}$ (Section~\ref{sec:ch14:viterbi}).
+
+\subsection{What coding costs}
+
+Coding gain is not free. It is paid for in four currencies, and a system designer chooses a
+code by deciding which of them is cheapest.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Bandwidth or throughput.] A rate-$R$ code sends $1/R$ channel symbols per information bit.
+At a fixed symbol rate the throughput falls by $R$; at a fixed throughput the bandwidth grows by
+$1/R$. In \emph{power-limited} systems (deep space, satellites, low-power IoT) bandwidth is
+cheap and low-rate codes are ideal; in \emph{bandwidth-limited} systems (cable, microwave
+backhaul, dense cellular) the code must be combined with a larger constellation, the subject of
+coded modulation (Chapters~\ref{ch:modulation} and~\ref{ch:moderncodes}).
+\item[Latency.] A block decoder cannot finish until the whole block has arrived; a Viterbi
+decoder must look ahead several constraint lengths; an interleaver adds its full span. Voice and
+control loops tolerate milliseconds, not seconds.
+\item[Complexity and power.] Decoding costs gates, memory and energy. In the 1970s a
+Viterbi decoder for $K=7$ filled a rack; today it occupies a fraction of a square millimetre, but
+at 400\,Gb/s the decoder's power budget still limits what code a link can afford.
+\item[Error behaviour.] Every decoder eventually fails. A block decoder may detect the failure
+or may \emph{miscorrect}, confidently delivering a wrong codeword; a Viterbi decoder fails in
+bursts. The code must be matched to what the next layer can tolerate.
+\end{description}
+
+\subsection{Three strategies: FEC, ARQ and HARQ}
+
+There are two fundamentally different ways to use redundancy. \term{Forward error correction}
+(FEC) sends enough redundancy for the receiver to correct errors on its own, with no return
+channel. \term{Automatic repeat request} (ARQ) sends only enough redundancy to \emph{detect}
+errors, usually a cyclic redundancy check, and asks the transmitter to try again when a check
+fails. ARQ is extraordinarily efficient when errors are rare, because detection is cheap: 32
+check bits protect a 12\,000-bit Ethernet frame against virtually every error pattern. But ARQ
+needs a return channel and adds a round trip of delay for every failure, which rules it out for
+broadcast, for deep space (a round trip to Neptune takes about eight hours) and for storage,
+where the ``transmitter'' may have been a disk head that wrote the data years ago.
+
+Most modern wireless links combine the two in \term{hybrid ARQ} (HARQ): an FEC code corrects
+most errors, a CRC detects the residue, and retransmissions carry either a copy of the codeword
+(Chase combining) or fresh parity bits (incremental redundancy) that the receiver combines with
+what it already has. Section~\ref{sec:ch14:arq} develops these protocols; Chapter~\ref{ch:cellular}
+shows them at work in LTE and 5G.
+
+\begin{keyidea}[Coding buys distance, and distance buys reliability]
+A code is a set of points chosen from a much larger space so that they are far apart. The
+channel pushes the transmitted point around; the decoder picks the nearest codeword. Everything
+in this chapter follows from three questions: how far apart can the codewords be for a given rate
+(the bounds), how can we build codes that achieve large distance with enough structure to decode
+(the algebra and the trellis), and how can we find the nearest codeword quickly (the decoding
+algorithms)?
+\end{keyidea}
+
+\begin{history}[Hamming's weekends]
+In 1947 Richard Hamming was a young mathematician at Bell Telephone Laboratories with access to
+the Bell Labs Model~V relay computer, but only at weekends, when it ran unattended jobs from a
+queue. The machine checked its own arithmetic with two-out-of-five codes and, when a check failed,
+simply abandoned the job and moved to the next. Returning on two consecutive Mondays to find his
+work discarded, Hamming later recalled asking himself, with some irritation, why a machine that
+could \emph{detect} an error could not \emph{locate} it and fix it. His answer, published in the
+\emph{Bell System Technical Journal} in April 1950 (Bell Labs held up publication until a
+patent was filed), introduced the single-error-correcting codes that bear his name, the
+geometric notion of distance between binary words and the idea of a code as a packing of
+spheres. Marcel Golay at the Signal Corps laboratories had seen Hamming's (7,4) code in Shannon's
+1948 paper and in 1949 published a one-page note generalising it and describing the remarkable
+(23,12) code that now bears his name.
+\end{history}
+
+\subsection{Seventy years in one table}
+
+Table~\ref{tab:ch14:timeline} lists the milestones of the classical era. Two threads run
+through it. The \emph{algebraic} thread (Hamming, Golay, Reed--Muller, BCH, Reed--Solomon)
+builds block codes with large guaranteed distance and decodes them by solving equations over
+finite fields. The \emph{probabilistic} thread (Elias, Wozencraft, Fano, Viterbi) builds
+convolutional codes, generated by shift registers, and decodes them by searching a tree or
+trellis for the most likely path. Forney's concatenation joined the two threads in 1966, and
+their descendants---turbo and LDPC codes---closed the gap to capacity in the 1990s.
+
+\begin{table}[htbp]\centering\small
+\caption{Milestones of classical coding.}
+\label{tab:ch14:timeline}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+Year & Milestone\\
+\midrule
+1948 & Shannon's channel coding theorem; the (7,4) Hamming code appears as an example in his paper\\
+1949 & Golay's note on the perfect (23,12) and (11,6) ternary codes\\
+1950 & Hamming, ``Error detecting and error correcting codes''\\
+1954 & Reed--Muller codes (Muller: construction; Reed: majority-logic decoding); Elias's product codes\\
+1955 & Elias introduces convolutional codes\\
+1957 & Prange's cyclic codes; Wozencraft's sequential decoding\\
+1959--60 & BCH codes (Hocquenghem; Bose and Ray-Chaudhuri); Reed--Solomon codes; Peterson's decoder\\
+1963 & Fano's sequential-decoding algorithm; Gallager's LDPC codes (ahead of their time)\\
+1966 & Forney's concatenated codes and generalised minimum-distance decoding\\
+1967 & Viterbi's algorithm\\
+1968--69 & Berlekamp's decoding algorithm; Massey's shift-register-synthesis interpretation\\
+1969--71 & Mariner 6, 7 and 9 send Mars images with the (32,6) Reed--Muller code\\
+1972--73 & Pioneer 10 and 11 use a $K=32$ convolutional code with sequential decoding\\
+1977 & Voyager launches with a $K=7$, rate-1/2 convolutional code; RS(255,223) concatenation added for the outer planets\\
+1980--82 & Compact disc with cross-interleaved Reed--Solomon coding (CIRC)\\
+1987 & CCSDS standardises RS(255,223) concatenated with the $K=7$ code\\
+1993--95 & Turbo codes; LDPC codes rediscovered (Chapter~\ref{ch:moderncodes}); DVB-S uses RS(204,188) + $K=7$\\
+1994 & QR code (Denso Wave) with Reed--Solomon error correction\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%======================================================================
+\section{Linear block codes}
+\label{sec:ch14:block}
+%======================================================================
+
+An $(n,k)$ \term{block code} maps each block of $k$ information bits to a \emph{codeword} of
+$n$ bits. Of the $2^n$ possible $n$-bit words, only $2^k$ are codewords. The receiver sees an
+$n$-bit word that may have been corrupted and must decide which codeword was sent. With no
+further structure, encoding would require a table of $2^k$ codewords and decoding a search over
+all of them---impossible for the $k=223\times8=1784$-bit blocks of a Reed--Solomon code. The
+structure that makes coding practical is linearity.
+
+\subsection{Linearity, generator and parity-check matrices}
+
+A code is \term{linear} if the modulo-2 sum of any two codewords is a codeword. The codewords
+then form a $k$-dimensional subspace of the vector space $\{0,1\}^n$ over the binary field
+GF(2), where addition is exclusive-OR and multiplication is AND. Any basis of the subspace, $k$
+linearly independent codewords written as the rows of a $k\times n$ matrix $\vect{G}$, generates
+the code:
+\begin{equation}
+\vect{c}=\vect{u}\,\vect{G},\qquad \vect{u}\in\{0,1\}^k .
+\label{eq:ch14:enc}
+\end{equation}
+$\vect{G}$ is the \term{generator matrix}. Encoding is now a matrix multiplication, and the code
+is described by $kn$ bits instead of $n2^k$. Row operations on $\vect{G}$ change the mapping
+from messages to codewords but not the code itself, so every linear code has a generator matrix
+in \term{systematic form},
+\begin{equation}
+\vect{G}=\big[\,\vect{I}_k \mid \vect{P}\,\big],
+\end{equation}
+possibly after permuting columns. A systematic codeword is the message followed by $n-k$
+\term{parity bits} $\vect{u}\vect{P}$; the receiver can read the message directly, which is
+convenient and is what nearly every practical code does.
+
+The same subspace can be described by the constraints it satisfies. A $(n-k)\times n$
+\term{parity-check matrix} $\vect{H}$ has the codewords as its null space:
+\begin{equation}
+\vect{c}\,\vect{H}^{\mathsf T}=\vect{0}\quad\Longleftrightarrow\quad \vect{c}\ \text{is a codeword}.
+\label{eq:ch14:parity}
+\end{equation}
+For a systematic generator, $\vect{H}=[\,\vect{P}^{\mathsf T}\mid\vect{I}_{n-k}\,]$, and
+$\vect{G}\vect{H}^{\mathsf T}=\vect{P}+\vect{P}=\vect{0}$ confirms that every row of $\vect{G}$
+satisfies every check. Each row of $\vect{H}$ is one parity equation: a set of code bits whose
+sum must be zero. The code defined by $\vect{H}$ as a generator matrix is the \term{dual code},
+of dimension $n-k$.
+
+For the Hamming (7,4) code used throughout this chapter (and in \lab{commlib/coding.py}),
+\begin{equation}
+\vect{G}=\left[\begin{array}{cccc|ccc}
+1&0&0&0&1&1&0\\ 0&1&0&0&1&0&1\\ 0&0&1&0&0&1&1\\ 0&0&0&1&1&1&1
+\end{array}\right],\qquad
+\vect{H}=\left[\begin{array}{cccc|ccc}
+1&1&0&1&1&0&0\\ 1&0&1&1&0&1&0\\ 0&1&1&1&0&0&1
+\end{array}\right].
+\label{eq:ch14:h74}
+\end{equation}
+The three parity bits are $p_1=u_1\oplus u_2\oplus u_4$, $p_2=u_1\oplus u_3\oplus u_4$ and
+$p_3=u_2\oplus u_3\oplus u_4$: three overlapping checks, each covering a different subset of the
+data. Hamming's own drawing was a Venn diagram of three circles, with the four data bits in the
+overlaps and each parity bit completing the even parity of its circle.
+
+\subsection{Distance and weight}
+
+The \term{Hamming distance} $d(\vect{x},\vect{y})$ between two words is the number of positions
+in which they differ; the \term{Hamming weight} $w(\vect{x})$ is the number of ones. Distance is
+a true metric (it satisfies the triangle inequality), and on the binary symmetric channel with
+$p<1/2$ the most likely codeword is the one at the smallest Hamming distance from the received
+word. The \term{minimum distance} $d_{\min}$ of a code is the smallest distance between two
+distinct codewords, and it is the single most important number describing a code. We write an
+$(n,k)$ code with minimum distance $d$ as an $(n,k,d)$ code.
+
+For a linear code, $d(\vect{c}_1,\vect{c}_2)=w(\vect{c}_1\oplus\vect{c}_2)$, and
+$\vect{c}_1\oplus\vect{c}_2$ is itself a codeword. So
+\begin{equation}
+d_{\min}=\min_{\vect{c}\ne\vect{0}} w(\vect{c}),
+\end{equation}
+the minimum weight of a nonzero codeword. There is another useful characterisation: since
+$\vect{c}\vect{H}^{\mathsf T}=\vect{0}$ says that the columns of $\vect{H}$ selected by the ones
+of $\vect{c}$ sum to zero, $d_{\min}$ is the smallest number of columns of $\vect{H}$ that are
+linearly dependent. If no two columns of $\vect{H}$ are equal and none is zero, any single column
+is nonzero and no two sum to zero, so $d_{\min}\ge3$. The seven columns of $\vect{H}$
+in~\eqref{eq:ch14:h74} are exactly the seven nonzero 3-bit vectors, so the (7,4) code has
+$d_{\min}=3$.
+
+\subsection{What distance buys}
+
+Draw a sphere of radius $t$ (in Hamming distance) around each codeword. If $d_{\min}\ge2t+1$ the
+spheres do not overlap, so a received word with at most $t$ errors lies inside the sphere of the
+transmitted codeword and is decoded correctly. If $d_{\min}\ge s+1$, no pattern of $s$ or fewer
+errors can turn one codeword into another, so every such pattern is detected. Combining the two,
+and adding \term{erasures}---positions the receiver knows are unreliable but whose values are
+unknown---a code with minimum distance $d$ can
+\begin{equation}
+\text{correct } t \text{ errors and } e \text{ erasures whenever } 2t+e<d,
+\label{eq:ch14:errera}
+\end{equation}
+or correct $t$ errors and simultaneously detect up to $s\ge t$ errors whenever $t+s<d$.
+An erasure costs half as much as an error because the decoder knows where it is and only has to
+find its value. Figure~\ref{fig:ch14_cube} shows the two smallest interesting codes on the
+cube of 3-bit words.
+
+\mdcfig[0.9]{ch14_cube}{Codes as sets of points on the cube $\{0,1\}^3$, where Hamming
+distance is the number of edges between vertices. Left: the repetition code $\{000,111\}$
+has $d_{\min}=3$; every word is within distance one of exactly one codeword, so single errors are
+corrected. Right: the even-parity code has $d_{\min}=2$; every single error lands on an odd-weight
+word that is not a codeword and is detected, but it is equidistant from three codewords, so it
+cannot be corrected.}
+
+\subsection{Syndrome decoding}
+
+Let the received word be $\vect{r}=\vect{c}\oplus\vect{e}$, where $\vect{e}$ is the error
+pattern. Multiply by $\vect{H}^{\mathsf T}$:
+\begin{equation}
+\vect{s}=\vect{r}\,\vect{H}^{\mathsf T}=\vect{c}\,\vect{H}^{\mathsf T}\oplus\vect{e}\,\vect{H}^{\mathsf T}
+=\vect{e}\,\vect{H}^{\mathsf T}.
+\label{eq:ch14:syndrome}
+\end{equation}
+The $(n-k)$-bit \term{syndrome} $\vect{s}$ depends only on the error pattern, not on the codeword
+that was sent. It is zero when $\vect{r}$ is a codeword (no detectable error) and otherwise tells
+the decoder which parity checks failed. If a single error occurs in position $j$, the syndrome
+is the $j$-th column of $\vect{H}$. For a Hamming code, whose columns are all distinct, the
+syndrome therefore points directly at the erroneous bit.
+
+\begin{worked}[Decoding a Hamming (7,4) word by syndrome]
+Encode $\vect{u}=1011$ with~\eqref{eq:ch14:h74}. The parity bits are
+$p_1=1\oplus0\oplus1=0$, $p_2=1\oplus1\oplus1=1$, $p_3=0\oplus1\oplus1=0$, so
+$\vect{c}=1011\,010$. Suppose the channel flips the sixth bit, giving $\vect{r}=1011\,000$.
+
+The syndrome is the sum of the columns of $\vect{H}$ at the positions of the ones in
+$\vect{r}$ (positions 1, 3 and 4):
+\[
+\vect{s}=\begin{bmatrix}1\\1\\0\end{bmatrix}\oplus\begin{bmatrix}0\\1\\1\end{bmatrix}\oplus
+\begin{bmatrix}1\\1\\1\end{bmatrix}=\begin{bmatrix}0\\1\\0\end{bmatrix}.
+\]
+Checks 1 and 3 pass and check 2 fails. The vector $010$ is the sixth column of $\vect{H}$, so the
+decoder flips bit 6 and recovers $1011\,010$ and the message $1011$. Had the error hit a
+data bit, say bit 4, the syndrome would have been $111$ (column 4), because $u_4$ appears in all
+three checks. With \emph{two} errors, for example in bits 1 and 2, the syndrome is
+$110\oplus101=011$, the column for bit 3: the decoder confidently flips a third, correct bit
+and outputs a codeword at distance three from the one sent. Hamming codes always correct
+single errors and always miscorrect double errors.
+\end{worked}
+
+In general, many error patterns share each syndrome: exactly $2^k$ of them, one for each
+codeword, since $\vect{e}$ and $\vect{e}\oplus\vect{c}$ give the same syndrome. These sets are
+the \term{cosets} of the code. The maximum-likelihood decoder on a binary symmetric channel
+chooses, for each syndrome, the lowest-weight pattern in the coset---the \term{coset leader}---and
+adds it to $\vect{r}$. Arranging all $2^n$ words in a table with one coset per row, leaders in the
+first column and the codewords along the top, gives the \term{standard array}. It is a
+beautiful teaching device and a hopeless implementation for all but tiny codes: a (63,45) BCH code
+has $2^{18}$ syndromes, which is manageable as a lookup table, but a (255,223) Reed--Solomon code
+has $2^{256}$. Practical decoders compute the coset leader from the syndrome algebraically,
+which is exactly what the algebraic structure of the later sections is for.
+
+\subsection{Weight distribution and the error probabilities of a block code}
+
+The number $A_w$ of codewords of weight $w$ is the code's \term{weight distribution}. It
+determines the probability of every kind of decoding outcome. An error pattern goes
+\emph{undetected} exactly when it is itself a nonzero codeword, so on a BSC with crossover
+probability $p$
+\begin{equation}
+P_{\text{ud}}=\sum_{w=d_{\min}}^{n}A_w\,p^w(1-p)^{n-w}.
+\label{eq:ch14:pud}
+\end{equation}
+For the Hamming (7,4) code, $A_3=7$, $A_4=7$, $A_7=1$, and $P_{\text{ud}}\approx7p^3$. A useful
+identity due to MacWilliams relates the weight distribution of a code to that of its dual; it
+makes~\eqref{eq:ch14:pud} computable for CRCs, whose duals are small (Section~\ref{sec:ch14:crc}).
+
+For a code that corrects all patterns of up to $t$ errors and nothing more (a
+\emph{bounded-distance} decoder), a decoded block is wrong whenever more than $t$ errors occur.
+A standard approximation to the resulting bit error rate assumes that a failed block with $i$
+channel errors leaves about $i+t$ bit errors in the $n$-bit block:
+\begin{equation}
+P_b\approx\sum_{i=t+1}^{n}\frac{i+t}{n}\binom{n}{i}p^i(1-p)^{n-i}.
+\label{eq:ch14:pbblock}
+\end{equation}
+The dashed curves of Figure~\ref{fig:ch14_coding_gain} use this formula with
+$p=\Q\big(\sqrt{2RE_b/N_0}\big)$.
+
+\subsection{Making new codes from old}
+
+Practical systems rarely use a code at its natural length. A handful of simple modifications
+adjust $n$ and $k$ to fit a frame, summarised in Table~\ref{tab:ch14:modify}.
+
+\begin{table}[htbp]\centering\small
+\caption{Modifying an $(n,k,d)$ code.}
+\label{tab:ch14:modify}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+Operation & New parameters & How and where\\
+\midrule
+Shortening & $(n-s,\,k-s,\,\ge d)$ & Fix $s$ message bits to zero and do not send them. RS(204,188) in DVB is RS(255,239) shortened by 51 bytes; every CRC is a shortened cyclic code.\\
+Puncturing & $(n-s,\,k,\,\ge d-s)$ & Delete $s$ parity bits. Raises the rate; the decoder treats them as erasures. Used heavily with convolutional and turbo codes.\\
+Extending & $(n+1,\,k,\,d+1)$ for odd $d$ & Add an overall parity bit. Hamming (7,4,3) becomes (8,4,4); Golay (23,12,7) becomes (24,12,8).\\
+Expurgating & $(n,\,k-1,\,\ge d)$ & Keep only the even-weight codewords.\\
+Lengthening & $(n+1,\,k+1,\,\le d)$ & Add a message bit (the inverse of shortening).\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%======================================================================
+\section{The limits of block codes}
+\label{sec:ch14:bounds}
+%======================================================================
+
+How large can $d_{\min}$ be for given $n$ and $k$? The question has occupied coding theorists
+since 1950 and is still open in general. Four classical bounds frame the answer, and they are
+worth knowing because they tell an engineer immediately whether a proposed code is good, bad or
+impossible.
+
+\subsection{The Hamming (sphere-packing) bound}
+
+A code that corrects $t$ errors surrounds each of its $2^k$ codewords with a disjoint sphere
+containing $V(n,t)=\sum_{i=0}^{t}\binom ni$ words. The spheres must fit into the space of $2^n$
+words, so
+\begin{equation}
+2^k\sum_{i=0}^{t}\binom ni\le2^n
+\qquad\Longleftrightarrow\qquad
+n-k\ \ge\ \log_2\sum_{i=0}^{t}\binom ni .
+\label{eq:ch14:hamming}
+\end{equation}
+Each of the $2^{n-k}$ syndromes can name at most one correctable error pattern. A code that meets
+the bound with equality, whose spheres tile the whole space with no word left over, is
+\term{perfect}. Perfect codes are astonishingly rare. Apart from trivial cases (a single
+codeword, the whole space, odd-length binary repetition codes), the only perfect binary codes are
+the Hamming codes ($t=1$) and the (23,12) Golay code ($t=3$), a fact proved by Tietäväinen and by
+van Lint in the early 1970s. For the Golay code, $1+23+253+1771=2048=2^{11}$ exactly: the
+spheres of radius three around its 4096 codewords fill the 8\,388\,608 words of length 23 with
+nothing to spare.
+
+\subsection{The Singleton bound and MDS codes}
+
+Delete any $d-1$ coordinates from every codeword. The shortened words are still distinct (two
+codewords differ in at least $d$ places, so at least one difference survives), and there are only
+$2^{n-d+1}$ possible words of the remaining length. Hence $2^k\le2^{n-d+1}$, or
+\begin{equation}
+d\le n-k+1.
+\label{eq:ch14:singleton}
+\end{equation}
+The argument holds for codes over any alphabet. Codes meeting the \term{Singleton bound} with
+equality are called \term{maximum-distance separable} (MDS): every $k$ symbols of a codeword
+determine the rest, so the codeword can be recovered from \emph{any} $k$ of its $n$ symbols. Binary
+MDS codes are trivial (repetition and single-parity-check codes), but over large alphabets they
+abound: the Reed--Solomon codes of Section~\ref{sec:ch14:rs} are MDS, which is why they dominate
+erasure coding in storage.
+
+\subsection{The Gilbert--Varshamov bound}
+
+The previous bounds say what cannot be done. The \term{Gilbert--Varshamov bound} says what
+\emph{can}: a linear $(n,k)$ code with minimum distance at least $d$ exists whenever
+\begin{equation}
+2^{n-k}>\sum_{i=0}^{d-2}\binom{n-1}{i}.
+\label{eq:ch14:gv}
+\end{equation}
+The proof builds $\vect{H}$ one column at a time, choosing each new column so that it is not the
+sum of $d-2$ or fewer of the columns already chosen; the counting shows a choice always exists
+while~\eqref{eq:ch14:gv} holds. It is a random-coding style argument in miniature, and
+like Shannon's theorem it guarantees existence without construction. Remarkably, for long binary
+codes no explicit family is known that beats it asymptotically.
+
+\subsection{The Plotkin bound, and the asymptotic picture}
+
+When $d$ is a large fraction of $n$, a simple averaging argument gives a tighter limit. The sum of
+all pairwise distances among $M$ codewords is at most $nM^2/4$ (each coordinate contributes at
+most $M^2/4$ disagreeing ordered pairs), and at least $M(M-1)d$. Hence, if $2d>n$,
+\begin{equation}
+M\le\frac{2d}{2d-n},
+\label{eq:ch14:plotkin}
+\end{equation}
+and asymptotically no family with relative distance $\delta=d/n\ge1/2$ can have positive rate.
+
+Letting $n\to\infty$ with $\delta$ fixed turns the bounds into curves of rate against relative
+distance (Figure~\ref{fig:ch14_bounds}, left). Using $\log_2\binom{n}{\delta n}\approx
+nH_2(\delta)$, where $H_2$ is the binary entropy function of Chapter~\ref{ch:infotheory}, the
+Hamming bound becomes $R\le1-H_2(\delta/2)$ and the Gilbert--Varshamov bound $R\ge1-H_2(\delta)$.
+The best known upper bound, from the linear-programming method of McEliece, Rodemich, Rumsey and
+Welch (MRRW, 1977), lies between them, and the true answer lies somewhere in the gap. The right
+panel shows the same bounds for $n=63$, with the BCH codes of Section~\ref{sec:ch14:bch}: for small
+$d$ they sit right against the Hamming bound; for large $d$ they fall towards the
+Gilbert--Varshamov curve.
+
+\mdcfig{ch14_bounds}{Bounds on block codes. Left: asymptotic bounds on rate versus relative
+distance; codes meeting the Gilbert--Varshamov bound are guaranteed to exist (shaded), and no code
+can exceed the lowest upper bound (Hamming for small $\delta$, MRRW above about $0.3$). Right:
+the dimension achievable at length 63 against minimum distance; the dots are the primitive BCH
+codes.}
+
+\begin{keyidea}[Minimum distance is not the whole story]
+The bounds concern minimum distance, the right figure of merit for hard-decision
+bounded-distance decoding at very low error rates. At the error rates where real systems operate,
+what matters is the whole weight distribution and how close the decoder comes to maximum
+likelihood. Shannon's random codes have mediocre minimum distance but superb performance, and
+turbo and LDPC codes (Chapter~\ref{ch:moderncodes}) have relatively small minimum distances yet
+come within a fraction of a decibel of capacity. The classical codes were designed for distance;
+the modern codes are designed for decoding.
+\end{keyidea}
+
+%======================================================================
+\section{Hamming, SECDED and Golay codes}
+\label{sec:ch14:hamming}
+%======================================================================
+
+\subsection{The Hamming family}
+
+The construction of the (7,4) code generalises at once. For any $m\ge2$, take as the columns of
+$\vect{H}$ all $2^m-1$ nonzero binary vectors of length $m$. No two columns are equal, so
+$d_{\min}\ge3$; three columns such as $001$, $010$ and $011$ sum to zero, so $d_{\min}=3$ exactly. The
+result is the \term{Hamming code}
+\begin{equation}
+(n,k,d)=(2^m-1,\;2^m-1-m,\;3),
+\end{equation}
+giving (3,1), (7,4), (15,11), (31,26), (63,57), (127,120) and so on. Each is perfect: the
+$2^m$ syndromes are exactly the zero syndrome plus one for each of the $n$ single-error
+positions. If the columns are arranged in natural binary order ($001,010,011,\dots$), the
+syndrome of a single error \emph{is} the binary index of the erroneous bit, which is how Hamming
+described it. The rate $1-m/(2^m-1)$ approaches one as $m$ grows, but the correcting power stays at
+one error per block, so long Hamming codes are useful only where errors are very rare.
+
+\subsection{SECDED: extended Hamming codes in computer memory}
+
+Adding an overall parity bit to a Hamming code gives the \term{extended Hamming code}
+$(2^m,2^m-1-m,4)$. With $d_{\min}=4$ it can correct one error and at the same time detect any two:
+a \term{SECDED} (single-error-correcting, double-error-detecting) code. The decoder looks at the
+Hamming syndrome $\vect{s}$ and the overall parity $q$:
+\begin{itemize}
+\item $\vect{s}=\vect{0}$, $q=0$: no error;
+\item $q=1$: an odd number of errors, assumed to be one; correct the bit named by $\vect{s}$ (or the
+parity bit itself if $\vect{s}=\vect{0}$);
+\item $\vect{s}\ne\vect{0}$, $q=0$: an even number of errors, at least two; report an
+uncorrectable error.
+\end{itemize}
+SECDED is the workhorse of memory protection. A standard ECC memory module is 72 bits wide,
+carrying 64 data bits and 8 check bits: a (72,64) shortened extended Hamming code. Hsiao's 1970
+variant chooses the columns of $\vect{H}$ to have odd weight and the rows to have nearly equal
+weight, which makes the syndrome logic shallower and faster and turns the ``even number of
+errors'' test into a simple check on the syndrome's weight. The same code structure protects
+processor caches, register files and on-chip buses, and DDR5 memory chips carry an internal
+single-error-correcting (136,128) code inside the die, in addition to any module-level ECC.
+
+\begin{inpractice}[Why your server needs ECC]
+Memory bits flip. The causes include alpha particles from trace radioactivity in packaging,
+neutrons produced by cosmic rays in the upper atmosphere (the rate at the altitude of Denver is
+several times that at sea level), and, increasingly, cell-to-cell interference in densely packed
+DRAM. A large field study of Google's server fleet by Schroeder, Pinheiro and Weber (2009) found
+DRAM error rates orders of magnitude above earlier laboratory estimates, with roughly a third of
+machines seeing at least one correctable error in a year. The ``Rowhammer'' disturbance errors
+reported in 2014 showed that repeatedly accessing one DRAM row can flip bits in its neighbours.
+SECDED turns almost all of these into logged, corrected events. Data centres go further with
+\emph{Chipkill}-class codes, symbol-based codes (often Reed--Solomon-like) in which each symbol is
+the group of bits from one DRAM chip, so that the complete failure of a chip is a single
+correctable symbol error.
+\end{inpractice}
+
+\begin{pitfall}[SECDED silently miscorrects some triple errors]
+The extended Hamming code has $d_{\min}=4$, so three errors can move the received word to within
+distance one of a \emph{different} codeword. The decoder then sees odd parity, a nonzero
+syndrome, and ``corrects'' a fourth bit, delivering wrong data with no warning. Multi-bit upsets
+from a single particle strike are common in dense memories, which is why physically adjacent
+bits are placed in different codewords (bit interleaving across words) and why the probability of
+a triple error in one word, not the probability of a single error, sets the silent-data-corruption
+rate of a memory system.
+\end{pitfall}
+
+\subsection{The Golay codes}
+
+The binary \term{Golay code} is the $(23,12,7)$ perfect code that corrects any three errors in 23
+bits. It is a cyclic code (Section~\ref{sec:ch14:cyclic}) with generator polynomial
+$g(x)=x^{11}+x^{10}+x^6+x^5+x^4+x^2+1$, and its extension by an overall parity bit, the
+$(24,12,8)$ \emph{extended Golay code}, is one of the most symmetric objects in mathematics: its
+automorphism group is the Mathieu group $M_{24}$, and it leads, through the Leech lattice, to the
+densest known sphere packing in 24 dimensions and to the classification of finite simple groups.
+Engineers value it for humbler reasons. Rate $1/2$, triple-error correction and a small, fixed
+block size make it ideal for protecting short headers and control words. The Voyager spacecraft
+used the extended Golay code for their colour images of Jupiter and Saturn; the (24,12) code
+protects the words of the automatic link establishment protocol of HF radio
+(MIL-STD-188-141). Its hard-decision
+coding gain at $10^{-5}$ is about 2.1\,dB, compared with 0.4\,dB for Hamming (7,4)
+(Figure~\ref{fig:ch14_coding_gain}).
+
+%======================================================================
+\section{Hard and soft decisions}
+\label{sec:ch14:softhard}
+%======================================================================
+
+So far the receiver has sliced each channel symbol to a bit before decoding. That is
+\term{hard-decision decoding}: the channel as seen by the decoder is a binary symmetric channel
+with crossover probability $p=\Q(\sqrt{2RE_b/N_0})$. But the demodulator had more to offer. A
+received sample of $+0.05$ and one of $+1.9$ both slice to a one, yet the first is almost a coin
+toss and the second is nearly certain. A \term{soft-decision} decoder uses the unquantised (or
+finely quantised) samples, or equivalently the log-likelihood ratios
+\begin{equation}
+L_i=\ln\frac{P(c_i=0\mid y_i)}{P(c_i=1\mid y_i)}=\frac{2y_i}{\sigma^2}
+\label{eq:ch14:llr}
+\end{equation}
+for BPSK in Gaussian noise of variance $\sigma^2$ (the convention of \lab{commlib}, bit 0 mapped to
+$+1$). The maximum-likelihood soft decoder chooses the codeword $\vect{c}$ whose BPSK image
+$\vect{x}=1-2\vect{c}$ is closest in \emph{Euclidean} distance to $\vect{y}$, or equivalently
+has the largest correlation $\sum_i x_iy_i$.
+
+Euclidean distance changes the arithmetic of distance. Two codewords at Hamming distance $d$ have
+BPSK images at squared Euclidean distance $4dE_c=4dRE_b$, so the pairwise error probability is
+$\Q\big(\sqrt{2dRE_b/N_0}\big)$: soft decoding exploits the \emph{full} distance $d$, whereas a
+hard-decision decoder is guaranteed only $t+1\approx d/2$ errors' worth. This is the origin of the
+3\,dB difference between the asymptotic gains in~\eqref{eq:ch14:acg}.
+
+At practical error rates the difference is smaller, about 2\,dB, as Figure~\ref{fig:ch14_hard_soft}
+shows for two codes: about 1.4\,dB for the short Hamming code and 2.3\,dB for the convolutional
+code at $10^{-5}$. Information theory gives the same number from a different direction. At low
+signal-to-noise ratio, slicing BPSK to a binary symmetric channel reduces capacity by a factor
+$2/\pi$, a loss of $10\log_{10}(\pi/2)=1.96$\,dB (Chapter~\ref{ch:infotheory}); at rate $1/2$ the
+hard-decision Shannon limit is about 1.8\,dB, against 0.19\,dB with soft decisions.
+
+\mdcfig{ch14_hard_soft}{Hard versus soft decisions. Left: the Hamming (7,4) code decoded by
+syndrome (hard) and by maximum-likelihood correlation against all 16 codewords (soft). Right: the
+$K=7$ convolutional code with hard- and soft-decision Viterbi decoding. In both cases soft
+decisions are worth between 1.5 and 2.5\,dB at error rates around $10^{-5}$.}
+
+\begin{keyidea}[Never throw away information before the decoder]
+A slicer is an irreversible data-processing step: it discards the reliability of each bit, and
+no decoder can recover it. The rule that decoders should receive soft information, ideally
+log-likelihood ratios, is one of the most valuable lessons in communications engineering, and it
+applies with even more force to the iterative decoders of Chapter~\ref{ch:moderncodes}, which live
+on soft information. In practice three or four bits of quantisation capture almost all of the
+benefit (Section~\ref{sec:ch14:viterbi}).
+\end{keyidea}
+
+Why, then, did hard decisions survive so long? Because the classical algebraic decoders of the
+following sections---for BCH and Reed--Solomon codes---work over finite fields and need hard
+symbols. Soft-decision decoding of algebraic codes is possible (Chase algorithms, generalised
+minimum-distance decoding, ordered-statistics decoding, and the Koetter--Vardy algebraic
+soft-decision decoder for Reed--Solomon codes) but it is more complex and never displaced the
+simple approach in mass-market systems. Convolutional codes, by contrast, were soft-decision from
+the start, which is a large part of why they won the power-limited channels.
+
+%======================================================================
+\section{Finite fields made gentle}
+\label{sec:ch14:gf}
+%======================================================================
+
+Hamming codes correct one error. To correct many, the codes of the rest of this chapter need
+arithmetic in which we can add, subtract, multiply and \emph{divide} blocks of bits, solving
+equations for the error positions just as we would with real numbers. The structure that
+allows this is a \term{finite field}, or \term{Galois field}, named after \'Evariste Galois,
+who discovered them in the 1830s shortly before dying in a duel at the age of twenty.
+
+\subsection{Fields with a prime number of elements}
+
+A \emph{field} is a set with addition and multiplication that behave like those of the rational
+numbers: both are commutative and associative, multiplication distributes over addition, there
+are identities 0 and 1, and every element has an additive inverse and every nonzero element a
+multiplicative inverse. The integers modulo a prime $p$ form a field, GF($p$). In GF(2) the only
+elements are 0 and 1, addition is XOR and multiplication is AND. In GF(7), $3\times5=15\equiv1$, so
+$3^{-1}=5$. The integers modulo a composite number are \emph{not} a field: modulo 8,
+$2\times4\equiv0$, so 2 has no inverse.
+
+\subsection{GF($2^m$): polynomials modulo a primitive polynomial}
+
+Digital hardware wants fields whose elements are $m$-bit words, and it turns out that a field with
+$q$ elements exists if and only if $q$ is a prime power, and that it is unique up to relabelling.
+GF($2^m$) is built exactly as the complex numbers are built from the reals. Take an
+\term{irreducible polynomial} $p(x)$ of degree $m$ over GF(2)---one with no factors, just as
+$x^2+1$ has no real factors---and invent a root $\alpha$ with $p(\alpha)=0$. The field elements are
+the polynomials in $\alpha$ of degree less than $m$ with binary coefficients, which we store as
+$m$-bit vectors:
+\[
+a_{m-1}\alpha^{m-1}+\dots+a_1\alpha+a_0\ \longleftrightarrow\ (a_{m-1}\dots a_1a_0).
+\]
+Addition is coefficient-wise modulo 2, that is, bitwise XOR. Multiplication is polynomial
+multiplication followed by reduction using $p(\alpha)=0$. If, in addition, $p(x)$ is
+\term{primitive}, then the powers $\alpha^0,\alpha^1,\dots,\alpha^{2^m-2}$ are all distinct and run
+through every nonzero element, and $\alpha^{2^m-1}=1$. Every nonzero element is then a power of
+$\alpha$, which gives two representations of each element: as a bit vector (convenient for
+adding) and as a power, or \emph{logarithm} (convenient for multiplying).
+
+Table~\ref{tab:ch14:gf8} builds GF(8) from $p(x)=x^3+x+1$. Starting from $\alpha^0=1$, each
+row is the previous one multiplied by $\alpha$: a left shift of the bit vector, followed, whenever
+an $\alpha^3$ term appears, by replacing it with $\alpha+1$ (since $\alpha^3=\alpha+1$ modulo $p$).
+The same table for GF(16) with $p(x)=x^4+x+1$ is alongside.
+
+\begin{table}[htbp]\centering\small
+\caption{Log/antilog tables for GF(8) with $p(x)=x^3+x+1$ and GF(16) with $p(x)=x^4+x+1$. Each
+nonzero element is a power of the primitive element $\alpha$.}
+\label{tab:ch14:gf8}
+\begin{tabular}{@{}c l c c@{}}
+\toprule
+\multicolumn{4}{c}{GF(8)}\\
+power & polynomial & vector & int\\
+\midrule
+$0$ & $0$ & 000 & 0\\
+$\alpha^0$ & $1$ & 001 & 1\\
+$\alpha^1$ & $\alpha$ & 010 & 2\\
+$\alpha^2$ & $\alpha^2$ & 100 & 4\\
+$\alpha^3$ & $\alpha+1$ & 011 & 3\\
+$\alpha^4$ & $\alpha^2+\alpha$ & 110 & 6\\
+$\alpha^5$ & $\alpha^2+\alpha+1$ & 111 & 7\\
+$\alpha^6$ & $\alpha^2+1$ & 101 & 5\\
+\bottomrule
+\end{tabular}\qquad
+\begin{tabular}{@{}c c c c c c@{}}
+\toprule
+\multicolumn{6}{c}{GF(16)}\\
+power & vector & int & power & vector & int\\
+\midrule
+$\alpha^0$ & 0001 & 1 & $\alpha^8$ & 0101 & 5\\
+$\alpha^1$ & 0010 & 2 & $\alpha^9$ & 1010 & 10\\
+$\alpha^2$ & 0100 & 4 & $\alpha^{10}$ & 0111 & 7\\
+$\alpha^3$ & 1000 & 8 & $\alpha^{11}$ & 1110 & 14\\
+$\alpha^4$ & 0011 & 3 & $\alpha^{12}$ & 1111 & 15\\
+$\alpha^5$ & 0110 & 6 & $\alpha^{13}$ & 1101 & 13\\
+$\alpha^6$ & 1100 & 12 & $\alpha^{14}$ & 1001 & 9\\
+$\alpha^7$ & 1011 & 11 & $\alpha^{15}$ & $=\alpha^0$ & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{worked}[Arithmetic in GF(8)]
+Add $\alpha^4$ and $\alpha^5$: in vector form $110\oplus111=001$, so $\alpha^4+\alpha^5=1$.
+Multiply them: add the logarithms modulo 7, $\alpha^4\alpha^5=\alpha^9=\alpha^2=100$. Check by
+polynomials: $(\alpha^2+\alpha)(\alpha^2+\alpha+1)=\alpha^4+\alpha$ (the cross terms cancel in
+pairs), and $\alpha^4=\alpha^2+\alpha$, so the product is $\alpha^2$. Divide: $\alpha^2/\alpha^5=
+\alpha^{-3}=\alpha^4$. Invert: $(\alpha^3)^{-1}=\alpha^{4}$, and indeed $011\times110$ reduces to 001.
+Note that $x+x=0$ for every $x$: in a field of characteristic 2, addition and subtraction are the
+same operation, which removes every sign from the decoding algorithms that follow.
+\end{worked}
+
+\subsection{Conjugates and minimal polynomials}
+
+Binary codes need one more idea. If $\beta$ is a root of a polynomial with \emph{binary}
+coefficients, so is $\beta^2$, because squaring is linear in characteristic 2:
+$(a+b)^2=a^2+b^2$. The elements $\beta,\beta^2,\beta^4,\dots$ are the \term{conjugates} of $\beta$,
+and the lowest-degree binary polynomial having $\beta$ as a root, the \term{minimal polynomial}
+$m_\beta(x)$, is the product of $(x-\gamma)$ over all conjugates $\gamma$. In GF(16) the exponents
+split into the cyclotomic cosets $\{1,2,4,8\}$, $\{3,6,12,9\}$, $\{5,10\}$ and $\{7,14,13,11\}$,
+with minimal polynomials
+\[
+m_1=x^4+x+1,\quad m_3=x^4+x^3+x^2+x+1,\quad m_5=x^2+x+1,\quad m_7=x^4+x^3+1 .
+\]
+These are the building blocks of BCH generator polynomials (Section~\ref{sec:ch14:bch}).
+
+\subsection{Implementation}
+
+Hardware adds field elements with XOR gates and multiplies them with small arrays of AND and XOR
+gates (a general GF(256) multiplier needs 64 AND gates and roughly as many XOR gates);
+multiplication by a \emph{constant}, which is what encoders need, is cheaper still. Software uses
+log and antilog tables: $ab=\exp[(\log a+\log b)\bmod(2^m-1)]$, with a special case for zero, or a
+full $256\times256$ product table for GF(256). Modern processors accelerate both: carry-less
+multiply instructions (PCLMULQDQ on x86, PMULL on Arm) compute the unreduced polynomial product,
+and the x86 GFNI extension multiplies bytes in GF(256) directly.
+
+\begin{pitfall}[Irreducible is not primitive, and fields are not interchangeable]
+All GF(256)s are isomorphic, but their bit representations differ with the choice of $p(x)$, and
+codes built over one are incompatible with another. DVB, ATSC, QR codes, CD audio and RAID-6 use
+$x^8+x^4+x^3+x^2+1$ (\texttt{0x11D}); CCSDS uses $x^8+x^7+x^2+x+1$ (\texttt{0x187}) together with a
+``dual basis'' representation of the bytes; AES uses $x^8+x^4+x^3+x+1$ (\texttt{0x11B}), which is
+irreducible but \emph{not} primitive: $x$ has order 51 rather than 255, and $x+1$ must be used as the
+generator of log tables. A decoder built with the wrong polynomial, the wrong generator or the
+wrong bit order will fail on every codeword with a nonzero syndrome, which is a maddening bug
+because it passes every error-free test vector.
+\end{pitfall}
+
+Table~\ref{tab:ch14:prim} lists the primitive polynomials used in practice. The list in
+\lab{commlib/gf.py} matches it.
+
+\begin{table}[htbp]\centering\small
+\caption{Commonly used primitive polynomials for GF($2^m$). Hex form includes the $x^m$ term.}
+\label{tab:ch14:prim}
+\begin{tabularx}{\linewidth}{@{}c l l X@{}}
+\toprule
+$m$ & polynomial & hex & typical use\\
+\midrule
+3 & $x^3+x+1$ & \texttt{0xB} & textbook examples, RS(7,3)\\
+4 & $x^4+x+1$ & \texttt{0x13} & BCH(15,$k$), CRC-4 building block\\
+6 & $x^6+x+1$ & \texttt{0x43} & BCH(63,$k$)\\
+8 & $x^8+x^4+x^3+x^2+1$ & \texttt{0x11D} & RS in CD, DVB, ATSC, QR, RAID-6\\
+8 & $x^8+x^7+x^2+x+1$ & \texttt{0x187} & CCSDS RS(255,223)\\
+10 & $x^{10}+x^3+1$ & \texttt{0x409} & RS(528,514) and RS(544,514) in 100G--800G Ethernet\\
+14 & $x^{14}+x^5+x^3+x+1$ & \texttt{0x402B} & DVB-S2 BCH, short frames\\
+16 & $x^{16}+x^5+x^3+x^2+1$ & \texttt{0x1002D} & DVB-S2 BCH, normal frames\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%======================================================================
+\section{Cyclic codes}
+\label{sec:ch14:cyclic}
+%======================================================================
+
+A linear code is \term{cyclic} if every cyclic shift of a codeword is also a codeword. The
+definition looks like a curiosity, but it gives codes an algebraic structure that makes encoding
+a shift register and decoding a matter of polynomial arithmetic. Hamming, Golay, BCH and
+Reed--Solomon codes are all cyclic (or shortened cyclic), and so is every CRC.
+
+\subsection{The polynomial view}
+
+Write a word $(c_{n-1},\dots,c_1,c_0)$ as the polynomial $c(x)=c_{n-1}x^{n-1}+\dots+c_1x+c_0$.
+Multiplying by $x$ shifts every coefficient up one place and pushes $c_{n-1}$ out to $x^n$;
+reducing modulo $x^n-1$ (that is, replacing $x^n$ by 1) wraps it round to the constant term. So a
+cyclic shift is multiplication by $x$ modulo $x^n-1$, and a cyclic code is a set of polynomials
+closed under addition and under multiplication by $x$, hence by any polynomial. The consequences
+follow quickly:
+\begin{itemize}
+\item Every cyclic code has a unique monic \term{generator polynomial} $g(x)$ of lowest degree,
+of degree $n-k$, and every codeword is a multiple of it: $c(x)=u(x)g(x)$ with $\deg u<k$.
+\item $g(x)$ divides $x^n-1$. Conversely, every divisor of $x^n-1$ generates a cyclic code. The
+codes of length $n$ are therefore catalogued by the factorisation of $x^n-1$.
+\item The \term{parity-check polynomial} $h(x)=(x^n-1)/g(x)$ satisfies $c(x)h(x)\equiv0\bmod
+(x^n-1)$ for every codeword.
+\end{itemize}
+Over GF(2), $x^7-1=(x+1)(x^3+x+1)(x^3+x^2+1)$. The generator $g(x)=x^3+x+1$ gives a (7,4) cyclic
+code, which is a Hamming code with its columns reordered; $g(x)=(x+1)(x^3+x+1)$ gives the (7,3)
+code of its even-weight words; $g(x)=x+1$ gives the (7,6) single-parity-check code.
+
+\subsection{Systematic encoding by division}
+
+The product $u(x)g(x)$ is a valid but non-systematic codeword. The systematic encoder instead
+shifts the message into the high-order positions and fills the low-order positions with the
+remainder of a division:
+\begin{equation}
+c(x)=x^{n-k}u(x)+\rho(x),\qquad \rho(x)=x^{n-k}u(x)\bmod g(x).
+\label{eq:ch14:sysenc}
+\end{equation}
+Since $x^{n-k}u(x)=q(x)g(x)+\rho(x)$ and addition equals subtraction, $c(x)=q(x)g(x)$ is a
+multiple of $g(x)$, hence a codeword, and its top $k$ coefficients are the message. The division
+is performed by a \term{linear-feedback shift register} (LFSR) with $n-k$ stages and taps set by
+the coefficients of $g(x)$ (Figure~\ref{fig:ch14_lfsr}). The message bits are clocked in, most
+significant first; after the last one, the register holds $\rho(x)$, which is shifted out behind
+the message. The circuit needs $n-k$ flip-flops and at most $n-k$ XOR gates, whatever the block
+length.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth,
+  reg/.style={draw=navy,thick,fill=navy!6,minimum width=0.9cm,minimum height=0.75cm,font=\sffamily\small},
+  xr/.style={draw=accent,thick,circle,inner sep=0pt,minimum size=0.45cm,font=\small},
+  lab/.style={font=\sffamily\scriptsize,text=navy}]
+\node[xr] (x0) at (0,0) {$+$};
+\node[reg] (r0) at (1.3,0) {$r_0$};
+\node[xr] (x1) at (2.6,0) {$+$};
+\node[reg] (r1) at (3.9,0) {$r_1$};
+\node[reg] (r2) at (5.4,0) {$r_2$};
+\node[reg] (r3) at (6.9,0) {$r_3$};
+\node[xr] (xin) at (8.3,0) {$+$};
+\draw[->,thick,navy] (x0) -- (r0); \draw[->,thick,navy] (r0) -- (x1); \draw[->,thick,navy] (x1) -- (r1);
+\draw[->,thick,navy] (r1) -- (r2); \draw[->,thick,navy] (r2) -- (r3); \draw[->,thick,navy] (r3) -- (xin);
+\draw[->,thick,navy] (9.6,0) node[right,lab,align=left]{message\\$u_{k-1},\dots,u_0$} -- (xin);
+\draw[thick,accent] (xin) -- ++(0,-1.1) coordinate (fb);
+\draw[->,thick,accent] (fb) -| (x0);
+\draw[->,thick,accent] (x1|-fb) -- (x1);
+\node[lab,above=0.05cm] at ($(fb)!0.3!(x1|-fb)$) {feedback};
+\node[lab] at (0,0.6) {$g_0=1$}; \node[lab] at (2.6,0.6) {$g_1=1$};
+\node[lab] at (4.65,0.6) {$g_2=0$}; \node[lab] at (6.15,0.6) {$g_3=0$};
+\node[lab,align=center] at (8.3,0.75) {$g_4=1$};
+\node[lab,align=left,anchor=north west] at (-0.3,-1.45) {After the last message bit, $r_3r_2r_1r_0$ holds the remainder
+$\rho(x)=x^4u(x)\bmod(x^4+x+1)$,\\which is shifted out after the message. Clocking a received word through the same
+circuit\\(without the premultiplication) leaves its syndrome.};
+\end{tikzpicture}
+\caption{A systematic encoder for the cyclic code, or CRC, with generator $g(x)=x^4+x+1$. Each
+clock computes the feedback bit (the incoming message bit plus the register's top bit) and adds it
+into the stages where $g(x)$ has a nonzero coefficient; the XOR at each tap performs one step of
+polynomial long division.}
+\label{fig:ch14_lfsr}
+\end{figure}
+
+\subsection{Syndromes and bursts}
+
+The receiver computes $s(x)=r(x)\bmod g(x)$ with the same circuit. The syndrome is zero if and
+only if $r(x)$ is a codeword, and it equals $e(x)\bmod g(x)$, so it depends only on the error
+pattern. Cyclic structure gives a strong guarantee against \term{burst errors}, error patterns
+confined to $b$ consecutive positions. Such a pattern can be written $e(x)=x^ib(x)$ with $\deg
+b(x)<b$ and $b(0)=1$. If $b\le n-k$, then $b(x)$ has lower degree than $g(x)$ and so is not a
+multiple of it, and $x^i$ shares no factor with $g(x)$ (whose constant term is 1), so $e(x)$ is
+not a codeword and the error is detected:
+\begin{quote}
+\emph{A cyclic or shortened cyclic code with $n-k$ check bits detects every burst of length
+$n-k$ or less.} Of the bursts of length $n-k+1$ a fraction $2^{-(n-k-1)}$ go undetected, and of
+longer bursts a fraction $2^{-(n-k)}$.
+\end{quote}
+The same structure yields simple \emph{correcting} decoders for single errors and short bursts:
+the Meggitt decoder and error trapping shift the received word cyclically through the syndrome
+register and watch for a syndrome pattern that identifies a correctable error at a fixed
+position. Fire codes, designed for burst correction on disks and tapes in the 1960s, used exactly
+this approach.
+
+%======================================================================
+\section{The cyclic redundancy check}
+\label{sec:ch14:crc}
+%======================================================================
+
+A \term{cyclic redundancy check} (CRC) is a shortened cyclic code used only for error
+\emph{detection}. The transmitter appends $r$ check bits computed by~\eqref{eq:ch14:sysenc} to a
+message of arbitrary length; the receiver recomputes them and discards the frame on a mismatch.
+W.~Wesley Peterson and D.~T.~Brown described the technique in 1961, and it now protects nearly
+every frame in every network: Ethernet, Wi-Fi, USB, Bluetooth, PCI Express, SATA, the transport
+and code blocks of LTE and 5G, the ZIP and PNG file formats, and the file systems on your disk.
+
+\begin{worked}[A CRC by hand]
+Compute the 4-bit CRC of the message $1101011011$ with $g(x)=x^4+x+1$ (binary $10011$).
+
+Append four zeros (multiply by $x^4$) and divide by $10011$ with XOR in place of subtraction,
+writing the divisor under each leading one:
+\begin{center}\small
+\begin{tabular}{@{}l@{\hspace{2em}}l@{}}
+\texttt{11010110110000} & dividend $x^4u(x)$\\
+\texttt{10011}\phantom{\texttt{000000000}} & $\to$ \texttt{01001110110000}\\
+\texttt{\phantom{1}10011}\phantom{\texttt{00000000}} & $\to$ \texttt{00000010110000}\\
+\texttt{\phantom{110101}10011}\phantom{\texttt{000}} & $\to$ \texttt{00000000101000}\\
+\texttt{\phantom{11010110}10011}\phantom{\texttt{0}} & $\to$ \texttt{00000000001110}\\
+\end{tabular}
+\end{center}
+The remainder is $1110$, so the transmitted frame is $1101011011\,1110$. Dividing the whole frame
+by $10011$ leaves remainder zero. If the channel flips the third bit, the receiver's remainder is
+$x^{11}\bmod g(x)$: since $x^4=x+1$, $x^8=x^2+1$ and $x^{11}=x^3\cdot x^8=x^5+x^3=x^3+x^2+x$, the
+remainder is $1110$, which is nonzero, and the error is detected. The LFSR of
+Figure~\ref{fig:ch14_lfsr} computes exactly the same remainder, one bit per clock.
+\end{worked}
+
+\subsection{What a CRC detects}
+
+The detection properties of a CRC follow from the factors of its generator.
+\begin{itemize}
+\item \textbf{All single errors}, since $g(x)$ has at least two terms.
+\item \textbf{All odd numbers of errors} if $(x+1)$ divides $g(x)$, since then every codeword has
+$c(1)=0$, an even number of ones. Most standard CRCs include this factor.
+\item \textbf{All double errors} within the order of $g(x)$: an error $x^i+x^j=x^i(x^{j-i}+1)$ is
+missed only if $g(x)$ divides $x^{j-i}+1$. If $g(x)=(x+1)p(x)$ with $p(x)$ primitive of degree
+$r-1$, this cannot happen for frames shorter than $2^{r-1}-1$ bits.
+\item \textbf{All bursts of length $r$ or less}, and all but a fraction of about $2^{-r}$ of longer
+ones, as shown above.
+\end{itemize}
+For completely random corruption, the probability that a frame passes the check is essentially
+$2^{-r}$: one in 4.3 billion for a 32-bit CRC. For a binary symmetric channel with a low error
+rate, the probability of undetected error is dominated by the lowest-weight codewords of the
+shortened code, $P_{\text{ud}}\approx A_{d}\,p^{d}$, and the \emph{Hamming distance} $d$ of the CRC
+at the frame length of interest becomes the key figure of merit. Philip Koopman's exhaustive
+searches of the early 2000s showed that many long-standardised polynomials are far from the best
+available. The IEEE 802.3 CRC-32, for example, has Hamming distance 4 over any frame length up to
+about 91\,000 bits (covering every Ethernet frame), 5 up to about 3000 bits and 6 only up to about
+270 bits, while the Castagnoli polynomial (CRC-32C) keeps distance 6 out to roughly 5000 bits.
+CRC-32C was accordingly adopted for iSCSI, SCTP and several file systems.
+
+Figure~\ref{fig:ch14_crc_pud} computes $P_{\text{ud}}$ exactly for some short CRCs, using the
+MacWilliams identity: the dual of an $r$-bit CRC code has only $2^r$ codewords, whose weights can be
+enumerated directly, and
+\begin{equation}
+P_{\text{ud}}(p)=2^{-r}\sum_{j=0}^{n}B_j(1-2p)^j-(1-p)^n,
+\label{eq:ch14:macwilliams}
+\end{equation}
+where $B_j$ is the dual weight distribution and $n$ the frame length. Good polynomials have
+$P_{\text{ud}}$ rising smoothly to $2^{-r}$ as $p\to\tfrac12$; the poorly chosen $x^8+1$ misses
+every pair of errors eight bits apart, and at high error rates its undetected-error probability
+even exceeds $2^{-r}$.
+
+\mdcfig{ch14_crc_pud}{Probability of undetected error of CRCs on a binary symmetric channel,
+computed exactly from~\eqref{eq:ch14:macwilliams}. Left: two good 8-bit polynomials (Hamming
+distance 4 at this length, slope 4 on the log--log plot) and a poor one (distance 2). Right: the
+16-bit CCITT polynomial at three message lengths, and the CRC-16/ARC polynomial. Longer messages
+contain more low-weight codewords, so $P_{\text{ud}}$ rises with length at low $p$.}
+
+\subsection{The standard CRCs}
+
+Table~\ref{tab:ch14:crc} collects the polynomials an engineer meets most often. The hexadecimal
+form is the usual ``normal'' representation, with the leading $x^r$ term omitted.
+
+\begin{table}[htbp]\centering\small
+\caption{Widely used CRC polynomials.}
+\label{tab:ch14:crc}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+Name & Poly (hex) & Where\\
+\midrule
+CRC-6 (NR) & \texttt{0x21} & $D^6+D^5+1$; 5G NR uplink control information on polar codes (TS~38.212)\\
+CRC-8/ATM & \texttt{0x07} & ATM cell header error control (HEC); also corrects single errors\\
+CRC-8 (LTE) & \texttt{0x9B} & LTE CQI/control reports (TS~36.212)\\
+CRC-11 (NR) & \texttt{0x621} & 5G NR uplink control information (TS~38.212)\\
+CRC-16-CCITT & \texttt{0x1021} & HDLC, X.25, Bluetooth, SD cards; NR transport blocks up to 3824 bits\\
+CRC-16/IBM (ARC) & \texttt{0x8005} & USB data packets (with inversion), Modbus, legacy protocols\\
+CRC-24A (LTE/NR) & \texttt{0x864CFB} & Transport-block CRC (TS~36.212, TS~38.212)\\
+CRC-24B (LTE/NR) & \texttt{0x800063} & Code-block CRC for turbo and LDPC segments\\
+CRC-24C (NR) & \texttt{0xB2B117} & NR downlink control and broadcast channels (polar, distributed CRC)\\
+CRC-32 & \texttt{0x04C11DB7} & Ethernet, Wi-Fi, SATA, ZIP, PNG, MPEG-2 TS sections\\
+CRC-32C & \texttt{0x1EDC6F41} & iSCSI, SCTP, ext4 and Btrfs metadata; SSE4.2 \texttt{crc32} instruction\\
+CRC-64 (ECMA-182) & \texttt{0x42F0E1EBA9EA3693} & tape and storage formats, XZ archives\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{pitfall}[A CRC is a polynomial plus five conventions]
+Two implementations of ``CRC-32'' with the same polynomial will disagree unless they also agree
+on: the \emph{initial value} of the register (all ones for CRC-32, so that leading zero bytes
+change the result); whether input bytes are \emph{reflected} (processed least significant bit
+first, as serial hardware sends them); whether the final remainder is reflected; the value
+\emph{XORed onto the output} (all ones for CRC-32); and the order in which the check bytes are
+appended. Ross Williams's 1993 ``painless guide'' introduced the parameterisation (width, poly,
+init, refin, refout, xorout) used by every modern CRC catalogue, together with a \emph{check}
+value: the CRC of the ASCII string \texttt{123456789}, which is \texttt{0xCBF43926} for CRC-32. Test
+against the check value first, and most CRC bugs disappear. \lab{commlib/gf.py} includes this
+parameterised CRC with several catalogue entries.
+\end{pitfall}
+
+\begin{inpractice}[Fast CRCs]
+The bit-serial LFSR processes one bit per clock, which was fine for 1970s modems but not for a
+100\,Gb/s link. Because the CRC is linear, the register's next state after a whole byte is a
+linear function of its current state and the byte, which can be precomputed. Sarwate's 1988
+table-driven algorithm uses a 256-entry table to process a byte per lookup; ``slicing-by-8''
+uses eight tables to process eight bytes per iteration. Hardware designers unroll the same
+linear map into XOR trees that process 64 to 1024 bits per clock. Modern x86 processors compute
+CRC-32C with a dedicated instruction and fold long buffers with the carry-less multiply
+instruction at many gigabytes per second per core.
+\end{inpractice}
+
+\begin{inpractice}[CRCs as the referee of modern decoders]
+In LTE every transport block carries a 24-bit CRC (in 5G NR, 16 bits for small blocks), and every
+code block of a segmented transport block carries its own. The CRC decides the HARQ acknowledgement
+(Section~\ref{sec:ch14:arq}) and lets an LDPC or turbo decoder stop iterating as soon as the
+codeword checks. In the polar codes of the 5G control channels, the CRC is part of the code: the
+successive-cancellation list decoder produces several candidate messages and the CRC picks the
+one that is consistent (Chapter~\ref{ch:moderncodes}). The same CRC is scrambled with the
+identity of the intended terminal, so a phone detects both errors and ``not addressed to me'' with
+one check.
+\end{inpractice}
+
+%======================================================================
+\section{BCH codes}
+\label{sec:ch14:bch}
+%======================================================================
+
+Hamming codes correct one error. In 1959 Alexis Hocquenghem, and independently in 1960 Raj Chandra
+Bose and Dijen Ray-Chaudhuri, found how to design cyclic codes that correct any prescribed number
+of errors $t$. The \term{BCH codes} named after them remain among the best known codes of short
+and moderate length, and they can be decoded with algebraic algorithms whose complexity grows only
+polynomially with $t$.
+
+\subsection{Designing for distance: the BCH bound}
+
+The key is to specify a cyclic code by the \emph{roots} of its generator polynomial in an
+extension field. Let $\alpha$ be a primitive element of GF($2^m$) and $n=2^m-1$. If $g(x)$ has the
+$2t$ consecutive powers $\alpha,\alpha^2,\dots,\alpha^{2t}$ among its roots, every codeword
+satisfies $c(\alpha^j)=0$ for $j=1,\dots,2t$, and the code has minimum distance at least $2t+1$.
+The proof is short and worth knowing. Suppose a codeword had weight $w\le2t$, with nonzero bits at
+positions $i_1,\dots,i_w$. The conditions $c(\alpha^j)=\sum_l\alpha^{ji_l}=0$ for $j=1,\dots,w$
+form a homogeneous linear system in the $w$ unknown bits whose matrix is a Vandermonde matrix in the
+distinct elements $\alpha^{i_l}$, which is nonsingular. So the only solution is zero, a
+contradiction. This is the \term{BCH bound}: $\delta-1$ consecutive roots guarantee distance at
+least $\delta$, the \emph{designed distance}.
+
+Since $g(x)$ must have binary coefficients, whenever $\alpha^j$ is a root so are all its
+conjugates $\alpha^{2j},\alpha^{4j},\dots$. The generator is therefore the least common multiple
+of minimal polynomials,
+\begin{equation}
+g(x)=\operatorname{lcm}\{m_1(x),m_3(x),\dots,m_{2t-1}(x)\},
+\label{eq:ch14:bchgen}
+\end{equation}
+where only the odd indices are needed because $m_{2j}=m_j$. Each minimal polynomial has degree at
+most $m$, so $n-k\le mt$: a $t$-error-correcting BCH code of length $2^m-1$ needs at most $mt$ check
+bits. Compare the Hamming bound, which requires about $t\log_2 n\approx mt$ check bits: for small
+$t$ the BCH codes are close to optimal, which is what the right panel of Figure~\ref{fig:ch14_bounds}
+shows.
+
+For $m=4$, using the minimal polynomials of Section~\ref{sec:ch14:gf}: $t=1$ gives
+$g=m_1=x^4+x+1$, the (15,11) Hamming code; $t=2$ gives $g=m_1m_3=x^8+x^7+x^6+x^4+1$, a (15,7)
+double-error-correcting code; $t=3$ gives $g=m_1m_3m_5=x^{10}+x^8+x^5+x^4+x^2+x+1$, a (15,5)
+code correcting three errors.
+
+\subsection{Decoding: syndromes, error locators and the key idea}
+
+Suppose the received word has $\nu\le t$ errors at positions $i_1,\dots,i_\nu$. Call
+$X_l=\alpha^{i_l}$ the \term{error locators}. The decoder computes $2t$ syndromes by evaluating the
+received polynomial at the roots of $g(x)$:
+\begin{equation}
+S_j=r(\alpha^j)=e(\alpha^j)=\sum_{l=1}^{\nu}X_l^{\,j},\qquad j=1,\dots,2t .
+\label{eq:ch14:bchsyn}
+\end{equation}
+These are $2t$ nonlinear equations (power sums) in the $\nu$ unknown locators. The trick that
+makes them solvable is to introduce the \term{error-locator polynomial}
+\begin{equation}
+\Lambda(x)=\prod_{l=1}^{\nu}(1-X_lx)=1+\Lambda_1x+\dots+\Lambda_\nu x^\nu,
+\label{eq:ch14:locator}
+\end{equation}
+whose roots are the \emph{inverses} of the locators. Its coefficients are related to the syndromes
+by Newton's identities, which in characteristic 2 take the form of a linear recurrence:
+\begin{equation}
+S_j+\Lambda_1S_{j-1}+\dots+\Lambda_\nu S_{j-\nu}=0,\qquad j=\nu+1,\dots,2t .
+\label{eq:ch14:newton}
+\end{equation}
+The syndromes are the output of a linear-feedback shift register whose connection polynomial is
+$\Lambda(x)$. Decoding becomes a sequence of three steps:
+\begin{enumerate}
+\item compute the syndromes~\eqref{eq:ch14:bchsyn};
+\item find $\Lambda(x)$, the shortest LFSR that generates them;
+\item find the roots of $\Lambda(x)$ by trying every field element (the \term{Chien search}),
+and flip the bits at the corresponding positions.
+\end{enumerate}
+Peterson (1960) solved step 2 by inverting the $\nu\times\nu$ linear system~\eqref{eq:ch14:newton},
+trying $\nu=t,t-1,\dots$ until the matrix is nonsingular, which costs $O(t^3)$ operations. Berlekamp's
+algorithm of 1968, which Massey reinterpreted in 1969 as the synthesis of the shortest LFSR generating
+a given sequence, does it in $O(t^2)$ and is the standard today. For $t=2$ the answer is explicit:
+$\Lambda_1=S_1$ and $\Lambda_2=(S_3+S_1^3)/S_1$.
+
+\begin{worked}[Decoding the (15,7) BCH code]
+The all-zero codeword is sent and errors occur at positions 3 and 10, so $e(x)=x^{10}+x^3$. Using
+the GF(16) table: $S_1=\alpha^{10}+\alpha^3=0111\oplus1000=1111=\alpha^{12}$, and
+$S_3=\alpha^{30}+\alpha^9=\alpha^0+\alpha^9=0001\oplus1010=1011=\alpha^7$.
+
+Then $\Lambda_1=S_1=\alpha^{12}$ and $S_1^3=\alpha^{36}=\alpha^{6}$, so
+$\Lambda_2=(\alpha^7+\alpha^6)/\alpha^{12}=(1011\oplus1100)/\alpha^{12}=\alpha^{10}/\alpha^{12}
+=\alpha^{13}$. The locator is $\Lambda(x)=1+\alpha^{12}x+\alpha^{13}x^2$. Check it with the true
+locators: $X_1+X_2=\alpha^3+\alpha^{10}=\alpha^{12}$ and $X_1X_2=\alpha^{13}$, as required.
+
+The Chien search evaluates $\Lambda(\alpha^{-i})$ for $i=0,\dots,14$. At $i=3$,
+$\Lambda(\alpha^{12})=1+\alpha^{24}+\alpha^{37}=1+\alpha^9+\alpha^7=0001\oplus1010\oplus1011=0$; at
+$i=10$, $\Lambda(\alpha^5)=1+\alpha^{17}+\alpha^{23}=1+\alpha^2+\alpha^8=0001\oplus0100\oplus0101=0$.
+No other position gives zero. The decoder flips bits 3 and 10 and the codeword is restored.
+\end{worked}
+
+\subsection{BCH codes in practice}
+
+BCH codes are the code of choice when a moderate number of \emph{random} bit errors must be
+corrected with a simple, deterministic, hard-decision decoder, and the list of applications is
+long. The POCSAG paging protocol protects each 32-bit word with a (31,21) BCH code and a parity
+bit. Many NAND flash controllers of the 2000s and early 2010s used BCH codes over GF($2^{13}$) or
+GF($2^{14}$) correcting from 4 to about 40 errors per 512-byte or 1-kilobyte sector, until the
+rising raw error rates of multi-level cells forced a move to soft-decision LDPC codes. And in the
+DVB-S2 satellite standard (ETSI EN~302~307), every LDPC codeword is preceded by an outer BCH code
+correcting 8, 10 or 12 errors over GF($2^{16}$), whose job is to clean up the rare residual errors
+of the LDPC decoder (the ``error floor''), a small-overhead insurance policy that is typical of
+how the classical codes survive in modern systems.
+
+\begin{inpractice}[DVB-S2: BCH as an outer code]
+A DVB-S2 normal frame carries 64\,800 coded bits. The LDPC inner code has rates from 1/4 to 9/10;
+the BCH outer code adds 128, 160 or 192 parity bits ($t=8$, 10 or 12) to the data. At rate 1/2,
+for example, the BCH code maps 32\,208 data bits to 32\,400, an overhead of about 0.6\%. The LDPC
+decoder does almost all the work; the BCH decoder removes the few isolated errors the LDPC decoder
+occasionally leaves behind, so that the quasi-error-free target (a packet error rate of about
+$10^{-7}$) is met without the LDPC code having to reach it alone. DVB-T2, DVB-C2 and ATSC~3.0
+adopted the same BCH-plus-LDPC structure.
+\end{inpractice}
+
+%======================================================================
+\section{Reed--Solomon codes}
+\label{sec:ch14:rs}
+%======================================================================
+
+If one code from this chapter had to be singled out as the most successful, it would be the
+Reed--Solomon code. It is in every CD, DVD and Blu-ray disc, every QR code, most digital television
+standards, deep-space telemetry, RAID-6 disk arrays, cloud storage, hard-disk and tape sectors, DSL
+modems and the forward error correction of 100 to 800\,Gb/s Ethernet. The reason is that it is
+simultaneously optimal in distance (MDS), naturally matched to bytes, superb against bursts, and
+decodable with algorithms that fit in a small amount of silicon.
+
+\subsection{Two definitions}
+
+Irving Reed and Gustave Solomon, at MIT Lincoln Laboratory, defined their codes in 1960 by
+\emph{evaluation}. Take a field GF($q$) and $n\le q$ distinct field elements
+$\beta_1,\dots,\beta_n$. Treat the $k$ message symbols as the coefficients of a polynomial $m(x)$ of
+degree less than $k$, and transmit its values:
+\begin{equation}
+\vect{c}=\big(m(\beta_1),m(\beta_2),\dots,m(\beta_n)\big).
+\label{eq:ch14:rseval}
+\end{equation}
+Two different polynomials of degree less than $k$ can agree in at most $k-1$ points (their
+difference has at most $k-1$ roots), so two different codewords differ in at least $n-k+1$
+positions. The code meets the Singleton bound: Reed--Solomon codes are MDS. The same argument
+shows the MDS property directly: any $k$ received values determine $m(x)$ by interpolation, so any
+$k$ of the $n$ symbols suffice to recover the message. That is the essence of erasure coding.
+
+The now-standard definition, with $n=q-1$ and $\beta_i=\alpha^{i}$, makes the code cyclic with
+generator
+\begin{equation}
+g(x)=\prod_{j=0}^{n-k-1}\big(x-\alpha^{b+j}\big),
+\label{eq:ch14:rsgen}
+\end{equation}
+for some integer $b$ (the ``first consecutive root'', 0 or 1 in most standards; 112 in CCSDS).
+Here the coefficients of $g(x)$ are field elements, not bits: a Reed--Solomon code is a BCH-type
+code over GF($2^m$) itself, and each minimal polynomial is just the linear factor $x-\alpha^j$. With
+$n-k=2t$ consecutive roots the BCH bound gives $d\ge2t+1$, and Singleton gives $d\le2t+1$, so
+$d=n-k+1$ exactly. Encoding is~\eqref{eq:ch14:sysenc} with field arithmetic: an LFSR with $2t$
+byte-wide stages and constant multipliers.
+
+\subsection{Why symbols beat bits against bursts}
+
+A Reed--Solomon code over GF(256) corrects $t$ \emph{symbol} errors, and a symbol is in error
+whether one of its bits or all eight are wrong. A burst of $B$ bit errors touches at most
+$\lceil(B-1)/8\rceil+1$ bytes, so the RS(255,223) code with $t=16$ corrects any single burst of up
+to $8\times15+1=121$ bits, and, if the bursts are flagged as erasures, twice that. A binary BCH code
+of about the same length and rate corrects only about 23 bit errors, so a single 24-bit burst defeats it. On channels whose errors
+come in clusters---a scratch on a disc, a fade on a radio link, the error bursts that leave a
+Viterbi decoder---symbol-level coding is the natural fit.
+
+The right panel of Figure~\ref{fig:ch14_rs_performance} shows the other face of RS codes. Output
+error rate falls extremely steeply once the input symbol error rate drops below about $t/n$: a
+long, powerful code such as RS(255,223) goes from useless to nearly perfect over a narrow range
+of input error rates, the \term{cliff effect} familiar to anyone who has watched digital
+television break up. The left panel shows the corresponding bit error rates with BPSK and hard
+decisions.
+
+\mdcfig{ch14_rs_performance}{Reed--Solomon performance. Left: bit error rate of several
+byte-oriented codes with BPSK and hard decisions, assuming independent bit errors. RS(204,188), the
+shortened code of DVB, performs almost exactly like its parent RS(255,239). Right: decoded symbol
+error rate against channel symbol error rate for $n=255$ and $t$ from 1 to 16: the larger $t$,
+the sharper the threshold.}
+
+\subsection{Decoding Reed--Solomon codes}
+
+The decoder follows the BCH recipe with one extra step: because symbols are not bits, the decoder
+must find the error \emph{values} as well as their locations. With error locators $X_l$ and
+values $Y_l$, the syndromes are
+\begin{equation}
+S_j=r(\alpha^{b+j})=\sum_{l=1}^{\nu}Y_l\,X_l^{\,b+j},\qquad j=0,\dots,2t-1.
+\end{equation}
+Define the syndrome polynomial $S(x)=\sum_jS_jx^j$. The error locator $\Lambda(x)$
+of~\eqref{eq:ch14:locator} and an \term{error-evaluator polynomial} $\Omega(x)$ of degree less than
+$\nu$ satisfy the \term{key equation}
+\begin{equation}
+S(x)\,\Lambda(x)\equiv\Omega(x)\pmod{x^{2t}}.
+\label{eq:ch14:key}
+\end{equation}
+The complete decoder has four steps:
+\begin{enumerate}
+\item \textbf{Syndromes.} Evaluate $r(x)$ at the $2t$ roots of $g(x)$ by Horner's rule: $2tn$
+multiply-accumulates. If all are zero, accept the word.
+\item \textbf{Key equation.} Find $\Lambda(x)$ with the Berlekamp--Massey algorithm (or Sugiyama's
+1975 variant of Euclid's algorithm, popular in hardware), then $\Omega(x)=S(x)\Lambda(x)\bmod
+x^{2t}$.
+\item \textbf{Chien search.} Evaluate $\Lambda(\alpha^{-i})$ for every position $i$; each zero marks
+an error at position $i$. If the number of roots differs from $\deg\Lambda$, more than $t$ errors
+occurred: declare a decoding failure.
+\item \textbf{Forney's formula.} Compute each error value as
+\begin{equation}
+Y_l=X_l^{\,1-b}\,\frac{\Omega(X_l^{-1})}{\Lambda'(X_l^{-1})},
+\label{eq:ch14:forney}
+\end{equation}
+where $\Lambda'$ is the formal derivative (in characteristic 2, just the odd-power terms of
+$\Lambda$ shifted down), and add it to the received symbol.
+\end{enumerate}
+The Berlekamp--Massey algorithm itself is a dozen lines. It processes the syndromes one at a time,
+maintaining the current shortest LFSR $\Lambda(x)$ and its length $L$. At step $r$ it computes the
+\emph{discrepancy} $\Delta=S_r+\sum_{i=1}^{L}\Lambda_iS_{r-i}$, the difference between the next
+syndrome and the LFSR's prediction. If $\Delta=0$ the LFSR is still correct. Otherwise it is
+corrected by adding a scaled, shifted copy of the LFSR saved at the last length change,
+$\Lambda(x)\leftarrow\Lambda(x)-(\Delta/\Delta_{\text{old}})\,x^{s}B(x)$, and if $2L\le r$ the length
+increases to $r+1-L$. After $2t$ steps $\Lambda(x)$ is the error locator. The implementation in
+\lab{commlib/gf.py} follows exactly this outline and is worth reading alongside the text.
+
+\begin{worked}[A Reed--Solomon code over GF(8)]
+Take RS(7,3) over GF(8) with $p(x)=x^3+x+1$ and $b=1$: $n-k=4$, so $t=2$. The generator is
+\[
+g(x)=(x+\alpha)(x+\alpha^2)(x+\alpha^3)(x+\alpha^4)=x^4+\alpha^3x^3+x^2+\alpha x+\alpha^3,
+\]
+as can be checked with Table~\ref{tab:ch14:gf8}: $(x+\alpha)(x+\alpha^2)=x^2+\alpha^4x+\alpha^3$,
+$(x+\alpha^3)(x+\alpha^4)=x^2+\alpha^6x+1$, and multiplying out gives the coefficients above
+(for instance, $\alpha^6+\alpha^4=101\oplus110=011=\alpha^3$).
+
+\emph{Encoding.} The message $(1,\alpha^2,\alpha^5)$ becomes, after systematic encoding, the
+codeword $(1,\alpha^2,\alpha^5,\alpha,\alpha,1,\alpha^5)$, the coefficients of $x^6$ down to
+$x^0$.
+
+\emph{Channel.} Two symbol errors occur: $\alpha^3$ is added at position $x^5$ and $\alpha^6$ at
+position $x^1$, so the received word is $(1,\alpha^5,\alpha^5,\alpha,\alpha,\alpha^2,\alpha^5)$.
+
+\emph{Syndromes.} Evaluating at $\alpha,\alpha^2,\alpha^3,\alpha^4$ gives
+$S_1=\alpha^3$, $S_2=\alpha^5$, $S_3=\alpha$, $S_4=\alpha^5$. (Check one from the errors alone:
+$S_1=\alpha^3\cdot\alpha^5+\alpha^6\cdot\alpha=\alpha^8+\alpha^7=\alpha+1=\alpha^3$.)
+
+\emph{Error locator.} With $\nu=2$, the recurrence~\eqref{eq:ch14:newton} gives two linear equations,
+$S_1\Lambda_2+S_2\Lambda_1=S_3$ and $S_2\Lambda_2+S_3\Lambda_1=S_4$. The determinant is
+$S_1S_3+S_2^2=\alpha^4+\alpha^3=\alpha^6$, and Cramer's rule gives
+$\Lambda_2=(S_3^2+S_2S_4)/\alpha^6=(\alpha^2+\alpha^3)/\alpha^6=\alpha^5/\alpha^6=\alpha^6$ and
+$\Lambda_1=(S_1S_4+S_2S_3)/\alpha^6=(\alpha+\alpha^6)/\alpha^6=\alpha^5/\alpha^6=\alpha^6$. So
+$\Lambda(x)=1+\alpha^6x+\alpha^6x^2$, which is indeed $(1+\alpha^5x)(1+\alpha x)$: locators
+$X_1=\alpha^5$ and $X_2=\alpha$, positions 5 and 1.
+
+\emph{Error values.} $\Omega(x)=S(x)\Lambda(x)\bmod x^4=\alpha^3+\alpha^3x$ and
+$\Lambda'(x)=\alpha^6$. With $b=1$, Forney's formula is $Y=\Omega(X^{-1})/\Lambda'(X^{-1})$:
+$Y_1=(\alpha^3+\alpha^3\alpha^2)/\alpha^6=\alpha^2/\alpha^6=\alpha^3$ and
+$Y_2=(\alpha^3+\alpha^3\alpha^6)/\alpha^6=\alpha^5/\alpha^6=\alpha^6$. Both errors are found with
+their correct values and the message $(1,\alpha^2,\alpha^5)$ is recovered. The same numbers come out
+of \texttt{gf.ReedSolomon(7, 3, gf.GF(3), fcr=1)}.
+\end{worked}
+
+\subsection{Erasures, and decoding beyond the classical radius}
+
+When the receiver knows that certain symbols are unreliable---a C1 decoder that failed on a CD, a
+missing packet, a disk that has died---it can mark them as erasures. The decoder multiplies the
+syndrome polynomial by the known \emph{erasure locator} $\Gamma(x)=\prod(1-Z_jx)$ and runs
+Berlekamp--Massey on what remains, correcting $\nu$ errors and $e$ erasures whenever
+$2\nu+e\le n-k$ (eq.~\ref{eq:ch14:errera}). With erasures only, any $n-k$ lost symbols can be
+recovered, the MDS property at work.
+
+Hard-decision decoding stops at $t$ errors. Two directions go further. \emph{List decoding} (Sudan,
+1997; Guruswami and Sudan, 1999) interpolates a bivariate polynomial through the received points
+and can correct up to $n-\sqrt{nk}$ errors, returning a short list of candidates. The
+Koetter--Vardy algorithm (2003) feeds soft reliability information into the same interpolation.
+Both gain a few tenths of a decibel to about a decibel in practice, and both remain more of a
+research tool than a product feature.
+
+\begin{history}[Five pages that went everywhere]
+Reed and Solomon's paper, ``Polynomial codes over certain finite fields,'' occupies five pages of
+the \emph{Journal of the Society for Industrial and Applied Mathematics} (1960). It defined the codes
+and proved their distance, but its decoding method was impractical for anything but small codes. For
+eight years they were a mathematical curiosity. The breakthrough came with Berlekamp's 1968 book
+\emph{Algebraic Coding Theory}, whose decoding algorithm made large RS codes practical, and with
+Massey's 1969 interpretation of it as shift-register synthesis. By the mid-1980s an RS(255,223) outer code was protecting Voyager's images of the outer planets, and in 1980 Philips and Sony settled on a pair of
+shortened RS codes for the compact disc. Reed had already given his name to the Reed--Muller codes in 1954; he went on to a long career
+at the University of Southern California.
+\end{history}
+
+\mdcfig{ch14_rs_image}{A 96-row image sent as 96 RS(255,223) codewords (one per row), over a
+channel that replaces three runs of 260 to 330 consecutive bytes with garbage, about 3.6\% of the
+symbols. (a) and (b): codewords sent one after another; each burst wipes out more than 16 symbols of
+one or two codewords, the decoder detects that it cannot correct them, and the damage remains. (c)
+and (d): the same codewords sent column by column through a block interleaver; each burst is spread
+over all 96 codewords, no codeword sees more than 10 errors, and every one is corrected.}
+
+\subsection{Reed--Solomon codes everywhere}
+
+\begin{inpractice}[The compact disc: CIRC]
+A CD carries 16-bit stereo audio at 44.1\,kHz. Every six stereo sample pairs (24 bytes) form a
+frame. The \term{cross-interleaved Reed--Solomon code} (CIRC) encodes each frame first with a
+(28,24) RS code (C2), spreads the 28 bytes over up to 109 successive frames with delays in multiples of four
+frames, encodes the result with a (32,28) RS code (C1), and delays alternate bytes by one frame. Both
+are shortened from RS(255,251) over GF(256), with $d=5$. The player's C1 decoder corrects single
+errors and flags anything worse as erasures; the C2 decoder, seeing the flagged bytes scattered
+across many of its codewords, fills in up to four erasures per codeword. The result corrects bursts of
+roughly 4000 bits, about 2.5\,mm of track, and when even that fails, the player \emph{conceals}
+the error by interpolating between neighbouring samples, which hides damage up to about 7.5\,mm.
+Try drilling a small hole in a scratched test disc: the music plays on. The DVD replaced CIRC with a
+Reed--Solomon \emph{product code}, (208,192) columns by (182,172) rows, and Blu-ray uses a long
+(248,216) RS code interleaved with a ``burst indicator subcode''.
+\end{inpractice}
+
+\begin{inpractice}[From QR codes to RAID-6]
+A \emph{QR code} (Denso Wave, 1994) stores its data in Reed--Solomon codewords over GF(256) with
+the \texttt{0x11D} polynomial. The four error-correction levels, L, M, Q and H, restore roughly 7, 15,
+25 and 30\% of damaged codewords, which is why a QR code with a logo pasted over its centre still
+scans. \emph{RAID-6} protects an array of $n$ data disks against the loss of any two by storing two
+extra blocks, $P=\sum_iD_i$ (plain XOR) and $Q=\sum_i g^iD_i$ computed byte by byte in GF(256) with
+$g=\alpha$: exactly the two check symbols of a Reed--Solomon-like MDS code with erasures at known
+positions. The Linux kernel's implementation follows H.~Peter Anvin's note ``The mathematics of
+RAID-6''. Distributed storage systems scale the idea up: Hadoop's HDFS offers a RS(6,3) erasure
+policy (six data blocks, three parity) and large object stores use wider codes, cutting the
+storage overhead of triple replication from 200\% to 50\% or less. Digital television uses RS(204,188)
+in DVB-S and DVB-T and RS(207,187) in ATSC; optical transport networks (ITU-T G.709) use RS(255,239);
+and the IEEE 802.3 Ethernet PHYs of 100\,Gb/s and above use RS(528,514) and RS(544,514) over
+GF($2^{10}$), the ``KR4'' and ``KP4'' FECs of Chapter~\ref{ch:baseband}.
+\end{inpractice}
+
+%======================================================================
+\section{Interleaving and concatenated codes}
+\label{sec:ch14:concat}
+%======================================================================
+
+Real channels do not make independent errors. A fade on a mobile link, an impulse of noise on a
+telephone line, a scratch on a disc or a burst leaving a Viterbi decoder corrupts many
+consecutive symbols. A code designed for random errors, faced with a burst longer than it can
+correct, simply fails, even though the \emph{average} error rate is well within its power.
+Figure~\ref{fig:ch14_rs_image} showed the cure: rearrange the transmitted symbols so that the
+burst is shared among many codewords.
+
+\subsection{Block interleavers}
+
+A \term{block interleaver} writes $I$ codewords of length $n$ into the rows of an $I\times n$
+array and transmits the array column by column; the de-interleaver does the reverse. A burst of
+$b$ consecutive channel symbols then places at most $\lceil b/I\rceil$ errors in any codeword
+(Figure~\ref{fig:ch14_interleaving}). The number of rows $I$ is the \term{interleaving depth}. If
+each codeword corrects $t$ errors, the interleaved system corrects any single burst of length up
+to $tI$. The costs are memory ($In$ symbols at each end) and latency ($2In$ symbol periods end
+to end, since the de-interleaver cannot release the first codeword until the whole array has
+arrived). CCSDS deep-space telemetry interleaves RS(255,223) codewords to depth 1 to 5 or 8,
+correcting single bursts of up to 16 bytes times the depth.
+
+\mdcfig[0.92]{ch14_interleaving}{A burst of nine consecutive channel symbols. Without
+interleaving (left) it lands in two codewords, giving four and five errors: too many for a
+double-error-correcting code. With a $6\times12$ block interleaver (right), consecutive channel
+symbols belong to different codewords, and the same burst leaves at most two errors in any
+codeword.}
+
+\subsection{Convolutional interleavers}
+
+A \term{convolutional interleaver}, due to Ramsey and to Forney around 1970--71, achieves the same
+spreading with half the memory and delay. The symbol stream is distributed cyclically over $I$
+branches with delays $0,M,2M,\dots,(I-1)M$ symbols; the de-interleaver uses the complementary
+delays $(I-1)M,\dots,M,0$, so every symbol experiences the same total delay $(I-1)MI$. Adjacent
+channel symbols come from branches whose delays differ by $M$, so they are separated by $IM$
+positions after de-interleaving. DVB-S and DVB-T use $I=12$ branches with $M=17$ bytes between the
+RS(204,188) outer code and the convolutional inner code; $IM=204$, so a burst of up to twelve bytes
+puts at most one error into any RS codeword, and bursts of up to $8\times12=96$ bytes are
+corrected. ATSC uses a 52-branch interleaver with the same structure.
+
+\begin{pitfall}[Interleavers cost latency, and fading is slow]
+An interleaver helps only if its span is long compared with the error bursts. On a mobile channel
+at walking speed, a fade can last tens of milliseconds, and an interleaver long enough to break it
+up adds more delay than a voice call can tolerate. GSM interleaved speech frames over eight bursts
+(about 37\,ms), which works at vehicle speeds but much less well for a pedestrian. Modern systems
+attack the problem in frequency instead: OFDM spreads each codeword across many subcarriers that
+fade independently (Chapter~\ref{ch:ofdm}), so a single OFDM symbol provides the diversity that a
+long time interleaver would otherwise have to buy with delay.
+\end{pitfall}
+
+\subsection{Concatenated codes}
+
+In his 1965 doctoral thesis, published as a monograph in 1966, David Forney asked how to build very
+long, powerful codes whose decoding complexity grows only polynomially with length. His answer was
+to \term{concatenate} two codes (Figure~\ref{fig:ch14_concat_chain}). An \emph{inner} code, typically
+a convolutional code with soft-decision Viterbi decoding, faces the raw channel and turns it into a
+cleaner ``super-channel''. An \emph{outer} code, typically Reed--Solomon, corrects the residual
+errors of the inner decoder. The division of labour is natural: the inner decoder exploits the
+soft information that only it can see; its output errors come in bursts, which the byte-oriented
+outer code, helped by an interleaver, handles efficiently. Forney proved that concatenated codes
+can achieve error probabilities that decrease exponentially with block length at any rate below
+capacity, with complexity growing only polynomially.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[node distance=0.3cm and 0.32cm,
+  blk/.style={draw=navy,fill=navy!6,thick,minimum height=0.95cm,minimum width=1.45cm,align=center,font=\sffamily\scriptsize},
+  outb/.style={draw=accent,fill=accent!6,thick,minimum height=0.95cm,minimum width=1.45cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[outb] (rse) {RS(255,223)\\encoder\\(outer)};
+\node[blk,right=of rse] (il) {Interleaver\\depth $I$};
+\node[blk,right=of il] (cve) {Conv.\ encoder\\$K=7$, $R=\frac12$\\(inner)};
+\node[blk,right=of cve,fill=gray!10,draw=gray] (ch) {BPSK +\\channel};
+\node[blk,below=0.9cm of ch] (vit) {Viterbi\\decoder\\(soft)};
+\node[blk,left=of vit] (dil) {De-\\interleaver};
+\node[outb,left=of dil] (rsd) {RS decoder\\(outer)};
+\node[blk,left=of rsd,draw=none,fill=none,minimum width=0.6cm] (sink) {data};
+\node[blk,left=of rse,draw=none,fill=none,minimum width=0.6cm] (src) {data};
+\draw[arr] (src) -- (rse); \draw[arr] (rse) -- (il); \draw[arr] (il) -- (cve); \draw[arr] (cve) -- (ch);
+\draw[arr] (ch) -- node[right,font=\scriptsize]{soft samples} (vit);
+\draw[arr] (vit) -- (dil); \draw[arr] (dil) -- (rsd);
+\draw[arr] (rsd) -- (sink);
+\begin{scope}[on background layer]
+\node[draw=navy!50,dashed,rounded corners,fit=(cve)(ch)(vit),inner sep=4pt,label={[font=\sffamily\scriptsize,text=navy]above:inner ``super-channel''}] {};
+\end{scope}
+\end{tikzpicture}
+\caption{The classic concatenated system of CCSDS deep-space telemetry and DVB-S. The inner
+convolutional code and soft Viterbi decoder turn a noisy Gaussian channel into a byte channel with
+a low error rate; the interleaver breaks the Viterbi decoder's error bursts apart, and the
+Reed--Solomon outer code removes what remains.}
+\label{fig:ch14_concat_chain}
+\end{figure}
+
+Figure~\ref{fig:ch14_concat_ber} quantifies the result for the CCSDS combination. The left panel is a
+simulation of the inner decoder: at an inner $E_b/N_0$ of 2\,dB, the Viterbi decoder leaves about one
+bit in 200 in error; because those errors cluster, only about one byte in 75 is wrong, far fewer than the
+one in 25 that independent bit errors would produce. The right panel feeds
+that byte error rate, assuming ideal interleaving, into the RS(255,223) performance
+formula. The output error rate plunges from $10^{-2}$ to below $10^{-10}$ over about one decibel,
+reaching $10^{-5}$ at about 2.3\,dB overall, including the 0.58\,dB rate loss of the outer code.
+That was the state of the art from the late 1970s until turbo codes arrived in 1993, about 2.4\,dB
+from the binary-input Shannon limit for the overall rate of $0.437$.
+
+\mdcfig{ch14_concat_ber}{Concatenated coding. Left: simulated bit and byte error rates at the
+output of the $K=7$ soft-decision Viterbi decoder. Right: overall bit error rate of the RS(255,223)
+plus $K=7$ system with ideal interleaving (outer-code performance computed from the inner byte error
+rate), compared with the inner code alone.}
+
+\begin{history}[From Mariner to Voyager]
+Deep space was the proving ground of coding because every decibel there is worth a fortune: it can
+be bought only with a bigger antenna on Earth or a bigger transmitter on the spacecraft. Mariner 6
+and 7 (1969) and Mariner 9 (1971), which mapped Mars from orbit, sent their images with the
+(32,6) first-order Reed--Muller code, each 6-bit pixel expanded to 32 bits and decoded on the ground
+by a fast Hadamard transform in a machine called the ``Green machine'' after its designer, R.~R.~Green of JPL.
+Pioneer 10 and 11 used long convolutional codes with sequential decoding. Voyager (1977) used the
+$K=7$, rate-1/2 convolutional code with Viterbi decoding, and for the encounters with Uranus (1986) and
+Neptune (1989), where the signal was weakest, relied on concatenation with the RS(255,223) outer
+code together with image data compression. The same concatenated system was standardised by the
+Consultative Committee for Space Data Systems (CCSDS) and flew on missions for decades; it survives
+in the CCSDS recommendation (CCSDS 131.0-B) alongside the turbo and LDPC codes that superseded it.
+\end{history}
+
+\subsection{Product codes}
+
+Peter Elias proposed an even simpler way to build a long code from short ones in 1954. Arrange
+$k_1k_2$ information bits in a $k_1\times k_2$ array, encode each row with an $(n_2,k_2,d_2)$ code
+and then each column (including the parity columns) with an $(n_1,k_1,d_1)$ code. The result is an
+$(n_1n_2,k_1k_2,d_1d_2)$ \term{product code}. The minimum distance multiplies, while decoding can
+still be done row by row and column by column, iterating between the two. With hard-decision row
+and column decoders a product code already performs well; with soft-input soft-output component
+decoders exchanging reliability information (Pyndiah's ``turbo product codes'' of 1994--98) it
+comes within about a decibel of capacity. Product codes protect DVD sectors, and their descendants,
+staircase codes and related ``spatially coupled'' product-like codes, carry 100 to 400\,Gb/s optical
+links (Chapter~\ref{ch:wireline}).
+
+\subsection{Reed--Muller codes}
+
+The Reed--Muller codes, found by David Muller in 1954 with a majority-logic decoder by Irving Reed
+in the same year, are among the oldest and most beautiful families. The code $\mathrm{RM}(r,m)$ has
+length $n=2^m$, dimension $k=\sum_{i=0}^{r}\binom mi$ and minimum distance $2^{m-r}$. Its codewords are
+the truth tables of Boolean functions of $m$ variables of degree at most $r$. The first-order codes
+$\mathrm{RM}(1,m)$ are the \emph{biorthogonal} codes: $\mathrm{RM}(1,5)$ is the (32,6,16) Mariner code, whose
+64 codewords are the rows of a $32\times32$ Hadamard matrix and their complements, so soft
+maximum-likelihood decoding is a single fast Hadamard transform. The recursive construction
+\begin{equation}
+\mathrm{RM}(r,m)=\big\{(\vect{u},\vect{u}+\vect{v}):\ \vect{u}\in\mathrm{RM}(r,m-1),\ \vect{v}\in\mathrm{RM}(r-1,m-1)\big\}
+\label{eq:ch14:uuv}
+\end{equation}
+is the same $(\vect{u},\vect{u}+\vect{v})$ structure that underlies polar codes: both codes select rows of
+the Kronecker power of $\left[\begin{smallmatrix}1&0\\1&1\end{smallmatrix}\right]$, Reed--Muller by
+row weight and polar by channel reliability (Chapter~\ref{ch:moderncodes}). In a pleasing twist, the
+Reed--Muller codes themselves were shown to achieve capacity on the erasure channel in 2016--17, and a
+proof for all binary memoryless symmetric channels followed in 2023. LTE and NR use a (32,$O$)
+Reed--Muller-based code for short uplink control reports.
+
+%======================================================================
+\section{Convolutional codes}
+\label{sec:ch14:conv}
+%======================================================================
+
+Block codes chop the data into independent blocks. Peter Elias's convolutional codes of 1955
+take the opposite view: the encoder is a small finite-state machine that slides along an
+unbounded data stream, and every output bit depends on the current input and a few previous ones.
+There are no block boundaries, the encoder is a handful of flip-flops and XOR gates, and, crucially,
+the codes can be decoded with soft decisions by a simple, regular algorithm.
+
+\subsection{The encoder}
+
+A rate-$1/n$ \term{convolutional encoder} contains a shift register holding the last $K-1$ input
+bits. For each input bit $u_k$ it emits $n$ output bits, each the modulo-2 sum of a fixed subset of
+$u_k,u_{k-1},\dots,u_{k-K+1}$. $K$ is the \term{constraint length} (some authors use the memory
+$K-1$ instead: read every paper's definition). Figure~\ref{fig:ch14_conv_encoder} shows the
+four-state, rate-1/2 code with $K=3$ that serves as the textbook example:
+\begin{equation}
+c_k^{(1)}=u_k\oplus u_{k-1}\oplus u_{k-2},\qquad c_k^{(2)}=u_k\oplus u_{k-2}.
+\label{eq:ch14:conv75}
+\end{equation}
+Each output stream is the input convolved (modulo 2) with a \term{generator sequence}, here
+$\vect{g}^{(1)}=(1,1,1)$ and $\vect{g}^{(2)}=(1,0,1)$, whence the name. Generators are written in
+octal, $(7,5)$ for this code, or as polynomials in the delay operator $D$:
+$g^{(1)}(D)=1+D+D^2$ and $g^{(2)}(D)=1+D^2$. In the $D$-transform domain encoding is multiplication,
+$c^{(j)}(D)=u(D)g^{(j)}(D)$, and a convolutional code is a linear code over the field of rational
+functions in $D$, a view that makes much of the theory parallel that of block codes.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth,
+  reg/.style={draw=navy,thick,fill=navy!6,minimum width=1.0cm,minimum height=0.8cm,font=\sffamily\small},
+  xr/.style={draw=accent,thick,circle,inner sep=0pt,minimum size=0.5cm,font=\small},
+  lab/.style={font=\sffamily\scriptsize,text=navy}]
+\coordinate (in) at (0,0);
+\node[reg] (s1) at (2.2,0) {$u_{k-1}$};
+\node[reg] (s2) at (4.0,0) {$u_{k-2}$};
+\coordinate (t0) at (1.0,0);
+\node[xr] (xa) at (2.2,1.6) {$+$};
+\node[xr] (xb) at (2.2,-1.6) {$+$};
+\draw[->,thick,navy] (in) node[left,lab]{$u_k$} -- (s1);
+\draw[->,thick,navy] (s1) -- (s2);
+\fill[navy] (t0) circle (1.5pt);
+\draw[->,thick,navy] (t0) |- (xa);
+\draw[->,thick,navy] (t0) |- (xb);
+\draw[->,thick,navy] (s1) -- (xa);
+\draw[thick,navy] (s2.east) -- ++(0.5,0) coordinate (t2);
+\fill[navy] (t2) circle (1.5pt);
+\draw[->,thick,navy] (t2) |- (xa);
+\draw[->,thick,navy] (t2) |- (xb);
+\draw[->,thick,accent] (xa) -- ++(3.4,0) node[right,lab,text=accent]{$c^{(1)}_k$, $\vect g^{(1)}=111=7_8$};
+\draw[->,thick,accent] (xb) -- ++(3.4,0) node[right,lab,text=accent]{$c^{(2)}_k$, $\vect g^{(2)}=101=5_8$};
+\node[lab,align=left,anchor=west] at (5.2,0) {state $=(u_{k-1},u_{k-2})$};
+\end{tikzpicture}
+\caption{The rate-1/2, constraint-length-3 convolutional encoder with generators $(7,5)$ in octal.
+The two register stages hold the encoder state; each input bit produces two output bits, which are
+multiplexed onto the channel.}
+\label{fig:ch14_conv_encoder}
+\end{figure}
+
+\subsection{State diagram and trellis}
+
+The encoder's state is the register contents $(u_{k-1},u_{k-2})$, four states in all; each input
+bit moves it to a new state and produces an output pair. Figure~\ref{fig:ch14_state} draws this as
+a \term{state diagram}. Unrolling the state diagram in time gives the \term{trellis} of
+Figure~\ref{fig:ch14_viterbi_example}: one column of states per time step, with each state joined to
+the two states it can reach. Every path through the trellis is a codeword, and every codeword is a
+path. The trellis is the central object of the decoding theory; Forney introduced the name in 1973.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth,
+  st/.style={draw=navy,thick,circle,fill=navy!6,minimum size=0.95cm,font=\sffamily\small},
+  lab/.style={font=\sffamily\scriptsize,fill=white,inner sep=1pt}]
+\node[st] (a) at (0,0) {00};
+\node[st] (b) at (2.6,1.5) {10};
+\node[st] (c) at (2.6,-1.5) {01};
+\node[st] (d) at (5.2,0) {11};
+\draw[->,thick,navy] (a) edge[loop left,looseness=6] node[lab,left]{0/00} (a);
+\draw[->,thick,accent,dashed] (a) -- node[lab,above left]{1/11} (b);
+\draw[->,thick,navy] (b) to[bend left=18] node[lab,right,pos=0.4]{0/10} (c);
+\draw[->,thick,accent,dashed] (b) -- node[lab,above right]{1/01} (d);
+\draw[->,thick,navy] (c) -- node[lab,below left]{0/11} (a);
+\draw[->,thick,accent,dashed] (c) to[bend left=18] node[lab,left,pos=0.4]{1/00} (b);
+\draw[->,thick,navy] (d) -- node[lab,below right]{0/01} (c);
+\draw[->,thick,accent,dashed] (d) edge[loop right,looseness=6] node[lab,right]{1/10} (d);
+\end{tikzpicture}
+\caption{State diagram of the $(7,5)$ code. States are $(u_{k-1},u_{k-2})$; each branch is labelled
+input/output. Solid branches are input 0, dashed branches input 1.}
+\label{fig:ch14_state}
+\end{figure}
+
+\subsection{Free distance and the transfer function}
+
+Because the code is linear, its distance properties are those of the all-zero path. An
+\emph{error event} is a path that leaves the all-zero state and later returns to it; the smallest
+output weight of any error event is the \term{free distance} $d_{\text{free}}$, which plays the role
+of $d_{\min}$. For the $(7,5)$ code, the path $00\to10\to01\to00$ (input $100$) produces outputs
+$11,10,11$, weight 5, and no shorter or lighter detour exists, so $d_{\text{free}}=5$.
+
+The complete distance structure is captured by the \term{transfer function}. Label each branch of
+the state diagram with $D^{w}N^{i}$, where $w$ is its output weight and $i$ its input weight, split
+the zero state into a source and a sink, and solve the flow-graph equations. Writing $X_s$ for the
+state variables of the $(7,5)$ code,
+\begin{gather*}
+X_{10}=D^2N\,X_{\text{in}}+N\,X_{01},\qquad X_{01}=D\,X_{10}+D\,X_{11},\\
+X_{11}=DN\,X_{10}+DN\,X_{11},\qquad X_{\text{out}}=D^2X_{01},
+\end{gather*}
+and eliminating gives
+\begin{equation}
+T(D,N)=\frac{X_{\text{out}}}{X_{\text{in}}}=\frac{D^5N}{1-2DN}=D^5N+2D^6N^2+4D^7N^3+\cdots .
+\label{eq:ch14:tf}
+\end{equation}
+There is one error event of weight 5 (with one input error), two of weight 6 (each with two), four of
+weight 7, and so on. The derivative $\partial T/\partial N$ at $N=1$,
+\[
+\frac{D^5}{(1-2D)^2}=D^5+4D^6+12D^7+32D^8+\cdots=\sum_dB_dD^d ,
+\]
+gives the total number $B_d$ of information-bit errors on all weight-$d$ events, which is exactly
+what a bit-error-rate bound needs. For large codes the transfer function is computed numerically by
+a search over the trellis, as \lab{book/figscripts/ch14\_figs.py} does; Table~\ref{tab:ch14:conv}
+lists the results for the best-known rate-1/2 codes.
+
+\begin{table}[htbp]\centering\small
+\caption{The best rate-1/2 convolutional codes of small constraint length (maximum free distance,
+found by computer search in the 1970s). $B_d$ counts information-bit errors on weight-$d$ error
+events; the asymptotic coding gain is $10\log_{10}(Rd_{\text{free}})$.}
+\label{tab:ch14:conv}
+\begin{tabular}{@{}c c c c l c@{}}
+\toprule
+$K$ & states & generators (octal) & $d_{\text{free}}$ & $B_d$ for $d=d_{\text{free}},d_{\text{free}}+1,\dots$ & gain (dB)\\
+\midrule
+3 & 4 & (7, 5) & 5 & 1, 4, 12, 32, \dots & 3.98\\
+5 & 16 & (23, 35) & 7 & 4, 12, 20, 72, \dots & 5.44\\
+7 & 64 & (171, 133) & 10 & 36, 0, 211, 0, 1404, 0, 11633, \dots & 6.99\\
+9 & 256 & (561, 753) & 12 & 33, 0, 281, 0, 2179, 0, 15035, \dots & 7.78\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Catastrophic codes and other properties}
+
+Not every choice of generators is a good code. If the generators share a common polynomial factor
+other than a power of $D$, the encoder is \term{catastrophic}: some input sequence of infinite weight
+produces an output of finite weight, so a finite number of channel errors can cause an infinite
+number of decoded errors. The code $(3,5)_8$, with $g^{(1)}=1+D$ and $g^{(2)}=1+D^2=(1+D)^2$, is the
+standard example: the all-ones input produces the output $11,10,00,00,\dots$, of weight three.
+Massey and Sain showed in 1968 that a rate-$1/n$ encoder is non-catastrophic exactly when the
+greatest common divisor of its generators is a power of $D$. Code-search tables list only
+non-catastrophic codes.
+
+Convolutional encoders can also be \emph{systematic} (one output equal to the input) and
+\emph{recursive} (with feedback, like the CRC division circuit). Non-recursive systematic codes have
+noticeably smaller free distance for the same $K$, which is why the classical standards use
+non-systematic feed-forward encoders. Recursive systematic encoders with the same free distance as the
+best feed-forward ones exist, and their infinite impulse response turns out to be essential for turbo
+codes (Chapter~\ref{ch:moderncodes}).
+
+\subsection{The industry-standard $K=7$ code}
+
+One code dominates the history of convolutional coding: the rate-1/2, $K=7$ code with generators
+$(171,133)_8$, found by Odenwalder in 1970. With 64 states it was small enough to decode in 1970s
+hardware, and with $d_{\text{free}}=10$ it gives about 5\,dB of coding gain. NASA adopted it for
+Voyager; CCSDS standardised it for space telemetry; it is the inner code of DVB-S and DVB-T, and the
+convolutional code of IEEE 802.11a/g/n/ac Wi-Fi, where it is still the mandatory code; and it
+appears, with a third generator (165) and rate 1/3, as the tail-biting control-channel code of LTE.
+Figure~\ref{fig:ch14_conv_ber} compares it with the other codes of Table~\ref{tab:ch14:conv}. Each
+increase of two in $K$ buys roughly 0.5 to 1\,dB, at four times the decoding complexity.
+
+\mdcfig[0.9]{ch14_conv_ber}{Simulated bit error rates of the rate-1/2 codes of
+Table~\ref{tab:ch14:conv} with soft-decision Viterbi decoding (points), and their union
+bounds~\eqref{eq:ch14:ub} (dotted), which become tight below about $10^{-5}$.}
+
+\begin{pitfall}[Which way round is (171,133)?]
+Octal generators hide two conventions. The first is the order of the outputs: 802.11 lists
+$g_0=133$, $g_1=171$ and sends the 133 output first; DVB and CCSDS list $G_1=171$, $G_2=133$ and
+send 171 first. The second is the bit order within the generator: with the most significant bit
+tapping the \emph{current} input (the convention of this book), $171_8=1111001$; with the least significant bit
+tapping the current input, the same taps read $1001111=117_8$, and a paper using that convention
+will call this code $(117,155)$. CCSDS additionally inverts the second output. Any one of these
+mismatches produces a decoder that fails completely, and the quickest diagnosis is to encode an
+impulse (a single one followed by zeros) and compare the output with the standard's.
+\end{pitfall}
+
+\subsection{Puncturing}
+
+A rate-1/2 code is often too slow. Designing new rate-2/3 or 3/4 codes with their own trellises is
+possible but unnecessary: \term{puncturing} deletes some coded bits in a periodic pattern, raising the
+rate while keeping the decoder of the mother code. The Viterbi decoder simply inserts neutral values
+(zero log-likelihood ratios, or erasures) in the deleted positions and runs as usual. IEEE 802.11a
+obtains rate 2/3 by deleting every second bit of the $g_1$ output, and rate 3/4 by sending
+$A_1B_1A_2B_3$ out of every six bits $A_1B_1A_2B_2A_3B_3$; 802.11n adds rate 5/6, and DVB-S uses
+rates 1/2, 2/3, 3/4, 5/6 and 7/8. Figure~\ref{fig:ch14_puncturing} shows the price: each step up in
+rate costs between 0.6 and 1\,dB, and the rate-5/6 code still gains about 3\,dB over uncoded transmission at
+$10^{-5}$ while carrying 83\% as much data.
+
+\mdcfig[0.88]{ch14_puncturing}{The $K=7$ mother code punctured to the rates of IEEE 802.11a/n,
+simulated with soft-decision Viterbi decoding. Energy is counted per information bit, so the curves
+include the rate change.}
+
+Hagenauer's rate-compatible punctured convolutional (RCPC) codes of 1988 go one step further: a family
+of puncturing patterns chosen so that the bits kept at each rate are a subset of those kept at every
+lower rate. A transmitter can then send the highest-rate version first and, if the receiver fails,
+send only the additional bits needed for the next lower rate. That is incremental redundancy, the
+idea behind HARQ (Section~\ref{sec:ch14:arq}).
+
+\subsection{Termination and tail-biting}
+
+A convolutional encoder is normally \emph{terminated} by appending $K-1$ zeros to each block, returning
+it to the zero state so that the decoder knows where the path ends. For a 1500-byte Wi-Fi packet the six
+tail bits are negligible, but for a 40-bit control message they cost 15\% of the rate. A
+\term{tail-biting} encoder avoids the overhead by initialising its register with the \emph{last} $K-1$
+bits of the block, so the path starts and ends in the same, unknown, state. The decoder handles the
+circular trellis by running the Viterbi algorithm around it more than once, or by trying the likely
+starting states. LTE's control and broadcast channels use tail-biting for exactly this reason.
+
+%======================================================================
+\section{The Viterbi algorithm}
+\label{sec:ch14:viterbi}
+%======================================================================
+
+Andrew Viterbi published his algorithm in 1967 as a device for proving error bounds for convolutional
+codes; within a few years it was recognised as the \emph{maximum-likelihood} decoder, efficient enough to
+build, and it became one of the most widely executed algorithms in history. Its reach extends far
+beyond coding: the same dynamic program decodes intersymbol interference (Chapter~\ref{ch:equalization}),
+detects partial-response signals in disk drives (Chapter~\ref{ch:baseband}), aligns DNA sequences, tags
+parts of speech and recognises speech with hidden Markov models.
+
+\subsection{Maximum-likelihood decoding as a shortest path}
+
+The decoder receives a sequence $\vect{y}$ and must find the codeword, that is the trellis path, that
+maximises $p(\vect{y}\mid\vect{c})$. For a memoryless channel the likelihood factors over time, so its
+logarithm is a sum of \term{branch metrics}, one per trellis branch. For the binary symmetric channel
+the branch metric can be the Hamming distance between the branch's output bits and the received bits;
+for BPSK in Gaussian noise it can be the squared Euclidean distance, or, dropping terms common to all
+branches, minus the correlation $\sum_jx_jy_j$. Maximum likelihood becomes a shortest-path problem on the
+trellis: find the path of minimum total metric.
+
+There are $2^{k}$ paths through a trellis of length $k$, but the search is easy because of a
+simple observation. Suppose two paths arrive at the same state at the same time. Whatever happens later,
+both can be extended by exactly the same continuations, which add exactly the same metrics. So the path
+with the larger metric so far can never become the best, and can be discarded. At each time and each
+state only one \term{survivor} needs to be kept. The algorithm is therefore:
+\begin{enumerate}
+\item \textbf{Add.} For each state, add the branch metric of each incoming branch to the path metric of
+the state it comes from.
+\item \textbf{Compare.} Compare the candidate metrics arriving at the state.
+\item \textbf{Select.} Keep the smallest as the new path metric and record which branch won (the
+\emph{decision bit}).
+\item Repeat for every time step; at the end, start from the best (or known final) state and
+\textbf{trace back} through the stored decisions to recover the input sequence.
+\end{enumerate}
+The add--compare--select (\term{ACS}) operation is the heart of every Viterbi decoder. For a code with
+$2^{K-1}$ states it runs $2^{K-1}$ times per decoded bit: 64 ACS operations per bit for the $K=7$ code.
+The work grows linearly with the length of the data and exponentially with the constraint length, which
+is why practical Viterbi decoders stop at $K\approx9$ (256 states) and why JPL's experimental ``Big
+Viterbi Decoder'' for $K=15$, with 16\,384 states, was a heroic exception.
+
+\begin{worked}[Viterbi decoding by hand]
+The $(7,5)$ encoder of Figure~\ref{fig:ch14_conv_encoder}, started in state 00, encodes $u=1011$
+followed by two zero tail bits as $11\;10\;00\;01\;01\;11$. The channel flips two bits, and the decoder
+receives $11\;\mathbf{11}\;00\;01\;\mathbf{11}\;11$. We decode with Hamming branch metrics
+(Figure~\ref{fig:ch14_viterbi_example}).
+
+\emph{Step 1} (received 11). From state 00 (metric 0), input 0 gives output 00 at distance 2, input 1 gives
+output 11 at distance 0. Metrics: state 00 $\to2$, state 10 $\to0$.
+
+\emph{Step 2} (received 11). From 00 (2): to 00 via 00, $2+2=4$; to 10 via 11, $2+0=2$. From 10 (0): to 01
+via 10, $0+1=1$; to 11 via 01, $0+1=1$. Metrics: 00:4, 10:2, 01:1, 11:1.
+
+\emph{Step 3} (received 00). Now every state has two incoming branches, and the ACS begins. State 00 can be
+reached from 00 (4, output 00, $+0$) or from 01 (1, output 11, $+2$): the survivor comes from 01 with
+metric 3. State 10: from 00 via 11, $4+2=6$, or from 01 via 00, $1+0=1$; survivor 1. State 01: from 10
+via 10, $2+1=3$, or from 11 via 01, $1+1=2$; survivor 2. State 11: from 10 via 01, $2+1=3$, or from 11
+via 10, $1+1=2$; survivor 2.
+
+\emph{Steps 4--6} continue in the same way (the figure shows every metric). After the sixth step, state
+00 has metric 2: the best codeword differs from the received sequence in exactly two places. Tracing back
+from state 00 through the recorded survivors visits $00\to10\to01\to10\to11\to01\to00$, which
+corresponds to inputs $1\,0\,1\,1\,0\,0$. Both channel errors are corrected. They were far enough apart
+(two branches) that no competing path came within distance two; had they been adjacent, a weight-5 error
+event could have won.
+\end{worked}
+
+\mdcfig[0.95]{ch14_viterbi_example}{The Viterbi algorithm on the $(7,5)$ trellis for the worked example.
+States (rows) are $u_{k-1}u_{k-2}$; solid branches are input 0 and dashed branches input 1. The
+number in each node is the accumulated Hamming path metric. Dark branches are survivors; the shaded path
+is the traceback from state 00 at the end. Received pairs in red contain a channel error.}
+
+\subsection{Soft decisions, quantisation and metric arithmetic}
+
+With soft decisions the branch metric is the correlation between the branch's BPSK symbols and the
+received samples, or equivalently a sum of log-likelihood ratios with signs set by the branch's output
+bits; commlib's decoder uses exactly this. No knowledge of the noise variance is needed on the AWGN
+channel, because scaling every metric by the same factor does not change the winner. Hardware
+quantises the samples to a few bits: the right panel of Figure~\ref{fig:ch14_viterbi_practical} shows that
+three bits (eight levels) come within about 0.25\,dB of unquantised decoding and four bits within
+about 0.1\,dB, while two bits cost about 0.7\,dB and hard decisions (one bit) more than 2\,dB. Path metrics grow without
+bound, but only their differences matter, and the spread of metrics across states is bounded (by
+roughly $d_{\text{free}}$ times the maximum branch metric), so hardware either subtracts the minimum
+periodically or, more elegantly, lets the metrics wrap around in modular two's-complement arithmetic
+and compares them modulo the register size.
+
+\subsection{Traceback and decision depth}
+
+Waiting for the end of a long stream before tracing back is impractical: memory and latency would be
+unbounded. Fortunately, survivors \emph{merge}. If one traces back from all states at time $t$, the
+paths coincide a few constraint lengths earlier with high probability, so the decision for time $t-D$ can
+be released after $D$ steps. A \term{decision depth} (traceback depth) of about five constraint lengths
+is the classic rule of thumb for rate-1/2 codes; punctured, higher-rate codes, whose paths take longer to
+separate, need more, typically seven to ten constraint lengths. The left panel of
+Figure~\ref{fig:ch14_viterbi_practical} shows the effect for the $K=7$ code: short depths are
+disastrous, at $D=35=5K$ the bit error rate is within about 30\% of full traceback (a loss of only
+a few hundredths of a decibel on these steep curves), and beyond about $D=45$ the difference
+vanishes. Hardware implements traceback with a memory of decision
+bits read backwards in blocks, or with the register-exchange method, which copies whole survivor
+sequences at every step and trades power for latency.
+
+\mdcfig{ch14_viterbi_practical}{Implementation choices for the $K=7$ Viterbi decoder. Left: bit
+error rate against decision depth, with full-traceback performance dotted. Right: the effect of
+quantising the received samples to 1, 2, 3 and 4 bits.}
+
+\subsection{Performance: the union bound}
+
+The decoder errs when the correct path is beaten by an error event. The probability that a specific
+event at distance $d$ beats the correct path is $\Q\big(\sqrt{2dRE_b/N_0}\big)$ with soft decisions, and a
+union bound over all events, weighted by the information bits each one corrupts, gives
+\begin{equation}
+P_b\le\sum_{d\ge d_{\text{free}}}B_d\,\Q\!\left(\sqrt{\frac{2dRE_b}{N_0}}\right),
+\label{eq:ch14:ub}
+\end{equation}
+with $B_d$ from the transfer function (Table~\ref{tab:ch14:conv}). The bound diverges at low
+$E_b/N_0$, where the events are far from disjoint, but becomes tight below about $10^{-5}$
+(Figure~\ref{fig:ch14_conv_ber}). For hard decisions the pairwise probability is replaced by the
+probability that more than half of $d$ binary symmetric channel bits are flipped, often bounded by
+the Bhattacharyya form $\big(2\sqrt{p(1-p)}\big)^d$. At high SNR the first term dominates, giving
+$P_b\approx B_{d_{\text{free}}}\Q\big(\sqrt{2d_{\text{free}}RE_b/N_0}\big)$ and the asymptotic coding gain
+$10\log_{10}(Rd_{\text{free}})$.
+
+\begin{worked}[The coding gain of the $K=7$ code at $10^{-5}$]
+Uncoded BPSK needs $\Q(\sqrt{2E_b/N_0})=10^{-5}$, that is $\sqrt{2E_b/N_0}=4.265$ and
+$E_b/N_0=9.10$, or 9.59\,dB.
+
+For the $K=7$ code, try $E_b/N_0=4.4$\,dB $=2.754$. With $R=\tfrac12$ the argument of the
+$d$-th term is $\sqrt{dE_b/N_0}$. The first four terms of~\eqref{eq:ch14:ub} are
+$36\,\Q(\sqrt{27.5})=36\times7.7\times10^{-8}=2.8\times10^{-6}$,
+$211\,\Q(\sqrt{33.0})=9.5\times10^{-7}$, $1404\,\Q(\sqrt{38.6})=3.7\times10^{-7}$ and
+$11633\,\Q(\sqrt{44.1})=1.8\times10^{-7}$, and the sum of all terms is about $4.4\times10^{-6}$.
+The terms fall off slowly, because the multiplicities grow almost as fast as the $\Q$-function
+shrinks: the ``nearest neighbours'' penalty. Solving for $10^{-5}$ gives $E_b/N_0\approx4.2$\,dB
+from the bound, and the simulation of Figure~\ref{fig:ch14_conv_ber} gives about 4.1\,dB
+(practical decoders with three-bit quantisation need 0.2 to 0.3\,dB more). The coding gain is
+therefore about $9.6-4.1\approx5.5$\,dB, compared with the asymptotic
+$10\log_{10}(0.5\times10)=7.0$\,dB. At $10^{-7}$ the bound gives 5.4\,dB against 11.3\,dB uncoded, a
+gain of almost 6\,dB: coding gain grows as the target error rate falls. With hard decisions the gain at
+$10^{-5}$ shrinks to about 3\,dB (Figure~\ref{fig:ch14_hard_soft}).
+\end{worked}
+
+\begin{history}[The algorithm that was not patented]
+Viterbi, born in Bergamo in 1935, emigrated to the United States as a child, studied at MIT and worked
+at JPL before joining UCLA. His 1967 paper in the \emph{IEEE Transactions on Information Theory}
+presented the algorithm as a proof technique; Jim Omura observed in 1969 that it is dynamic programming,
+and Forney showed in 1973, in a celebrated tutorial in the \emph{Proceedings of the IEEE}, that it is the
+maximum-likelihood sequence detector for any finite-state process, not just for codes. Viterbi did not
+patent it. In 1968 he co-founded Linkabit with Irwin Jacobs and Leonard Kleinrock, and Linkabit built
+some of the first practical Viterbi decoders for military satellite links; Heller and Jacobs's 1971
+paper, showing that short-constraint-length codes with soft Viterbi decoding gave 5\,dB or more of gain in
+practice, persuaded the industry. In 1985 Viterbi and Jacobs co-founded Qualcomm, whose CDMA phones
+decoded the $K=9$ convolutional codes of IS-95 with, of course, the Viterbi algorithm.
+\end{history}
+
+\begin{inpractice}[Viterbi decoders in silicon]
+A 64-state Viterbi decoder for 802.11a at 54\,Mb/s needs about 3.5 billion ACS operations per second,
+which a 2000-era chip provided with 64 parallel ACS units at a modest clock. Faster decoders process two
+trellis steps per clock (``radix-4'', four candidates per state) or split the stream into overlapping
+blocks decoded in parallel; 802.11n/ac chips decode hundreds of megabits per second this way, although
+the faster Wi-Fi modes now prefer LDPC. The convolutional code also survives where frames are short and
+latency matters: the control channels of LTE, GNSS navigation messages (GPS L2C and L5 use the same
+$K=7$ code) and countless proprietary radios. Every software-defined radio toolkit, including GNU Radio,
+ships a Viterbi decoder for it.
+\end{inpractice}
+
+\subsection{Beyond hard outputs}
+
+The Viterbi algorithm outputs a sequence of bits with no indication of their reliability. The
+soft-output Viterbi algorithm (SOVA) of Hagenauer and Hoeher (1989) estimates the reliability of each
+decision from the metric difference of the competing path, and the BCJR algorithm of Bahl, Cocke,
+Jelinek and Raviv (1974) computes exact a-posteriori probabilities for every bit with a forward and a
+backward recursion over the same trellis. BCJR was a curiosity for almost twenty years---it costs roughly
+three times as much as Viterbi and gives almost the same bit error rate---until turbo decoding made
+soft outputs essential. Chapter~\ref{ch:moderncodes} takes up the story.
+
+%======================================================================
+\section{Sequential decoding}
+\label{sec:ch14:sequential}
+%======================================================================
+
+Before the Viterbi algorithm, and for a while alongside it, the preferred way to decode convolutional
+codes was \term{sequential decoding}, proposed by John Wozencraft at MIT in 1957. The idea is to
+explore the code \emph{tree} (the trellis without merging) like a hiker following the most promising trail
+and backing up when it seems wrong. Because the decoder examines only a few paths when the noise is low,
+its average complexity is almost independent of the constraint length, so codes with $K=30$ or more,
+far too big for Viterbi decoding, become practical, and their error probabilities are correspondingly tiny.
+
+The decoder ranks partial paths by the \term{Fano metric}, which for each coded bit adds
+$\log_2\big[p(y\mid x)/p(y)\big]-R$: the information the received bit gives about the hypothesis, minus
+the rate. On the correct path the metric tends to increase; on a wrong path it tends to decrease. The
+\emph{stack algorithm} (Zigangirov, 1966; Jelinek, 1969) keeps a sorted list of partial paths and always
+extends the best. The \emph{Fano algorithm} (1963) achieves the same with almost no memory, moving
+forwards and backwards along a single path against a running threshold.
+
+The catch is that the amount of computation is a random variable. When the noise is bad, the decoder
+backs up and searches, and the number of computations per decoded bit has a Pareto (power-law)
+distribution. Its mean is finite only for rates below the \term{computational cutoff rate} $R_0$. For
+BPSK with soft decisions, $R_0=1-\log_2\!\big(1+e^{-E_s/N_0}\big)$, and at rate 1/2 this requires
+$E_b/N_0\approx2.5$\,dB; with hard decisions, $R_0=1-\log_2\big(1+2\sqrt{p(1-p)}\big)$ requires about
+4.6\,dB. When the computation exceeds the decoder's buffer, the frame must be erased. For two decades
+$R_0$ was regarded as the ``practical capacity'' of a channel, the rate beyond which no practical decoder
+could go, and closing the gap between $R_0$ and capacity (about 2.3\,dB at rate 1/2 on the Gaussian
+channel) was one of the motivations of concatenated coding. Turbo and LDPC codes finally showed that
+$R_0$ is not a fundamental limit at all.
+
+Sequential decoding flew on NASA's Pioneer missions, and sequential decoders were built for military and
+satellite modems in the 1960s and 1970s. It lost to Viterbi decoding for three reasons: the variable
+computation complicated real-time hardware, Viterbi decoding is naturally soft-decision and parallel,
+and a 64-state Viterbi decoder gave nearly as much gain as a long code decoded sequentially at the
+error rates that mattered.
+
+%======================================================================
+\section{ARQ and hybrid ARQ}
+\label{sec:ch14:arq}
+%======================================================================
+
+When a return channel exists, the receiver can do something no forward code can: ask again. ARQ
+protocols are as old as the telegraph operator who tapped ``repeat'', and they are the reason the
+Internet delivers files without a single wrong bit despite running over links with residual error rates
+of one in a million or worse.
+
+\subsection{The three classical protocols}
+
+All ARQ schemes send frames protected by a CRC and wait for acknowledgements (ACK) or negative
+acknowledgements (NAK). They differ in what the transmitter does while it waits and after an error. Let
+each frame take one time unit to send, let the one-way propagation delay be $a$ frame times, and let
+each frame be in error with probability $P$.
+\begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
+\item[Stop-and-wait.] Send a frame, wait for its ACK, and resend it if a NAK or a timeout arrives. Each
+attempt occupies $1+2a$ time units and $1/(1-P)$ attempts are needed on average, so the throughput
+efficiency is
+\begin{equation}
+\eta_{\text{SW}}=\frac{1-P}{1+2a}.
+\end{equation}
+Simple and memory-free, it is hopeless on long links: with $a=10$ the channel is idle 95\% of the time.
+\item[Go-back-$N$.] Send frames continuously, up to a window of $N\ge1+2a$ unacknowledged frames. On an
+error, resend the failed frame and \emph{everything after it}. The receiver needs no buffer, but each
+error wastes a round trip of frames:
+\begin{equation}
+\eta_{\text{GBN}}=\frac{1-P}{1+2aP}.
+\end{equation}
+\item[Selective repeat.] Send continuously and resend only the frames that failed. The receiver must
+buffer out-of-order frames and reassemble them, but the efficiency is the best possible:
+\begin{equation}
+\eta_{\text{SR}}=1-P.
+\end{equation}
+\end{description}
+Figure~\ref{fig:ch14_arq} (left) compares them. TCP's cumulative acknowledgements behave like go-back-$N$,
+with selective acknowledgements (SACK) adding selective repeat; 802.11 uses stop-and-wait for single frames
+and a selective ``block acknowledgement'' for aggregated frames; LTE and NR run a selective-repeat ARQ in
+the radio link control layer on top of HARQ.
+
+\subsection{Hybrid ARQ}
+
+Pure ARQ throws away a failed frame. Hybrid ARQ keeps it. In \term{Chase combining} (Chase, 1985) every
+retransmission repeats the same codeword and the receiver adds the log-likelihood ratios of all copies
+before decoding, so the effective signal-to-noise ratio grows with each attempt. In \term{incremental
+redundancy} (IR) each retransmission sends \emph{new} parity bits---a different puncturing of a low-rate
+mother code, as in the RCPC codes above---so the receiver decodes an ever lower-rate code. IR gains more,
+because a lower-rate code is worth more than a repeated one: two transmissions at signal-to-noise ratio
+$\gamma$ give an accumulated mutual information of $2\log_2(1+\gamma)$ with IR, but only $\log_2(1+2\gamma)$
+with Chase combining. Figure~\ref{fig:ch14_arq} (right) shows the effect on a Rayleigh block-fading
+channel with an initial rate of 3\,b/s/Hz: IR is worth 2 to 4\,dB over Chase combining at low and moderate SNR,
+and both are far better than discarding failed frames, even though the transmitter knows nothing about
+the instantaneous channel. At high SNR every scheme saturates at the initial rate $R_0$, which is why real
+systems pair HARQ with link adaptation that chooses $R_0$ from channel-quality reports. HARQ turns a
+fixed-rate code into a rate-adaptive one, driven by the receiver's CRC.
+
+\mdcfig{ch14_arq}{Left: throughput efficiency of the three ARQ protocols with a one-way delay of ten frame
+times. Right: throughput of HARQ on a Rayleigh block-fading channel with an initial spectral efficiency
+of 3\,b/s/Hz and up to four transmissions, modelling decoding as successful when the accumulated mutual
+information (IR) or the combined SNR (Chase) supports the rate.}
+
+\begin{inpractice}[HARQ in LTE and 5G]
+LTE uses \emph{synchronous} HARQ in the uplink and asynchronous HARQ in the downlink, with eight parallel
+stop-and-wait processes in FDD so that the channel stays busy while each process waits for its
+acknowledgement roughly 8\,ms later. Each transport block is turbo coded at rate 1/3 into a circular buffer,
+and each transmission reads a segment of the buffer starting at one of four \emph{redundancy versions},
+conventionally sent in the order RV0, RV2, RV3, RV1: incremental redundancy with a single mother code.
+5G NR keeps the idea with LDPC base graphs designed for it, allows up to 16 HARQ processes, flexible timing
+and retransmission of only the failed \emph{code-block groups} of a large transport block. The details
+are in Chapter~\ref{ch:cellular}.
+\end{inpractice}
+
+%======================================================================
+\section{Choosing a classical code}
+\label{sec:ch14:choosing}
+%======================================================================
+
+The codes of this chapter are not museum pieces. They survive wherever their particular strengths
+matter more than the last decibel: tiny blocks, deterministic latency, simple hardware, burst errors,
+erasures, or the need for a guaranteed rather than a statistical correction capability.
+Table~\ref{tab:ch14:where} collects the main families and where an engineer will meet them.
+
+\begin{table}[htbp]\centering\small
+\caption{Where the classical codes live.}
+\label{tab:ch14:where}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+Code & Strength & Typical systems\\
+\midrule
+Parity, CRC & cheap detection, burst detection & every packet network, storage, HARQ, polar-code list decoding\\
+Hamming / SECDED & single-error correction in one gate delay & DRAM and cache ECC, on-die ECC, buses\\
+Golay & triple-error correction in short words & HF ALE, space-probe imaging (Voyager)\\
+BCH & $t$ random errors, simple hard decoder & DVB-S2/T2 outer code, flash (pre-LDPC), paging\\
+Reed--Solomon & MDS, bursts, erasures & CD/DVD/Blu-ray, QR, DVB, ATSC, CCSDS, RAID-6, Ethernet KR4/KP4, OTN\\
+Reed--Muller & fast soft ML decoding, short blocks & Mariner, LTE/NR short control reports\\
+Convolutional + Viterbi & soft decisions, streaming, small latency & 802.11, DVB-S/T, CCSDS, LTE control, GNSS\\
+Concatenated RS + conv. & very low error rates & deep space (legacy), DVB-S, DVB-T\\
+Product codes & large distance from small codes & DVD, optical transport (staircase)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A few rules of thumb summarise decades of engineering experience. If a return channel exists and
+latency is tolerable, detect with a CRC and retransmit, adding FEC only to bring the frame error rate
+down to where retransmissions are rare. If errors come in bursts, use symbols (Reed--Solomon) or
+interleave, and remember that interleaving costs delay. If soft information is available, use a
+decoder that can exploit it, which in the classical toolbox means a convolutional code and the Viterbi
+algorithm. If a hard guarantee on the number of correctable errors is needed, as in memory, use an
+algebraic code. And if the last one or two decibels matter---as they do in every modern broadband
+wireless and satellite system---move on to the codes of Chapter~\ref{ch:moderncodes}, keeping a CRC,
+and often a short BCH or RS outer code, as insurance.
+
+%======================================================================
+\section{Summary}
+%======================================================================
+
+\begin{itemize}
+\item Coding trades bandwidth, latency and complexity for power. Coding gain is measured at equal
+energy per information bit and a target error rate; the asymptotic gain is $10\log_{10}(Rd)$ with soft
+decisions and roughly 3\,dB less with hard decisions; at practical error rates soft decisions are worth
+about 2\,dB.
+\item A linear $(n,k,d)$ block code is defined by a generator matrix $\vect{G}$ or a parity-check matrix
+$\vect{H}$. The syndrome $\vect{rH}^{\mathsf T}$ depends only on the error pattern; a code corrects $t$
+errors and $e$ erasures when $2t+e<d$.
+\item The Hamming, Singleton, Gilbert--Varshamov and Plotkin bounds frame what is possible. Hamming and
+Golay codes are perfect; Reed--Solomon codes are MDS.
+\item Extended Hamming (SECDED) codes protect computer memory; the (23,12) Golay code corrects three errors
+in 23 bits.
+\item Finite fields GF($2^m$) are built from a primitive polynomial; elements add by XOR and multiply by
+adding logarithms. The choice of polynomial and bit conventions must match exactly between encoder and
+decoder.
+\item Cyclic codes are generated by a polynomial $g(x)$ dividing $x^n-1$ and encoded by an LFSR. A CRC with
+$r$ check bits detects all bursts up to length $r$ and misses about $2^{-r}$ of random errors; its
+performance at a given frame length is set by its Hamming distance there.
+\item BCH codes place $2t$ consecutive roots in $g(x)$ to guarantee $d\ge2t+1$; they are decoded by
+syndromes, the Berlekamp--Massey algorithm and a Chien search. Reed--Solomon codes do the same over
+GF($2^m$) symbols and add Forney's formula for the error values; they correct bursts and erasures
+superbly and are everywhere from CDs to Ethernet.
+\item Interleaving spreads bursts across codewords at the cost of delay; concatenating a soft-decoded inner
+convolutional code with an RS outer code reached $10^{-5}$ at about 2.3\,dB, the state of the art until
+1993. Product and Reed--Muller codes build long codes from short ones.
+\item Convolutional codes are finite-state machines described by octal generators, state diagrams and
+trellises; the free distance and transfer function determine their performance, and the $K=7$ $(171,133)$
+code with soft Viterbi decoding gains about 5\,dB at $10^{-5}$. Puncturing adjusts the rate and tail-biting
+removes the termination overhead.
+\item The Viterbi algorithm finds the maximum-likelihood path with $2^{K-1}$ add--compare--select operations
+per bit; three-bit quantisation and a decision depth of about $5K$ lose almost nothing. Sequential
+decoding handles long constraint lengths but is limited by the cutoff rate $R_0$.
+\item ARQ uses a CRC and a return channel; selective repeat is the most efficient. HARQ with incremental
+redundancy combines FEC and ARQ into a rate-adaptive scheme that tracks capacity without channel knowledge
+at the transmitter.
+\end{itemize}
+
+\begin{labbox}[Block codes, CRCs, Reed--Solomon and Viterbi decoding]
+Two notebooks accompany this chapter:
+\begin{itemize}
+\item \lab{moderncomms-labs/labs/lab08\_convolutional.py}
+\item \lab{moderncomms-labs/labs/lab20\_block\_codes.py}
+\end{itemize}
+The first measures the Shannon limit and the constrained capacity of real constellations
+(Chapter~\ref{ch:infotheory}), decodes Hamming (7,4) by syndromes, tests a 5G NR CRC-11 against single errors,
+bursts and random corruption, simulates the $K=7$ $(133,171)$ code with hard and soft Viterbi decoding
+(Figure~\ref{fig:ch14_hard_soft}), punctures it to rate 3/4 as in 802.11a, and shows how a block interleaver
+rescues the decoder on a bursty Gilbert--Elliott channel. The second builds the algebraic codes: Hamming and
+SECDED encoders with syndrome decoding and a miscorrection experiment, a CRC calculator for the standard
+polynomials of Table~\ref{tab:ch14:crc} with all the reflection and initialisation options, a GF($2^m$)
+playground that prints log/antilog tables, and Reed--Solomon encoding and decoding with random errors,
+bursts, erasures and interleaving (Figures~\ref{fig:ch14_rs_performance} and~\ref{fig:ch14_rs_image}). Both
+use \lab{commlib/coding.py} and the new \lab{commlib/gf.py}, whose Berlekamp--Massey, Chien and Forney
+routines follow Section~\ref{sec:ch14:rs} line by line. The figure script
+\lab{book/figscripts/ch14\_figs.py} contains a vectorised Viterbi decoder with truncated traceback and
+quantisation options, and a transfer-function calculator for any feed-forward convolutional code.
+\end{labbox}
+
+\problems
+\begin{enumerate}[label=\thechapter.\arabic*]
+\item Compare the rate-1/3 repetition code with uncoded BPSK at equal $E_b/N_0$, using hard-decision
+majority voting. Show that the repetition code is worse at every $E_b/N_0$. Does soft-decision combining
+of the three copies change the conclusion?
+\item For the Hamming (7,4) code of~\eqref{eq:ch14:h74}, list all 16 codewords and verify the weight
+distribution $A_3=A_4=7$, $A_7=1$. Decode $\vect{r}=1101\,101$ and $\vect{r}=0110\,011$ by syndrome.
+\item Show that the (23,12) Golay code meets the Hamming bound with equality. Is there a perfect binary
+code with $n=90$, $k=78$, $t=2$? (Check the sphere-packing condition; then look up why no such code exists.)
+\item A memory system uses the (72,64) SECDED code. The raw bit error probability per read is
+$10^{-12}$, independent across bits. Estimate the probabilities per 64-bit word of (a) a corrected error,
+(b) a detected uncorrectable error and (c) a silent miscorrection. Why are real miscorrection rates dominated
+by multi-bit upsets rather than by this calculation?
+\item In GF(16) with $p(x)=x^4+x+1$, compute $\alpha^7+\alpha^{11}$, $\alpha^7\alpha^{11}$,
+$(\alpha^{7})^{-1}$ and $(\alpha^5+1)/(\alpha^3+\alpha)$. Verify that $x^4+x^3+x^2+x+1$ is irreducible but
+not primitive.
+\item Compute the CRC of the message \texttt{1011001110} with $g(x)=x^4+x^3+1$ by long division and with
+the LFSR of Figure~\ref{fig:ch14_lfsr} (adapted to this generator). Which error patterns of weight two in
+the 14-bit frame are undetected?
+\item Show that if $g(x)=(x+1)p(x)$ with $p(x)$ primitive of degree $r-1$, the CRC detects every error
+pattern of weight 1, 2 or 3 in frames shorter than $2^{r-1}-1$ bits. What is its Hamming distance at those
+lengths?
+\item Find the generator polynomial of the triple-error-correcting (15,5) BCH code and verify that its
+roots include $\alpha,\dots,\alpha^6$. Decode the received word $r(x)=x^{12}+x^5+x$ assuming the
+all-zero codeword was sent, using the Berlekamp--Massey algorithm.
+\item For RS(7,3) over GF(8) as in the worked example, encode the message $(\alpha,0,1)$. Introduce one
+error and two erasures and decode. What is the maximum number of erasures alone that the code can
+correct?
+\item Derive the transfer function~\eqref{eq:ch14:tf} of the $(7,5)$ code from the state diagram of
+Figure~\ref{fig:ch14_state}, including the path-length variable $L$. How many error events of weight 7 are
+there, and how long are they?
+\item Show that the rate-1/2 code with generators $(3,5)_8$ is catastrophic by finding an input sequence of
+infinite weight whose codeword has finite weight. Then use the Massey--Sain condition to check the codes of
+Table~\ref{tab:ch14:conv}.
+\item Using the union bound~\eqref{eq:ch14:ub} and the $B_d$ of Table~\ref{tab:ch14:conv}, find the
+$E_b/N_0$ needed for $P_b=10^{-6}$ with the $K=3$, 5 and 7 codes. How much does each increase of two in
+$K$ buy, and what does it cost in ACS operations per bit?
+\item Stop-and-wait ARQ runs over a geostationary satellite link (round trip about 0.5\,s) at 2\,Mb/s with
+1000-byte frames and a frame error rate of 1\%. Compute its efficiency, and the window size and efficiency of
+go-back-$N$ and selective repeat.
+\item \emph{(Simulation)} Using \texttt{commlib.gf}, measure the frame error rate of RS(255,223) decoding when
+the symbol errors come from a Gilbert--Elliott channel, with interleaving depths of 1, 2, 4 and 8. Compare with
+the formula for independent errors.
+\item \emph{(Simulation)} Implement a Viterbi decoder for the $K=3$ $(7,5)$ code from scratch with Hamming
+metrics, decode the worked example, and then add soft metrics and a decision depth. Plot the bit error rate
+against $E_b/N_0$ and against decision depth, and compare with Figure~\ref{fig:ch14_viterbi_practical}.
+\end{enumerate}
+
+\furtherreading
+\begin{itemize}
+\item S.~Lin and D.~J.~Costello, Jr., \emph{Error Control Coding}, 2nd ed., Pearson Prentice Hall, 2004. The
+standard engineering text: block, cyclic, BCH, RS, convolutional and trellis codes, and ARQ, with modern codes
+added in this edition.
+\item F.~J.~MacWilliams and N.~J.~A.~Sloane, \emph{The Theory of Error-Correcting Codes}, North-Holland, 1977.
+The encyclopaedic mathematical reference; the source for weight enumerators, the MacWilliams identity and the
+Golay and Reed--Muller codes.
+\item R.~E.~Blahut, \emph{Algebraic Codes for Data Transmission}, Cambridge University Press, 2003. Finite
+fields and algebraic decoding explained for engineers, with the Berlekamp--Massey and Euclidean algorithms in
+detail.
+\item T.~K.~Moon, \emph{Error Correction Coding: Mathematical Methods and Algorithms}, Wiley, 2005. A
+programmer-friendly treatment with pseudocode for nearly every algorithm in this chapter.
+\item S.~B.~Wicker and V.~K.~Bhargava (eds.), \emph{Reed--Solomon Codes and Their Applications}, IEEE Press,
+1994. Chapters by the engineers who put RS codes into deep space, compact discs and storage.
+\item A.~J.~Viterbi, ``Error bounds for convolutional codes and an asymptotically optimum decoding
+algorithm,'' \emph{IEEE Transactions on Information Theory}, vol.~13, no.~2, 1967; and G.~D.~Forney, Jr.,
+``The Viterbi algorithm,'' \emph{Proceedings of the IEEE}, vol.~61, no.~3, 1973, the tutorial that explained it
+to everyone else.
+\item R.~Johannesson and K.~Sh.~Zigangirov, \emph{Fundamentals of Convolutional Coding}, IEEE Press, 1999. The
+definitive treatment of convolutional codes, distance properties and sequential decoding.
+\item D.~J.~Costello, Jr.\ and G.~D.~Forney, Jr., ``Channel coding: the road to channel capacity,''
+\emph{Proceedings of the IEEE}, vol.~95, no.~6, 2007. A superb historical survey from Hamming to LDPC codes,
+including the deep-space milestones.
+\item R.~W.~Hamming, ``Error detecting and error correcting codes,'' \emph{Bell System Technical Journal},
+vol.~29, no.~2, 1950; I.~S.~Reed and G.~Solomon, ``Polynomial codes over certain finite fields,'' \emph{Journal
+of the SIAM}, vol.~8, no.~2, 1960. Two short papers that are still a pleasure to read.
+\item P.~Koopman, ``32-bit cyclic redundancy codes for Internet applications,'' \emph{Proc.\ International
+Conference on Dependable Systems and Networks}, 2002; and R.~N.~Williams, ``A painless guide to CRC error
+detection algorithms,'' 1993. How to choose a CRC, and how to implement it without tears.
+\item CCSDS 131.0-B, \emph{TM Synchronization and Channel Coding} (Blue Book), current issue; ETSI EN~300~421
+(DVB-S) and EN~302~307 (DVB-S2). The standards that define the RS, convolutional, concatenated and BCH codes
+discussed here, with their exact polynomials and interleavers.
+\end{itemize}
