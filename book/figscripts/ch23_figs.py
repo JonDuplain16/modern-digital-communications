@@ -231,7 +231,7 @@ def fig_deep_space():
         R = 10 ** ((cn0 - ebn0_req - margin) / 10)
         ax.loglog(au, R, color=c, label=lab)
     for nm, x in [("Mars (max)", 2.67), ("Jupiter", 5.2), ("Saturn", 9.5), ("Neptune", 30), ("Voyager 2 (2026)", 141),
-                  ("Voyager 1 (2026)", 169)]:
+                  ("Voyager 1 (2026)", 173)]:
         ax.axvline(x, color=GRAY, lw=0.5, ls=":")
         ax.text(x * 1.04, 3e5 if "Voy" not in nm else (1.2e5 if "1" in nm else 3e4), nm, fontsize=6, rotation=90, color=GRAY, va="bottom")
     ax.set_xlabel("distance (AU)"); ax.set_ylabel("supportable bit rate (b/s)")
