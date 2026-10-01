@@ -309,6 +309,50 @@ def test_ofdmadv():
     assert np.unravel_index(np.argmax(P), P.shape)[0] == round(30.0 / (3e8 / (2 * 128 * 120e3)))
 
 
+def test_ltephy():
+    from commlib import ltephy as lp
+    msg = np.unpackbits(np.frombuffer(b"123456789", np.uint8))
+    assert int("".join(map(str, lp.crc_attach(msg)[-24:])), 2) == 0xCDE703     # CRC-24/LTE-A check value
+    assert lp.crc_ok(lp.crc_attach(msg, lp.CRC24B), lp.CRC24B)
+    pci = 301
+    x = lp.ofdm_mod(np.array([lp.subframe_grid(pci, sf, RNG)[0] for sf in range(6)]))
+    r = np.r_[np.zeros(333), x] * np.exp(2j * np.pi * 2000 * np.arange(len(x) + 333) / lp.FS)
+    m, seg = lp.pss_search(r[:6000])
+    i, t = np.unravel_index(np.argmax(m), m.shape)
+    assert i == pci % 3 and t == 333 + 823 + 9
+    f = np.angle(np.sum(seg[i, 1, t] * np.conj(seg[i, 0, t]))) / (2 * np.pi * 64 / lp.FS)
+    assert abs(f - 2000) < 200
+    assert lp.sss_detect(r, t, i, f)[:2] == (pci // 3, 0)
+    cb = RNG.integers(0, 2, 300)
+    e = lp.rate_match(cb, 500, 2)
+    soft = lp.rate_recover(1 - 2.0 * e, 300, 2)
+    assert np.all((soft < 0) == cb.astype(bool))
+    assert np.array_equal(lp.bit_deinterleave(lp.bit_interleave(e, 4), 4), e)
+    code = cl.LDPCCode(n=96, rate=0.5, seed=0)
+    u = RNG.integers(0, 2, (5, code.k))
+    cw = code.encode(u).reshape(5, -1)
+    d, _ = lp.ldpc_decode_batch(code, 4 * (1 - 2.0 * cw) + RNG.standard_normal(cw.shape))
+    assert np.array_equal(d, cw)
+
+
+def test_rf():
+    from commlib import rf
+    st = [("switch", -2.5, 2.5, None), ("LNA", 20, 1.5, -10), ("mixer", 15, 10, 5), ("BB", 30, 20, 15)]
+    c = rf.cascade(st)[-1]
+    assert abs(c[2] - 4.36) < 0.01 and abs(c[3] - (-19.0)) < 0.05                 # Chapter 7 worked example
+    stage = rf.poly_stage(10, 5.0)
+    assert abs(rf.two_tone(stage, -30)[2] - 5.0) < 0.1                             # two-tone recovers the IIP3
+    sys_ = lambda x: rf.poly_stage(30, 15)(rf.poly_stage(15, 5)(rf.poly_stage(20, -10)(rf.poly_stage(-2.5)(x))))
+    assert abs(rf.two_tone(sys_, -50)[2] - (-19.0)) < 0.2                           # cascade formula (coherent IM3)
+    assert abs(rf.irr_exact(0.1, 1.0) - 39.6) < 0.1
+    fs, n = 1e6, 1 << 18
+    mf, md = np.array([1e2, 1e5]), np.array([-80.0, -80.0])
+    phi = rf.phase_noise_from_mask(n, fs, mf, md, RNG)
+    assert abs(np.rad2deg(np.std(phi)) - rf.rms_phase_deg(np.array([0, fs / 2]), [-80, -80])) < 0.1 * np.rad2deg(np.std(phi))
+    v = np.linspace(0.01, 1, 50)
+    assert np.allclose(rf.eff_doherty(np.array([0.5, 1.0])), np.pi / 4)
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):

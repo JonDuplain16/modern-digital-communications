@@ -32,7 +32,8 @@
 # * The last cell prints the run time and your self-check score.
 #
 # All labs share the small library `commlib/` (modulation, filters, channels, synchronisation, equalisers, OFDM,
-# codes, MIMO, satellite links, line codes, information theory, block codes, CPM, propagation, source coding, spread spectrum) and `commlib/labkit.py` (the common look, widgets and self-checks). The
+# codes, MIMO, satellite links, line codes, information theory, block codes, CPM, propagation, source coding, spread spectrum, turbo codes,
+# cellular systems, an LTE/NR physical layer, wireline and optics, Wi-Fi/BLE/LoRa, 6G waveforms and RF transceivers) and `commlib/labkit.py` (the common look, widgets and self-checks). The
 # library is short and written to be read: when a lab calls `cl.gardner_sync`, open `commlib/sync.py` and look.
 
 # %%
@@ -100,13 +101,24 @@ lk.check("LDPC encoder produces valid codewords", None, cond=code.syndrome_ok(cw
 # | 20 | `lab20_block_codes` | 14 | Hamming and syndrome decoding, (72,64) SECDED, CRC calculator and detection test, GF(2^m), BCH and Reed–Solomon step by step, erasures, burst interleaving |
 # | 21 | `lab21_cpm_evm` | 9 | MSK/GMSK/GFSK, 99% bandwidth, MSK as OQPSK and the Laurent receiver, differential and discriminator detection, PAPR CCDF, EVM signatures and budgets |
 # | 22 | `lab22_propagation_link_budget` | 11 | Antenna gain, Fresnel clearance and knife-edge, two-ray, Hata/COST-231/TR 38.901 and O2I, gas and rain, Jakes–Reudink coverage, link-budget planner |
+# | 23 | `lab23_turbo_exit` | 15 | LTE turbo code (RSC, QPP interleaver), BCJR vs brute force, log-MAP vs max-log-MAP, BER per iteration, error floor from weight-2 codewords, EXIT charts and trajectories, density evolution on the BEC (regular, irregular, spatially coupled) |
 # | 24 | `lab24_source_coding` | 16 | Huffman and canonical codes, adaptive arithmetic coding, LPC analysis and vocoder, toy baseline JPEG, masking threshold and shaped noise |
 # | 25 | `lab25_spread_spectrum_gps` | 18 | m-sequences, Gold/Kasami and C/A codes, DSSS against a jammer, Rake, near–far and MUD, CDMA capacity, GPS acquisition, tracking, nav bits, position fix |
+# | 26 | `lab26_cellular_system` | 20 | Hexagonal reuse and SIR, sectors and shadowing, Erlang B/C with a call simulator, ALOHA/CSMA, instability and RACH, PPP coverage, multiuser diversity and α-fair scheduling |
+# | 27 | `lab27_lte_nr_phy` | 21 | LTE resource grid and overhead, PSS/SSS cell search with CFO on a two-cell signal, PDSCH chain (CRC24, segmentation, LDPC, circular-buffer rate matching, scrambling, QAM, OFDM, CRS channel estimation), BLER per MCS, HARQ chase vs IR |
 # | 28 | `lab28_ofdm_system` | 17 | LS/DFT/LMMSE channel estimation, ICI from CFO, Doppler and phase noise, coded OFDM, CFR and PA (EVM/ACLR), WOLA and filtered OFDM, DMT bit loading, OFDM radar |
+# | 29 | `lab29_arrays_beamforming` | 19 | Planar arrays and EIRP, beam squint (phase shifters vs TTD), Bartlett/MVDR/MUSIC direction finding, SSB beam sweep and Type I codebook, hybrid precoding by OMP, LOS MIMO |
+# | 30 | `lab30_wireline_optical` | 24 | RLGC loops, loading coils and bridged taps, DSL bit loading and rate vs reach, FEXT vectoring, fibre dispersion (IM/DD vs coherent), coherent DSP chain, OSNR/GN budgets, PON budget |
+# | 31 | `lab31_wifi_ble_lora` | 22 | 802.11 preamble detection/CFO/LTF channel estimation, MAC efficiency and rate anomaly, Minstrel-like rate adaptation, BLE GFSK and battery life, 802.15.4 O-QPSK, LoRa SER/time on air/range, RFID |
+# | 32 | `lab32_6g_waveforms` | 25 | Delay–Doppler channels and OTFS grid sizing, OFDM vs OTFS vs AFDM, embedded-pilot estimation, near-field beamfocusing, ISAC range–Doppler and sidelobe floors, RIS sizing |
+# | 33 | `lab33_noise_detection` | 3 | Gaussian statistics and Q tails, Rayleigh/Rice, filtered noise and B_N, bandpass noise and spectral correlation, Friis cascades, Y-factor, ROC curves and base rates |
+# | 34 | `lab34_telegraph_history` | 1 | Morse keying and key clicks, Morse vs Huffman and Shannon's telegraph capacity, the Atlantic cable's law of squares, analog repeaters vs regenerators, semaphore and modem rates |
+# | 35 | `lab35_fourier_spectra` | 2 | Windows, scalloping and zero padding, the uncertainty principle, phase vs group delay and dispersion, spectrograms, five bandwidths, two-tone IP3 |
+# | 36 | `lab36_rf_transceiver` | 7 | Two-tone IIP3 and the cascade formula, receiver line-up and SFDR, phase noise from a mask and reciprocal mixing, PA classes and Doherty, memory-polynomial DPD with ILA |
 #
-# **Suggested paths.** *A first course in digital communications:* 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8.
-# *Wireless systems:* 5 → 22 → 7 → 28 → 10 → 11 → 25 → 12. *Radio and DSP fundamentals:* 14 → 15 → 16 → 17 → 1 → 21.
-# *Information and coding:* 19 → 8 → 20 → 9 → 24. *Wireline/SerDes:* 3 → 13 → 6 → 28 (DMT). *Space and navigation:* 18 and 25 after 2, 5 and 8.
+# **Suggested paths.** *Start gently:* 34 → 35 → 33 → 1. *A first course in digital communications:* 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8.
+# *Wireless systems:* 5 → 22 → 7 → 28 → 10 → 29 → 11 → 26 → 27 → 31 → 25 → 12 → 32. *Radio and DSP fundamentals:* 35 → 14 → 15 → 16 → 17 → 1 → 36 → 21.
+# *Information and coding:* 19 → 8 → 20 → 9 → 23 → 24. *Wireline/SerDes:* 3 → 13 → 6 → 28 (DMT) → 30. *Space and navigation:* 18 and 25 after 2, 5 and 8.
 #
 # The table below is generated from the notebooks themselves (title and the measured run time of the pre-built copy).
 

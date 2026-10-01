@@ -1,14 +1,15 @@
 # Modern Digital Communications — Labs and SDR Examples
 
-Companion code for the textbook *Modern Digital Communications*. Twenty-five interactive Python
+Companion code for the textbook *Modern Digital Communications*. Thirty-six interactive Python
 simulation labs (plus a start-here index), a small shared DSP library, and five GNU Radio 3.10
 flowgraphs for the Ettus USRP B200. **Start with `labs/lab00_index.ipynb`.**
 
 ```
 commlib/     shared library: modulation, filters, channels, sync, equalizers (+ eqadv), OFDM (+ ofdmadv),
              coding (Viterbi, LDPC, polar; blockcodes, gf), MIMO, IQ file I/O, satellite links, line codes,
-             information theory, CPM/EVM, propagation, source coding, spread spectrum/GNSS,
-             and labkit (the common look-and-feel, widgets and self-checks used by every lab)
+             information theory, CPM/EVM, propagation, source coding, spread spectrum/GNSS, turbo codes and
+             EXIT/DE, cellular systems, an LTE/NR PHY (ltephy), wireline/optical, Wi-Fi/BLE/LoRa (iot), 6G
+             waveforms (sixg), RF transceiver models (rf), and labkit (the common look-and-feel, widgets and self-checks used by every lab)
 labs/        labNN_*.ipynb (pre-executed, with figures) + labNN_*.py sources (jupytext percent format)
 gnuradio/    grNN_*.py hardware flowgraphs + grcommon.py helpers
 tests/       test_commlib.py, build_notebooks.py (rebuild/execute labs), dump_figs.py (figure review)
@@ -57,9 +58,20 @@ graded **Exercises**. Run times below are for the full notebook on a desktop PC.
 | 20 | 14 | Hamming/SECDED, CRC calculator and detection test, GF(2^m), BCH and Reed–Solomon step by step, bursts and interleaving | syndrome decoder, CRC, GF table, RS errors/erasures, interleaver depth | 9 s |
 | 21 | 9 | MSK/GMSK/GFSK, 99% bandwidth, Laurent receiver vs differential/discriminator, PAPR CCDF, EVM signatures and budget | BT and h, GMSK eye, impairment explorer | 33 s |
 | 22 | 11 | Antennas, Fresnel/knife-edge, two-ray, Hata/COST-231/TR 38.901 + O2I, gas and rain, Jakes–Reudink coverage, link-budget planner | path profile, models, coverage planner | 13 s |
+| 23 | 15 | LTE turbo code (RSC, QPP), BCJR vs brute force, log-MAP vs max-log-MAP, BER per iteration, weight-2 error floor, EXIT charts, BEC density evolution incl. spatial coupling | block length/decoder/iterations, EXIT SNR, DE ensemble and ε | 58 s |
 | 24 | 16 | Huffman/canonical, adaptive arithmetic coder, LPC vocoder, toy JPEG, masking threshold and shaped noise | arithmetic orders, LPC pitch, JPEG quality, noise offset | 18 s |
 | 25 | 18 | m-sequences/Gold/Kasami/C/A, DSSS vs jammer, Rake, near–far + MUD, IS-95 capacity, GPS acquisition, tracking, position fix | jammer, near–far, acquisition grid, DOP | 8 s |
-| 28 | 17 | LS/DFT/LMMSE channel estimation, CFO/Doppler/phase-noise ICI, coded OFDM, CFR + PA (EVM/ACLR), WOLA/f-OFDM, DMT bit loading, OFDM radar | pilots, phase noise, CFR/PA, spectra, DSL reach, radar | 25 s |
+| 26 | 20 | Hexagonal reuse and SIR (sectors, shadowing), Erlang B/C + call simulator, ALOHA/CSMA, ALOHA instability, RACH, PPP coverage, PF/α-fair scheduling | cluster, SIR layout, trunking, stability, PPP, scheduler | 6 s |
+| 27 | 21 | LTE grid and overhead, PSS/SSS cell search with CFO (two cells), PDSCH chain: CRC24, segmentation, LDPC, circular-buffer RM, scrambling, QAM, OFDM, CRS chest; BLER per MCS; HARQ chase vs IR | grid/PCI, cell search, PDSCH chain | 50 s |
+| 28 | 17 | LS/DFT/LMMSE channel estimation, CFO/Doppler/phase-noise ICI, coded OFDM, CFR + PA (EVM/ACLR), WOLA/f-OFDM, DMT bit loading, OFDM radar | pilots, phase noise, CFR/PA, spectra, DSL reach, radar | 22 s |
+| 29 | 19 | Planar arrays and EIRP, beam squint (PS vs TTD), Bartlett/MVDR/MUSIC, SSB sweep + Type I codebook, hybrid precoding by OMP, LOS MIMO | panel, squint, DOA, beams, hybrid, LOS spacing | 3 s |
+| 30 | 24 | RLGC loops, loading coils, bridged taps, DSL loading and reach, FEXT vectoring, IM/DD vs coherent over dispersive fibre, coherent DSP chain, OSNR/GN and PON budgets | loop, DSL, vectoring, fibre, coherent DSP, link plan | 3 s |
+| 31 | 22 | 802.11 preamble sync and LTF chest, MAC efficiency/aggregation/rate anomaly, Minstrel-like RA, BLE GFSK + battery, 802.15.4 O-QPSK, LoRa SER/ToA/range, RFID | preamble, MAC, Minstrel, BLE, Zigbee, LoRa | 5 s |
+| 32 | 25 | DD channels and OTFS sizing, OFDM vs OTFS vs AFDM, embedded-pilot OTFS estimation, near-field focusing, ISAC range–Doppler and sidelobe floors, RIS sizing | grid, Doppler, pilot, focus, ISAC, RIS | 17 s |
+| 33 | 3 | Gaussian/Q tails, Rayleigh/Rice, filtered noise and B_N, bandpass noise, spectral correlation, Friis cascades, Y-factor, ROC curves | samples, filter, line-up, Y-factor, ROC | 10 s |
+| 34 | 1 | Morse keying and key clicks, Morse vs Huffman and Shannon's telegraph capacity, Atlantic cable law of squares, repeaters vs regenerators | keying, text, cable, repeaters | 2 s |
+| 35 | 2 | Windows/scalloping/zero padding, uncertainty, group delay and dispersion, spectrograms, five bandwidths, two-tone IP3 | window, pulse width, delays, STFT, bandwidth, IP3 | 2 s |
+| 36 | 7 | Two-tone IIP3 + cascade check, receiver line-up and SFDR, phase noise from an L(f) mask and reciprocal mixing, PA classes and Doherty, memory-polynomial DPD (ILA) | IIP3, line-up, phase noise, PA, DPD | 5 s |
 
 ### Writing or editing a lab
 Edit `labs/labNN_*.py` (jupytext percent format: `# %%` code cells, `# %% [markdown]` text cells), then

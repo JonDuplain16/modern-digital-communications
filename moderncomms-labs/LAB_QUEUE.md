@@ -11,17 +11,17 @@
 | 20 | lab20_block_codes.py | 14 | **done** — Hamming/SECDED, CRC calculator, GF(2^m), RS with bursts, interleaving |
 | 21 | lab21_cpm_evm.py | 9 | **done** — MSK/GMSK/GFSK gen+detect, spectra/99% BW, PAPR CCDF, EVM under impairments (reuse ch09_figs.py gmsk_baseband + impairments) |
 | 22 | lab22_propagation_link_budget.py | 11 | **done** — link-budget & coverage planner: Friis, Hata/COST-231, 38.901 LOS/NLOS/O2I, knife-edge, two-ray, P.838 rain, Jakes–Reudink coverage (helpers in ch11_figs.py) |
-| 23 | lab23_turbo_exit.py | 15 | turbo enc/BCJR dec, per-iteration BER, EXIT chart, BEC density evolution |
+| 23 | lab23_turbo_exit.py | 15 | **done** — turbo enc/BCJR dec, per-iteration BER, EXIT chart, BEC density evolution (commlib/turbo.py) |
 | 24 | lab24_source_coding.py | 16 | **done** — Huffman/canonical vs adaptive arithmetic on text, LPC analysis/resynthesis at new pitch, toy JPEG quality slider bpp/PSNR, masking-threshold shaped noise (helpers in ch16_figs.py) |
 | 25 | lab25_spread_spectrum_gps.py | 18 | **done** — PN/Gold codes, DSSS w/ jammer, RAKE, near–far, GPS C/A FFT acquisition, DLL/PLL, position fix (commlib.spread) |
-| 26 | lab26_cellular_system.py | 20 | hex-grid SIR maps, Erlang, ALOHA/CSMA sim, PPP coverage, PF scheduler |
-| 27 | lab27_lte_nr_phy.py | 21 | resource grid, PSS/SSS cell search, PDSCH chain |
+| 26 | lab26_cellular_system.py | 20 | **done** — hex-grid SIR maps, Erlang, ALOHA/CSMA sim, PPP coverage, PF scheduler (commlib/cellular.py) |
+| 27 | lab27_lte_nr_phy.py | 21 | **done** — resource grid, PSS/SSS cell search, PDSCH chain (commlib/ltephy.py) |
 | 28 | lab28_ofdm_system.py | 17 | **done** — LMMSE/DFT/LS chest, Doppler+phase-noise ICI & CPE fix, coded OFDM ± BICM on EPA/ETU, clipping+filtering w/ Rapp PA ACLR/EVM, WOLA/f-OFDM spectra, DSL bit loading, OFDM radar range–Doppler (helpers in ch17_figs.py) |
-| 29 | lab29_arrays_beamforming.py | 19 | planar array + EIRP calc, beam squint PS vs TTD, MUSIC/MVDR DOA, NR Type I codebook + SSB sweep, hybrid precoding by OMP, LOS-MIMO spacing (helpers in ch19_figs.py) |
-| 30 | lab30_wireline_optical.py | 24 | loop loss & DSL rate vs reach, crosstalk/vectoring, fibre CD + DSP compensation, coherent DP-QPSK chain, OSNR budget |
-| 31 | lab31_wifi_ble_lora.py | 22 | 802.11 preamble detect/CFO/LTF chest, MAC efficiency + aggregation + rate anomaly, Minstrel-like RA, BLE GFSK + battery calc, 802.15.4 O-QPSK, LoRa mod/demod SER vs theory + ToA/duty/link budget, RFID range (commlib/iot.py) |
-| 32 | lab32_6g_waveforms.py | 25 | OTFS vs OFDM, near-field focusing, ISAC range-Doppler, RIS |
-| 33 | lab33_noise_detection.py | 3 | noise generation/statistics, filtered noise PSD, envelope stats, NF cascade calc, ROC/Neyman–Pearson |
-| 34 | lab34_telegraph_history.py | 1 | Morse keying + spectrum, Morse vs Huffman on user text, Kelvin RC-cable ISI with wpm slider, analog repeater chain vs regenerator chain |
-| 35 | lab35_fourier_spectra.py | 2 | windows/scalloping/zero padding, uncertainty, group delay, STFT, two-tone IP3 (helpers in ch02_figs.py) |
-| 36 | lab36_rf_transceiver.py | 7 | two-tone IIP3 measurement, receiver line-up calculator (gain/NF/IIP3/SFDR cascade), phase noise from L(f) mask + reciprocal mixing, PA classes + Doherty efficiency, memory-polynomial DPD with indirect learning (helpers in ch07_figs.py) |
+| 29 | lab29_arrays_beamforming.py | 19 | **done** — planar array + EIRP calc, beam squint PS vs TTD, MUSIC/MVDR DOA, NR Type I codebook + SSB sweep, hybrid precoding by OMP, LOS-MIMO spacing (helpers in ch19_figs.py) |
+| 30 | lab30_wireline_optical.py | 24 | **done** — loop loss & DSL rate vs reach, crosstalk/vectoring, fibre CD + DSP compensation, coherent DP-QPSK chain, OSNR budget (commlib/wireline.py) |
+| 31 | lab31_wifi_ble_lora.py | 22 | **done** — 802.11 preamble detect/CFO/LTF chest, MAC efficiency + aggregation + rate anomaly, Minstrel-like RA, BLE GFSK + battery calc, 802.15.4 O-QPSK, LoRa mod/demod SER vs theory + ToA/duty/link budget, RFID range (commlib/iot.py) |
+| 32 | lab32_6g_waveforms.py | 25 | **done** — OTFS vs OFDM, near-field focusing, ISAC range-Doppler, RIS (commlib/sixg.py) |
+| 33 | lab33_noise_detection.py | 3 | **done** — noise generation/statistics, filtered noise PSD, envelope stats, NF cascade calc, ROC/Neyman–Pearson |
+| 34 | lab34_telegraph_history.py | 1 | **done** — Morse keying + spectrum, Morse vs Huffman on user text, Kelvin RC-cable ISI with wpm slider, analog repeater chain vs regenerator chain |
+| 35 | lab35_fourier_spectra.py | 2 | **done** — windows/scalloping/zero padding, uncertainty, group delay, STFT, two-tone IP3 (helpers in ch02_figs.py) |
+| 36 | lab36_rf_transceiver.py | 7 | **done** — two-tone IIP3 measurement, receiver line-up calculator (gain/NF/IIP3/SFDR cascade), phase noise from L(f) mask + reciprocal mixing, PA classes + Doherty efficiency, memory-polynomial DPD with indirect learning (helpers in ch07_figs.py) (commlib/rf.py) |
