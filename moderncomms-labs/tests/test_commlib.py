@@ -448,6 +448,92 @@ def test_synckit():
 
 
 
+def test_telegraph():
+    from commlib import telegraph as tg
+    assert abs(tg.telegraph_capacity() - 0.539) < 1e-3          # Shannon 1948
+    p = tg.letter_stats()
+    assert abs(sum(p[k] * tg.morse_units(tg.MORSE[k]) for k in p) - 9.07) < 0.01
+    assert tg.keyed_envelope("PARIS", 1)[1] == 50               # the PARIS standard
+    assert abs(tg.wpm_limit(2.1, 0.15, 3000) - 4.64) < 0.05      # Chapter 1 worked example
+    assert abs(tg.alt_swing([0.24])[0] - 0.10) < 0.01           # 10 % swing at T = 0.24 tau
+    v = tg.cable_response([1.0] * 40, 1.0, np.array([39.5]))   # long mark settles to 1
+    assert abs(v[0] - 1) < 0.1
+    T = tg.pipeline_times(3, 15, 30.0)
+    assert T[0, -1] == 450 and T[2, -1] == 510                  # latency 15 hops, then 1 per 30 s
+    assert abs(tg.regenerator_ber(17, 1000) - 7.2e-10) < 0.3e-10
+    assert abs(tg.loading_cutoff(88e-3, 0.0516e-6, 1.829) - 3493) < 5
+
+
+def test_pcm():
+    from commlib import pcm
+    n = np.arange(1 << 15)
+    x = 0.999 * np.sin(2 * np.pi * 0.0123456 * n)
+    for b in (8, 12):
+        assert abs(pcm.sqnr_db(x, pcm.quantize(x, b)) - (6.02 * b + 1.76)) < 0.5
+    xi = np.arange(-8159, 8160, 7)
+    y = pcm.g711_mu_decode(*pcm.g711_mu_encode(xi))
+    assert np.max(np.abs(y - xi)) <= 128                         # largest chord step / 2
+    xa = np.arange(-4095, 4096, 5)
+    assert np.max(np.abs(pcm.g711_a_decode(*pcm.g711_a_encode(xa)) - xa)) <= 64
+    assert np.allclose(pcm.imulaw(pcm.mulaw(x)), x) and np.allclose(pcm.ialaw(pcm.alaw(x)), x)
+    assert pcm.alias_frequency(7000, 8000) == 1000 and pcm.nyquist_zone(7000, 8000) == 2
+    b, a = pcm.ntf_coeffs(2)
+    v = pcm.sigma_delta(0.5 * np.sin(2 * np.pi * 5 / 8192 * np.arange(8192)), b, a)
+    assert set(np.unique(v)) <= {-1.0, 1.0} and abs(np.mean(v)) < 0.01
+    _, est = pcm.delta_mod(np.zeros(100), 0.1)
+    assert np.max(np.abs(est)) <= 0.1 + 1e-12                    # idles between ±δ
+    sf, fb = pcm.t1_superframe()
+    assert sf.shape == (12, 193) and np.sum(sf == 2) == 48 and fb.sum() == 6
+
+
+def test_superhet():
+    from commlib import superhet as sh
+    assert abs(sh.irr_db(1000e3, 1910e3, 40, 1) - 34.8) < 0.2   # Chapter 4 worked example (35 dB)
+    assert abs(abs(sh.butter_lp(np.array([1000.0]), 1000.0, 5))[0] - 2 ** -0.5) < 1e-9
+    fs, n = 256e3, 16384
+    st = [sh.Station(1000e3, -70, "tone", tone=1000, seed=5)]
+    zb, za, info = sh.if_signal(st, 1455e3, 455e3, fs, n, 1000e3, 30, 1, 9e3, 6, rng=1)
+    audio, dc = sh.detect_am(za, fs)
+    assert sh.tone_sinad(audio, 1000, fs) > 35 and info[0]["offset"] == 0
+    env = np.r_[np.ones(4000), 10 * np.ones(4000)]
+    out, g, _ = sh.agc_loop(env, 4000.0, 0.01, 0.02, 0.1)
+    assert abs(np.mean(out[-500:]) - 1) < 0.05 and abs(g[-1] + 20) < 1   # 20 dB taken out
+
+
+def test_fectools():
+    from commlib import fectools as ft
+    rng = np.random.default_rng(5)
+    cc = cl.ConvCode()
+    u = rng.integers(0, 2, (20, 60))
+    c = cc.encode_batch(u)
+    s = ft.bpsk_sigma(3.0, 0.5)
+    L = 2 * (1 - 2.0 * c + s * rng.standard_normal(c.shape)) / s ** 2
+    assert np.array_equal(ft.viterbi_window(cc, L)[:, :60], cc.decode_batch(L))
+    assert ft.viterbi_window(cc, 1 - 2.0 * c, 35)[:, :60].tolist() == u.tolist()
+    d, A, B = ft.distance_spectrum(cc, 14)
+    assert d[0] == 10 and A[0] == 11 and B[0] == 36
+    assert [ft.punctured_dfree(cc, p) for p in ([1, 1], [1, 1, 1, 0], [1, 1, 1, 0, 0, 1])] == [10, 6, 5]
+    c3 = cl.ConvCode(3, (0o7, 0o5))
+    rx = c3.encode([1, 0, 1, 1]).reshape(-1, 2)
+    rx[1, 1] ^= 1
+    tr = ft.viterbi_trace(c3, rx)
+    assert tr["bits"][:4].tolist() == [1, 0, 1, 1] and tr["pm"][-1, 0] == 1
+    code = cl.LDPCCode(96, 0.5, 3, seed=0)
+    bp = ft.TannerBP(code.H)
+    cw = code.encode(rng.integers(0, 2, code.k))
+    for m in ("spa", "ms", "nms", "oms"):
+        h, it = bp.decode(ft.bpsk_llr(cw[None], 6.0, 0.5, rng), 30, m)
+        assert np.array_equal(h[0], cw), m
+    assert ft.count_4cycles(code.H) == 0 and ft.tanner_girth(code.H) >= 6
+    assert np.allclose(ft.polar_bec_z(32, 0.3), cl.PolarCode._bhat(32, 0.3))
+    assert abs(ft.biawgn_limit_db(0.5) - 0.187) < 0.01
+    assert abs(float(ft.J_fast(2.0)) - 0.4824) < 0.01
+    e = np.array([0b100000111 << 5, 0b101], dtype=np.uint64)
+    assert ft.gf2_mod_many(e, 0b100000111).tolist() == [0, 5]
+    pi = ft.s_random_interleaver(64, 4, rng)
+    assert sorted(pi.tolist()) == list(range(64))
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
