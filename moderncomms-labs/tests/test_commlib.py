@@ -376,6 +376,78 @@ def test_analog():
     assert 20 * np.log10(an.tone_level(Lh, 1e3, fs) / an.tone_level(Rh, 1e3, fs)) > 40
 
 
+def test_fading():
+    from commlib import fading as fdg
+    e = np.array([0.0, 10.0, 20.0, 30.0])
+    assert np.allclose(fdg.ber_bpsk_diversity(e), cl.ber_bpsk_rayleigh(e), rtol=1e-6)
+    assert np.allclose(fdg.ber_bpsk_diversity(e, combining="sc"), cl.ber_bpsk_rayleigh(e), rtol=1e-3)
+    assert np.allclose(fdg.ber_bpsk_diversity(e, m=1.0), cl.ber_bpsk_rayleigh(e), rtol=1e-6)
+    # two-branch MRC, exact closed form ((1-mu)/2)^2 (2 + mu)
+    g = 10 ** (e / 10)
+    mu = np.sqrt(g / (1 + g))
+    assert np.allclose(fdg.ber_bpsk_diversity(e, L=2), ((1 - mu) / 2) ** 2 * (2 + mu), rtol=1e-6)
+    r = np.linspace(0, 6, 30001)
+    for kind, K, m in [("rayleigh", 0, 1), ("rician", 6.0, 1), ("nakagami", 0, 3.0)]:
+        pdf = fdg.envelope_pdf(r, kind, K=K, m=m)
+        assert abs(np.sum(pdf) * (r[1] - r[0]) - 1) < 1e-3
+        assert abs(np.sum(r ** 2 * pdf) * (r[1] - r[0]) - 1) < 1e-3
+    assert abs(fdg.power_cdf(0.01) - 0.00995) < 1e-4            # 20 dB fade: 1 % of the time
+    h = fdg.SoSFader(1, 32, rng=3).gains(np.arange(200_000) / 1e4, 100.0)[:, 0]
+    assert abs(np.mean(np.abs(h) ** 2) - 1) < 0.1
+    st_ = fdg.fade_stats(20 * np.log10(np.abs(h)), -10, 1e4)
+    assert abs(st_["rate"] / fdg.lcr_rayleigh(10 ** -0.5, 100) - 1) < 0.15
+    F = fdg.shadowing_field(96, 96, 10, 50, 8.0, rng=1)
+    assert abs(F.std() - 8) < 1e-6
+    d, p = cl.TDL_PROFILES["EPA"]
+    assert fdg.coherence_bandwidth(np.array(d) * 1e-9, p) > 2e6
+
+
+def test_modzoo():
+    from commlib import modzoo as mz
+    assert abs(mz.ebn0_required("qpsk", 1e-5) - 9.59) < 0.05
+    assert abs(mz.ebn0_required("16qam", 1e-5) - 13.43) < 0.1
+    assert abs(float(mz.shannon_ebn0_db(2.0)) - 1.76) < 0.01
+    assert np.allclose(mz.ser_psk_exact([12.0], 8), cl.ser_mpsk(12.0, 8), rtol=1e-3)
+    c = mz.constellation("16apsk")
+    assert c.M == 16 and abs(np.mean(np.abs(c.points) ** 2) - 1) < 1e-9
+    assert mz.nn_bit_flips(c) <= 1.0 + 1e-9                 # binary switching finds a Gray map
+    assert mz.nn_bit_flips(mz.constellation("32cross")) > 1.0
+    # large-M noncoherent FSK: integral form agrees with the alternating sum where both work
+    a = mz.ser_orth_noncoherent([0.0, 5.0, 10.0], 16)
+    g = 10 ** (np.array([0.0, 5.0, 10.0]) / 10)
+    from scipy.special import comb
+    ref = sum((-1) ** (n + 1) * comb(15, n) / (n + 1) * np.exp(-n * g / (n + 1)) for n in range(1, 16))
+    assert np.allclose(a, ref, rtol=1e-3)
+    assert np.allclose(mz.ber_fading_mrc(cl.ber_bpsk, [11.1], 2), mz.ber_rayleigh_mrc(11.1, 2), rtol=0.02)
+
+
+def test_synckit():
+    from commlib import synckit as sk
+    rng = np.random.default_rng(1)
+    q = cl.get_constellation("qpsk")
+    a = q.points[rng.integers(0, 4, 3000)]
+    loop = sk.CarrierLoop(0.02, detector="dd", M=4)
+    loop.run(cl.apply_cfo(a[:1500], 0.003, 1.0))
+    loop.run(cl.apply_cfo(a, 0.003, 1.0)[1500:])           # resumable
+    assert abs(loop.freq - 0.003) < 2e-4
+    h = cl.rrc_taps(0.35, 4, 12)
+    x = cl.matched_filter(cl.shape(a, h, 4), h)
+    x = cl.fractional_delay(np.r_[x, np.zeros(10)], 1.7)
+    for ted in ("gardner", "mm", "el"):
+        tl = sk.TimingLoop(4, 0.01, ted=ted)
+        taus = np.concatenate([tl.push(x[i:i + 800])[2] for i in range(0, len(x), 800)])
+        assert abs(np.median(taus[-500:-50]) - 1.7) < 0.15, ted
+    z = np.exp(2j * np.pi * 0.01 * np.arange(64))
+    for f in (sk.est_kay, sk.est_fitz, sk.est_lr, sk.est_periodogram):
+        assert abs(f(z) - 0.01) < 1e-4, f.__name__
+    assert np.allclose(sk.interp_taps(0.3, "cubic").sum(), 1.0)
+    p = sk.nr_pss(0)
+    assert len(p) == 127 and set(np.unique(p)) == {-1.0, 1.0}
+    e = sk.pll_step_response(np.array([0.0, 50.0]), 0.707, "phase")
+    assert abs(e[0] - 1) < 1e-9 and abs(e[1]) < 1e-6
+
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):

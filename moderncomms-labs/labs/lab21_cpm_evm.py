@@ -1,417 +1,1083 @@
-# %% [markdown]
-# # Lab 21 — Constant-Envelope Modulation and Modulation Quality: MSK, GMSK, GFSK, PAPR and EVM
-#
-# **Companion to Chapter 9** (*Digital Modulation and Optimal Detection*), sections on continuous-phase modulation and on
-# measuring modulation quality.
-# **Time needed:** about 75 minutes. **Difficulty:** core.
-#
-# Two questions decide what a radio can transmit. *Can the power amplifier run flat out?* Only if the signal has a constant
-# envelope, which is why GSM, Bluetooth, DECT and countless sensors use MSK, GMSK and GFSK. *How clean is the transmitted
-# constellation?* That is measured by the error vector magnitude (EVM), and it decides how many bits per symbol a
-# short-range link like Wi-Fi can use. This lab generates CPM signals with the same generator that drew Chapter 9's figures,
-# measures their spectra and 99% bandwidths, detects them three ways (coherent Laurent receiver, one-bit differential
-# detector, limiter-discriminator), compares envelope statistics (PAPR) across modulations, and then turns the
-# constellation into a diagnostic instrument: impairments, their EVM signatures, and an EVM budget for a 1024-QAM transmitter.
-# Library code: `commlib/cpm.py`.
-#
-# ### What you will learn
-# 1. Build MSK, GMSK and GFSK from the CPM equation and read their phase trajectories and frequency pulses.
-# 2. Measure spectra and 99% occupied bandwidth as a function of $BT$, and compare with QPSK.
-# 3. See that MSK is OQPSK with half-sine pulses, and detect MSK/GMSK coherently with the main Laurent pulse.
-# 4. Compare coherent, differential and discriminator receivers, and the ISI that small $BT$ brings.
-# 5. Compare envelope fluctuations (PAPR CCDF) of GMSK, OQPSK, π/4-QPSK, QPSK and QAM.
-# 6. Measure EVM, recognise impairments by their signature, and close an EVM budget.
-#
-# ### Prerequisites
-# Lab 2 (constellations, BER), Lab 3 (pulse shaping). Chapter 9, Sections on CPM and EVM.
-#
-# ### Roadmap
-# | § | Topic | Interactive |
-# |---|-------|:-----------:|
-# | 1 | Continuous-phase modulation: phase, frequency pulse, GFSK | yes |
-# | 2 | Spectra and 99% bandwidth | yes |
-# | 3 | MSK is OQPSK: the Laurent pulse | |
-# | 4 | Detecting MSK and GMSK: coherent, differential, discriminator | yes |
-# | 5 | Envelope and PAPR | |
-# | 6 | EVM: impairment signatures and a 1024-QAM budget | yes |
+"""Lab 21 · Constant Envelope and Modulation Quality: CPM, PAPR and EVM   (Chapter 9)
 
-# %%
-import os, sys
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")   # small matrices: avoid BLAS thread thrashing
-sys.path[:0] = [p for p in (os.path.abspath(".."), os.path.abspath("."))
-                if os.path.isdir(os.path.join(p, "commlib"))]
+Run it:      python labs/lab21_cpm_evm.py
+Self-test:   python labs/lab21_cpm_evm.py --selftest
+
+Two questions decide what a radio may transmit. Can the power amplifier run flat out? Only
+if the envelope is constant, which is why GSM, Bluetooth and DECT use MSK, GMSK and GFSK.
+How clean is the transmitted constellation? That is the error vector magnitude, and it caps
+how many bits per symbol a link can carry. Eight experiments: phase trajectories, spectra,
+MSK as offset QPSK, three receivers, PAPR, an amplifier's spectral regrowth, impairment
+signatures and an EVM budget. Library code: commlib/cpm.py.
+"""
+import _path  # noqa: F401  (makes commlib and studio importable)
+
+from functools import lru_cache
+
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy import signal as sps_
+from scipy import signal as ss
+
 import commlib as cl
 from commlib import cpm
-from commlib import labkit as lk
+import studio as st
+from studio import (Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
+                    Plot, SpectrumPlot, ConstellationPlot, EyePlot, BERPlot, BarPlot, Readout,
+                    Challenge, NAVY, RED, GREEN, ORANGE, PURPLE, BLUE, GRAY, GOLD, TEAL)
+from studio import v, keybox, good, bad
 
-rng = lk.setup(seed=21, lab="21")
 
-# %% [markdown]
-# ## 1. Continuous-phase modulation: phase, frequency pulse, GFSK
-#
-# A CPM signal has constant amplitude and a phase that integrates the data:
-#
-# $$\tilde s(t)=\exp\Big(j\,2\pi h\sum_n a_n\,q(t-nT)\Big),\qquad q(t)=\int_{-\infty}^t g(\tau)\,d\tau,\quad q(\infty)=\tfrac12 .$$
-#
-# Each bit $a_n = \pm 1$ moves the phase by $\pm\pi h$ in total. **MSK** is $h=\tfrac12$ with a rectangular one-bit frequency
-# pulse: the phase ramps by exactly ±90° per bit. **GMSK** smooths the rectangle with a Gaussian filter of bandwidth-time product
-# $BT$ (GSM: 0.3), so each bit's phase change is spread over two to three bits. **GFSK** is the same with $h \ne \tfrac12$
-# (Bluetooth BR: $h \approx 0.32$, BLE: $h \approx 0.5$, both $BT = 0.5$).
+# =============================================================================== shared helpers
+BOOK_BITS = np.array([1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1])
 
-# %%
-def cpm_demo(BT=0.3, h=0.5):
-    bits = np.array([1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1])
-    n = 64
-    t = np.arange(len(bits) * n) / n
-    f, ax = lk.fig((13, 3.6), 1, 3, gridspec_kw=dict(width_ratios=[1.6, 1, 1]))
-    for k in range(len(bits)):                                   # MSK phase tree
-        for m in range(-k, k + 1, 2):
-            for d in (1, -1):
-                ax[0].plot([k, k + 1], [m * 90, (m + d) * 90], color=lk.GRAY, lw=0.3, alpha=0.5)
-    _, ph_msk = cpm.gmsk_baseband(bits, n, None)
-    _, ph = cpm.gmsk_baseband(bits, n, BT, h)
-    ax[0].plot(t, np.rad2deg(ph_msk), color=lk.NAVY, label="MSK")
-    ax[0].plot(t, np.rad2deg(ph), color=lk.RED, label=f"GFSK BT = {BT:g}, h = {h:g}")
-    for i, b in enumerate(bits):
-        ax[0].text(i + 0.5, 250, str(b), ha="center", fontsize=8)
-    ax[0].set_ylim(-220, 280); ax[0].set_xlabel("time (bits)"); ax[0].set_ylabel("phase (degrees)"); ax[0].legend(fontsize=8)
-    ax[0].set_title("Phase trajectory over the MSK phase tree")
-    tt = np.linspace(-2.5, 2.5, 600)
-    ax[1].plot(tt, cpm.gmsk_freq_pulse(tt, None), color=lk.NAVY, label="MSK (rectangle)")
-    ax[1].plot(tt, cpm.gmsk_freq_pulse(tt, BT), color=lk.RED, label=f"BT = {BT:g}")
-    ax[1].set_xlabel("t / T"); ax[1].set_ylabel("g(t) T"); ax[1].legend(fontsize=8); ax[1].set_title("Frequency pulse")
-    x, _ = cpm.gmsk_baseband(rng.integers(0, 2, 400), 16, BT, h)
-    ax[2].plot(x.real, x.imag, color=lk.NAVY, lw=0.5)
-    ax[2].set_aspect("equal"); ax[2].set_xlim(-1.3, 1.3); ax[2].set_ylim(-1.3, 1.3)
-    ax[2].set_title("IQ trajectory: a circle"); ax[2].set_xlabel("I"); ax[2].set_ylabel("Q")
-    lk.show(f)
 
-lk.interact(cpm_demo, BT=lk.slider(0.3, 0.1, 1.0, 0.05, "BT"), h=lk.slider(0.5, 0.2, 1.0, 0.01, "modulation index h"))
+def db10(x):
+    return 10 * np.log10(np.maximum(x, 1e-300))
 
-# %% [markdown]
-# **What you should see.** MSK's phase runs along the edges of the tree, ±90° per bit. GMSK with $BT = 0.3$ rounds the corners,
-# and after an alternating pattern (…0 1 0…) no longer reaches ±90° within the bit: the price of a narrow spectrum is
-# controlled intersymbol interference. Change $h$: with $h = 0.32$ (Bluetooth BR) each bit moves the phase only about 58°.
-# Whatever you choose, the IQ trajectory stays on the unit circle.
-#
-# ## 2. Spectra and 99% bandwidth
-#
-# Continuity of phase makes MSK's sidelobes fall as $f^{-4}$, against $f^{-2}$ for rectangular QPSK; Gaussian filtering
-# makes them fall faster still. Chapter 9 quotes 99% power bandwidths of about $1.2R_b$ for MSK, $0.91R_b$ for GMSK $BT=0.3$, and
-# roughly $8R_b$ for rectangular QPSK.
 
-# %%
-nb, n = 100_000, 16
-bits = rng.integers(0, 2, nb)
-qps = cl.get_constellation("qpsk").points[rng.integers(0, 4, nb // 2)]
-x_rect = np.repeat(qps, 2 * n)
-up = np.zeros(len(qps) * 2 * n, complex); up[::2 * n] = qps
-x_rrc = sps_.fftconvolve(up, cl.rrc_taps(0.35, 2 * n, span=40))
-items = [("QPSK, rectangular", x_rect, lk.GRAY, ":"), ("MSK", cpm.gmsk_baseband(bits, n, None)[0], lk.NAVY, "-"),
-         ("GMSK BT = 0.5", cpm.gmsk_baseband(bits, n, 0.5)[0], lk.GREEN, "--"),
-         ("GMSK BT = 0.3 (GSM)", cpm.gmsk_baseband(bits, n, 0.3)[0], lk.RED, "-"),
-         ("QPSK, RRC β = 0.35", x_rrc, lk.ORANGE, "-.")]
-rows = []
-f, ax = lk.fig((9, 3.8))
-for lab, x, col, ls in items:
-    fr, p = cpm.psd_normalized(x, fs=n, nper=2048)
-    ax.plot(fr, lk.db(np.maximum(p, 1e-14)), color=col, ls=ls, label=lab)
-    rows.append([lab, cpm.occupied_bandwidth(x, n, 0.99, 8192), cpm.occupied_bandwidth(x, n, 0.999, 8192)])
-ax.set_xlim(0, 3); ax.set_ylim(-80, 5); ax.set_xlabel("frequency offset f / Rb"); ax.set_ylabel("PSD (dB, unit power)")
-ax.legend(fontsize=8); ax.set_title("Spectra at the same bit rate")
-lk.show(f)
-lk.table(rows, ["signal", "99% bandwidth (× Rb)", "99.9% bandwidth (× Rb)"], fmt=".2f")
+@lru_cache(maxsize=64)
+def min_phase_step(BT, h, sps=8, n=3000):
+    """Smallest and median |phase change| over one bit (degrees) for random data."""
+    rng = np.random.default_rng(5)
+    _, ph = cpm.gmsk_baseband(rng.integers(0, 2, n), sps, BT, h)
+    step = np.rad2deg(np.abs(np.diff(ph[sps - 1::sps])))[10:-10]
+    return float(step.min()), float(np.median(step))
 
-def bw_demo(h=0.5):
-    BTs = np.array([0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.7, 1.0])
-    b = rng.integers(0, 2, 40_000)
-    bw = [cpm.occupied_bandwidth(cpm.gmsk_baseband(b, 16, BT, h)[0], 16, 0.99, 4096) for BT in BTs]
-    f, ax = lk.fig((7, 3.4))
-    ax.plot(BTs, bw, "o-", color=lk.NAVY, label=f"GFSK, h = {h:g}")
-    ax.axhline(cpm.occupied_bandwidth(cpm.gmsk_baseband(b, 16, None, h)[0], 16), color=lk.GRAY, ls=":", label="no Gaussian filter")
-    ax.set_xlabel("BT"); ax.set_ylabel("99% bandwidth (× Rb)"); ax.legend(); ax.set_title("Occupied bandwidth vs BT")
-    lk.show(f)
 
-lk.interact(bw_demo, h=lk.slider(0.5, 0.25, 1.0, 0.01, "modulation index h"))
+@lru_cache(maxsize=128)
+def obw(BT, h, frac=0.99, sps=8, n=12000):
+    """Occupied bandwidth (× Rb) of GMSK/GFSK (BT=None: plain CPFSK/MSK)."""
+    rng = np.random.default_rng(11)
+    x, _ = cpm.gmsk_baseband(rng.integers(0, 2, n), sps, BT, h)
+    return float(cpm.occupied_bandwidth(x, sps, frac, 4096))
 
-# %% [markdown]
-# **What you should see.** MSK 1.19 $R_b$, GMSK 0.5 about 1.03, GMSK 0.3 about 0.91 (the chapter's numbers), while rectangular QPSK
-# needs many times more for 99% of its power because of its slowly decaying sidelobes. RRC-shaped QPSK is the most compact of all,
-# (about $0.58R_b$ for 99%, inside its $(1+\beta)R_b/2 = 0.675R_b$ total width), but it is not constant-envelope (Section 5). GSM's 200 kHz channel carries 270.8 kb/s:
-# about 0.74 $R_b$, so even GMSK 0.3 spills a little power into the neighbours, which the frequency plan absorbs.
-#
-# ### Try it yourself 2.1
-# What is the 99% bandwidth (in units of $R_b$) of BLE-like GFSK with $BT = 0.5$ and $h = 0.5$? And with $h = 0.32$ (Bluetooth BR)?
-# Enter the second.
 
-# %%
-answer_2_1 = None
-lk.check("2.1 99% bandwidth, GFSK BT 0.5, h 0.32 (× Rb)", answer_2_1,
-         cpm.occupied_bandwidth(cpm.gmsk_baseband(bits[:40_000], 16, 0.5, 0.32)[0], 16), atol=0.03)
+# =============================================================================== 1. phase
+class PhaseTrajectories(Experiment):
+    title = "Phase that remembers"
+    blurb = "MSK, GMSK and GFSK: the phase integrates the data, the envelope never moves."
+    book = "sec:ch09:constenv"
+    controls = [
+        Toggle("gauss", "Gaussian pre-filter (GMSK / GFSK)", True),
+        Slider("BT", "Bandwidth–time product BT", 0.1, 1.0, 0.5, step=0.01,
+               help="Gaussian filter bandwidth × bit period (GSM 0.3, Bluetooth 0.5)",
+               enabled_if=lambda p: p.gauss),
+        Slider("h", "Modulation index h", 0.2, 1.0, 0.5, step=0.01,
+               help="Each bit moves the phase by ±h·180° in total (MSK: h = 0.5)"),
+        Choice("pattern", "Bits", ["Book pattern", "Alternating", "Random"]),
+        Button("again", "New random bits", enabled_if=lambda p: p.pattern == "Random"),
+    ]
+    plots = [
+        Plot("tree", "Phase trajectory over the MSK phase tree", x="time (bit periods)",
+             y="phase (degrees)", xlim=(0, 12), ylim=(-290, 330), legend="bl", legend_cols=2),
+        Plot("pulse", "Frequency pulse g(t)·T", x="time (bit periods)", y="g(t)·T",
+             xlim=(-2.5, 2.5), ylim=(-0.03, 0.62), legend="tr"),
+        Plot("iq", "IQ trajectory", x="I", y="Q", xlim=(-1.4, 1.4), ylim=(-1.4, 1.4), aspect=True,
+             legend=None),
+    ]
+    layout = [["tree", "tree"], ["pulse", "iq"]]
+    row_stretch = [3, 2]
+    readouts = [
+        Readout("full", "Phase change per bit (total)", "°", ".0f"),
+        Readout("minstep", "Smallest step within a bit", "°", ".0f",
+                help="Worst case over random data: a bit's own phase move after ISI"),
+        Readout("bw", "99 % bandwidth", "× Rb", ".2f"),
+        Readout("papr", "Peak / average", "dB", ".2f"),
+    ]
+    challenges = [
+        Challenge("Set up classic Bluetooth (BR): BT = 0.5 and h = 0.32.",
+                  lambda s: s.p.gauss and abs(s.p.BT - 0.5) < 0.011 and abs(s.p.h - 0.32) < 0.006),
+        Challenge("Squeeze the spectrum below 0.85 Rb (99 %) while keeping h = 0.5.",
+                  lambda s: abs(s.p.h - 0.5) < 0.006 and s.r.bw < 0.85,
+                  hint="Lower BT spreads each bit's phase change over more bits."),
+        Challenge("Find the BT where an isolated bit moves the phase by less than 30° within its "
+                  "own bit period (h = 0.5).",
+                  lambda s: s.p.gauss and abs(s.p.h - 0.5) < 0.006 and s.r.minstep < 30),
+    ]
+    sps = 64
 
-# %% [markdown]
-# ## 3. MSK is OQPSK: the Laurent pulse
-#
-# Laurent (1986) showed that binary CPM is a sum of amplitude-modulated pulses, $\tilde s(t)\approx\sum_k b_k C_0(t-kT)$ with
-# $b_k = j\,a_k\,b_{k-1}$, so $b_k$ alternates between the real and imaginary axes. For MSK this is *exact*, with
-# $C_0(t)=\sin(\pi t/2T)$ on $[0, 2T)$: MSK is offset QPSK with half-sine pulses, and a filter matched to $C_0$ gives the BER of
-# BPSK. For GMSK, $C_0$ carries almost all the energy and the rest is small ISI. If the transmitter **precodes** the data,
-# $a_k = c_k c_{k-1}$, the receiver reads $c_k$ directly from the sign of $\mathrm{Re}\{j^{-k} z_k\}$.
+    def setup(self):
+        self.rbits = np.random.default_rng(3).integers(0, 2, 12)
 
-# %%
-sp8 = 16
-f, ax = lk.fig("row2", 1, 2)
-for BT, col, lab in [(None, lk.NAVY, "MSK"), (0.5, lk.GREEN, "GMSK 0.5"), (0.3, lk.RED, "GMSK 0.3")]:
-    c0 = cpm.laurent_c0(sp8, BT)
-    ax[0].plot(np.arange(len(c0)) / sp8 - (len(c0) - 1) / sp8 / 2, c0, color=col, label=lab)
-ax[0].set_xlabel("t / T (centred)"); ax[0].set_ylabel("C0(t)"); ax[0].legend(); ax[0].set_title("Main Laurent pulse")
-c = rng.integers(0, 2, 24)
-x, _ = cpm.gmsk_baseband(cpm.msk_precode(c), sp8, None)
-t = np.arange(len(x)) / sp8
-ax[1].plot(t, x.real, color=lk.NAVY, label="I")
-ax[1].plot(t, x.imag, color=lk.RED, label="Q")
-ax[1].set_xlabel("time (bits)"); ax[1].legend(); ax[1].set_title("MSK: I and Q are half-sines, offset by one bit")
-lk.show(f)
+    def on_again(self, p):
+        self.rbits = self.rng.integers(0, 2, 12)
 
-# %% [markdown]
-# **What you should see.** MSK's $C_0$ is the 2-bit half-sine; GMSK's pulses are smoother and longer (about 3–4 bits wide). On the
-# right, the I and Q rails of MSK change sign only at alternate bit boundaries, half a symbol apart: the OQPSK structure.
-#
-# ## 4. Detecting MSK and GMSK: coherent, differential, discriminator
-#
-# * **Coherent (Laurent) receiver**: matched filter to $C_0$, sample once per bit, derotate by $j^{-k}$, take the sign. Needs carrier
-#   phase and timing (we calibrate them on a known noiseless waveform, which a real receiver would do with a preamble).
-# * **One-bit differential detector**: $\mathrm{Im}\{y(t)y^*(t-T)\}$: the sign of the phase change over a bit. No carrier recovery.
-# * **Limiter–discriminator**: the instantaneous frequency integrated over a bit, the cheapest receiver there is (Bluetooth, DECT, pagers).
-#
-# The two noncoherent receivers need a pre-detection filter (here a one-bit moving average) to limit the noise they see.
+    def bits(self, p):
+        if p.pattern == "Book pattern":
+            return BOOK_BITS
+        if p.pattern == "Alternating":
+            return np.array([1, 0] * 6)
+        return self.rbits
 
-# %%
-spsd = 8
-ebs = np.arange(0, 11, 1.0)
-cdat = rng.integers(0, 2, 60_000)
-res = {}
-for BT in [None, 0.3]:
-    a = cpm.msk_precode(cdat)
-    x, _ = cpm.gmsk_baseband(a, spsd, BT)
-    rx = cpm.LaurentReceiver(spsd, BT); rx.calibrate(x[:8000], cdat[:1000])
-    name = "MSK" if BT is None else "GMSK 0.3"
-    for e in ebs:
-        y, _ = cl.awgn_esn0(x, e, sps=spsd, rng=rng)
-        res.setdefault(f"{name} coherent", []).append(np.mean(rx.detect(y, len(cdat))[5:-5] != cdat[5:-5]))
-        res.setdefault(f"{name} differential", []).append(np.mean((cpm.differential_detect(y, spsd) > 0)[5:-5] != a[5:-5]))
-        res.setdefault(f"{name} discriminator", []).append(np.mean((cpm.discriminator_detect(y, spsd) > 0)[5:-5] != a[5:-5]))
-f, ax = lk.fig("ber")
-lk.ber_plot(ax, ebs, sims=res, theory={"BPSK (= coherent MSK)": cl.ber_bpsk(np.linspace(0, 11, 100))},
-            x_theory=np.linspace(0, 11, 100), ylim=(1e-5, 0.5))
-ax.set_title("MSK and GMSK with three receivers (60 000 bits per point)")
-lk.show(f)
+    def update(self, p):
+        BT = p.BT if p.gauss else None
+        b = self.bits(p)
+        n = self.sps
+        t = np.arange(len(b) * n) / n
+        _, ph_msk = cpm.gmsk_baseband(b, n, None)
+        _, ph = cpm.gmsk_baseband(np.r_[b, [0, 0]], n, BT, p.h)
+        ph = ph[:len(t)]
+        pt = self.plot("tree")
+        xs, ys = [], []
+        for k in range(len(b)):
+            for m in range(-k, k + 1, 2):
+                for d in (1, -1):
+                    xs += [k, k + 1, np.nan]
+                    ys += [m * 90, (m + d) * 90, np.nan]
+        pt.line("tree", xs, ys, color=GRAY, width=0.6, alpha=0.5)
+        pt.line("msk", t, np.rad2deg(ph_msk), color=NAVY, width=1.8, name="MSK")
+        lab = (f"GFSK, BT = {p.BT:.2f}, h = {p.h:.2f}" if p.gauss else f"CPFSK, h = {p.h:.2f}")
+        pt.line("g", t, np.rad2deg(ph), color=RED, width=2.4, name=lab)
+        for i, bb in enumerate(b):
+            pt.text(f"b{i}", i + 0.5, 300, str(int(bb)), anchor=(0.5, 0.5), size=10, bold=True,
+                    color=NAVY)
+            pt.vline(f"v{i}", i, color=GRAY, style=":", width=0.6)
+        tt = np.linspace(-2.5, 2.5, 501)
+        pp = self.plot("pulse")
+        pp.line("msk", tt, cpm.gmsk_freq_pulse(tt, None), color=NAVY, width=1.8, name="MSK (rectangle)")
+        if p.gauss:
+            pp.line("g", tt, cpm.gmsk_freq_pulse(tt, p.BT), color=RED, width=2.4,
+                    name=f"Gaussian, BT = {p.BT:.2f}")
+        x, _ = cpm.gmsk_baseband(np.random.default_rng(1).integers(0, 2, 240), 12, BT, p.h)
+        pi_ = self.plot("iq")
+        pi_.line("iq", x.real, x.imag, color=NAVY, width=1.0, alpha=0.8)
+        k = np.arange(11, len(x), 12)
+        pi_.scatter("pts", x[k].real, x[k].imag, color=RED, size=5)
+        mn, _ = min_phase_step(BT, round(p.h, 2))
+        self.readout(full=180 * p.h, minstep=mn, bw=obw(BT, round(p.h, 2)),
+                     papr=float(db10(np.max(np.abs(x) ** 2) / np.mean(np.abs(x) ** 2))))
 
-# %% [markdown]
-# **What you should see.** Coherent MSK sits on the BPSK curve: constant envelope at no cost in power efficiency. Coherent GMSK 0.3
-# loses only a few tenths of a dB to its ISI. For MSK the one-bit differential and discriminator receivers (which here give
-# nearly identical decisions) cost about 4 dB at $10^{-3}$ in exchange for needing no carrier-recovery loop. For GMSK 0.3 these
-# simple receivers are poor, and their error rate flattens out near $10^{-2}$: the table below shows why. In an alternating
-# pattern a bit moves the phase only about 28°, not 90°, so a little noise flips the decision. Practical noncoherent GMSK/GFSK
-# receivers therefore use larger $BT$ (Bluetooth and DECT use 0.5), two-bit differential detection or a small Viterbi detector. GSM
-# handsets went coherent, with a Viterbi equaliser built on exactly the Laurent model.
+    def story(self, p):
+        mn = self.r.get("minstep", 90)
+        s = ("<p>A continuous-phase signal never changes amplitude (bottom right: the IQ trajectory "
+             "is a circle) and never jumps in phase. Each bit pushes the phase up for a 1 or down "
+             f"for a 0, by ±{v(180 * p.h, '.0f', '°')} in total. With h = 0.5 and a rectangular "
+             "frequency pulse this is <b>MSK</b>: the navy path runs exactly along the edges of the "
+             "phase tree.</p>")
+        if p.gauss:
+            s += (f"<p>The Gaussian filter (BT = {v(p.BT)}) rounds every corner: each bit's phase "
+                  f"change is smeared over two or three bits (bottom left), which narrows the "
+                  f"spectrum. The price is controlled ISI: in an alternating pattern a bit now moves "
+                  f"the phase by as little as {v(mn, '.0f', '°')} within its own period.</p>")
+        if abs(p.h - 0.5) > 0.01:
+            s += (f"<p>With h = {v(p.h)} the red path leaves the MSK tree: "
+                  + ("Bluetooth BR uses h ≈ 0.32, a deliberately small deviation."
+                     if p.h < 0.5 else "a wider deviation and a wider spectrum.") + "</p>")
+        return "<h3>The phase remembers every bit</h3>" + s + keybox(
+            "CPM: s(t) = exp(j·2πh·Σ aₙ q(t − nT)). Constant envelope means a saturated, efficient "
+            "power amplifier: GSM, Bluetooth, DECT, many IoT radios.")
 
-# %%
-rows = []
-for BT in [None, 0.5, 0.3, 0.2]:
-    _, ph = cpm.gmsk_baseband(rng.integers(0, 2, 4000), spsd, BT)
-    step = np.rad2deg(np.abs(np.diff(ph[spsd - 1::spsd])))
-    rows.append(["MSK" if BT is None else f"GMSK {BT}", step.min(), np.median(step), step.max()])
-lk.table(rows, ["signal", "smallest phase step per bit (deg)", "median", "largest"], fmt=".1f")
-#
-# ### Interactive: how small can BT go?
 
-# %%
-def isi_demo(BT=0.3, ebn0=12.0):
-    b = rng.integers(0, 2, 3000)
-    x, _ = cpm.gmsk_baseband(b, spsd, BT)
-    y, _ = cl.awgn_esn0(x, ebn0, sps=spsd, rng=rng)
-    m = spsd
-    yf = sps_.lfilter(np.ones(m) / m, 1, y)
-    fq = np.angle(yf[1:] * np.conj(yf[:-1])) * spsd / (np.pi / 2)        # normalised instantaneous frequency
-    f, ax = lk.fig("row2", 1, 2)
-    lk.eye(ax[0], fq, spsd, n_sym=2, offset=spsd // 2, n_traces=300)
-    ax[0].set_title(f"Discriminator output eye, BT = {BT:g}"); ax[0].set_ylabel("frequency (× Rb/4)")
-    d = cpm.discriminator_detect(y, spsd)
-    ber = np.mean((d > 0)[5:-5] != b[5:-5])
-    ax[1].hist(d[b == 1], 80, color=lk.NAVY, alpha=0.6, label="bit 1"); ax[1].hist(d[b == 0], 80, color=lk.RED, alpha=0.6, label="bit 0")
-    ax[1].axvline(0, color="k", lw=0.8); ax[1].legend(); ax[1].set_title(f"Decision statistic: BER = {ber:.2e}")
-    lk.show(f)
+# =============================================================================== 2. spectra
+class Spectra(Experiment):
+    title = "Spectra and 99 % bandwidth"
+    blurb = "Continuous phase kills the sidelobes; the Gaussian filter narrows the main lobe."
+    book = "sec:ch09:constenv"
+    controls = [
+        Slider("BT", "GMSK bandwidth–time BT", 0.15, 1.0, 0.5, step=0.01),
+        Slider("h", "Modulation index h", 0.25, 1.0, 0.5, step=0.01),
+        Toggle("refs", "Show QPSK references", True),
+    ]
+    plots = [
+        SpectrumPlot("psd", "Power spectral density at the same bit rate",
+                     x="frequency offset (× bit rate Rb)", y="PSD (dB)", xlim=(0, 3),
+                     ylim=(-90, 9), legend="tr"),
+        Plot("bw", "99 % bandwidth against BT", x="BT", y="99 % bandwidth (× Rb)",
+             xlim=(0.1, 1.05), ylim=(0.4, 1.6), legend="br"),
+    ]
+    layout = [["psd", "bw"]]
+    col_stretch = [3, 2]
+    readouts = [
+        Readout("bw", "99 % bandwidth", "× Rb", ".2f"),
+        Readout("bw999", "99.9 % bandwidth", "× Rb", ".2f"),
+        Readout("side", "PSD at 1.5 Rb", "dB", ".0f", good=lambda x: x < -50),
+        Readout("gsm", "Power outside ±100 kHz (GSM)", "%", ".2f",
+                help="GSM: 270.8 kb/s in a 200 kHz channel, i.e. ±0.369 Rb"),
+    ]
+    challenges = [
+        Challenge("Reproduce GSM (BT = 0.3, h = 0.5) and confirm the book's 0.91 Rb.",
+                  lambda s: abs(s.p.BT - 0.3) < 0.006 and abs(s.p.h - 0.5) < 0.006),
+        Challenge("Keep less than 0.5 % of the power outside GSM's 200 kHz channel.",
+                  lambda s: s.r.gsm < 0.5,
+                  hint="Both BT and h shape the main lobe."),
+        Challenge("Push the PSD at 1.5 Rb below −70 dB with h = 0.5.",
+                  lambda s: abs(s.p.h - 0.5) < 0.006 and s.r.side < -70),
+    ]
+    sps = 8
 
-lk.interact(isi_demo, BT=lk.slider(0.3, 0.1, 1.0, 0.05, "BT"), ebn0=lk.slider(20, 0, 30, 0.5, "Eb/N0 (dB)"))
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def refs():
+        sps = 8
+        rng = np.random.default_rng(2)
+        s = cl.get_constellation("qpsk").points[rng.integers(0, 4, 8000)]
+        xr = np.repeat(s, 2 * sps)
+        u = np.zeros(len(s) * 2 * sps, complex)
+        u[::2 * sps] = s
+        xc = ss.fftconvolve(u, cl.rrc_taps(0.35, 2 * sps, span=40))
+        _, msk = cpm.gmsk_baseband(rng.integers(0, 2, 16000), sps, None)
+        out = []
+        for x in (xr, xc, np.exp(1j * msk)):
+            f, pp = cpm.psd_normalized(x, sps, 2048)
+            out.append((f, db10(pp)))
+        return out
 
-# %% [markdown]
-# **What you should see.** At $BT = 0.3$ the eye is open but its inner traces (alternating bits) are pulled towards zero. Below about
-# $BT = 0.2$ the discriminator makes errors even without noise: an isolated bit no longer moves the phase far enough.
-#
-# ### Try it yourself 4.1
-# From the BER table `res`, at which $E_b/N_0$ (dB, integer grid) does coherent GMSK 0.3 first fall below $10^{-3}$?
+    @staticmethod
+    @lru_cache(maxsize=32)
+    def bw_curve(h):
+        BTs = np.array([0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.7, 1.0])
+        return BTs, np.array([obw(float(b), h, n=6000) for b in BTs])
 
-# %%
-answer_4_1 = None
-lk.check("4.1 Eb/N0 where coherent GMSK 0.3 < 1e-3", answer_4_1,
-         ebs[np.argmax(np.array(res["GMSK 0.3 coherent"]) < 1e-3)], atol=1)
+    def update(self, p):
+        h = round(p.h, 2)
+        rng = np.random.default_rng(4)
+        x, _ = cpm.gmsk_baseband(rng.integers(0, 2, 16000), self.sps, p.BT, h)
+        f, pp = cpm.psd_normalized(x, self.sps, 2048)
+        ps = self.plot("psd")
+        if p.refs:
+            (f1, p1), (f2, p2), _ = self.refs()
+            ps.line("rect", f1, p1, color=GRAY, width=1.2, style=":", name="QPSK, rectangular")
+            ps.line("rrc", f2, p2, color=ORANGE, width=1.4, style="--", name="QPSK, RRC β = 0.35")
+        _, _, (f3, p3) = self.refs()
+        ps.line("msk", f3, p3, color=NAVY, width=1.4, name="MSK")
+        ps.line("g", f, db10(pp), color=RED, width=2.4, name=f"GMSK BT = {p.BT:.2f}, h = {h:.2f}")
+        bw = cpm.occupied_bandwidth(x, self.sps, 0.99, 4096)
+        bw9 = cpm.occupied_bandwidth(x, self.sps, 0.999, 4096)
+        ps.band("occ", 0, bw / 2, color=GREEN, alpha=0.10)
+        ps.vline("gsm", 0.369, color=PURPLE, style="--", label="GSM channel edge", label_pos=0.25)
+        side = float(np.interp(1.5, f, db10(pp)))
+        df = f[1] - f[0]
+        outside = float(np.sum(pp[np.abs(f) > 0.369]) * df * 100)
+        pb = self.plot("bw")
+        BTs, bws = self.bw_curve(h)
+        pb.line("c", BTs, bws, color=NAVY, width=2.0, name=f"GFSK, h = {h:.2f}")
+        pb.scatter("cs", BTs, bws, color=NAVY, size=6)
+        pb.hline("msk", obw(None, h), color=GRAY, style=":", label="no Gaussian filter",
+                 label_pos=0.6)
+        pb.scatter("cur", [p.BT], [bw], color=RED, size=14, name="yours")
+        self.readout(bw=bw, bw999=bw9, side=side, gsm=outside)
 
-# %% [markdown]
-# ## 5. Envelope and PAPR
-#
-# A power amplifier is sized by the signal's peaks, not its average. The **PAPR CCDF** $P(|s|^2/\overline{|s|^2} > x)$ shows how often
-# the envelope exceeds a level. OQPSK staggers I and Q so the trajectory never passes through zero; π/4-QPSK avoids the origin by
-# rotating alternate constellations; GMSK has no fluctuation at all.
+    def story(self, p):
+        bw = self.r.get("bw", 1)
+        s = ("<p>All curves carry the same bit rate. Rectangular QPSK (dotted) has phase jumps, "
+             "so its sidelobes fall only as f⁻²: 99 % of its power needs many times the bit rate. "
+             "MSK's continuous phase makes them fall as f⁻⁴, and the Gaussian filter of GMSK makes "
+             "them plunge (red).</p>"
+             f"<p>Your signal fits 99 % of its power in {v(bw, '.2f')} Rb (green band, one side "
+             f"shown). GSM squeezes 270.8 kb/s into 200 kHz channels (purple line), only about "
+             f"0.74 Rb, so even GMSK 0.3 spills a little into the neighbours, which the frequency "
+             f"plan absorbs.</p>")
+        if p.refs:
+            s += ("<p>RRC-shaped QPSK (orange) is the most compact of all, but it is not "
+                  "constant-envelope (experiment 5).</p>")
+        return "<h3>Smooth phase, tight spectrum</h3>" + s + keybox(
+            "Book values (99 %): MSK 1.19 Rb, GMSK 0.5 about 1.03 Rb, GMSK 0.3 about 0.91 Rb.")
 
-# %%
-grid = np.linspace(-0.5, 11, 200)
-kinds = [("gmsk", "GMSK (constant envelope)"), ("oqpsk", "OQPSK"), ("pi4qpsk", "π/4-QPSK"), ("qpsk", "QPSK"),
-         ("16qam", "16-QAM"), ("64qam", "64-QAM")]
-f, ax = lk.fig((13, 3.8), 1, 2, gridspec_kw=dict(width_ratios=[1.4, 1]))
-rows = []
-for i, (k, lab) in enumerate(kinds):
-    x, _ = cpm.shaped_waveform(k, nsym=30_000, beta=0.25, rng=rng)
-    cc = cpm.papr_ccdf(x, grid)
-    ax[0].semilogy(grid, np.maximum(cc, 1e-9), color=lk.PALETTE[i], label=lab)
-    env = np.abs(x) / np.sqrt(np.mean(np.abs(x) ** 2))
-    rows.append([lab, float(np.interp(3, -np.log10(np.maximum(cc, 1e-12)), grid)), env.min()])
-ax[0].set_ylim(1e-4, 1.2); ax[0].set_xlabel("power above average (dB)"); ax[0].set_ylabel("CCDF"); ax[0].legend(fontsize=8)
-ax[0].set_title("PAPR CCDF, RRC β = 0.25")
-for k, col in [("qpsk", lk.GRAY), ("oqpsk", lk.NAVY), ("gmsk", lk.RED)]:
-    x, _ = cpm.shaped_waveform(k, nsym=200, beta=0.25, rng=rng)
-    x = x / np.sqrt(np.mean(np.abs(x) ** 2))
-    ax[1].plot(x.real, x.imag, color=col, lw=0.5, alpha=0.8, label=k.upper())
-ax[1].set_aspect("equal"); ax[1].legend(fontsize=8); ax[1].set_title("Trajectories"); ax[1].set_xlim(-1.8, 1.8); ax[1].set_ylim(-1.8, 1.8)
-lk.show(f)
-lk.table(rows, ["modulation", "PAPR at 1e-3 (dB)", "min |s| / rms"], fmt=".2f")
 
-# %% [markdown]
-# **What you should see.** GMSK: 0 dB. With RRC pulses OQPSK and π/4-QPSK sit about 0.5 dB below QPSK at $10^{-3}$ (their real
-# advantage is that the envelope never collapses to zero: see the minimum-envelope column and the trajectories), and the QAMs are
-# worst at roughly 5.5–6 dB. Every decibel of PAPR is a decibel of back-off and, in a class-AB amplifier, a large slice of
-# battery life. (OFDM, Chapter 17, is near 9–10 dB.)
-#
-# ### Try it yourself 5.1
-# From the table, how many dB of extra PAPR (at $10^{-3}$) does 16-QAM have over OQPSK?
+# =============================================================================== 3. MSK is OQPSK
+@lru_cache(maxsize=64)
+def laurent_fit(BT, sps=16, n=400):
+    """Fit the transmitted CPM waveform with the main Laurent pulse alone.
+    Returns (t, x, s_lin, residual_dB, c0)."""
+    rng = np.random.default_rng(9)
+    c = rng.integers(0, 2, n)
+    a = cpm.msk_precode(c)
+    x, _ = cpm.gmsk_baseband(a, sps, BT)
+    c0 = cpm.laurent_c0(sps, BT)
+    am = 2.0 * a - 1
+    b = np.empty(n, complex)
+    prev = 1.0
+    for k in range(n):
+        prev = 1j * am[k] * prev
+        b[k] = prev
+    u = np.zeros(n * sps, complex)
+    u[::sps] = b
+    sl = ss.fftconvolve(u, c0)
+    lo, hi = 8 * sps, len(x) - 8 * sps
+    best = (np.inf, 0, 1.0)
+    for d in range(-6 * sps, 2 * sps):
+        if lo - d < 0 or hi - d > len(sl):
+            continue
+        seg = sl[lo - d:hi - d]
+        g = np.vdot(seg, x[lo:hi]) / np.vdot(seg, seg)
+        r = np.mean(np.abs(x[lo:hi] - g * seg) ** 2) / np.mean(np.abs(x[lo:hi]) ** 2)
+        if r < best[0]:
+            best = (r, d, g)
+    r, d, g = best
+    idx = np.arange(len(x)) - d
+    ok = (idx >= 0) & (idx < len(sl))
+    slin = np.zeros(len(x), complex)
+    slin[ok] = g * sl[idx[ok]]
+    t = np.arange(len(x)) / sps
+    return t, x, slin, float(db10(r)), c0
 
-# %%
-answer_5_1 = None
-lk.check("5.1 PAPR(16-QAM) - PAPR(OQPSK) at 1e-3 (dB)", answer_5_1, rows[4][1] - rows[1][1], atol=0.3)
 
-# %% [markdown]
-# ## 6. EVM: impairment signatures and a 1024-QAM budget
-#
-# $\mathrm{EVM}_{\text{rms}}=\sqrt{\sum|y_n-s_n|^2/\sum|s_n|^2}$, and when the errors are noise-like $\mathrm{SNR}\approx 1/\mathrm{EVM}^2$, so a
-# transmitter with EVM $\epsilon_{tx}$ adds to the receiver's noise: $1/\mathrm{SNR}_{\text{eff}} = 1/\rho+\epsilon_{tx}^2+\epsilon_{rx}^2$.
-# Each impairment has a signature: phase noise makes arcs (EVM ≈ $\sigma_\phi$ in radians, so 1° ≈ 1.7%), IQ imbalance a parallelogram,
-# PA compression pulls the corners in, residual frequency offset rotates, and carrier leakage shifts the whole grid.
+class MSKisOQPSK(Experiment):
+    title = "MSK is offset QPSK"
+    blurb = "Laurent's discovery: CPM is (almost) a sum of shaped pulses on I and Q, offset."
+    book = "sec:ch09:constenv"
+    controls = [
+        Toggle("gauss", "Gaussian pre-filter (GMSK)", True),
+        Slider("BT", "Bandwidth–time product BT", 0.15, 1.0, 0.3, step=0.01,
+               enabled_if=lambda p: p.gauss),
+        Slider("start", "Window start", 0, 360, 40, step=1, unit="bits"),
+    ]
+    plots = [
+        Plot("rails", "I and Q rails (solid) and the linear OQPSK model (dashed)",
+             x="time (bits)", y="amplitude", ylim=(-1.35, 1.75), legend="tl", legend_cols=3),
+        Plot("c0", "The main Laurent pulse C₀(t)", x="time (bits)", y="C₀(t)", xlim=(-3, 3),
+             ylim=(-0.05, 1.15), legend="tr"),
+        Plot("err", "What the model misses: |x − model|", x="time (bits)", y="error (dB)",
+             ylim=(-80, 0), legend=None),
+    ]
+    layout = [["rails", "rails"], ["c0", "err"]]
+    row_stretch = [3, 2]
+    readouts = [
+        Readout("res", "Linear-model error", "dB", ".1f", good=lambda x: x < -20),
+        Readout("dur", "C₀ length (>1 % of peak)", "bits", ".1f"),
+    ]
+    challenges = [
+        Challenge("Confirm that MSK is exactly OQPSK: linear-model error below −60 dB.",
+                  lambda s: s.r.res < -60),
+        Challenge("Find the smallest BT at which one Laurent pulse still captures the GMSK signal "
+                  "to within −20 dB.",
+                  lambda s: s.p.gauss and s.r.res < -20 and s.p.BT <= 0.27,
+                  hint="The error grows as BT falls; somewhere near a quarter."),
+        Challenge("Show the model failing: linear-model error worse than −15 dB.",
+                  lambda s: s.r.res > -15),
+    ]
 
-# %%
-def evm_demo(constellation="16qam", snr_db=32.0, phase_deg=1.0, iq_gain_db=0.0, iq_phase_deg=0.0, pa_ibo_db=20.0,
-             cfo_ppm=0.0, dc=0.0):
-    con = cl.get_constellation(constellation)
+    def update(self, p):
+        BT = round(p.BT, 2) if p.gauss else None
+        t, x, slin, res, c0 = laurent_fit(BT)
+        a, b = p.start, p.start + 24
+        m = (t >= a) & (t <= b)
+        pr = self.plot("rails")
+        pr.set_xlim(a, b)
+        pr.line("I", t[m], x.real[m], color=NAVY, width=2.4, name="I (actual)")
+        pr.line("Q", t[m], x.imag[m], color=RED, width=2.4, name="Q (actual)")
+        pr.line("Il", t[m], slin.real[m], color=GOLD, width=1.3, style="--", name="linear model")
+        pr.line("Ql", t[m], slin.imag[m], color=GOLD, width=1.3, style="--")
+        pr.hline("z", 0, color=GRAY, style="-", width=0.6)
+        pc = self.plot("c0")
+        c_msk = cpm.laurent_c0(16, None)
+        tm = np.arange(len(c_msk)) / 16 - (len(c_msk) - 1) / 32
+        pc.line("msk", tm, c_msk, color=NAVY, width=1.8, name="MSK: half-sine, 2 bits")
+        if p.gauss:
+            tg = np.arange(len(c0)) / 16 - (len(c0) - 1) / 32
+            pc.line("g", tg, c0, color=RED, width=2.4, name=f"GMSK, BT = {p.BT:.2f}")
+            dur = np.sum(c0 > 0.01 * c0.max()) / 16
+        else:
+            dur = np.sum(c_msk > 0.01) / 16
+        pe = self.plot("err")
+        pe.set_xlim(a, b)
+        e = db10(np.abs(x[m] - slin[m]) ** 2)
+        pe.line("e", t[m], np.maximum(e, -79), color=PURPLE, width=1.4, fill=-80, fill_alpha=0.15)
+        self.readout(res=max(res, -120), dur=dur)
+
+    def story(self, p):
+        res = self.r.get("res", 0)
+        s = ("<p>Laurent (1986) showed that binary CPM with h = ½ is, to an excellent approximation, "
+             "a <i>linear</i> modulation: Σ bₖ C₀(t − kT), where bₖ = j·aₖ·bₖ₋₁ alternates between "
+             "the real and the imaginary axis. So the I rail carries every other bit, the Q rail "
+             "the rest, half a symbol later: <b>offset QPSK</b>.</p>")
+        if not p.gauss:
+            s += (f"<p>For MSK the model is exact (error {v(res, '.0f', 'dB')}): C₀ is a half-sine two "
+                  "bits long, and the dashed model sits on the solid rails. That is why a coherent "
+                  "MSK receiver gets BPSK's error rate.</p>")
+        else:
+            s += (f"<p>For GMSK with BT = {v(p.BT)}, C₀ is smoother and about "
+                  f"{v(self.r.get('dur', 3), '.1f')} bits long, and it captures the signal to within "
+                  f"{v(res, '.1f', 'dB')}. What it misses (bottom right) is small ISI from the other "
+                  f"Laurent pulses. GSM's Viterbi equaliser is built on exactly this model.</p>")
+        return "<h3>A nonlinear modulation that is secretly linear</h3>" + s + keybox(
+            "With differential precoding, the sign of Re{j⁻ᵏ zₖ} after a filter matched to C₀ "
+            "is the data bit. IEEE 802.15.4 (Zigbee) sends OQPSK with half-sine pulses: MSK.")
+
+
+# =============================================================================== 4. receivers
+SIGS = {"MSK": None, "GMSK BT = 0.5": 0.5, "GMSK BT = 0.3": 0.3, "GMSK BT = 0.2": 0.2}
+
+
+@lru_cache(maxsize=8)
+def laurent_rx(BT, sps):
+    rng = np.random.default_rng(21)
+    c = rng.integers(0, 2, 1000)
+    c[0] = 0              # the reference phase depends on the first (precoded) bit: fix it
+    x, _ = cpm.gmsk_baseband(cpm.msk_precode(c), sps, BT)
+    rx = cpm.LaurentReceiver(sps, BT)
+    rx.calibrate(x, c)
+    return rx
+
+
+class Receivers(Experiment):
+    title = "Three receivers"
+    blurb = "Coherent, differential and discriminator detection: price against performance."
+    book = "sec:ch09:constenv"
+    heavy = True
+    controls = [
+        Choice("sig", "Signal", list(SIGS), "GMSK BT = 0.3", style="menu"),
+        Choice("rx", "Receiver to inspect", ["Coherent", "Differential", "Discriminator"],
+               "Discriminator"),
+        Slider("ebn0", "Eb/N0 for the eye", 0.0, 25.0, 12.0, step=0.5, unit="dB"),
+        Choice("effort", "Effort", ["Quick", "Thorough"]),
+        Button("rerun", "Run BER again", primary=True),
+    ]
+    plots = [
+        EyePlot("eye", "Receiver output before the decision", yrange=(-1.8, 1.8)),
+        Plot("hist", "Decision statistic: bit 1 (navy) and bit 0 (orange)", x="normalised value",
+             y="count", xlim=(-1.8, 1.8), legend=None),
+        BERPlot("ber", "Bit error rate (Monte Carlo)", x="Eb/N0 (dB)", ylim=(1e-5, 0.5),
+                xlim=(0, 14), legend="bl"),
+    ]
+    layout = [["eye", "ber"], ["hist", "ber"]]
+    col_stretch = [1, 1]
+    readouts = [
+        Readout("min", "Smallest phase step per bit", "°", ".0f"),
+        Readout("ber", "BER at the eye's Eb/N0", "", "sci"),
+        Readout("pen", "Coherent loss vs BPSK at 10⁻³", "dB", ".2f"),
+        Readout("pts", "Points done", "", None),
+    ]
+    challenges = [
+        Challenge("Show that coherent MSK costs nothing: within 0.3 dB of BPSK at 10⁻³.",
+                  lambda s: s.p.sig == "MSK" and s.r.pen is not None and abs(s.r.pen) < 0.3),
+        Challenge("Find a signal whose discriminator receiver errs even with almost no noise "
+                  "(BER above 10⁻³ at 25 dB).",
+                  lambda s: s.p.rx == "Discriminator" and s.p.ebn0 >= 24.5 and s.r.ber > 1e-3),
+        Challenge("Get the differential receiver below 10⁻³ at Eb/N0 ≤ 10 dB.",
+                  lambda s: s.p.rx == "Differential" and s.p.ebn0 <= 10 and 0 <= s.r.ber < 1e-3
+                  and s.exp.nb >= 20000),
+    ]
+    sps = 8
+
+    def setup(self):
+        self.run_id = 0
+        self.nb = 0
+
+    def on_rerun(self, p):
+        self.run_id += 1
+
+    def detect(self, BT, y, a, c, rx):
+        if rx == "Coherent":
+            r = laurent_rx(BT, self.sps)
+            soft = -r.soft(y, len(c))
+            return soft, c
+        if rx == "Differential":
+            return cpm.differential_detect(y, self.sps), a
+        return cpm.discriminator_detect(y, self.sps), a
+
+    def update(self, p):
+        BT = SIGS[p.sig]
+        rng = np.random.default_rng(31)
+        n = 6000
+        c = rng.integers(0, 2, n)
+        c[0] = 0
+        a = cpm.msk_precode(c)
+        x, _ = cpm.gmsk_baseband(a, self.sps, BT)
+        y, _ = cl.awgn_esn0(x, p.ebn0, sps=self.sps, rng=rng)
+        soft, ref = self.detect(BT, y, a, c, p.rx)
+        soft = soft[:n]
+        dec = (soft > 0).astype(int)
+        nb = min(len(dec), len(ref)) - 10
+        ber = float(np.mean(dec[5:nb] != ref[5:nb]))
+        self.nb = nb
+        scale = np.median(np.abs(soft)) or 1.0
+        z = soft / scale
+        pe = self.plot("eye")
+        # waveform view of the same statistic: per-sample instantaneous frequency or correlation
+        m = self.sps
+        yf = ss.lfilter(np.ones(m) / m, 1, y)
+        if p.rx == "Discriminator":
+            # integrated frequency over the last bit = phase change over one bit
+            w = np.angle(yf[m:] * np.conj(yf[:-m]))
+            off = m // 2
+        elif p.rx == "Differential":
+            w = np.imag(yf[m:] * np.conj(yf[:-m]))
+            off = m // 2
+        else:
+            r = laurent_rx(BT, self.sps)
+            zz = ss.fftconvolve(y, r.c0[::-1])
+            k = np.arange(len(zz)) / self.sps
+            w = -np.real(zz * (1j) ** (-(k - r.offset / self.sps)) * r.rot) / np.sum(r.c0 ** 2)
+            off = (r.offset - self.sps) % self.sps
+        w = w / (np.percentile(np.abs(w), 90) or 1)
+        w = w[:1500 * self.sps]
+        pe.eye("eye", np.clip(w, -1.79, 1.79), self.sps, n_sym=2, offset=off + 20 * self.sps,
+               yrange=(-1.8, 1.8))
+        ph = self.plot("hist")
+        bins = np.linspace(-1.8, 1.8, 121)
+        zc = np.clip(z / (np.percentile(np.abs(z), 90) or 1), -1.79, 1.79)
+        r1 = ref[:len(zc)] == 1
+        h1, _ = np.histogram(zc[r1], bins)
+        h0, _ = np.histogram(zc[~r1], bins)
+        ph.line("h1", bins, h1, step=True, color=NAVY, width=1.4, fill=0, fill_alpha=0.25)
+        ph.line("h0", bins, h0, step=True, color=ORANGE, width=1.4, fill=0, fill_alpha=0.25)
+        ph.vline("thr", 0, color=RED, style="--", label="threshold", label_pos=0.9)
+        pb = self.plot("ber")
+        eb = np.linspace(0, 14, 113)
+        pb.theory("bpsk", eb, cl.ber_bpsk(eb), color=GRAY, style="--", name="BPSK")
+        pb.vline("cur", p.ebn0, color=RED, style=":", width=1.0)
+        self.sim = {k: ([], []) for k in ("Coherent", "Differential", "Discriminator")}
+        mn, _ = min_phase_step(BT, 0.5)
+        self.readout(min=mn, ber=ber, pen=None, pts="0")
+
+    def background(self, p):
+        BT = SIGS[p.sig]
+        rng = np.random.default_rng(500 + self.run_id)
+        thorough = p.effort == "Thorough" and not self.quick
+        nbits = 8000 if self.quick else (60000 if thorough else 20000)
+        reps = 1 if self.quick else (4 if thorough else 2)
+        for eb in np.arange(0, 15, 1.0 if not self.quick else 3.0):
+            errs = {k: 0 for k in self.sim}
+            tot = 0
+            for _ in range(reps):
+                c = rng.integers(0, 2, nbits)
+                c[0] = 0
+                a = cpm.msk_precode(c)
+                x, _ = cpm.gmsk_baseband(a, self.sps, BT)
+                y, _ = cl.awgn_esn0(x, eb, sps=self.sps, rng=rng)
+                for k in errs:
+                    soft, ref = self.detect(BT, y, a, c, k)
+                    n = min(len(soft), len(ref)) - 10
+                    errs[k] += int(np.sum((soft[5:n] > 0).astype(int) != ref[5:n]))
+                tot += nbits - 15
+            yield dict(eb=eb, ber={k: errs[k] / tot for k in errs})
+            if all(v_ / tot < 2e-5 for v_ in errs.values()):
+                break
+        yield dict(done=True)
+
+    def progress(self, p, it):
+        pb = self.plot("ber")
+        if it.get("done"):
+            self.readout(pts=f"{len(self.sim['Coherent'][0])} ✓")
+            return
+        for k, col in (("Coherent", NAVY), ("Differential", GREEN), ("Discriminator", RED)):
+            xs, ys = self.sim[k]
+            if it["ber"][k] > 0:
+                xs.append(it["eb"])
+                ys.append(it["ber"][k])
+            if xs:
+                pb.sim(k, xs, ys, color=col, name=k.lower())
+        xs, ys = self.sim["Coherent"]
+        pen = None
+        if len(xs) >= 2 and min(ys) < 1e-3 < max(ys):
+            ly = np.log10(ys)
+            i = int(np.where(ly <= -3)[0][0])
+            x3 = np.interp(-3, [ly[i], ly[i - 1]], [xs[i], xs[i - 1]])
+            pen = float(x3 - 6.79)
+        self.readout(pen=pen, pts=f"{len(self.sim['Coherent'][0])} …")
+
+    def story(self, p):
+        mn = self.r.get("min", 90)
+        s = ("<p>Three ways to read a CPM signal. The <b>coherent</b> receiver filters with the "
+             "Laurent pulse C₀ and needs the carrier phase. The <b>differential</b> detector "
+             "compares the phase now with the phase one bit ago. The <b>limiter–discriminator</b> "
+             "just measures instantaneous frequency: the cheapest receiver there is (Bluetooth, "
+             "DECT, pagers).</p>")
+        s += (f"<p>{p.sig}: in the worst data pattern a bit moves the phase only "
+              f"{v(mn, '.0f', '°')} within its own period. ")
+        if mn < 40:
+            s += (bad("That is too little for the noncoherent receivers") + ": their eyes are "
+                  "nearly closed by ISI alone, and their BER curves flatten out. Practical GFSK "
+                  "radios use BT = 0.5; GSM went coherent with a Viterbi equaliser.</p>")
+        else:
+            s += ("Enough for the simple receivers: they cost a few dB against coherent detection "
+                  "but need no carrier-recovery loop at all.</p>")
+        return "<h3>Price against performance</h3>" + s + keybox(
+            "Coherent MSK = BPSK. Differential and discriminator detection trade 3–4 dB (more for "
+            "small BT) for receivers with no carrier recovery.")
+
+
+# =============================================================================== 5. PAPR
+PAPR_SIGS = {"GMSK": "gmsk", "OQPSK": "oqpsk", "π/4-QPSK": "pi4qpsk", "QPSK": "qpsk",
+             "8-PSK": "8psk", "16-QAM": "16qam", "64-QAM": "64qam"}
+PAPR_COLS = [RED, BLUE, PURPLE, NAVY, TEAL, ORANGE, GOLD]
+
+
+@lru_cache(maxsize=32)
+def papr_set(beta):
+    out = {}
+    for name, k in PAPR_SIGS.items():
+        x, _ = cpm.shaped_waveform(k, nsym=8000, sps=8, beta=beta, rng=np.random.default_rng(7))
+        out[name] = x / np.sqrt(np.mean(np.abs(x) ** 2))
+    return out
+
+
+@lru_cache(maxsize=4)
+def ofdm_ref():
+    rng = np.random.default_rng(9)
+    X = (rng.choice([-1, 1], (300, 256)) + 1j * rng.choice([-1, 1], (300, 256)))
+    X[:, 100:156] = 0
+    x = np.fft.ifft(np.concatenate([X[:, :128], np.zeros((300, 768)), X[:, 128:]], axis=1), axis=1).ravel()
+    return x / np.sqrt(np.mean(np.abs(x) ** 2))
+
+
+class PAPR(Experiment):
+    title = "Envelope and PAPR"
+    blurb = "Amplifiers care about peaks, not averages: how far must each signal back off?"
+    book = "sec:ch09:constenv"
+    controls = [
+        Choice("sig", "Highlight", list(PAPR_SIGS), "QPSK", style="menu"),
+        Slider("beta", "RRC roll-off β", 0.1, 1.0, 0.25, step=0.05),
+        Toggle("ofdm", "Show OFDM for reference", True),
+    ]
+    plots = [
+        Plot("ccdf", "How often the power exceeds its average by x dB (CCDF)",
+             x="instantaneous power above average (dB)", y="probability", xlim=(-0.5, 11),
+             ylim=(1e-5, 1.5), logy=True, legend="tr"),
+        Plot("traj", "IQ trajectory (dashed circle: 0.3 × rms)", x="I", y="Q", xlim=(-2.2, 2.2),
+             ylim=(-2.2, 2.2), aspect=True, legend=None),
+        Plot("env", "Envelope over 40 symbols", x="time (symbols)", y="|s| / rms", xlim=(0, 40),
+             ylim=(0, 2.4), legend=None),
+    ]
+    layout = [["ccdf", "traj"], ["env", "env"]]
+    row_stretch = [3, 2]
+    col_stretch = [3, 2]
+    readouts = [
+        Readout("p3", "PAPR at 10⁻³", "dB", ".2f"),
+        Readout("p4", "PAPR at 10⁻⁴", "dB", ".2f"),
+        Readout("min", "Smallest envelope", "× rms", ".2f"),
+        Readout("eff", "Ideal class-B efficiency", "%", ".0f", good=lambda x: x > 50,
+                help="78.5 % at saturation, falling with the back-off needed for the 10⁻⁴ peaks"),
+    ]
+    challenges = [
+        Challenge("Bring QPSK's PAPR at 10⁻⁴ below 4 dB by choosing the roll-off.",
+                  lambda s: s.p.sig == "QPSK" and s.r.p4 < 4.0,
+                  hint="Gentler filters ring less."),
+        Challenge("Find a non-constant-envelope signal whose envelope never falls below half its "
+                  "rms value.",
+                  lambda s: s.p.sig != "GMSK" and s.r.min >= 0.5),
+        Challenge("Keep 16-QAM's ideal class-B efficiency above 40 %.",
+                  lambda s: s.p.sig == "16-QAM" and s.r.eff > 40),
+    ]
+
+    def update(self, p):
+        beta = round(p.beta, 2)
+        sigs = papr_set(beta)
+        g = np.linspace(-0.5, 11, 231)
+        pc = self.plot("ccdf")
+        for i, (name, x) in enumerate(sigs.items()):
+            cc = np.maximum(cpm.papr_ccdf(x, g), 1e-9)
+            pc.line(name, g, cc, color=PAPR_COLS[i], width=3.0 if name == p.sig else 1.2,
+                    alpha=1.0 if name == p.sig else 0.7, name=name)
+        if p.ofdm:
+            pc.line("ofdm", g, np.maximum(cpm.papr_ccdf(ofdm_ref(), g), 1e-9), color=GRAY,
+                    style="--", width=1.4, name="OFDM")
+        x = sigs[p.sig]
+        cc = cpm.papr_ccdf(x, g)
+        lc = -np.log10(np.maximum(cc, 1e-12))
+        p3 = float(np.interp(3, lc, g))
+        p4 = float(np.interp(4, lc, g))
+        pc.hline("e4", 1e-4, color=GRAY, style=":", width=0.8)
+        pc.vline("p4", p4, color=PAPR_COLS[list(PAPR_SIGS).index(p.sig)], style="--", width=1.0)
+        seg = x[800:800 + 300 * 8]
+        pt = self.plot("traj")
+        pt.line("t", seg.real, seg.imag, color=PAPR_COLS[list(PAPR_SIGS).index(p.sig)], width=0.8,
+                alpha=0.8)
+        th = np.linspace(0, 2 * np.pi, 120)
+        pt.line("c", 0.3 * np.cos(th), 0.3 * np.sin(th), color=GREEN, style="--", width=1.2)
+        pe = self.plot("env")
+        e = np.abs(x[800:800 + 40 * 8])
+        pe.line("e", np.arange(len(e)) / 8, e, color=PAPR_COLS[list(PAPR_SIGS).index(p.sig)],
+                width=2.0, fill=0, fill_alpha=0.12)
+        pe.hline("rms", 1.0, color=GRAY, style=":", label="rms", label_pos=0.02)
+        pe.hline("pk", 10 ** (p4 / 20), color=RED, style="--", label="10⁻⁴ peak", label_pos=0.9)
+        mn = float(np.abs(x[200:-200]).min())
+        self.readout(p3=p3, p4=p4, min=mn, eff=78.5 * 10 ** (-max(p4, 0) / 20))
+
+    def story(self, p):
+        p4, mn, eff = self.r.get("p4", 0), self.r.get("min", 0), self.r.get("eff", 78.5)
+        s = (f"<p>A linear amplifier must leave headroom for the peaks. {p.sig}'s power exceeds "
+             f"its average by {v(p4, '.1f', 'dB')} one time in 10⁴, so an ideal class-B stage, "
+             f"78.5 % efficient at saturation, delivers only about {v(eff, '.0f', '%')} here. In a "
+             "handset that is battery life; in a satellite, kilograms of solar panel.</p>")
+        if p.sig == "GMSK":
+            s += "<p>GMSK is a vertical line at 0 dB: the envelope never moves.</p>"
+        elif p.sig in ("OQPSK", "π/4-QPSK"):
+            s += (f"<p>{p.sig} never lets I and Q flip together, so the trajectory avoids the "
+                  f"origin: the envelope dips only to {v(mn, '.2f')} × rms. The peaks barely "
+                  f"change, but a nonlinear amplifier hates zero crossings most.</p>")
+        else:
+            s += (f"<p>Watch the trajectory pass through the dashed circle: when consecutive "
+                  f"symbols are opposite, the filtered signal swings through zero (minimum "
+                  f"{v(mn, '.2f')} × rms) and overshoots on the way. Larger β rings less.</p>")
+        return "<h3>Peaks cost power</h3>" + s + keybox(
+            "Approximate PAPR at 10⁻⁴ with β = 0.25: GMSK 0 dB, OQPSK ~4 dB, QPSK ~4.6 dB, "
+            "16-QAM ~6.3 dB, OFDM ~9.6 dB.")
+
+
+# =============================================================================== 6. PA regrowth
+PA_SIGS = ["GMSK BT = 0.3", "OQPSK", "QPSK", "16-QAM", "64-QAM"]
+
+
+@lru_cache(maxsize=8)
+def pa_input(sig):
+    sps = 8
+    rng = np.random.default_rng(12)
+    if sig.startswith("GMSK"):
+        x, _ = cpm.gmsk_baseband(rng.integers(0, 2, 2 * 6000), sps // 2, 0.3)
+        return x, None, None, sps
+    kind = {"OQPSK": "oqpsk", "QPSK": "qpsk", "16-QAM": "16qam", "64-QAM": "64qam"}[sig]
+    if kind == "oqpsk":
+        x, _ = cpm.shaped_waveform("oqpsk", nsym=6000, sps=sps, beta=0.25, rng=rng)
+        return x / np.sqrt(np.mean(np.abs(x) ** 2)), None, None, sps
+    c = cl.get_constellation(kind)
+    s = c.points[rng.integers(0, c.M, 6000)]
+    h = cl.rrc_taps(0.25, sps, 32)
+    u = np.zeros(len(s) * sps, complex)
+    u[::sps] = s
+    x = ss.fftconvolve(u, h)
+    r = np.sqrt(np.mean(np.abs(x) ** 2))
+    return x / r, s, h, sps
+
+
+def aclr(x, fs, bw):
+    f, p = cpm.psd_normalized(x, fs, 2048)
+    df = f[1] - f[0]
+    main = np.sum(p[np.abs(f) <= bw / 2]) * df
+    adj = np.sum(p[(f > bw / 2) & (f <= 1.5 * bw)]) * df
+    return float(db10(adj / main)), f, p
+
+
+class PARegrowth(Experiment):
+    title = "Through a saturating amplifier"
+    blurb = "Drive the PA hard: linear signals splatter into the neighbours, GMSK does not care."
+    book = "sec:ch09:constenv"
+    controls = [
+        Choice("sig", "Signal", PA_SIGS, "16-QAM", style="menu"),
+        Slider("ibo", "Input back-off from saturation", 0.0, 12.0, 3.0, step=0.25, unit="dB"),
+        Slider("p", "Amplifier knee sharpness (Rapp p)", 1.0, 8.0, 2.0, step=0.1,
+               help="Large p: a hard limiter with a sharp knee (like a well-linearised PA)"),
+    ]
+    plots = [
+        SpectrumPlot("psd", "Spectrum before (grey) and after (red) the amplifier",
+                     x="frequency (× symbol rate)", y="PSD (dB)", xlim=(-3, 3), ylim=(-80, 5),
+                     legend=None),
+        Plot("amam", "AM/AM (navy) and where the envelope lives (orange)",
+             x="input amplitude (× rms)", y="output amplitude", xlim=(0, 3), ylim=(0, 2.2),
+             legend=None),
+        ConstellationPlot("const", "After the amplifier and matched filter", lim=1.6),
+    ]
+    layout = [["psd", "psd"], ["amam", "const"]]
+    row_stretch = [1, 1]
+    readouts = [
+        Readout("aclr", "Adjacent-channel leakage", "dB", ".1f", good=lambda x: x < -40),
+        Readout("regrow", "Regrowth (vs linear)", "dB", ".1f", good=lambda x: x < 1),
+        Readout("evm", "EVM after the PA", "%", ".2f"),
+        Readout("obo", "Output back-off", "dB", ".2f"),
+    ]
+    challenges = [
+        Challenge("Saturate the amplifier (back-off ≤ 0.5 dB) with a signal whose spectrum does "
+                  "not grow at all (regrowth < 0.5 dB).",
+                  lambda s: s.p.ibo <= 0.5 and s.r.regrow < 0.5),
+        Challenge("Keep 16-QAM's leakage below −40 dB with no more than 6 dB of back-off.",
+                  lambda s: s.p.sig == "16-QAM" and s.p.ibo <= 6 and s.r.aclr < -40,
+                  hint="A sharper knee (a linearised PA) behaves better below saturation."),
+        Challenge("Find where 64-QAM's EVM from compression alone reaches 3 % (±0.3 %).",
+                  lambda s: s.p.sig == "64-QAM" and abs(s.r.evm - 3.0) < 0.3),
+    ]
+
+    def update(self, p):
+        x, s, h, sps = pa_input(p.sig)
+        sat = 10 ** (p.ibo / 20)
+        y = cl.rapp_pa(x, sat=sat, p=p.p)
+        bw_rs = 1.25 if not p.sig.startswith("GMSK") else 1.82
+        a_in, f, p_in = aclr(x, sps, bw_rs)
+        a_out, f2, p_out = aclr(y, sps, bw_rs)
+        ps = self.plot("psd")
+        ps.band("ch", -bw_rs / 2, bw_rs / 2, color=GREEN, alpha=0.08)
+        ps.band("adj", bw_rs / 2, 1.5 * bw_rs, color=RED, alpha=0.05)
+        ps.text("adjl", bw_rs / 2 + 0.05, -8, "adjacent channel", color=RED, size=8.5)
+        ps.line("in", f, db10(p_in / p_in.max()), color=GRAY, width=1.4)
+        ps.line("out", f2, db10(p_out / p_in.max()), color=RED, width=2.0)
+        pa = self.plot("amam")
+        ai = np.linspace(0, 3, 300)
+        pa.line("lin", ai, ai, color=GRAY, style="--", width=1.4, name="linear")
+        pa.line("pa", ai, ai / (1 + (ai / sat) ** (2 * p.p)) ** (1 / (2 * p.p)), color=NAVY,
+                width=2.4, name="Rapp PA")
+        hist, edges = np.histogram(np.abs(x), bins=60, range=(0, 3))
+        pa.line("hist", edges, 1.2 * hist / hist.max(), step=True, color=ORANGE, width=1.0,
+                fill=0, fill_alpha=0.2, name="input envelope (histogram)")
+        pa.hline("sat", sat, color=RED, style="--", label="saturation", label_pos=0.85)
+        obo = float(db10(sat ** 2 / np.mean(np.abs(y) ** 2)))
+        pc = self.plot("const")
+        evm = "—"
+        if s is not None:
+            z = ss.fftconvolve(y, h)[len(h) - 1::sps][:len(s)]
+            z = z[20:-20]
+            ref = s[20:-20]
+            g = np.vdot(ref, z) / np.vdot(ref, ref)
+            z = z / g
+            evm = 100 * cpm.evm(z, ref)
+            pc.points("z", z, color=NAVY, size=3, alpha=0.35)
+            pc.ideal("i", np.unique(np.round(s, 6)), color=RED)
+            pc.set_title("After the amplifier and matched filter")
+        else:
+            seg = y[1000:1000 + 2000]
+            pc.points("z", seg / np.sqrt(np.mean(np.abs(seg) ** 2)), color=NAVY, size=2, alpha=0.4)
+            pc.set_title("Trajectory after the amplifier (constant envelope)")
+        self.readout(aclr=a_out, regrow=a_out - a_in, evm=evm, obo=obo)
+
+    def story(self, p):
+        rg, a = self.r.get("regrow", 0), self.r.get("aclr", 0)
+        s = ("<p>The amplifier is linear for small signals and flattens at saturation (bottom "
+             "left). The orange histogram shows where your signal's envelope spends its time; "
+             f"everything beyond the red line is squashed. With {v(p.ibo, '.1f', 'dB')} of back-off "
+             f"the adjacent channel sees {v(a, '.1f', 'dB')}, ")
+        s += (good("no worse than the clean signal.") if rg < 0.5 else
+              bad(f"{rg:.1f} dB worse than the clean signal: spectral regrowth.")) + "</p>"
+        if p.sig.startswith("GMSK"):
+            s += ("<p>GMSK's envelope is constant, so compression changes nothing but the power: "
+                  "run the amplifier into saturation, efficiently, and the spectrum stays put.</p>")
+        else:
+            s += ("<p>Squashing the peaks of a varying envelope is a nonlinearity, and a "
+                  "nonlinearity widens the spectrum (third-order products spill into the "
+                  "neighbours) while the constellation corners shrink. Regulators limit the first, "
+                  "EVM specifications the second, and digital predistortion fights both.</p>")
+        return "<h3>Why constant envelope matters</h3>" + s + keybox(
+            "Every dB of back-off is efficiency lost; every dB less is regrowth gained. "
+            "Constant-envelope signals escape the trade.")
+
+
+# =============================================================================== 7. EVM signatures
+QAMS = {"16-QAM": ("16qam", -19.0), "64-QAM": ("64qam", -27.0), "256-QAM": ("256qam", -32.0),
+        "1024-QAM": ("1024qam", -35.0)}
+MCS = [(-5, "BPSK 1/2"), (-10, "QPSK 1/2"), (-13, "QPSK 3/4"), (-16, "16-QAM 1/2"),
+       (-19, "16-QAM 3/4"), (-22, "64-QAM 2/3"), (-25, "64-QAM 3/4"), (-27, "64-QAM 5/6"),
+       (-30, "256-QAM 3/4"), (-32, "256-QAM 5/6"), (-35, "1024-QAM")]
+
+
+def apply_impairments(s, p, rng, which=None):
+    """Apply the selected impairment(s) to symbols s. which=None: all of them."""
+    y = s.copy()
+    on = lambda k: which is None or which == k
+    if on("pa") and p.ibo < 19.9:
+        y = cpm.rapp_pa_shaped(y, p.ibo)
+    if on("pn") and p.pn > 0:
+        y = cpm.phase_noise_awgn(y, p.pn, rng)
+    if on("iq") and (p.iqg > 0 or p.iqp > 0):
+        y = cl.iq_imbalance(y, p.iqg, p.iqp)
+        # an analyser removes the average gain; keep the parallelogram
+        y = y / (np.vdot(s, y) / np.vdot(s, s))
+    if on("cfo") and p.cfo > 0:
+        y = y * np.exp(1j * 2 * np.pi * p.cfo * 1e-6 * np.arange(len(y)))
+    if on("dc") and p.dc > 0:
+        y = cpm.dc_offset(y, p.dc)
+    if on("awgn"):
+        y, _ = cl.awgn_esn0(y, p.snr, rng=rng, es=1.0)
+    return y
+
+
+class EVMSignatures(Experiment):
+    title = "EVM: impairment signatures"
+    blurb = "Every transmitter flaw leaves a fingerprint on the constellation and a line in the budget."
+    book = "sec:ch09:evm"
+    controls = [
+        Choice("con", "Constellation", list(QAMS), "64-QAM"),
+        Heading("Impairments"),
+        Slider("snr", "Thermal SNR", 10.0, 50.0, 40.0, step=0.5, unit="dB"),
+        Slider("pn", "Phase noise (rms)", 0.0, 5.0, 1.0, step=0.05, unit="°"),
+        Slider("iqg", "IQ gain imbalance", 0.0, 2.0, 0.0, step=0.05, unit="dB"),
+        Slider("iqp", "IQ phase error", 0.0, 10.0, 0.0, step=0.1, unit="°"),
+        Slider("ibo", "PA input back-off (20 = linear)", 0.0, 20.0, 20.0, step=0.25, unit="dB"),
+        Slider("cfo", "Residual frequency offset", 0.0, 30.0, 0.0, step=0.5, unit="ppm of Rs"),
+        Slider("dc", "Carrier leakage", 0.0, 0.2, 0.0, step=0.005, unit="× rms"),
+        Button("again", "New symbols"),
+    ]
+    plots = [
+        ConstellationPlot("const", "Measured constellation", lim=1.45),
+        Plot("diag", "Error against symbol amplitude (diagnostic)", x="|ideal symbol|",
+             y="|error vector|", xlim=(0, 1.5), legend=None),
+        BarPlot("bud", "EVM budget: each impairment alone (dB)", x="", y="EVM (dB)"),
+    ]
+    layout = [["const", "diag"], ["const", "bud"]]
+    col_stretch = [1, 1]
+    readouts = [
+        Readout("evm", "EVM", "%", ".2f"),
+        Readout("evmdb", "EVM", "dB", ".1f"),
+        Readout("snr", "Effective SNR", "dB", ".1f"),
+        Readout("mcs", "Best 802.11 rate passed", "", None),
+    ]
+    challenges = [
+        Challenge("Pass the 1024-QAM limit (−35 dB) with at least 0.5° of phase noise.",
+                  lambda s: s.p.con == "1024-QAM" and s.p.pn >= 0.5 and s.r.evmdb < -35),
+        Challenge("Check EVM ≈ σφ: phase noise alone of 2° should give about 3.5 % (SNR ≥ 45 dB, "
+                  "nothing else on).",
+                  lambda s: abs(s.p.pn - 2) < 0.06 and s.p.snr >= 45 and s.p.iqg == 0
+                  and s.p.iqp == 0 and s.p.ibo >= 19.9 and s.p.cfo == 0 and s.p.dc == 0
+                  and 3.2 < s.r.evm < 3.8),
+        Challenge("Find the PA back-off at which compression alone costs 64-QAM −30 dB (±1 dB).",
+                  lambda s: s.p.con == "64-QAM" and s.exp.terms.get("PA", 0) is not None
+                  and abs(s.exp.terms.get("PA", 0) + 30) < 1),
+    ]
     N = 4000
-    s = con.points[rng.integers(0, con.M, N)]
-    y = cpm.rapp_pa_shaped(s, pa_ibo_db) if pa_ibo_db < 19.9 else s.copy()
-    y = cpm.phase_noise_awgn(y, phase_deg, rng)
-    if iq_gain_db or iq_phase_deg:
-        y = cl.iq_imbalance(y, iq_gain_db, iq_phase_deg)
-    y = y * np.exp(1j * 2 * np.pi * cfo_ppm * 1e-6 * np.arange(N))
-    y = cpm.dc_offset(y, dc)
-    y, _ = cl.awgn_esn0(y, snr_db, rng=rng, es=1.0)
-    e = cpm.evm(y, s)
-    f, ax = lk.fig((10, 4.6), 1, 2, gridspec_kw=dict(width_ratios=[1, 1.1]))
-    lk.constellation(ax[0], y, con.points, f"{con.name}: EVM {100 * e:.2f}% ({20 * np.log10(e):.1f} dB)", s=2, alpha=0.3)
-    err = y - s
-    ax[1].scatter(np.abs(s) + 0.02 * rng.standard_normal(N), np.abs(err), s=2, alpha=0.3, color=lk.NAVY)
-    ax[1].set_xlabel("|ideal symbol|"); ax[1].set_ylabel("|error vector|"); ax[1].set_title("Error vs amplitude (diagnostic)")
-    lk.show(f)
-    lk.table([["measured EVM (%)", 100 * e], ["measured EVM (dB)", 20 * np.log10(e)],
-              ["effective SNR (dB)", -20 * np.log10(e)], ["thermal SNR alone (dB)", snr_db]], ["", "value"], fmt=".2f")
 
-lk.interact(evm_demo, constellation=lk.choice(["16qam", "64qam", "256qam", "1024qam"], "16qam", "constellation"),
-            snr_db=lk.slider(32, 10, 50, 0.5, "thermal SNR (dB)"), phase_deg=lk.slider(1.0, 0, 10, 0.1, "phase noise (deg rms)"),
-            iq_gain_db=lk.slider(0, 0, 3, 0.1, "IQ gain imbalance (dB)"), iq_phase_deg=lk.slider(0, 0, 10, 0.5, "IQ phase error (deg)"),
-            pa_ibo_db=lk.slider(20, 0, 20, 0.5, "PA input back-off (dB, 20 = linear)"),
-            cfo_ppm=lk.slider(0, 0, 20, 0.5, "residual CFO (ppm of symbol rate)"), dc=lk.slider(0, 0, 0.2, 0.01, "carrier leakage"))
+    def setup(self):
+        self.seed = 1
+        self.terms = {}
 
-# %%
-# The gallery of Chapter 9 (Figure ch09_impairments), each with a little noise
-con = cl.get_constellation("16qam")
-N = 3000
-s = con.points[rng.integers(0, 16, N)]
-nz = lambda y, snr=32: cl.awgn_esn0(y, snr, rng=rng, es=1.0)[0]
-cases = [("AWGN only (Es/N0 = 26 dB)", nz(s, 26)), ("phase noise, 3° rms", nz(cpm.phase_noise_awgn(s, 3, rng))),
-         ("IQ imbalance, 1 dB / 5°", nz(cl.iq_imbalance(s, 1.0, 5.0))), ("PA compression (Rapp, 2.6 dB IBO)", nz(cpm.rapp_pa_shaped(s, 2.6))),
-         ("residual frequency offset", nz(s * np.exp(1j * 2 * np.pi * 1.5e-5 * np.arange(N)))), ("carrier leakage", nz(cpm.dc_offset(s, 0.08)))]
-f, ax = lk.fig((12, 7.4), 2, 3)
-for a, (ttl, y) in zip(ax.ravel(), cases):
-    lk.constellation(a, y, con.points, None, s=2, alpha=0.35, lim=1.45)
-    a.set_title(f"{ttl}\nEVM {100 * cpm.evm(y, s):.1f}% ({cpm.evm_db(y, s):.1f} dB)", fontsize=9)
-lk.show(f)
+    def on_again(self, p):
+        self.seed += 1
 
-# %% [markdown]
-# **What you should see.** Each impairment leaves its fingerprint; the error-versus-amplitude panel of the interactive cell tells them
-# apart quantitatively (phase noise grows linearly with amplitude, compression only at the largest amplitudes, AWGN not at all).
-# 1° of phase noise gives about 1.7% EVM, 3° about 5.2%. Raise the constellation to 1024-QAM and watch how little impairment it tolerates.
-#
-# **The 1024-QAM budget of Chapter 9.** Target $-35$ dB. Contributions: phase noise 0.5° rms ($-41.2$ dB), image rejection $-45$ dB, PA with
-# DPD $-38$ dB, DAC/clock/analog $-40$ dB. Error powers add.
+    def update(self, p):
+        key, limit = QAMS[p.con]
+        c = cl.get_constellation(key)
+        rng = np.random.default_rng(self.seed)
+        s = c.points[rng.integers(0, c.M, self.N)]
+        y = apply_impairments(s, p, rng)
+        e = cpm.evm(y, s)
+        terms = {}
+        for k, lab in (("pn", "phase noise"), ("iq", "IQ"), ("pa", "PA"), ("cfo", "freq. offset"),
+                       ("dc", "leakage")):
+            active = {"pn": p.pn > 0, "iq": p.iqg > 0 or p.iqp > 0, "pa": p.ibo < 19.9,
+                      "cfo": p.cfo > 0, "dc": p.dc > 0}[k]
+            if active:
+                yy = apply_impairments(s, p, np.random.default_rng(7), which=k)
+                terms[lab] = float(cpm.evm_db(yy, s))
+        terms["thermal"] = -p.snr
+        self.terms = {("PA" if k == "PA" else k): v_ for k, v_ in terms.items()}
+        pc = self.plot("const")
+        pc.points("y", y, color=NAVY, size=2 if c.M >= 256 else 3, alpha=0.35)
+        pc.ideal("i", c.points, color=RED)
+        pd = self.plot("diag")
+        amp = np.abs(s) + 0.01 * rng.standard_normal(len(s))
+        err = np.abs(y - s)
+        pd.scatter("e", amp, err, color=NAVY, size=3, alpha=0.3)
+        pd.set_ylim(0, max(0.05, float(np.percentile(err, 99.5)) * 1.2))
+        pb = self.plot("bud")
+        names = list(terms) + ["total"]
+        vals = list(terms.values()) + [float(cpm.evm_db(y, s))]
+        x = np.arange(len(names))
+        cols = [GRAY if n_ == "thermal" else ORANGE for n_ in names[:-1]] + \
+               [GREEN if vals[-1] < limit else RED]
+        base = -60
+        pb.bars("b", x, vals, base=base, width=0.6, colors=cols)
+        for i, val in enumerate(vals):
+            pb.text(f"t{i}", i, val, f"{val:.1f}", anchor=(0.5, 1.1), size=8.5, bold=(i == len(vals) - 1))
+        pb.hline("lim", limit, color=RED, style="--", label=f"{p.con} limit {limit:.0f} dB",
+                 label_pos=0.02)
+        pb.set_xticks([(i, n_) for i, n_ in enumerate(names)])
+        pb.set_xlim(-0.6, len(names) - 0.4)
+        pb.set_ylim(base, max(-5, max(vals) + 6))
+        edb = 20 * np.log10(e)
+        passed = [n_ for lim_, n_ in MCS if edb < lim_]
+        self.readout(evm=100 * e, evmdb=edb, snr=-edb, mcs=passed[-1] if passed else "none")
 
-# %%
-terms = {"phase noise 0.5° rms": 20 * np.log10(np.deg2rad(0.5)), "IQ image (45 dB IRR)": -45.0, "PA with DPD": -38.0,
-         "DAC, jitter, analog noise": -40.0}
-tot = cpm.evm_budget_db(*terms.values())
-tot_backoff = cpm.evm_budget_db(terms["phase noise 0.5° rms"], -45.0, -40.0, -40.0)
-lk.table([[k, v, 100 * 10 ** (v / 20)] for k, v in terms.items()] + [["TOTAL", tot, 100 * 10 ** (tot / 20)],
-          ["TOTAL with PA backed off 1 dB (-40 dB)", tot_backoff, 100 * 10 ** (tot_backoff / 20)]],
-         ["contribution", "EVM (dB)", "EVM (%)"], fmt={1: ".1f", 2: ".2f"}, title="EVM budget, 1024-QAM transmitter (limit -35 dB)")
-snr = np.linspace(20, 50, 100)
-f, ax = lk.fig((7, 3.4))
-for e_tx, col in [(-30, lk.RED), (-35, lk.NAVY), (-40, lk.GREEN)]:
-    ax.plot(snr, cpm.snr_eff_db(snr, e_tx), color=col, label=f"TX EVM {e_tx} dB")
-ax.plot(snr, snr, "k:", label="perfect transmitter")
-ax.set_xlabel("receiver thermal SNR (dB)"); ax.set_ylabel("effective SNR (dB)"); ax.legend(); ax.set_title("EVM caps the link")
-lk.show(f)
+    def story(self, p):
+        e, edb = self.r.get("evm", 0), self.r.get("evmdb", 0)
+        worst = max(((k, v_) for k, v_ in self.terms.items()), key=lambda kv: kv[1], default=("thermal", 0))
+        s = (f"<p>EVM is the rms distance between where symbols land and where they should be, "
+             f"relative to the signal: here {v(e, '.2f', '%')} ({v(edb, '.1f', 'dB')}). When the "
+             f"errors are noise-like, SNR ≈ 1/EVM², so EVM is an SNR in disguise.</p>"
+             f"<p>The biggest contributor now is {v(worst[0])}. Each flaw has a fingerprint: phase "
+             "noise draws arcs whose error grows with amplitude (right, a rising wedge); IQ "
+             "imbalance squashes the grid into a parallelogram; PA compression pulls in only the "
+             "outer corners; a residual frequency offset rotates the whole grid; carrier leakage "
+             "shifts it.</p>")
+        return "<h3>Reading a constellation like a doctor</h3>" + s + keybox(
+            "Independent impairments add as error powers: EVM_total² = Σ EVMᵢ². 1° rms of phase "
+            "noise alone is about 1.7 % (−35 dB).")
 
-# %% [markdown]
-# **What you should see.** The budget totals $-34.4$ dB (1.91%) and fails; backing the PA off by a dB (to $-40$ dB) brings it to
-# $-35.1$ dB and it passes with no margin, exactly as in the chapter. The right-hand plot is the reason the number matters: a
-# transmitter at $-35$ dB caps the effective SNR at 35 dB however close the client sits.
-#
-# ### Try it yourself 6.1
-# What rms phase noise (degrees) alone gives an EVM of $-35$ dB? (Use EVM ≈ $\sigma_\phi$ in radians.)
 
-# %%
-answer_6_1 = None
-lk.check("6.1 phase noise for -35 dB EVM (deg rms)", answer_6_1, np.rad2deg(10 ** (-35 / 20)), atol=0.03)
+# =============================================================================== 8. EVM budget
+class EVMBudget(Experiment):
+    title = "An EVM budget for 1024-QAM"
+    blurb = "Close the transmitter budget, then see how its EVM caps every link it serves."
+    book = "sec:ch09:evm"
+    controls = [
+        Choice("target", "Constellation", list(QAMS), "1024-QAM"),
+        Heading("Transmitter contributions"),
+        Slider("pn", "Phase noise (rms)", 0.1, 2.0, 0.5, step=0.01, unit="°"),
+        Slider("irr", "Image rejection", 25.0, 60.0, 45.0, step=0.5, unit="dB"),
+        Slider("pa", "PA (after DPD)", -50.0, -25.0, -38.0, step=0.5, unit="dB"),
+        Slider("dac", "DAC, clock jitter, analog noise", -50.0, -30.0, -40.0, step=0.5,
+               unit="dB"),
+        Heading("The link"),
+        Slider("rx", "Receiver thermal SNR", 15.0, 50.0, 38.0, step=0.5, unit="dB"),
+    ]
+    plots = [
+        BarPlot("bars", "Contributions (error powers add)", x="", y="EVM (dB)"),
+        Plot("cap", "Effective SNR against the receiver's thermal SNR", x="thermal SNR (dB)",
+             y="effective SNR (dB)", xlim=(15, 50), ylim=(15, 50), legend="tl"),
+    ]
+    layout = [["bars", "cap"]]
+    col_stretch = [1, 1]
+    readouts = [
+        Readout("tot", "Transmitter EVM", "dB", ".1f"),
+        Readout("margin", "Margin to the limit", "dB", ".1f", good=lambda x: x >= 0),
+        Readout("eff", "Effective SNR at the receiver", "dB", ".1f"),
+        Readout("cap", "SNR ceiling (perfect receiver)", "dB", ".1f"),
+    ]
+    challenges = [
+        Challenge("The book's fix: back the PA off to −40 dB (others as in the book) and pass "
+                  "with a margin of at least 0 dB.",
+                  lambda s: s.p.target == "1024-QAM" and abs(s.p.pa + 40) < 0.3
+                  and abs(s.p.pn - 0.5) < 0.02 and abs(s.p.irr - 45) < 0.3 and abs(s.p.dac + 40) < 0.3
+                  and s.r.margin >= 0),
+        Challenge("Leave the PA at −38 dB and close the budget with a better oscillator only "
+                  "(IRR 45 dB, DAC −40 dB).",
+                  lambda s: s.p.target == "1024-QAM" and abs(s.p.pa + 38) < 0.3
+                  and abs(s.p.irr - 45) < 0.3 and abs(s.p.dac + 40) < 0.3 and s.r.margin >= 0),
+        Challenge("With the transmitter just passing 1024-QAM, find how strong the receiver's SNR "
+                  "must be for an effective SNR of 33 dB.",
+                  lambda s: s.p.target == "1024-QAM" and s.r.margin >= 0 and s.r.margin < 1
+                  and abs(s.r.eff - 33) < 0.3),
+    ]
 
-# %% [markdown]
-# ## Key takeaways
-# * CPM keeps the envelope constant and the phase continuous; $h$ and the frequency pulse ($BT$) set spectrum and ISI.
-# * MSK is OQPSK with half-sine pulses: constant envelope at BPSK's power efficiency. GMSK 0.3 fits in 0.91 $R_b$ (99%) for a few tenths of a dB.
-# * Noncoherent (differential, discriminator) receivers cost several dB but need no carrier recovery.
-# * PAPR ranks modulations by amplifier friendliness: GMSK 0 dB, OQPSK and π/4-QPSK ~3–4 dB, QAM 5–6 dB, OFDM ~9–10 dB.
-# * EVM is an SNR in disguise; impairments add as error powers, and the transmitter's EVM caps the link.
-#
-# ## Going further (hardware: USRP B200 / GNU Radio)
-# * Generate GMSK with GNU Radio's `GMSK Mod` block (BT = 0.3) into the B200 through a 30 dB attenuator, capture it with
-#   `gr01_spectrum_iq_capture.py`, and measure its 99% bandwidth with `cpm.occupied_bandwidth`. Compare with this lab.
-# * Transmit 64-QAM from `gr02_psk_link.py` (change the constellation) at several TX gains and measure EVM with `cpm.evm` after
-#   the receiver's equaliser: find the gain at which the B200's PA starts to compress.
-#
-# ## Exercises
-# 1. **(Warm-up)** Show numerically that MSK generated by `gmsk_baseband(bits, sps, None)` equals OQPSK with half-sine pulses after
-#    precoding.
-# 2. **(Core)** For $BT$ = 0.5, 0.3 and 0.2, measure the 99% bandwidth and the coherent BER at $10^{-3}$; plot one against the other
-#    (one of the simulation problems of Chapter 9).
-# 3. **(Core)** Add a Rapp PA to the GMSK and 16-QAM waveforms at 0 dB back-off and compare their spectral regrowth (ACLR).
-# 4. **(Stretch)** Implement multiple-symbol differential detection (two-bit observation) for GMSK and measure how much of the
-#    coherent/differential gap it recovers.
+    def update(self, p):
+        _, limit = QAMS[p.target]
+        terms = {"phase noise": float(20 * np.log10(np.deg2rad(p.pn))),
+                 "IQ image": -p.irr, "PA": p.pa, "DAC / analog": p.dac}
+        tot = float(cpm.evm_budget_db(*terms.values()))
+        names = list(terms) + ["total"]
+        vals = list(terms.values()) + [tot]
+        pb = self.plot("bars")
+        base = -60
+        x = np.arange(len(names))
+        pb.bars("b", x, vals, base=base, width=0.6,
+                colors=[ORANGE] * len(terms) + [GREEN if tot <= limit else RED])
+        for i, val in enumerate(vals):
+            pb.text(f"t{i}", i, val, f"{val:.1f} dB\n{100 * 10 ** (val / 20):.2f} %",
+                    anchor=(0.5, 1.05), size=8.5, bold=(i == len(vals) - 1))
+        pb.hline("lim", limit, color=RED, style="--", label=f"limit {limit:.0f} dB", label_pos=0.02)
+        pb.set_xticks([(i, n_) for i, n_ in enumerate(names)])
+        pb.set_xlim(-0.6, len(names) - 0.4)
+        pb.set_ylim(base, -15)
+        pc = self.plot("cap")
+        snr = np.linspace(15, 50, 141)
+        pc.line("ideal", snr, snr, color=GRAY, style=":", name="perfect transmitter")
+        for e_tx, col in ((-30, ORANGE), (-40, GREEN)):
+            pc.line(f"r{e_tx}", snr, cpm.snr_eff_db(snr, e_tx), color=col, width=1.0,
+                    name=f"TX EVM {e_tx} dB")
+        pc.line("you", snr, cpm.snr_eff_db(snr, tot), color=NAVY, width=2.6,
+                name=f"your TX ({tot:.1f} dB)")
+        eff = float(cpm.snr_eff_db(p.rx, tot))
+        pc.scatter("pt", [p.rx], [eff], color=RED, size=13)
+        pc.hline("capl", -tot, color=NAVY, style="--", width=1.0)
+        self.readout(tot=tot, margin=limit - tot, eff=eff, cap=-tot)
 
-# %%
-lk.summary()
+    def story(self, p):
+        tot, m, eff = self.r.get("tot", 0), self.r.get("margin", 0), self.r.get("eff", 0)
+        s = ("<p>A transmitter EVM budget lists every independent source of error and adds their "
+             "<i>powers</i>. Phase noise of σ° rms contributes 20·log₁₀(σ in radians), an image "
+             "rejection of R dB contributes −R dB, and so on.</p>"
+             f"<p>Your total is {v(tot, '.1f', 'dB')}: "
+             + (good(f"it passes with {m:.1f} dB to spare.") if m >= 0 else
+                bad(f"it fails by {-m:.1f} dB.")) +
+             " The book's budget (0.5°, 45 dB, PA −38 dB, DAC −40 dB) totals −34.4 dB and fails; "
+             "backing the PA off to −40 dB passes with no margin at all.</p>"
+             f"<p>Right: the transmitter's EVM is a ceiling. However close the client sits, the "
+             f"effective SNR cannot exceed {v(-tot, '.1f', 'dB')}; at your receiver SNR of "
+             f"{v(p.rx, '.1f', 'dB')} it is {v(eff, '.1f', 'dB')}.</p>")
+        return "<h3>Closing the budget</h3>" + s + keybox(
+            "1/SNR_eff = 1/SNR_rx + EVM_tx² (+ EVM_rx²). Wi-Fi 6's 1024-QAM needs about −35 dB at "
+            "the transmitter.")
+
+
+# =============================================================================== the lab
+LAB = st.Lab(21, "Constant Envelope, PAPR and EVM", chapter=9,
+             chapter_title="Digital Modulation and Optimal Detection",
+             experiments=[PhaseTrajectories, Spectra, MSKisOQPSK, Receivers, PAPR, PARegrowth,
+                          EVMSignatures, EVMBudget])
+
+if __name__ == "__main__":
+    st.run(LAB)
