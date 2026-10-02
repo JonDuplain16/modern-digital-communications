@@ -649,6 +649,14 @@ def test_serdes():
     assert sd.duobinary_decode_precoded(y).tolist() == d.tolist()
 
 
+def test_frontier():
+    """commlib.frontier reproduces Chapter 25's worked numbers."""
+    from commlib import frontier as fr
+    fr._selftest()
+    assert abs(sum(fr.gas_atten_db_km(140.0)) - 1.07) < 0.1           # 'about 1 dB/km at 140 GHz'
+    assert 4 < sum(fr.gas_atten_db_km(300.0)) < 7                      # 'about 5 dB/km at 300 GHz'
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
