@@ -70,8 +70,17 @@ def get(title, name, maxpx=1280):
     lic, artist, credit, desc = _meta(ii)
     if not FREE.search(lic):
         sys.exit(f"REFUSED (license '{lic}' is not PD/CC0/CC BY/CC BY-SA): {title}")
-    url = ii.get("thumburl") or ii["url"]
-    raw = _get(url, binary=True)
+    # Thumbnails are rate-limited hard when several agents fetch at once; fall back to the plain
+    # original (query string stripped), which is served from cache.
+    raw = None
+    for url in [u.split("?")[0] for u in (ii.get("thumburl"), ii.get("url")) if u]:
+        try:
+            raw = _get(url, binary=True)
+            break
+        except Exception as e:
+            last = e
+    if raw is None:
+        raise last
     from PIL import Image
     im = Image.open(io.BytesIO(raw))
     if im.mode in ("RGBA", "LA", "P"):
