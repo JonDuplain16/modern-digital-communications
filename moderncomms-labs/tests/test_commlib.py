@@ -624,8 +624,12 @@ def test_serdes():
     from commlib import linecodes as lc
     bits = np.r_[1, np.zeros(12, int), 1, 1, np.zeros(8, int)]
     s, v = sd.b8zs(bits)
-    assert np.sum(s) == 0 or abs(np.sum(s)) <= 1 and v.sum() == 2
-    assert lc.run_lengths(np.abs(sd.hdb3(bits)[0])).max() <= 3 + 1
+    assert v.sum() == 4                                                # two 8-zero substitutions
+    z = lc.run_lengths(np.abs(s))
+    assert z.max() <= 7                                                # B8ZS: at most 7 zeros
+    h, hv = sd.hdb3(bits)
+    zr = [len(t) for t in "".join(str(abs(q)) for q in h).split("1") if t]
+    assert max(zr) <= 3                                                # HDB3: at most 3 zeros
     assert set(np.unique(sd.hdb3(np.zeros(40, int))[0])) <= {-1, 0, 1}
     assert abs(np.sum(sd.hdb3(np.zeros(400, int))[0])) <= 2          # violations alternate: no DC
     line = sd.enc64b66b(np.zeros(640, np.int8))
