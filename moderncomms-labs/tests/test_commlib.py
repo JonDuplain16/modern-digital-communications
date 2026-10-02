@@ -736,6 +736,55 @@ def test_cellsim():
     assert s1 < 0.6 and s2 > 0.95
 
 
+def test_sourcekit():
+    from commlib import sourcekit as sk
+    # Lloyd-Max for N(0,1): the classic table (Max 1960): 1 bit 4.40 dB, 2 bits 9.30 dB
+    assert abs(10 * np.log10(1 / sk.lloyd_max(2)[1]) - 4.40) < 0.02
+    assert abs(10 * np.log10(1 / sk.lloyd_max(4)[1]) - 9.30) < 0.02
+    # uniform pdf: the uniform quantiser is optimal, 6.02 dB per bit
+    assert abs(10 * np.log10(1 / sk.uniform_quantizer(8, "uniform")[1]) - 18.06) < 0.05
+    # entropy-coded uniform quantiser approaches the 1.53 dB gap at high rate
+    R, mse = sk.ecsq(0.05)
+    assert abs(sk.gaussian_rd_snr_db(R) - 10 * np.log10(1 / mse) - 1.53) < 0.05
+    D, Rk, th = sk.reverse_waterfill([4, 2, 1, 0.5, 0.25], 1.0)
+    assert np.allclose(D, 0.2) and abs(th - 0.2) < 1e-6
+    text = "abcabcabcabc xyz abcabc"
+    toks = sk.lz77_parse(text, 64, 18)
+    rebuilt = []
+    for pos, L, d in toks:                               # decode the parse
+        for _ in range(L):
+            rebuilt.append(text[pos] if d == 0 else rebuilt[len(rebuilt) - d])
+    assert "".join(rebuilt) == text and any(d for _, _, d in toks)
+    r = np.random.default_rng(0)
+    a = r.random((64, 64)) * 255
+    b = np.roll(a, (2, 3), (0, 1))
+    mv, pred, _ = sk.block_motion(b, a, 16, 4)
+    assert tuple(mv[1, 1]) == (-2, -3) and np.allclose(pred[16:48, 16:48], b[16:48, 16:48])
+    blk = r.random((8, 8))
+    assert np.allclose(sk.idct8(sk.dct8(blk)), blk) and len(sk.zigzag_indices(8)) == 64
+
+
+def test_spreadkit():
+    from commlib import spreadkit as sk
+    from commlib import spread as sp
+    # partial-band jamming of FH/BFSK: worst case rho = 2/(Eb/J0), BER = e^-1/(Eb/J0)
+    rho, ber = sk.fh_worst_rho(20.0, 1)
+    assert abs(rho - 0.02) < 0.002 and abs(ber - np.exp(-1) / 100) < 3e-4
+    assert sk.fh_worst_rho(20.0, 5)[1] < 1e-4                 # diversity restores exponential decay
+    # tracking loop: locks and tracks at 45 dB-Hz with small code and phase error
+    loop = sk.TrackingLoop(cn0=45, dll_bn=2, pll_bn=15, fll_bn=10, freq_err0=100, seed=1)
+    o = loop.run(1200)
+    pe = (o["phase_err"][-400:] + np.pi / 2) % np.pi - np.pi / 2
+    assert np.std(o["code_err"][-400:]) < 0.02 and np.degrees(np.sqrt(np.mean(pe ** 2))) < 10
+    # geometry helpers: satellites at the requested elevations, linearised errors ~ DOP x sigma
+    u = sp.lla_to_ecef(45.0, -75.0, 100.0)
+    S = sk.sats_from_azel(u, [0, 90, 180, 270, 45], [20, 30, 40, 50, 85])
+    az, el = sp.azel(S.T, u)
+    assert np.allclose(el, [20, 30, 40, 50, 85], atol=1e-6)
+    enu, _ = sk.fix_cloud(S, u, 1.0, 20000, rng=2)
+    assert abs(np.sqrt(np.mean(np.sum(enu ** 2, axis=1))) / sp.dop(S, u)["PDOP"] - 1) < 0.03
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
