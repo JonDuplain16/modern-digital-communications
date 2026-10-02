@@ -114,3 +114,4 @@ describe it in your final report so the lab author can add it.
 15. `\mdcpairany[placement]{a}{capA}{b}{capB}` puts two items side by side; each may be a photo
     (figs/photos/a.jpg, credit appended automatically) or a figure (figs/a.pdf). Use it instead of local pair macros.
 16. Before fetching, check figs/photos/ for an existing photo of the same subject from another chapter; pick a different image rather than duplicating.
+17. To stop a heading or box title being stranded at a page bottom, put `\Needspace{6\baselineskip}` (needspace package, loaded by mdcstyle) just before it.
