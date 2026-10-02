@@ -657,6 +657,85 @@ def test_frontier():
     assert 4 < sum(fr.gas_atten_db_km(300.0)) < 7                      # 'about 5 dB/km at 300 GHz'
 
 
+def test_airif():
+    from commlib import airif as ai
+    assert abs(ai.nr_peak_rate(4, 8, 273, 1, 0.14) / 1e9 - 2.34) < 0.01     # Chapter 21 FR1 example
+    assert abs(ai.nr_peak_rate(2, 6, 264, 3, 0.18) / 1e9 - 3.23) < 0.01     # Chapter 21 FR2 example
+    assert ai.NR_MAX_PRB[(1, 100)] == 273 and ai.NR_MAX_PRB[(3, 400)] == 264
+    assert abs(ai.spectral_efficiency(ai.LTE_CQI)[-1] - 5.5547) < 1e-3
+    assert len(ai.NR_MCS64) == 29
+    assert abs(ai.wifi_rate_mbps(11, 80) - 600.25) < 0.01
+    assert abs(ai.combine_snr_db(38, 40) - 35.88) < 0.01
+    q, t = ai.ble_adv_charge()
+    assert abs(q * 1e6 - 10.67) < 0.01 and abs(t * 1e6 - 376) < 1e-6        # Chapter 22 beacon
+    assert abs(ai.battery_life_years(q, 1.0) - 2.03) < 0.01
+    assert abs(ai.bler_logistic(7.0, 7.0) - 0.1) < 1e-9
+    req = ai.required_snr_db(ai.spectral_efficiency(ai.LTE_CQI))
+    assert np.all(np.diff(req) > 0) and ai.select_entry(-20, req) == -1
+    hi = ai.harq_throughput(np.array([0.0]), 3.0, scheme="ir")[0]
+    lo = ai.harq_throughput(np.array([0.0]), 3.0, scheme="chase")[0]
+    assert hi > lo > ai.harq_throughput(np.array([0.0]), 3.0, scheme="none")[0]
+    slot, pl, Ts, Tc = ai.dcf_times()
+    assert slot == 9e-6 and Ts > pl > 0 and Tc > 0
+
+
+def test_mimokit():
+    from commlib import mimokit as mk
+    g = 10 ** (np.array([5.0, 15.0, 25.0]) / 10)
+    # Craig/MGF MRC with equal eigenvalues equals the closed form; SC integral is stable
+    assert np.allclose(mk.ber_bpsk_mrc_eig(g, np.ones(2)), mk.ber_bpsk_mrc_iid(g, 2), rtol=1e-6)
+    assert 0 < mk.ber_bpsk_sc_iid(10 ** 3.5, 8) < 1e-20
+    # sample-based BER with the exact tail matches theory for MRC
+    h = mk.correlated_branches(2, 60000, 0.5, np.random.default_rng(1))
+    b = mk.ber_bpsk_from_gains(mk.combine_gain(h, "mrc"), g,
+                               mk.gain_cdf_asymptote("mrc", mk.exp_corr(2, 0.5)), 2)
+    assert np.all(np.abs(np.log10(b / mk.ber_bpsk_mrc_corr(g, 2, 0.5))) < 0.25)   # within ~1.8x
+    # water-filling agrees with commlib.mimo.waterfill
+    p, mu, k = mk.waterfill_level([2.0, 1.0, 0.1], 1.0)
+    assert np.allclose(p, cl.waterfill([2.0, 1.0, 0.1], 1.0)) and k == 2 and abs(mu - 1.25) < 1e-9
+    # batched detectors agree with the single-vector ones
+    qp = cl.get_constellation("qpsk").points
+    r = np.random.default_rng(2)
+    H = cl.rayleigh_mimo(2, 2, n=50, rng=r)
+    X = qp[r.integers(0, 4, (50, 2))]
+    Y = np.einsum("nij,nj->ni", H, X) + 0.1 * (r.standard_normal((50, 2)) + 1j * r.standard_normal((50, 2)))
+    assert np.all(mk.batch_ml(H, Y, mk.ml_candidates(qp, 2)) ==
+                  np.array([cl.ml_detect(H[i], Y[i], qp) for i in range(50)]))
+    assert np.all(mk.batch_mmse_sic(H, Y, 0.02, qp) ==
+                  np.array([cl.mmse_sic_detect(H[i], Y[i], 0.02, qp) for i in range(50)]))
+    # DMT corners and LOS-MIMO orthogonality at the Rayleigh spacing
+    assert mk.dmt_value(1.0, 2, 2) == 1.0 and mk.dmt_value(0.0, 4, 4) == 16
+    lam = 3e8 / 80e9
+    sv = np.linalg.svd(mk.los_channel(2, mk.los_opt_spacing(2, 1000, lam), 1000, lam), compute_uv=False)
+    assert abs(sv[0] - sv[1]) < 1e-3
+    # array factor: uniform 16-element array has 12 dB of gain and -13.3 dB sidelobes
+    th = np.radians(np.linspace(-90, 90, 3601))
+    af = 10 * np.log10(mk.ula_af(np.ones(16), th))
+    _, hp, psl = mk.beam_metrics(th, af)
+    assert abs(af.max() - 10 * np.log10(16)) < 0.01 and abs(psl + 13.2) < 0.3
+
+
+def test_cellsim():
+    from commlib import cellsim as cs, cellular as cel
+    # Erlang occupancy: the last state is Erlang B
+    assert abs(cs.erlang_occupancy(10.0, 10)[-1] - cel.erlang_b(10.0, 10)) < 1e-12
+    # SIR samples reproduce the book: N = 7, n = 4, 8 dB -> about 60 % above 18 dB
+    v = cs.sir_samples(2, 1, 4.0, 8.0, 1, 12000, np.random.default_rng(7))
+    assert 0.55 < np.mean(v >= 18) < 0.68
+    # slotted-ALOHA event simulation near 1/e at G = 1
+    _, ok = cs.aloha_events(1.0, 20000, True, np.random.default_rng(3))
+    assert abs(ok.sum() / 20000 - 1 / np.e) < 0.02
+    # handovers: no protection gives many, hysteresis + TTT gives few
+    r = np.random.default_rng(31)
+    a = cs.handover_drive(0.0, 0.0, r)["count"]
+    b = cs.handover_drive(4.0, 19.2, np.random.default_rng(31))["count"]
+    assert a > 10 and b <= 4
+    # RACH: barring rescues a 30 000-device burst
+    s1 = cs.rach_sim(30000, 10, True, acb=1.0)["success"]
+    s2 = cs.rach_sim(30000, 10, True, acb=0.3)["success"]
+    assert s1 < 0.6 and s2 > 0.95
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):

@@ -1,476 +1,875 @@
-# %% [markdown]
-# # Lab 23 — Turbo Codes, EXIT Charts and Density Evolution
-#
-# **Companion to Chapter 15** (*Turbo, LDPC and Polar Codes*). Lab 9 covers LDPC and polar codes; this lab is
-# the turbo half of the chapter and the analysis tools that explain all iterative decoders.
-# **Time needed:** about 2 hours. **Difficulty:** advanced.
-#
-# In 1993 Berrou, Glavieux and Thitimajshima showed a code within about half a decibel of the Shannon limit, and the
-# audience assumed a mistake. The trick was two simple recursive convolutional codes, an interleaver, and a decoder that
-# lets two soft-in/soft-out BCJR decoders argue until they agree. Eight years later ten Brink's EXIT chart explained
-# *why* it works, and *where* the threshold is, with one picture; density evolution did the same for LDPC codes and
-# predicted, exactly, the thresholds that spatially coupled codes later reached. This lab builds the LTE turbo code with
-# `commlib/turbo.py` (the same module that drew Chapter 15's figures), checks the decoder against brute force, watches it
-# iterate, finds its error floor, and then draws EXIT charts and runs density evolution on the erasure channel.
-#
-# ### What you will learn
-# 1. Build the 8-state (13, 15) recursive systematic code and the LTE QPP interleaver, and see why recursion matters.
-# 2. Verify that the BCJR algorithm computes exact a-posteriori probabilities, and what max-log-MAP gives up.
-# 3. Measure the BER of an iterative turbo decoder iteration by iteration, near the Shannon limit.
-# 4. Predict the error floor from the low-weight codewords produced by weight-2 inputs.
-# 5. Measure EXIT curves and a real decoding trajectory, and find the tunnel-opening threshold.
-# 6. Run density evolution on the BEC for regular, irregular and spatially coupled LDPC ensembles.
-#
-# ### Prerequisites
-# Lab 8 (convolutional codes, Viterbi), Lab 9 (LDPC). LLRs (Chapter 9), mutual information (Chapter 13). Chapter 15.
-#
-# ### Roadmap
-# | § | Topic | Interactive |
-# |---|-------|:-----------:|
-# | 1 | The RSC constituent code and the QPP interleaver | |
-# | 2 | BCJR against brute force; log-MAP vs max-log-MAP | |
-# | 3 | Iterative decoding: BER iteration by iteration | yes |
-# | 4 | The error floor and weight-2 codewords | |
-# | 5 | EXIT charts and the decoding trajectory | yes |
-# | 6 | Density evolution on the BEC: regular, irregular, coupled | yes |
+"""Lab 23 · Turbo Codes and EXIT Charts   (Chapter 15)
 
-# %%
-import os, sys
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")   # small matrices: avoid BLAS thread thrashing
-sys.path[:0] = [p for p in (os.path.abspath(".."), os.path.abspath("."))
-                if os.path.isdir(os.path.join(p, "commlib"))]
+Run it:      python labs/lab23_turbo_exit.py
+Self-test:   python labs/lab23_turbo_exit.py --selftest
+
+In 1993 Berrou, Glavieux and Thitimajshima showed a code within about half a decibel of the
+Shannon limit, and the turbo principle (exchange soft extrinsic information between simple
+decoders) went on to power 3G, 4G, deep-space links and, through EXIT charts and density
+evolution, the design of every modern code. Seven experiments: the recursive constituent
+encoder and the QPP interleaver, BCJR against brute force, iterative decoding iteration by
+iteration, the EXIT chart and its tunnel, density evolution on the erasure channel, the
+decoding wave of a spatially coupled code, and the error floor set by the interleaver.
+"""
+import _path  # noqa: F401  (makes commlib and studio importable)
+
 import itertools
+from functools import lru_cache
+
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.optimize import brentq
-import commlib as cl
-from commlib import turbo as tb
+
+from commlib import fectools as ft
 from commlib import infotheory as it
-from commlib import labkit as lk
-
-rng = lk.setup(seed=23, lab="23")
-QPP = {40: (3, 10), 256: (15, 32), 1024: (31, 64), 6144: (263, 480)}   # TS 36.212 Table 5.1.3-3 entries
-
-
-def sigma_of(ebn0_db, R):
-    """Noise standard deviation for BPSK at Eb/N0 (dB) and code rate R."""
-    return np.sqrt(1 / (2 * R * lk.undb(ebn0_db)))
+from commlib import turbo as tb
+import studio as st
+from studio import (Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
+                    Plot, BERPlot, Readout, Challenge,
+                    NAVY, RED, GREEN, ORANGE, PURPLE, GRAY, TEAL, GOLD)
+from studio import v, keybox, good, bad
+from _fecviz import Canvas, cells, segments, pale, ink
 
 
-def awgn_llr(bits, ebn0_db, R, rng):
-    s = sigma_of(ebn0_db, R)
-    return 2 * ((1 - 2.0 * bits) + s * rng.standard_normal(np.shape(bits))) / s ** 2
+# =============================================================================== shared helpers
+RSC = tb.RSC()
+QPP = {40: (3, 10), 256: (15, 32), 1024: (31, 64)}          # TS 36.212 Table 5.1.3-3
 
 
+@lru_cache(maxsize=16)
+def interleaver(K, kind):
+    if kind == "QPP (LTE)":
+        return tb.qpp_interleaver(K, *QPP[K])
+    rng = np.random.default_rng(5)
+    if kind == "Random":
+        return rng.permutation(K)
+    S = {40: 3, 256: 8, 1024: 12}[K]
+    return ft.s_random_interleaver(K, S, rng)
+
+
+@lru_cache(maxsize=16)
+def turbo(K, kind="QPP (LTE)"):
+    return tb.TurboCode(K, interleaver(K, kind))
+
+
+@lru_cache(maxsize=8)
 def bpsk_limit_db(R):
-    """Smallest Eb/N0 (dB) at which the BPSK-input AWGN channel supports rate R."""
     es = brentq(lambda e: it.biawgn_capacity(e) - R, 1e-4, 50)
-    return 10 * np.log10(es / R)
+    return float(10 * np.log10(es / R))
 
 
-# %% [markdown]
-# ## 1. The RSC constituent code and the QPP interleaver
-#
-# Each constituent encoder of the UMTS/LTE turbo code (3GPP TS 36.212 §5.1.3) is an 8-state **recursive systematic
-# convolutional** (RSC) code with feedback $g_0 = 1 + D^2 + D^3$ (13 octal) and feed-forward $g_1 = 1 + D + D^3$
-# (15 octal). *Recursive* is the key word: a single 1 at the input never returns the register to zero, so it produces an
-# infinitely long, periodic parity sequence. Only inputs whose polynomial is divisible by the feedback polynomial
-# terminate; the lightest are **weight-2 inputs** with the two ones a multiple of 7 apart (the period of $1+D^2+D^3$,
-# a primitive polynomial of degree 3). The interleaver's job is to make sure that a weight-2 pattern that is short for
-# encoder 1 is long for encoder 2.
-#
-# LTE uses a **quadratic permutation polynomial** (QPP) interleaver, $\pi(i) = (f_1 i + f_2 i^2) \bmod K$, contention-free
-# for parallel decoders. Chapter 15's worked example takes $K = 40$, $(f_1, f_2) = (3, 10)$.
-
-# %%
-rsc = tb.RSC()
-rows = [[s, f"{s:03b}", rsc.next_state[s, 0], rsc.parity[s, 0], rsc.next_state[s, 1], rsc.parity[s, 1]] for s in range(8)]
-lk.table(rows, ["state", "a(k-1..k-3)", "next (u=0)", "parity (u=0)", "next (u=1)", "parity (u=1)"],
-         title="(13, 15) RSC trellis, the LTE constituent code")
-pi40 = tb.qpp_interleaver(40, *QPP[40])
-lk.table([["pi(0..9)", " ".join(str(v) for v in pi40[:10])],
-          ["steps pi(i+1)-pi(i) mod 40", " ".join(str(v) for v in np.diff(pi40[:10]) % 40)],
-          ["is a permutation", len(set(pi40)) == 40]], ["K = 40, (f1, f2) = (3, 10)", ""])
-
-T = 40
-u1 = np.zeros((1, T), int); u1[0, 3] = 1                    # weight-1 input
-u2 = np.zeros((1, T), int); u2[0, [3, 10]] = 1              # weight-2, separation 7
-u3 = np.zeros((1, T), int); u3[0, [3, 8]] = 1               # weight-2, separation 5
-f, ax = lk.fig((12.5, 3.4), 1, 3, sharey=True)
-for a, (uu, lab) in zip(ax, [(u1, "weight-1 input (one 1 at k = 3)"), (u2, "weight-2, ones 7 apart"), (u3, "weight-2, ones 5 apart")]):
-    _, p = rsc.encode(uu, terminate=False)
-    a.stem(np.arange(T), uu[0] + 2.2, linefmt="C1-", markerfmt="C1o", basefmt=" ", bottom=2.2)
-    a.stem(np.arange(T), p[0], linefmt="C0-", markerfmt="C0o", basefmt=" ")
-    a.set_title(f"{lab}: parity weight {p[0].sum()}"); a.set_xlabel("time k"); a.set_yticks([0.5, 2.7])
-    a.set_yticklabels(["parity", "input"])
-lk.show(f)
-
-# %% [markdown]
-# **What you should see.** The QPP interleaver for $K=40$ starts $0, 13, 6, 19, 12, 25, \ldots$ and its steps alternate
-# $13, 33, 13, 33$, exactly as in the chapter's worked example. A single input 1 makes parity forever (weight grows with the
-# block length); two ones 7 apart make a short burst of parity and the encoder returns to state 0; two ones 5 apart do not
-# terminate. Low-weight turbo codewords therefore need a weight-2 input that is a multiple-of-7 pattern for *both*
-# encoders, which a good interleaver makes rare.
-#
-# ### Try it yourself 1.1
-# What is $\pi(7)$ for the LTE interleaver with $K = 40$? (Do it by hand with the recursion, then check.)
-
-# %%
-answer_1_1 = None
-lk.check("1.1 pi(7) for K = 40", answer_1_1, int(pi40[7]), atol=0)
-
-# %% [markdown]
-# ## 2. BCJR against brute force; log-MAP vs max-log-MAP
-#
-# The BCJR algorithm computes $L(u_k) = \ln \frac{P(u_k=0\mid\mathbf y)}{P(u_k=1\mid\mathbf y)}$ with a forward
-# recursion $\alpha$, a backward recursion $\beta$ and branch metrics $\gamma$, in time linear in the block length. On a
-# short block we can check it against the definition: enumerate all $2^K$ inputs, weight each codeword by
-# $\exp\big(\tfrac12\sum_i L_i x_i\big)$ and sum. **Log-MAP** uses the exact Jacobian logarithm
-# $\max^*(a,b) = \max(a,b) + \ln(1+e^{-|a-b|})$ and should agree to rounding error; **max-log-MAP** drops the correction
-# term (it becomes a soft-output Viterbi with the same hard decisions as ML sequence detection) and overestimates
-# reliabilities.
-
-# %%
-Kb = 6
-ub = rng.integers(0, 2, (1, Kb))
-sb, pb = rsc.encode(ub)                                     # terminated: 6 + 3 trellis steps
-s_ = sigma_of(1.0, 0.5)
-Ls_ = 2 * ((1 - 2.0 * sb) + s_ * rng.standard_normal(sb.shape)) / s_ ** 2
-Lp_ = 2 * ((1 - 2.0 * pb) + s_ * rng.standard_normal(pb.shape)) / s_ ** 2
-L_logmap = tb.bcjr(rsc, Ls_, Lp_)[0, :Kb]
-L_maxlog = tb.bcjr(rsc, Ls_, Lp_, maxlog=True)[0, :Kb]
-allu = np.array(list(itertools.product([0, 1], repeat=Kb)))
-cs, cp = rsc.encode(allu)
-metric = 0.5 * ((1 - 2.0 * cs) @ Ls_[0] + (1 - 2.0 * cp) @ Lp_[0])
-L_brute = np.array([np.logaddexp.reduce(metric[allu[:, k] == 0]) - np.logaddexp.reduce(metric[allu[:, k] == 1]) for k in range(Kb)])
-lk.table([[k, int(ub[0, k]), L_brute[k], L_logmap[k], L_maxlog[k]] for k in range(Kb)],
-         ["k", "sent bit", "brute force (2^6 words)", "BCJR log-MAP", "BCJR max-log-MAP"], fmt=".4f")
-lk.note(f"largest |log-MAP - brute force| = {np.max(np.abs(L_logmap - L_brute)):.2e}")
-
-# %% [markdown]
-# **What you should see.** Log-MAP equals brute force to about $10^{-12}$: BCJR is an exact computation, just organised on
-# the trellis. Max-log-MAP has the same signs but larger magnitudes, and that overconfidence is what costs it a few tenths of
-# a dB inside a turbo decoder (Section 3), where wrong reliabilities are fed back as a-priori information.
-#
-# ### Try it yourself 2.1
-# How many terms would the brute-force sum need for the LTE block length $K = 6144$? Give $\log_{10}$ of that number.
-
-# %%
-answer_2_1 = None
-lk.check("2.1 log10(2^6144)", answer_2_1, 6144 * np.log10(2), atol=1)
-
-# %% [markdown]
-# ## 3. Iterative decoding: BER iteration by iteration
-#
-# The turbo decoder runs BCJR on encoder 1, subtracts what it was told to obtain **extrinsic** LLRs
-# $L_{E1} = L_{\text{APP}} - L^x_{\text{ch}} - L_{A1}$, interleaves them into decoder 2 as a-priori information, and back
-# again. Chapter 15's Figure 15-*turbo-iters* uses the LTE $K = 1024$ code (rate $1024/3084 \approx 1/3$). Its BPSK Shannon
-# limit is about $-0.5$ dB. Max-log-MAP is cheaper but loses a few tenths of a dB; scaling its extrinsic output by about 0.7
-# recovers most of the loss (the correction every LTE modem uses).
-#
-# ### Interactive: block length, decoder and iterations
-# Monte Carlo sizes are small so that the panel runs in about 20 s; raise `frames` for smoother curves.
-
-# %%
-def turbo_ber(tc, ebs, iters, maxlog=False, scale=1.0, frames=100, B=50, seed=0):
-    r = np.random.default_rng(seed)
-    ber = np.zeros((iters, len(ebs))); fer = np.zeros_like(ber)
-    for j, e in enumerate(ebs):
-        for _ in range(frames // B):
-            u = r.integers(0, 2, (B, tc.K))
-            hist = tc.decode(awgn_llr(tc.flatten(tc.encode(u)), e, tc.rate, r), iters=iters, record=True, maxlog=maxlog, scale=scale)
-            for i, h in enumerate(hist):
-                ne = (h != u).sum(axis=1); ber[i, j] += ne.sum(); fer[i, j] += (ne > 0).sum()
-        ber[:, j] /= frames * tc.K; fer[:, j] /= frames
-    return ber, fer
+def interp_cross(x, y, target):
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    ok = y > 0
+    x, y = x[ok], y[ok]
+    if len(x) < 2 or y.min() > target or y.max() < target:
+        return None
+    ly = np.log10(y)
+    i = np.where(ly <= np.log10(target))[0][0]
+    if i == 0:
+        return None
+    return float(np.interp(np.log10(target), [ly[i], ly[i - 1]], [x[i], x[i - 1]]))
 
 
-def iter_demo(K=1024, decoder="log-MAP", iters=8, frames=100):
-    tc = tb.TurboCode(K, tb.qpp_interleaver(K, *QPP[K]))
-    ebs = np.arange(-0.4, 1.41, 0.3) if K >= 1024 else np.arange(0, 3.01, 0.5)
-    ml, sc = {"log-MAP": (False, 1.0), "max-log-MAP": (True, 1.0), "max-log-MAP, scaled 0.7": (True, 0.7)}[decoder]
-    ber, fer = turbo_ber(tc, ebs, iters, ml, sc, frames=frames, seed=K)
-    lim = bpsk_limit_db(tc.rate)
-    f, ax = lk.fig("row2", 1, 2)
-    ebf = np.linspace(ebs[0] - 0.5, ebs[-1] + 0.5, 100)
-    ax[0].semilogy(ebf, cl.ber_bpsk(ebf), color=lk.GRAY, lw=1, label="uncoded BPSK")
-    show = sorted(set([0, 1, 2, 3, 5, iters - 1]) & set(range(iters)))
-    for c, i in enumerate(show):
-        b = np.where(ber[i] > 0, ber[i], np.nan)
-        ax[0].semilogy(ebs, b, "o-", ms=3.5, color=lk.PALETTE[c + 1], label=f"{i + 1} iteration{'s' if i else ''}")
-    ax[0].axvline(lim, color=lk.RED, ls=":"); ax[0].text(lim + 0.03, 2e-5, f"BPSK limit\n{lim:.2f} dB", color=lk.RED, fontsize=8)
-    lk.ber_axes(ax[0], ylim=(1e-5, 0.3)); ax[0].legend(fontsize=7.5); ax[0].set_title(f"K = {K}, {decoder}, {frames} frames per point")
-    for c, i in enumerate(show):
-        ax[1].semilogy(ebs, np.where(fer[i] > 0, fer[i], np.nan), "s-", ms=3.5, color=lk.PALETTE[c + 1], label=f"{i + 1} it.")
-    lk.ber_axes(ax[1], ylabel="Frame error rate", ylim=(5e-3, 1.05)); ax[1].set_title("Frame error rate")
-    lk.show(f)
-    lk.table([[f"{e:+.1f}"] + [f"{ber[i, j]:.1e}" for i in (0, 1, iters - 1)] for j, e in enumerate(ebs)],
-             ["Eb/N0 (dB)", "BER, 1 it.", "BER, 2 it.", f"BER, {iters} it."])
-
-lk.interact(iter_demo, K=lk.choice([40, 256, 1024], 1024, "block length K"),
-            decoder=lk.choice(["log-MAP", "max-log-MAP", "max-log-MAP, scaled 0.7"], "log-MAP", "decoder"),
-            iters=lk.islider(8, 2, 12, 1, "iterations"), frames=lk.choice([100, 200, 500, 1000], 100, "frames per point"))
-
-# %% [markdown]
-# **What you should see.** One iteration is little better than a single convolutional code. Each further iteration moves the
-# waterfall left, with diminishing returns after about six: at 0.8 dB the BER falls from about $8\times10^{-2}$ after one iteration to
-# $2\times10^{-2}$ after two and to zero errors in 100 frames after eight, about 1.3 dB from the $-0.5$ dB limit at this short length. With
-# $K = 40$ (the smallest LTE block) the interleaver has no room to work and the curve moves right by more than a decibel: turbo
-# gain grows with block length. Switch to max-log-MAP to see its loss, and to the scaled version to see most of it come back.
-#
-# Now compare the three decoders directly at a fixed SNR, where the differences are clearest.
-
-# %%
-tc1024 = tb.TurboCode(1024, tb.qpp_interleaver(1024, *QPP[1024]))
-rows = []
-for name, ml, sc in [("log-MAP", False, 1.0), ("max-log-MAP", True, 1.0), ("max-log-MAP, extrinsic x 0.7", True, 0.7)]:
-    b, fr = turbo_ber(tc1024, [0.8], 8, ml, sc, frames=100, seed=99)
-    rows.append([name, f"{b[-1, 0]:.2e}", f"{fr[-1, 0]:.3f}"])
-lk.table(rows, ["decoder (8 iterations)", "BER at 0.8 dB", "FER at 0.8 dB"], title="K = 1024 LTE turbo code")
-
-# %% [markdown]
-# ### Try it yourself 3.1
-# The LTE code with $K = 1024$ sends $3K + 12$ bits (the 12 are tail bits of both encoders). What is its exact rate?
-
-# %%
-answer_3_1 = None
-lk.check("3.1 rate of the K = 1024 LTE turbo code", answer_3_1, 1024 / 3084, atol=1e-4)
-
-# %% [markdown]
-# ## 4. The error floor and weight-2 codewords
-#
-# Below the waterfall a turbo code's BER flattens into an **error floor**, set by a few low-weight codewords. With recursive
-# constituents, the dominant ones come from weight-2 inputs whose ones are $7m$ apart for encoder 1 *and* whose interleaved
-# images are also a multiple of 7 apart for encoder 2. Their union-bound contribution is
-# $P_b \approx \sum_d \frac{w}{K}\, Q\big(\sqrt{2 R d\, E_b/N_0}\big)$ with $w = 2$ information errors per codeword.
-# Chapter 15's worked example: two codewords of weight 14 at $K = 1024$, $R = 1/3$, 2 dB, give a floor of about $2.3\times 10^{-7}$.
-# Below we enumerate every weight-2 input with a separation of up to 56 in either encoder's input order and encode it,
-# for the QPP interleaver and for a random one.
-
-# %%
-def weight2_codewords(tc, dmax_sep=56):
-    """Total weights of the codewords generated by weight-2 inputs that are short in either encoder."""
-    K, pi = tc.K, tc.pi
-    pairs = set()
-    for d in range(7, dmax_sep + 1, 7):
-        for i in range(K - d):
-            pairs.add((i, i + d))
-            a, b = pi[i], pi[i + d]
-            pairs.add((min(a, b), max(a, b)))
-    pairs = np.array(sorted(pairs))
-    u = np.zeros((len(pairs), K), np.int8)
-    u[np.arange(len(pairs)), pairs[:, 0]] = 1; u[np.arange(len(pairs)), pairs[:, 1]] = 1
-    return np.concatenate([tc.flatten(tc.encode(u[s:s + 4000])).sum(axis=1) for s in range(0, len(u), 4000)])
+def ff_parity(u, taps=(1, 1, 0, 1)):
+    """Feed-forward parity with 1 + D + D^3 (the 15 octal tap set, without feedback)."""
+    return np.convolve(u, taps)[:len(u)] % 2
 
 
-codes = [("QPP (31, 64)", tc1024, lk.NAVY), ("random interleaver", tb.TurboCode(1024, np.random.default_rng(5).permutation(1024)), lk.RED)]
-ebf = np.linspace(0, 4, 200)
-f, ax = lk.fig("row2", 1, 2)
-rows = []
-for name, tc, col in codes:
-    w = weight2_codewords(tc)
-    dmin = int(w.min())
-    ax[0].hist(w, bins=np.arange(dmin - 0.5, 60.5), color=col, alpha=0.55, label=name)
-    low = w[w <= dmin + 6]
-    floor = sum((2 / tc.K) * cl.qfunc(np.sqrt(2 * tc.rate * d * lk.undb(ebf))) for d in low)
-    ax[1].semilogy(ebf, floor, color=col, label=f"{name}: weight-2 floor estimate")
-    rows.append([name, dmin, int(np.sum(w == dmin)), f"{np.interp(2.0, ebf, floor):.1e}"])
-ax[1].semilogy(ebf, cl.ber_bpsk(ebf), color=lk.GRAY, lw=1, label="uncoded BPSK (for scale)")
-ax[0].set_xlabel("codeword weight"); ax[0].set_ylabel("count"); ax[0].legend(); ax[0].set_title("Weights of weight-2-input codewords")
-lk.ber_axes(ax[1], ylim=(1e-10, 0.1)); ax[1].legend(fontsize=7.5); ax[1].set_title("Weight-2 error-floor estimates")
-lk.show(f)
-lk.table(rows, ["interleaver", "minimum weight found", "number at that weight", "floor estimate at 2 dB"])
-d14 = 2 * (2 / 1024) * cl.qfunc(np.sqrt(2 / 3 * 14 * lk.undb(2.0)))
-lk.table([["Chapter 15 worked example: 2 words of weight 14 at 2 dB", f"{d14:.2e}"]], ["", "P_b"])
+# =============================================================================== 1. RSC + interleaver
+class Constituents(Experiment):
+    title = "Recursive encoders and the interleaver"
+    blurb = "Why the constituent codes must be recursive, and why the interleaver must scatter."
+    book = "sec:ch15:turbo"
+    controls = [
+        Choice("enc", "Constituent encoder", ["Recursive (13, 15), LTE", "Feed-forward (15)"],
+               "Recursive (13, 15), LTE", style="menu"),
+        Choice("pat", "Input pattern", ["A single 1", "Two 1s"], "Two 1s"),
+        IntSlider("sep", "Distance between the two 1s", 1, 30, 5),
+        Heading("Interleaver"),
+        Choice("K", "Block length K", ["40", "256", "1024"], "40"),
+        Choice("kind", "Interleaver", ["QPP (LTE)", "Random", "S-random"], "QPP (LTE)"),
+        IntSlider("pos", "Position of the first 1", 0, 39, 3),
+    ]
+    plots = [
+        Plot("enc1", "Encoder 1: input (orange) and parity (navy)", x="time k",
+             y="", xlim=(-0.5, 39.5), ylim=(-0.3, 2.9), legend=None, grid=False),
+        Plot("pi", "The interleaver: where the inputs go", x="input position i",
+             y="π(i)", legend=None),
+        Plot("enc2", "Encoder 2 sees the interleaved input", x="time k (interleaved order)",
+             y="", xlim=(-0.5, 39.5), ylim=(-0.3, 2.9), legend=None, grid=False),
+    ]
+    layout = [["enc1", "pi"], ["enc2", "pi"]]
+    col_stretch = [3, 2]
+    readouts = [
+        Readout("w1", "Parity weight, encoder 1", "", "int"),
+        Readout("sep2", "Distance after interleaving", "", "int"),
+        Readout("w2", "Parity weight, encoder 2", "", "int"),
+        Readout("wt", "Whole codeword weight", "", "int", good=lambda x: x >= 20),
+    ]
+    challenges = [
+        Challenge("Find a two-ones input that the recursive encoder 1 finishes quickly: its parity "
+                  "stops (separation a multiple of 7).",
+                  lambda s: s.p.enc.startswith("Recursive") and s.p.pat == "Two 1s" and s.p.sep % 7 == 0),
+        Challenge("Show why recursion matters: with the feed-forward encoder, a single 1 gives a "
+                  "parity weight of only 3.", lambda s: s.p.enc.startswith("Feed") and s.p.pat == "A single 1"
+                  and s.r.w1 == 3),
+        Challenge("Find a weight-2 input that is short for both encoders: whole codeword weight "
+                  "below 26 with K = 40.", lambda s: s.p.K == "40" and s.p.pat == "Two 1s"
+                  and s.p.enc.startswith("Recursive") and s.r.wt < 26,
+                  hint="Look for a separation that is a multiple of 7 before and after π."),
+    ]
 
-# %% [markdown]
-# **What you should see.** The random interleaver lets through a few low-weight codewords, and its floor sits an order of
-# magnitude or more above the QPP interleaver's, which is designed to spread weight-2 patterns. Both floors fall slowly
-# (roughly a factor of 4–5 per dB) while the waterfall falls by orders of magnitude per dB: the shape of every turbo BER curve.
-# The worked example evaluates to $2.3\times10^{-7}$. The QPP floor is far below anything Monte Carlo can reach in a lab,
-# which is why floors are predicted from weight spectra, not simulated.
-#
-# ### Try it yourself 4.1
-# Using the same formula, estimate the floor at 3 dB for two weight-14 codewords (it should fall by only about 5×).
-
-# %%
-answer_4_1 = None
-lk.check("4.1 floor at 3 dB, two words of weight 14", answer_4_1, 2 * (2 / 1024) * cl.qfunc(np.sqrt(2 / 3 * 14 * lk.undb(3.0))), rtol=0.05)
-
-# %% [markdown]
-# ## 5. EXIT charts and the decoding trajectory
-#
-# Model the a-priori LLRs entering a constituent decoder as consistent Gaussian, $L_A = \tfrac{\sigma_A^2}{2}x + \mathcal N(0,
-# \sigma_A^2)$; their mutual information with the bits is $I_A = J(\sigma_A)$. Feed a decoder synthetic $L_A$ with a chosen
-# $I_A$, measure the mutual information $I_E$ of its extrinsic output, and you have its **transfer curve** $I_E = T(I_A)$.
-# Plot decoder 1's curve and decoder 2's with the axes swapped: iterative decoding is a staircase between them, and it
-# reaches $(1,1)$ only if the **tunnel** between the curves is open. The SNR at which the tunnel just opens is the
-# **threshold** of the code (for long blocks); Chapter 15 finds it at about $-0.1$ dB for the rate-1/3 LTE code, about 0.4 dB from the limit.
-#
-# ### Interactive: channel SNR
-
-# %%
-IA_grid = np.linspace(0, 1, 11)
-exit_cache = {}
-
-def exit_curve(eb):
-    if eb not in exit_cache:
-        exit_cache[eb] = tb.exit_curve_rsc(rsc, sigma_of(eb, 1 / 3), IA_grid, K=2000, reps=10, rng=np.random.default_rng(int(10 * eb) + 50))
-    return exit_cache[eb]
-
-def exit_demo(ebn0=0.5):
-    f, ax = lk.fig("row2", 1, 2)
-    for eb, col in [(-1.0, lk.GRAY), (-0.5, lk.PURPLE), (0.0, lk.GREEN), (0.5, lk.ORANGE), (1.0, lk.NAVY)]:
-        ax[0].plot(IA_grid, exit_curve(eb), "o-", ms=3, color=col, label=f"Eb/N0 = {eb:+.1f} dB")
-    ax[0].plot([0, 1], [0, 1], "k:", lw=0.6)
-    ax[0].set_xlabel("$I_A$"); ax[0].set_ylabel("$I_E$"); ax[0].legend(fontsize=7.5); ax[0].set_title("Transfer curves of one RSC decoder")
-    IE = exit_curve(ebn0)
-    ax[1].plot(IA_grid, IE, color=lk.NAVY, label="decoder 1")
-    ax[1].plot(IE, IA_grid, color=lk.RED, label="decoder 2 (axes swapped)")
-    Kt = 8000
-    tc = tb.TurboCode(Kt, np.random.default_rng(9).permutation(Kt))
-    r = np.random.default_rng(4)
-    u = r.integers(0, 2, (2, Kt))
-    _, traj = tc.decode(awgn_llr(tc.flatten(tc.encode(u)), ebn0, tc.rate, r), iters=12, Linfo=u)
-    X, Y = [0.0], [0.0]
-    for j, (ia, ie) in enumerate(traj):
-        if j % 2 == 0:
-            X.append(X[-1]); Y.append(ie)
+    def update(self, p):
+        K = int(p.K)
+        pi = interleaver(K, p.kind)
+        pos = min(p.pos, K - 1)
+        u = np.zeros(K, int)
+        u[pos] = 1
+        if p.pat == "Two 1s":
+            u[min(pos + p.sep, K - 1)] = 1
+        rec = p.enc.startswith("Recursive")
+        if rec:
+            _, par1 = RSC.encode(u[None], terminate=False)
+            par1 = par1[0]
+            _, par2 = RSC.encode(u[pi][None], terminate=False)
+            par2 = par2[0]
         else:
-            X.append(ie); Y.append(Y[-1])
-        if ie > 0.999:
+            par1, par2 = ff_parity(u), ff_parity(u[pi])
+        ui = u[pi]
+        ones2 = np.flatnonzero(ui)
+        sep2 = int(ones2[-1] - ones2[0]) if len(ones2) == 2 else 0
+        # windows of 40 steps around the action
+        w0 = max(0, min(pos - 3, K - 40))
+        w2 = max(0, min(int(ones2[0]) - 3, K - 40))
+        for key, uu, pp, w in (("enc1", u, par1, w0), ("enc2", ui, par2, w2)):
+            pl = self.plot(key)
+            pl.set_xlim(w - 0.5, w + 39.5)
+            t = np.arange(w, w + 40)
+            on = t[uu[w:w + 40] == 1]
+            pl.stems("u", on, np.full(len(on), 2.4), color=ORANGE, base=1.6, size=9)
+            pp_on = t[pp[w:w + 40] == 1]
+            pl.stems("p", pp_on, np.full(len(pp_on), 0.9), color=NAVY, base=0.0, size=7)
+            pl.set_yticks([(0.45, "parity"), (2.0, "input")])
+        pp_ = self.plot("pi")
+        pp_.set_xlim(-0.5, K - 0.5)
+        pp_.set_ylim(-0.5, K - 0.5)
+        pp_.scatter("all", np.arange(K), pi, color=GRAY, size=4 if K <= 256 else 2, alpha=0.6)
+        src = np.flatnonzero(u)
+        dst = np.array([int(np.flatnonzero(pi == s_)[0]) for s_ in src])   # interleaved index of s_
+        pp_.scatter("hl", dst, src, color=RED, size=12, z=5)
+        segments(pp_, "hlv", dst, np.full(len(dst), -0.5), dst, src, color=RED, width=1.0, style=":")
+        pp_.set_labels(x="interleaved position k", y="original input position π(k)")
+        cw = turbo(K, p.kind).flatten(turbo(K, p.kind).encode(u[None]))[0] if rec else None
+        self.readout(w1=int(par1.sum()), sep2=sep2, w2=int(par2.sum()),
+                     wt=int(cw.sum()) if rec else int(u.sum() + par1.sum() + par2.sum()))
+
+    def story(self, p):
+        r = self.r
+        rec = p.enc.startswith("Recursive")
+        s = []
+        if rec:
+            s.append("<p>The LTE constituent code feeds its output back into the register "
+                     "(feedback 1 + D² + D³, octal 13). A single 1 therefore never dies out: the "
+                     "register cycles through its states for ever and the parity keeps coming. Only "
+                     "inputs divisible by the feedback polynomial return the register to zero; the "
+                     "lightest are <b>two 1s a multiple of 7 apart</b> (7 is the period of 1 + D² + "
+                     "D³).</p>")
+        else:
+            s.append("<p>A feed-forward encoder forgets a lone 1 after K − 1 steps: a single input "
+                     "1 produces a short, light codeword, whatever the interleaver does. In a turbo "
+                     "code that would leave codewords of weight about 1 + 3 + 3 = 7: a high error "
+                     "floor.</p>")
+        s.append(f"<p>The interleaver scrambles the input before encoder 2. Your two 1s, "
+                 f"{v(p.sep, 'd')} apart, land {v(r.get('sep2', 0), 'd')} apart for encoder 2 "
+                 f"(right, red). The whole codeword weighs {v(r.get('wt', 0), 'd')}: low weight needs "
+                 "a pattern that is short for <i>both</i> encoders, and a good interleaver makes that "
+                 "rare.</p>")
+        return "<h3>Recursion plus scrambling</h3>" + "".join(s) + keybox(
+            "Recursive constituents make every low-weight input a weight-2 (or heavier) pattern; "
+            "the interleaver makes sure no such pattern is short for both encoders.")
+
+
+# =============================================================================== 2. BCJR
+KB = 6
+
+
+class BcjrCheck(Experiment):
+    title = "BCJR: log-MAP against max-log"
+    blurb = "The forward–backward algorithm checked against brute force over every codeword."
+    book = "sec:ch15:soft"
+    controls = [
+        Slider("ebn0", "Eb/N0", -3.0, 8.0, 1.0, step=0.1, unit="dB"),
+        Button("again", "New message and noise"),
+    ]
+    plots = [
+        Plot("llr", f"A-posteriori LLRs of the {KB} message bits", x="bit k",
+             y="LLR  log P(0)/P(1)", xlim=(-0.6, KB - 0.4), legend="tl", legend_cols=3),
+        Plot("mx", "The term max-log drops: ln(1 + e^−|a−b|)",
+             x="|a − b|", y="correction term", xlim=(0, 6), ylim=(0, 0.75), legend=None),
+    ]
+    layout = [["llr", "mx"]]
+    col_stretch = [3, 2]
+    readouts = [
+        Readout("err", "|log-MAP − brute force|", "", "sci", good=lambda x: x < 1e-8),
+        Readout("over", "Max-log overconfidence", "%", ".0f"),
+        Readout("agree", "Hard decisions agree", "", None),
+        Readout("words", "Codewords summed", "", "int"),
+    ]
+    challenges = [
+        Challenge("Make max-log-MAP overconfident by more than 15 % on average.",
+                  lambda s: s.r.over > 15, hint="Low SNR, and try a few noise draws."),
+        Challenge("Find a noise draw where max-log and log-MAP disagree on a bit's sign.",
+                  lambda s: s.r.agree == "no", hint="Very low SNR; press New a few times."),
+        Challenge("At high SNR, get max-log within 5 % of the exact LLRs.",
+                  lambda s: abs(s.r.over) < 5 and s.p.ebn0 >= 3),
+    ]
+
+    def setup(self):
+        self.seed = 11
+
+    def on_again(self, p):
+        self.seed += 1
+
+    def update(self, p):
+        rng = np.random.default_rng(self.seed)
+        u = rng.integers(0, 2, (1, KB))
+        s_, p_ = RSC.encode(u)
+        sig = ft.bpsk_sigma(p.ebn0, 0.5)
+        noise = rng.standard_normal((2,) + s_.shape)
+        Ls = 2 * ((1 - 2.0 * s_) + sig * noise[0]) / sig ** 2
+        Lp = 2 * ((1 - 2.0 * p_) + sig * noise[1]) / sig ** 2
+        Lm = tb.bcjr(RSC, Ls, Lp)[0, :KB]
+        Lx = tb.bcjr(RSC, Ls, Lp, maxlog=True)[0, :KB]
+        allu = np.array(list(itertools.product([0, 1], repeat=KB)))
+        cs, cp = RSC.encode(allu)
+        metric = 0.5 * ((1 - 2.0 * cs) @ Ls[0] + (1 - 2.0 * cp) @ Lp[0])
+        Lb = np.array([np.logaddexp.reduce(metric[allu[:, k] == 0]) -
+                       np.logaddexp.reduce(metric[allu[:, k] == 1]) for k in range(KB)])
+        pl = self.plot("llr")
+        k = np.arange(KB)
+        pl.bars("b", k - 0.27, Lb, width=0.25, color=GRAY)
+        pl.bars("m", k, Lm, width=0.25, color=NAVY)
+        pl.bars("x", k + 0.27, Lx, width=0.25, color=RED)
+        for key, col, lab in (("lb", GRAY, "brute force"), ("lm", NAVY, "log-MAP"),
+                              ("lx", RED, "max-log-MAP")):
+            pl.scatter(key, [-9], [0], color=col, size=10, symbol="s", name=lab)
+        top = max(3.0, float(np.max(np.abs(np.r_[Lb, Lx]))) * 1.35)
+        pl.set_ylim(-top, top)
+        pl.hline("z", 0, color=pl.theme.text, style="-", width=0.8)
+        for i in range(KB):
+            pl.text(f"u{i}", i, -top * 0.92, f"sent {u[0, i]}", anchor=(0.5, 0.5), size=8.5,
+                    color=GREEN if (Lm[i] < 0) == bool(u[0, i]) else RED)
+        pm = self.plot("mx")
+        pm.vb.setRange(xRange=(0, 6), yRange=(0, 0.75), padding=0)
+        d = np.linspace(0, 6, 200)
+        pm.line("c", d, np.log1p(np.exp(-d)), color=NAVY, width=2.4, fill=0)
+        pm.text("t", 1.2, 0.6, "largest (ln 2 = 0.69) when the two\npaths are equally likely",
+                anchor=(0, 0.5), size=8.5, color=GRAY)
+        over = float(100 * (np.mean(np.abs(Lx)) / max(np.mean(np.abs(Lb)), 1e-12) - 1))
+        self.readout(err=float(np.max(np.abs(Lm - Lb))), over=over,
+                     agree="yes" if np.array_equal(Lm < 0, Lx < 0) else "no", words=2 ** KB)
+
+    def story(self, p):
+        r = self.r
+        err_s = f"{r.get('err', 0):.0e}"
+        s = (f"<p>The a-posteriori LLR of a bit is a sum over every codeword in which it is 0 "
+             f"against every codeword in which it is 1. For {KB} message bits that is "
+             f"{v(2 ** KB, 'd')} codewords (grey bars, brute force); for an LTE block of 6144 bits "
+             "it would be 2⁶¹⁴⁴. The <b>BCJR</b> algorithm gets exactly the same numbers with one "
+             "forward and one backward pass over the trellis: the error here is "
+             f"{v(err_s)}.</p>"
+             "<p>Working with logarithms turns the sums into the operation max*(a, b) = "
+             "max(a, b) + ln(1 + e^−|a−b|). <b>Max-log-MAP</b> drops the correction term (right): "
+             "cheaper, same decisions as a Viterbi decoder, but its reliabilities are off, "
+             f"here by {v(r.get('over', 0), '+.0f', '%')} on average, mostly too large at low SNR. Fed back as a-priori "
+             "information inside a turbo decoder, that overconfidence costs a few tenths of a "
+             "dB, which a scaling factor of about 0.7 mostly recovers.</p>")
+        return "<h3>Exact, and linear in length</h3>" + s + keybox(
+            "BCJR (Bahl, Cocke, Jelinek, Raviv, 1974) is the soft-in soft-out engine of turbo "
+            "decoders, turbo equalisers and every iterative receiver.")
+
+
+# =============================================================================== 3. iterations
+DECODERS = {"log-MAP": (False, 1.0), "max-log-MAP": (True, 1.0), "max-log-MAP, scaled 0.7": (True, 0.7)}
+SHOW_IT = [1, 2, 4, 8]
+
+
+class TurboIterations(Experiment):
+    title = "Turbo decoding, iteration by iteration"
+    blurb = "Each pass of extrinsic information moves the waterfall left, with diminishing returns."
+    book = "sec:ch15:turbo"
+    heavy = True
+    controls = [
+        Choice("K", "Block length K", ["40", "256", "1024"], "1024"),
+        Choice("dec", "Constituent decoder", list(DECODERS), "log-MAP", style="menu"),
+        Button("rerun", "Run again", primary=True),
+    ]
+    plots = [BERPlot("ber", "Bit error rate after 1, 2, 4 and 8 iterations (LTE turbo code, rate ⅓)",
+                     x="Eb/N0 (dB)", xlim=(-1, 3.5), ylim=(1e-5, 0.3), legend="tr")]
+    readouts = [
+        Readout("x1", "10⁻³ after 1 iteration", "dB", ".2f"),
+        Readout("x8", "10⁻³ after 8 iterations", "dB", ".2f"),
+        Readout("lim", "BPSK limit for this rate", "dB", ".2f"),
+        Readout("bits", "Bits simulated", "", "int"),
+    ]
+    challenges = [
+        Challenge("Measure an iteration gain of at least 1 dB at 10⁻³ (1 against 8 iterations).",
+                  lambda s: s.r.x1 is not None and s.r.x8 is not None and s.r.x1 - s.r.x8 >= 1.0),
+        Challenge("Show that block length matters: K = 40 needs at least 1 dB more than K = 1024 "
+                  "after 8 iterations.", lambda s: "40" in s.exp.memo and "1024" in s.exp.memo
+                  and s.exp.memo["40"] - s.exp.memo["1024"] >= 1.0),
+        Challenge("Measure what unscaled max-log costs at K = 1024: at least 0.15 dB against log-MAP.",
+                  lambda s: ("log-MAP" in s.exp.dmemo and "max-log-MAP" in s.exp.dmemo
+                             and s.exp.dmemo["max-log-MAP"] - s.exp.dmemo["log-MAP"] >= 0.15)),
+    ]
+
+    def setup(self):
+        self.run_id = 0
+        self.memo, self.dmemo = {}, {}
+
+    def on_rerun(self, p):
+        self.run_id += 1
+
+    def ebs(self, K):
+        if self.quick:
+            return [0.5, 1.5]
+        return [-0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0] if K >= 1024 else \
+            ([0.0, 0.5, 1.0, 1.5, 2.0, 2.5] if K >= 256 else [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5])
+
+    def update(self, p):
+        K = int(p.K)
+        tc = turbo(K)
+        self.curves = {i: ([], []) for i in SHOW_IT}
+        self.bits = 0
+        pb = self.plot("ber")
+        eb = np.linspace(-1, 3.5, 200)
+        pb.theory("unc", eb, ft.qfunc(np.sqrt(2 * 10 ** (eb / 10))), color=GRAY, width=1.4,
+                  name="uncoded BPSK")
+        lim = bpsk_limit_db(round(tc.rate, 4))
+        pb.vline("lim", lim, color=RED, style=":", label=f"limit {lim:.2f} dB", label_pos=0.08)
+        self.readout(x1=None, x8=None, lim=lim, bits=0)
+
+    def background(self, p):
+        K = int(p.K)
+        tc = turbo(K)
+        ml, sc = DECODERS[p.dec]
+        rng = np.random.default_rng(K + self.run_id)
+        B = 10 if self.quick else (16 if K >= 1024 else 60)
+        nb = 1 if self.quick else 2
+        for eb in self.ebs(K):
+            errs = np.zeros(8)
+            n = 0
+            for _ in range(nb):
+                u = rng.integers(0, 2, (B, K))
+                L = ft.bpsk_llr(tc.flatten(tc.encode(u)), eb, tc.rate, rng)
+                hist = tc.decode(L, iters=8, maxlog=ml, scale=sc, record=True)
+                errs += [np.sum(h != u) for h in hist]
+                n += u.size
+            yield dict(eb=eb, ber=errs / n, n=n)
+            if errs[0] == 0:
+                break
+
+    def progress(self, p, it_):
+        self.bits += it_["n"]
+        cols = {1: RED, 2: ORANGE, 4: GREEN, 8: NAVY}
+        pb = self.plot("ber")
+        for i in SHOW_IT:
+            b = it_["ber"][i - 1]
+            if b > 0:
+                self.curves[i][0].append(it_["eb"])
+                self.curves[i][1].append(b)
+            if self.curves[i][0]:
+                pb.sim(f"i{i}", *self.curves[i], color=cols[i],
+                       name=f"{i} iteration{'s' if i > 1 else ''}")
+        x1 = interp_cross(*self.curves[1], 1e-3)
+        x8 = interp_cross(*self.curves[8], 1e-3)
+        if x8 is not None:
+            if p.dec == "log-MAP":
+                self.memo[p.K] = x8
+            if p.K == "1024":
+                self.dmemo[p.dec] = x8
+        self.readout(x1=x1, x8=x8, bits=self.bits)
+
+    def story(self, p):
+        r = self.r
+        s = ("<p>The decoder runs BCJR on encoder 1, subtracts what it was told to obtain the "
+             "<b>extrinsic</b> information (what the parity of encoder 1 alone adds), interleaves "
+             "it and hands it to the decoder of encoder 2 as a-priori knowledge, and back again. "
+             "Each half-iteration, each decoder starts from a better guess.</p>")
+        if r.get("x1") is not None and r.get("x8") is not None:
+            s += (f"<p>Measured: 10⁻³ needs {v(r['x1'], '.2f', 'dB')} after one iteration and "
+                  f"{v(r['x8'], '.2f', 'dB')} after eight, {v(r['x8'] - r.get('lim', 0), '.1f', 'dB')} "
+                  "from the limit for this rate.</p>")
+        else:
+            s += "<p>The curves fill in as the simulation runs (about 15 s for K = 1024).</p>"
+        s += ("<p>Turbo gain grows with the block length: a long interleaver decorrelates the two "
+              "decoders' errors. At K = 40, the smallest LTE block, the interleaver has no room to "
+              "work.</p>")
+        return "<h3>The turbo principle</h3>" + s + keybox(
+            "Never feed a decoder back its own information: exchange only extrinsic LLRs. That one "
+            "rule makes iterative decoding converge.")
+
+
+# =============================================================================== 4. EXIT chart
+IA_GRID = np.linspace(0, 1, 21)
+
+
+@lru_cache(maxsize=64)
+def exit_T(eb):
+    """Measured transfer curve, smoothed by a low-order polynomial fit (Monte Carlo noise of
+    a few hundredths of a bit would otherwise make the tunnel flicker)."""
+    raw = ft.exit_curve(RSC, float(ft.bpsk_sigma(eb, 1 / 3)), IA_GRID, K=3000, reps=6,
+                        rng=np.random.default_rng(int(round(eb * 10)) + 50))
+    c = np.polyfit(IA_GRID, raw, 4)
+    T = np.clip(np.polyval(c, IA_GRID), 0, 1)
+    T[-1] = 1.0
+    return np.maximum.accumulate(T)
+
+
+def staircase(T, n=40):
+    """Predicted trajectory between T (decoder 1) and its mirror (decoder 2)."""
+    f = lambda x: float(np.interp(x, IA_GRID, np.maximum.accumulate(T)))
+    X, Y = [0.0], [0.0]
+    x = 0.0
+    steps = 0
+    for _ in range(n):
+        y = f(x)
+        X += [x]; Y += [y]
+        x2 = f(y)
+        X += [x2]; Y += [y]
+        steps += 1
+        if x2 > 0.99 or abs(x2 - x) < 1e-4:
+            x = x2
             break
-    ax[1].plot(X, Y, "k.-", lw=0.8, ms=3, label=f"measured trajectory, K = {Kt}")
-    ax[1].set_xlim(0, 1); ax[1].set_ylim(0, 1.02); ax[1].set_xlabel("$I_{A1} = I_{E2}$"); ax[1].set_ylabel("$I_{E1} = I_{A2}$")
-    ax[1].legend(fontsize=7.5, loc="lower right"); ax[1].set_title(f"EXIT chart at Eb/N0 = {ebn0:+.1f} dB: {len(X) // 2} half-iterations shown")
-    lk.show(f)
+        x = x2
+    return np.array(X), np.array(Y), steps, x
 
-lk.interact(exit_demo, ebn0=lk.choice([-1.0, -0.5, 0.0, 0.5, 1.0], 0.5, "Eb/N0 (dB)"))
 
-# %% [markdown]
-# **What you should see.** Every transfer curve starts above zero at $I_A = 0$ (the decoder learns something from the channel
-# alone) and rises to 1. At $+0.5$ dB the two curves leave a narrow tunnel and the measured trajectory, from a real decoder on
-# an 8000-bit block, climbs through it in a staircase that hugs the predicted curves until it reaches the top corner. At
-# $-0.5$ dB the curves cross and the trajectory stalls at the crossing: that is the waterfall's left edge, read off a
-# picture without a single BER simulation. Near the threshold the steps get tiny, which is why decoding near the limit needs
-# many iterations.
-#
-# ### Try it yourself 5.1
-# Using the transfer curve at $+0.5$ dB, what extrinsic information does decoder 1 produce from the channel alone ($I_A = 0$)?
-# (Read `exit_curve(0.5)[0]`; the check accepts ±0.02.)
+class ExitChart(Experiment):
+    title = "EXIT chart: watch the tunnel open"
+    blurb = "Predict iterative decoding from two curves, then compare with a real decoder."
+    book = "sec:ch15:turbo"
+    heavy = True
+    controls = [
+        Slider("ebn0", "Eb/N0", -1.0, 1.5, -0.5, step=0.1, unit="dB"),
+        Toggle("real", "Also run a real decoder (K = 2000)", True),
+    ]
+    plots = [
+        Plot("exit", "EXIT chart: decoder 1 (navy) and decoder 2 mirrored (red)",
+             x="I_A1 = I_E2 (mutual information)", y="I_E1 = I_A2", xlim=(0, 1), ylim=(0, 1.02),
+             legend="br"),
+        Plot("tc", "One decoder at several Eb/N0", x="a-priori information I_A",
+             y="extrinsic information I_E", xlim=(0, 1), ylim=(0, 1.02), legend="tl"),
+    ]
+    layout = [["exit", "tc"]]
+    col_stretch = [3, 2]
+    readouts = [
+        Readout("ie0", "I_E from the channel alone", "bits", ".3f"),
+        Readout("gap", "Tunnel width (min)", "bits", ".3f", good=lambda x: x > 0),
+        Readout("pred", "Predicted iterations to 0.99", "", None),
+        Readout("meas", "Real decoder reaches", "bits", ".3f"),
+    ]
+    challenges = [
+        Challenge("Find the lowest Eb/N0 at which the tunnel is open (the code's threshold).",
+                  lambda s: s.r.gap is not None and s.r.gap > 0 and s.p.ebn0 <= s.exp.thr + 0.15
+                  and s.exp.thr < 9),
+        Challenge("Watch the real decoder get stuck below 0.6 bits where the tunnel is closed.",
+                  lambda s: s.r.gap is not None and s.r.gap < 0 and s.r.meas is not None
+                  and s.r.meas < 0.6 and s.p.real),
+        Challenge("Reach 0.99 bits in at most 4 predicted iterations.",
+                  lambda s: s.exp.steps is not None and s.exp.steps <= 4 and s.exp.final > 0.99),
+    ]
 
-# %%
-answer_5_1 = None
-lk.check("5.1 I_E(0) at +0.5 dB", answer_5_1, float(exit_curve(0.5)[0]), atol=0.02)
+    def setup(self):
+        self.thr = 99.0
+        self.steps, self.final = None, 0.0
+        self.open_at = {}
 
-# %% [markdown]
-# ## 6. Density evolution on the BEC: regular, irregular, coupled
-#
-# On the binary erasure channel the messages of belief propagation are either known or erased, so density evolution
-# collapses to one number per iteration: the erasure probability $x_\ell$ of variable-to-check messages,
-# $$x_{\ell+1} = \varepsilon\,\lambda\big(1 - \rho(1 - x_\ell)\big),$$
-# with edge-perspective degree polynomials $\lambda$, $\rho$. Decoding succeeds iff $x_\ell \to 0$, i.e. iff
-# $\varepsilon\lambda(1-\rho(1-x)) < x$ for all $x \in (0, \varepsilon]$. For the $(3,6)$ ensemble the threshold is
-# $\varepsilon^* = 0.4294$ against a capacity limit of 0.5 (Chapter 15's worked example). A **spatially coupled** chain of
-# $L$ such codes, with a known boundary, decodes as a *wave* that travels inwards, and its BP threshold rises to the
-# ensemble's MAP threshold 0.4881: threshold saturation (Kudekar, Richardson and Urbanke, 2011).
-#
-# ### Interactive: erasure probability
+    def update(self, p):
+        pe = self.plot("exit")
+        pe.line("diag", [0, 1], [0, 1], color=GRAY, style=":", width=1.0)
+        self.steps, self.final = None, 0.0
+        self.readout(ie0=None, gap=None, pred="…", meas=None)
+        pt = self.plot("tc")
+        pt.line("diag", [0, 1], [0, 1], color=GRAY, style=":", width=1.0)
 
-# %%
-def de_demo(eps=0.45, ensemble="(3,6) regular"):
-    lam, rho = {"(3,6) regular": ([0, 0, 1], [0, 0, 0, 0, 0, 1]), "(4,8) regular": ([0, 0, 0, 1], [0] * 7 + [1]),
-                "irregular λ = 0.3x + 0.3x² + 0.4x⁷, ρ = x⁶": ([0, 0.3, 0.3, 0, 0, 0, 0, 0.4], [0] * 6 + [1])}[ensemble]
-    lf = lambda x: sum(c * x ** i for i, c in enumerate(lam))
-    rf = lambda x: sum(c * x ** i for i, c in enumerate(rho))
-    thr = tb.bec_threshold(lam, rho)
-    rate = 1 - sum(c / (i + 1) for i, c in enumerate(rho)) / sum(c / (i + 1) for i, c in enumerate(lam))
-    xs = np.linspace(0, 0.5, 400)
-    f, ax = lk.fig((13, 3.8), 1, 3)
-    ax[0].plot(xs, eps * lf(1 - rf(1 - xs)), color=lk.NAVY, label=f"ε λ(1 − ρ(1 − x)), ε = {eps:.3f}")
-    ax[0].plot(xs, xs, "k", lw=0.6)
-    x = eps; X, Y = [x], [0.0]; traj = [x]
-    for _ in range(300):
-        fx = eps * lf(1 - rf(1 - x)); X += [x, fx]; Y += [fx, fx]; x = fx; traj.append(x)
-    ax[0].plot(X[1:], Y[1:], color=lk.RED, lw=0.7)
-    ax[0].set_xlim(0, 0.5); ax[0].set_ylim(0, 0.5); ax[0].set_aspect("equal"); ax[0].legend(fontsize=7.5, loc="upper left")
-    ax[0].set_xlabel("$x_\\ell$"); ax[0].set_ylabel("$x_{\\ell+1}$"); ax[0].set_title(f"{ensemble.split(' ')[0]} ensemble: threshold {thr:.4f}")
-    ax[1].semilogy(np.maximum(traj, 1e-16), color=lk.NAVY); ax[1].set_ylim(1e-12, 1)
-    ax[1].set_xlabel("iteration"); ax[1].set_ylabel("erasure probability"); ax[1].set_title("DE trajectory (a plateau = a near-fixed point)")
-    L = 48
-    prof, snaps = tb.de_bec_coupled(eps, 3, 6, L, w=3, iters=4000, record_every=1)
-    cm = plt.get_cmap("viridis")
-    sh = [snaps[i] for i in np.linspace(0, len(snaps) - 1, 10).astype(int)]
-    for i, s in enumerate(sh):
-        ax[2].plot(s, color=cm(i / max(1, len(sh) - 1)), lw=1)
-    ax[2].set_xlabel("position in the chain"); ax[2].set_ylabel("erasure probability")
-    ax[2].set_title(f"Coupled (3,6,L={L},w=3), ε = {eps:.3f}: {len(snaps)} iterations, final max {prof.max():.0e}", fontsize=9)
-    lk.show(f)
-    lk.table([["design rate", rate], ["BP threshold ε*", thr], ["capacity limit 1 − R", 1 - rate], ["fraction of capacity", thr / (1 - rate)]],
-             [ensemble, ""], fmt=".4f")
+    def background(self, p):
+        eb = round(p.ebn0, 1)
+        yield dict(kind="curve", eb=eb, T=exit_T(eb))
+        for e2 in (-1.0, 0.0, 1.0):
+            yield dict(kind="ref", eb=e2, T=exit_T(e2))
+        if p.real and not self.quick:
+            K = 2000
+            tc = tb.TurboCode(K, np.random.default_rng(9).permutation(K))
+            rng = np.random.default_rng(4)
+            u = rng.integers(0, 2, (2, K))
+            L = ft.bpsk_llr(tc.flatten(tc.encode(u)), eb, tc.rate, rng)
+            _, traj = tc.decode(L, iters=10, Linfo=u)
+            yield dict(kind="traj", traj=traj)
 
-lk.interact(de_demo, eps=lk.slider(0.45, 0.30, 0.50, 0.005, "erasure probability ε"),
-            ensemble=lk.choice(["(3,6) regular", "(4,8) regular", "irregular λ = 0.3x + 0.3x² + 0.4x⁷, ρ = x⁶"], "(3,6) regular", "ensemble"))
+    def progress(self, p, it_):
+        if it_["kind"] == "curve":
+            T = it_["T"]
+            pe = self.plot("exit")
+            pe.line("d1", IA_GRID, T, color=NAVY, width=2.6, name="decoder 1")
+            pe.line("d2", T, IA_GRID, color=RED, width=2.6, name="decoder 2 (mirrored)")
+            X, Y, steps, fin = staircase(T)
+            pe.line("st", X, Y, color=ORANGE, width=1.6, name="predicted staircase")
+            gap = float(np.min(np.maximum.accumulate(T)[:-1] - IA_GRID[:-1]))
+            self.open_at[it_["eb"]] = gap > 0
+            opens = [e for e, o in self.open_at.items() if o]
+            closed = [e for e, o in self.open_at.items() if not o]
+            # the threshold estimate: lowest open point with a closed point at most 0.1 dB below
+            cand = [e for e in opens if any(abs(e - 0.1 - c) < 1e-6 for c in closed)]
+            self.thr = min(cand) if cand else 99.0
+            self.steps, self.final = steps, fin
+            self.readout(ie0=float(T[0]), gap=gap,
+                         pred=(f"{steps}" if fin > 0.99 else f"stuck at {fin:.2f}"))
+        elif it_["kind"] == "ref":
+            cols = {-1.0: GRAY, 0.0: PURPLE, 1.0: GREEN}
+            self.plot("tc").line(f"r{it_['eb']}", IA_GRID, it_["T"], color=cols[it_["eb"]],
+                                 width=1.6, name=f"{it_['eb']:+.1f} dB")
+        else:
+            traj = it_["traj"]
+            X, Y = [0.0], [0.0]
+            for j, (ia, ie) in enumerate(traj):
+                if j % 2 == 0:
+                    X.append(X[-1]); Y.append(ie)
+                else:
+                    X.append(ie); Y.append(Y[-1])
+            pe = self.plot("exit")
+            pe.line("tr", X, Y, color=pe.theme.text, width=1.0, name="real decoder, K = 2000")
+            pe.scatter("trp", X[1:], Y[1:], color=pe.theme.text, size=4)
+            self.readout(meas=float(max(max(X), max(Y))))
 
-# %% [markdown]
-# **What you should see.** At the default $\varepsilon = 0.45$, above the $(3,6)$ threshold of 0.4294, the DE curve crosses the
-# diagonal: the staircase stops at a non-zero fixed point (about 0.36) and the trajectory flattens there for ever. Slide ε to
-# 0.42, just below threshold: the curve barely clears the diagonal near $x \approx 0.26$, the staircase squeezes through a
-# narrow gap, and the trajectory shows a long plateau before it falls. The $(4,8)$ ensemble, same rate, has a lower threshold
-# (0.3834). The irregular ensemble of Chapter 15's worked example has rate 0.524. The coupled chain at 0.45, where the
-# uncoupled code is stuck, still decodes: the known boundary lets the ends decode first, and two waves travel inwards
-# (dark to light) until the whole chain is clean.
-#
-# The cell below finds the coupled threshold for several chain lengths by bisection.
+    def story(self, p):
+        r = self.r
+        s = ("<p>Feed one constituent decoder a-priori LLRs that carry I_A bits of information "
+             "about the message, and measure how much its extrinsic output carries: I_E. That "
+             "<b>transfer curve</b> (navy) characterises the decoder at this Eb/N0. The second "
+             "decoder is the same, drawn with the axes swapped (red).</p>"
+             "<p>Iterative decoding bounces between the two curves: up to decoder 1, across to "
+             "decoder 2, up again (orange staircase). It reaches the top corner, perfect "
+             "knowledge, only if the <b>tunnel</b> between the curves is open.</p>")
+        gap = r.get("gap")
+        if gap is not None:
+            if gap > 0:
+                s += ("<p>" + good(f"Open here (narrowest point {gap:.3f} bits).") +
+                      f" Predicted: {r.get('pred')} iterations. Near the threshold the steps get "
+                      "tiny, which is why decoding close to the limit needs many iterations.</p>")
+            else:
+                s += ("<p>" + bad("Closed: the curves cross,") + " and the staircase stops at "
+                      "the crossing, however many iterations you allow. The waterfall's left edge, "
+                      "read off a picture without a single BER simulation.</p>")
+        return "<h3>Two curves predict everything</h3>" + s + keybox(
+            "EXIT charts (ten Brink, 2001) turned code design into curve fitting: match the shapes "
+            "of the two transfer curves and the tunnel opens close to capacity.")
 
-# %%
-rows = []
-for Lc in (8, 16, 32):
-    lo, hi = 0.40, 0.90
-    for _ in range(14):
-        mid = 0.5 * (lo + hi)
-        p = tb.de_bec_coupled(mid, 3, 6, Lc, w=3, iters=6000, tol=1e-12)
-        lo, hi = (mid, hi) if p.max() < 1e-8 else (lo, mid)
-    RL = 0.5 - 0.5 * (3 + 1 - 2 * sum((i / 3) ** 6 for i in range(4))) / Lc        # rate loss of the terminated chain
-    rows.append([Lc, lo, 1 - RL])
-lk.table(rows, ["chain length L", "coupled BP threshold", "capacity limit 1 − R_L"], fmt=".4f",
-         title="(3,6,L,3) coupled ensembles: uncoupled BP 0.4294, MAP 0.4881")
 
-# %% [markdown]
-# **What you should see.** Short chains have a large rate loss (the termination costs rate) and a high threshold; as $L$
-# grows the threshold falls towards 0.4881, the MAP threshold of the underlying $(3,6)$ ensemble, well above the uncoupled
-# BP threshold of 0.4294, while the rate loss vanishes as $1/L$.
-#
-# ### Try it yourself 6.1
-# Find the BEC threshold of the $(3,6)$ ensemble yourself by minimising $x / (1-(1-x)^5)^2$ over $x \in (0, 1]$.
+# =============================================================================== 5. DE on the BEC
+ENSEMBLES = {"(3,6) regular": ([0, 0, 1], [0] * 5 + [1]),
+             "(4,8) regular": ([0, 0, 0, 1], [0] * 7 + [1]),
+             "Irregular: λ = 0.3x + 0.3x² + 0.4x⁷, ρ = x⁶": ([0, 0.3, 0.3, 0, 0, 0, 0, 0.4], [0] * 6 + [1])}
 
-# %%
-answer_6_1 = None
-lk.check("6.1 BEC threshold of (3,6)", answer_6_1, 0.42944, atol=5e-4)
 
-# %% [markdown]
-# ## Key takeaways
-# * A turbo code is two recursive convolutional codes and an interleaver; recursion makes weight-1 inputs produce heavy
-#   codewords, and the interleaver makes short weight-2 patterns rare in both encoders.
-# * BCJR computes exact APPs on the trellis; max-log-MAP is cheaper, overconfident, and fixed largely by scaling extrinsics by about 0.7.
-# * Iterations move the waterfall towards the Shannon limit with diminishing returns; longer blocks get closer.
-# * The error floor is set by a handful of low-weight codewords and falls only about 5× per dB: predict it, do not simulate it.
-# * EXIT charts turn iterative decoding into a staircase between two curves: an open tunnel means convergence.
-# * Density evolution on the BEC gives exact thresholds ((3,6): 0.4294); spatial coupling saturates BP to the MAP threshold.
-#
-# ## Going further (hardware: USRP B200 / GNU Radio)
-# * Replace the K = 7 convolutional code in `gnuradio/gr05_coded_link.py` with `commlib.turbo.TurboCode(1024, ...)` (decode in
-#   the Python sink) and compare the over-the-air BER at an SNR 2 dB lower.
-# * Capture an LTE downlink and decode its PBCH (a tail-biting convolutional code); the PDSCH turbo code needs the full rate
-#   matcher of TS 36.212 §5.1.4, a good project.
-#
-# ## Exercises
-# 1. **(Warm-up)** Verify the QPP permutation condition for $K = 6144$, $(f_1, f_2) = (263, 480)$, by factorising $K$.
-# 2. **(Core)** Add early stopping (stop when the hard decisions do not change between iterations) and plot the average number
-#    of iterations against $E_b/N_0$.
-# 3. **(Core)** Puncture to rate 1/2 (`TurboCode(..., puncture=True)`), redraw the EXIT chart and find the new threshold.
-# 4. **(Stretch)** Implement Gaussian-approximation density evolution for the $(3,6)$ ensemble on the AWGN channel using `tb.J`
-#    and compare with Chapter 15's threshold of about 1.1 dB.
+def poly(c, x):
+    return sum(ci * x ** i for i, ci in enumerate(c))
 
-# %%
-lk.summary()
+
+def design_rate(lam, rho):
+    return 1 - sum(c / (i + 1) for i, c in enumerate(rho)) / sum(c / (i + 1) for i, c in enumerate(lam))
+
+
+class DensityEvolution(Experiment):
+    title = "Density evolution on the erasure channel"
+    blurb = "One number per iteration predicts an infinitely long LDPC code exactly."
+    book = "sec:ch15:de"
+    controls = [
+        Choice("ens", "Ensemble", list(ENSEMBLES), "(3,6) regular", style="menu"),
+        Slider("eps", "Channel erasure probability ε", 0.30, 0.50, 0.45, step=0.001),
+    ]
+    plots = [
+        Plot("de", "One iteration of BP on the erasure channel",
+             x="erasure probability now, x_ℓ", y="after one more iteration, x_ℓ₊₁", xlim=(0, 0.5),
+             ylim=(0, 0.5), legend="tl"),
+        Plot("traj", "Erasure probability over iterations", x="iteration",
+             y="erased messages", logy=True, xlim=(0, 300), ylim=(1e-10, 1), legend=None),
+    ]
+    layout = [["de", "traj"]]
+    readouts = [
+        Readout("thr", "BP threshold ε*", "", ".4f"),
+        Readout("rate", "Design rate", "", ".3f"),
+        Readout("frac", "Threshold / capacity limit", "%", "%"),
+        Readout("its", "Iterations to 10⁻⁹", "", None),
+    ]
+    challenges = [
+        Challenge("Find the (3,6) threshold from below: decode with ε no more than 0.002 under it.",
+                  lambda s: s.p.ens.startswith("(3,6)") and s.exp.ok and s.r.thr - 0.002 <= s.p.eps < s.r.thr),
+        Challenge("Find an ensemble that decodes at ε = 0.45.",
+                  lambda s: abs(s.p.eps - 0.45) < 0.0006 and s.exp.ok),
+        Challenge("See a long plateau: converge, but only after more than 100 iterations.",
+                  lambda s: s.exp.ok and s.exp.n_it > 100),
+    ]
+
+    def setup(self):
+        self.ok, self.n_it = False, 0
+
+    def update(self, p):
+        lam, rho = ENSEMBLES[p.ens]
+        thr = tb.bec_threshold(lam, rho)
+        R = design_rate(lam, rho)
+        xs = np.linspace(0, 0.5, 400)
+        f = p.eps * poly(lam, 1 - poly(rho, 1 - xs))
+        pd = self.plot("de")
+        pd.line("f", xs, f, color=NAVY, width=2.4, name="one iteration of BP")
+        pd.line("d", [0, 0.5], [0, 0.5], color=GRAY, width=1.0, name="no progress (x = x)")
+        x = p.eps
+        X, Y, traj = [x], [x], [x]
+        for _ in range(2000):
+            fx = p.eps * poly(lam, 1 - poly(rho, 1 - x))
+            X += [x, fx]
+            Y += [fx, fx]
+            x = fx
+            traj.append(x)
+            if x < 1e-12:
+                break
+        X, Y = np.array(X[1:]), np.array(Y[:-1])
+        n = min(len(X), 400)
+        pd.line("st", X[:n], Y[:n], color=RED, width=1.2, name="decoder trajectory")
+        tr = np.maximum(np.array(traj), 1e-12)
+        pt = self.plot("traj")
+        pt.line("t", np.arange(len(tr)), tr, color=NAVY, width=2.2)
+        pt.set_xlim(0, max(60, min(len(tr) + 10, 300 if tr[-1] > 1e-9 else 2000)))
+        pt.hline("t9", 1e-9, color=GREEN, style=":")
+        self.ok = tr[-1] < 1e-9
+        self.n_it = int(np.argmax(tr < 1e-9)) if self.ok else 0
+        self.readout(thr=thr, rate=R, frac=thr / (1 - R),
+                     its=str(self.n_it) if self.ok else f"stuck at {tr[-1]:.2f}")
+
+    def story(self, p):
+        r = self.r
+        lam, rho = ENSEMBLES[p.ens]
+        s = ("<p>On the erasure channel a BP message is either known or erased, so the whole "
+             "decoder is described by one number: the probability x that a message is still "
+             "erased. One iteration maps it to ε·λ(1 − ρ(1 − x)) (navy curve), where λ and ρ "
+             "describe how many edges sit on nodes of each degree.</p>")
+        if r.get("its", "").startswith("stuck"):
+            s += ("<p>" + bad(f"At ε = {p.eps:.3f} the curve touches the diagonal:") + " the "
+                  f"staircase is trapped at a fixed point (x = {r.get('its', '')[9:]}) and a fraction of "
+                  f"the bits is never recovered. The threshold of this ensemble is ε* = {r.get('thr', 0):.4f}.</p>")
+        else:
+            s += ("<p>" + good(f"Below the threshold ε* = {r.get('thr', 0):.4f}:") + " the curve "
+                  "stays under the diagonal and the staircase reaches zero. Close to ε* it must "
+                  "squeeze through a narrow gap, which shows up as a long plateau on the right.</p>")
+        s += (f"<p>The capacity limit for rate {v(r.get('rate', 0.5), '.3f')} is ε = "
+              f"{v(1 - r.get('rate', 0.5), '.3f')}: this ensemble reaches "
+              f"{v(100 * r.get('frac', 0), '.1f', '%')} of it. Irregular degrees (some bits in many "
+              "checks) close most of the remaining gap.</p>")
+        return "<h3>Thresholds without simulation</h3>" + s + keybox(
+            "Density evolution (Richardson and Urbanke, 2001) gives the exact threshold of an "
+            "infinitely long code: the design tool behind every capacity-approaching LDPC code.")
+
+
+# =============================================================================== 6. spatial coupling
+@lru_cache(maxsize=32)
+def coupled(eps, L, w):
+    prof, snaps = tb.de_bec_coupled(eps, 3, 6, L, w=w, iters=3000, record_every=1)
+    return prof, np.array(snaps)
+
+
+def coupled_rate(L, w=3):
+    """Design rate of the terminated (3, 6, L, w) chain (old lab formula, w = 3)."""
+    return 0.5 - 0.5 * (3 + 1 - 2 * sum((i / 3) ** 6 for i in range(4))) / L
+
+
+class Coupling(Experiment):
+    title = "Spatial coupling: the decoding wave"
+    blurb = "Chain codes together with a known boundary and decoding sweeps in like a wave."
+    book = "sec:ch15:sc"
+    animate = True
+    fps = 12
+    controls = [
+        Slider("eps", "Channel erasure probability ε", 0.40, 0.50, 0.46, step=0.001),
+        IntSlider("L", "Chain length L", 8, 96, 48, step=4, unit="positions"),
+        IntSlider("t", "Show iteration", 0, 600, 0, step=1),
+    ]
+    plots = [
+        Plot("wave", "Erasure probability along the chain", x="position in the chain",
+             y="erased messages", ylim=(-0.01, 0.5), legend="tr"),
+        Plot("prog", "Worst position against iteration", x="iteration", y="max erasure probability",
+             logy=True, ylim=(1e-9, 1), legend=None),
+    ]
+    layout = [["wave"], ["prog"]]
+    row_stretch = [3, 2]
+    readouts = [
+        Readout("unc", "Uncoupled (3,6) threshold", "", ".4f"),
+        Readout("map", "MAP threshold (the target)", "", ".4f"),
+        Readout("done", "Wave finishes after", "", None),
+        Readout("loss", "Rate loss of the chain", "%", ".1f", good=lambda x: x < 5),
+    ]
+    challenges = [
+        Challenge("Decode at ε = 0.47 or more, where the uncoupled (3,6) code is hopeless.",
+                  lambda s: s.p.eps >= 0.47 and s.exp.ok),
+        Challenge("Find an ε where even the coupled chain stalls.",
+                  lambda s: not s.exp.ok),
+        Challenge("Keep the rate loss below 5 % and still decode at ε ≥ 0.47.",
+                  lambda s: s.r.loss < 5 and s.p.eps >= 0.47 and s.exp.ok),
+    ]
+
+    def setup(self):
+        self.ok = True
+
+    def tick(self, p):
+        prof, snaps = coupled(round(p.eps, 3), p.L, 3)
+        q = st.Params(p)
+        q.t = (p.t + max(1, len(snaps) // 60)) % (len(snaps) + 1)
+        self.set_control("t", q.t)
+        self.update(q)
+
+    def update(self, p):
+        prof, snaps = coupled(round(p.eps, 3), p.L, 3)
+        n = len(snaps)
+        self.ok = prof.max() < 1e-6
+        t = min(p.t, n - 1)
+        pw = self.plot("wave")
+        pw.set_xlim(-0.5, p.L - 0.5)
+        x = np.arange(p.L)
+        for k, frac in enumerate((0.15, 0.35, 0.6)):
+            j = int(frac * (n - 1))
+            pw.line(f"g{k}", x, snaps[j], color=GRAY, width=1.3,
+                    name="earlier snapshots" if k == 0 else None)
+        pw.line("now", x, snaps[t], color=NAVY, width=2.8, name=f"iteration {t}")
+        unc = tb.de_bec_regular(p.eps, 3, 6, iters=max(t, 1))[-1]
+        pw.hline("unc", unc, color=RED, style="--", label="uncoupled (3,6) code at this iteration",
+                 label_pos=0.3)
+        pp = self.plot("prog")
+        mx = np.maximum(snaps.max(axis=1), 1e-12)
+        pp.set_xlim(0, n)
+        pp.line("mx", np.arange(n), mx, color=NAVY, width=2.0)
+        pp.vline("now", t, color=ORANGE, style=":")
+        rl = 100 * (0.5 - coupled_rate(p.L)) / 0.5
+        self.readout(unc=0.4294, map=0.4881, loss=rl,
+                     done=(f"{int(np.argmax(mx < 1e-6))} iterations" if self.ok else "never"))
+
+    def story(self, p):
+        r = self.r
+        s = ("<p>Take L copies of a (3,6) LDPC code in a row and let the edges of each spread "
+             "over its neighbours. At the two ends the positions see fewer unknowns (the chain is "
+             "terminated with known bits), so they decode first; their neighbours then see a "
+             "little more help, and a <b>decoding wave</b> sweeps in from both ends (press Play).</p>")
+        if self.ok:
+            s += (f"<p>{good('The wave reaches the middle:')} the chain decodes at ε = "
+                  f"{v(p.eps, '.3f')}" + (", where the uncoupled code (red line) is stuck. "
+                                          if p.eps > 0.4294 else ". ") +
+                  "Coupling lifts the BP threshold from 0.4294 to the MAP threshold 0.4881 of "
+                  "the underlying code: <b>threshold saturation</b> (Kudekar, Richardson and "
+                  "Urbanke, 2011).</p>")
+        else:
+            s += f"<p>{bad('Above the MAP threshold the wave stalls')} and the middle stays erased.</p>"
+        s += (f"<p>The price is a rate loss of {v(r.get('loss', 0), '.1f', '%')} for the terminated "
+              "chain, which shrinks as 1/L, and a decoding delay that grows with L.</p>")
+        return "<h3>Threshold saturation</h3>" + s + keybox(
+            "Spatially coupled LDPC codes reach capacity with plain BP decoding; they appear in "
+            "high-throughput optical transport.")
+
+
+# =============================================================================== 7. error floor
+class ErrorFloor(Experiment):
+    title = "The error floor and the interleaver"
+    blurb = "A handful of light codewords sets the floor; the interleaver decides how light."
+    book = "sec:ch15:turbo"
+    heavy = True
+    controls = [
+        Choice("K", "Block length K", ["256", "1024"], "256"),
+        Choice("kind", "Interleaver", ["QPP (LTE)", "Random", "S-random"], "QPP (LTE)"),
+    ]
+    plots = [
+        Plot("hist", "Codeword weights from weight-2 inputs",
+             x="codeword weight", y="number of codewords", xlim=(9.5, 60.5), legend=None),
+        BERPlot("floor", "Error-floor estimate from the lightest codewords",
+                x="Eb/N0 (dB)", xlim=(0, 4), ylim=(1e-11, 1e-2), legend="bl"),
+    ]
+    layout = [["hist", "floor"]]
+    readouts = [
+        Readout("dmin", "Lightest codeword found", "", "int"),
+        Readout("mult", "How many at that weight", "", "int"),
+        Readout("fl2", "Floor at 2 dB", "", "sci", good=lambda x: x < 1e-7),
+        Readout("n", "Weight-2 inputs checked", "", "int"),
+    ]
+    challenges = [
+        Challenge("Find the interleaver with the lowest floor at K = 1024 (below 10⁻⁸ at 2 dB).",
+                  lambda s: s.p.K == "1024" and s.r.fl2 is not None and s.r.fl2 < 1e-8),
+        Challenge("Show that a random interleaver lets through a codeword lighter than 20.",
+                  lambda s: s.p.kind == "Random" and s.r.dmin is not None and s.r.dmin < 20),
+        Challenge("Compare at K = 1024: the QPP interleaver's lightest word is at least twice as "
+                  "heavy as the random interleaver's.", lambda s: s.exp.cmp.get("QPP (LTE)", 0)
+                  >= 2 * s.exp.cmp.get("Random", 99)),
+    ]
+
+    def setup(self):
+        self.cmp = {}
+
+    def update(self, p):
+        eb = np.linspace(0, 4, 160)
+        pf = self.plot("floor")
+        pf.theory("unc", eb, ft.qfunc(np.sqrt(2 * 10 ** (eb / 10))), color=GRAY, width=1.2,
+                  name="uncoded BPSK (for scale)")
+        pf.vline("v2", 2.0, color=GRAY, style=":")
+        self.readout(dmin=None, mult=None, fl2=None, n=None)
+
+    def background(self, p):
+        K = int(p.K)
+        tc = turbo(K, p.kind)
+        yield dict(w=tuple(ft.weight2_codeword_weights(tc, 56 if not self.quick else 14)[0]))
+
+    def progress(self, p, it_):
+        K = int(p.K)
+        tc = turbo(K, p.kind)
+        w = np.array(it_["w"])
+        dmin = int(w.min())
+        ph = self.plot("hist")
+        h = np.bincount(w, minlength=61)[:61]
+        x = np.arange(len(h))
+        ph.bars("b", x, h, width=0.8, colors=[RED if xi < dmin + 4 else NAVY for xi in x])
+        ph.ylim = (0, max(5, int(h[:61].max() * 1.1) + 1))
+        ph.vb.setRange(xRange=(9.5, 60.5), yRange=ph.ylim, padding=0)
+        eb = np.linspace(0, 4, 160)
+        low = w[w <= dmin + 6]
+        e = 10 ** (eb / 10)
+        floor = sum((2 / K) * ft.qfunc(np.sqrt(2 * tc.rate * d * e)) for d in low)
+        cols = {"QPP (LTE)": NAVY, "Random": RED, "S-random": GREEN}
+        self.plot("floor").theory("fl", eb, np.maximum(floor, 1e-300), color=cols[p.kind], width=2.4,
+                                  name=f"{p.kind}, K = {K}")
+        fl2 = float(sum((2 / K) * ft.qfunc(np.sqrt(2 * tc.rate * d * 10 ** 0.2)) for d in low))
+        if K == 1024:
+            self.cmp[p.kind] = dmin
+        self.readout(dmin=dmin, mult=int(np.sum(w == dmin)), fl2=fl2, n=len(w))
+
+    def story(self, p):
+        r = self.r
+        s = ("<p>Below the waterfall a turbo code's BER flattens into an <b>error floor</b>, set by "
+             "its few lightest codewords. With recursive constituents those come from weight-2 "
+             "inputs whose two 1s are a multiple of 7 apart for encoder 1 <i>and</i> after "
+             "interleaving for encoder 2. Here every such input up to a separation of 56 is "
+             "encoded and weighed (left).</p>")
+        if r.get("dmin") is not None:
+            fl_s = f"{r.get('fl2', 0):.1e}"
+            s += (f"<p>The lightest codeword weighs {v(r['dmin'], 'd')} ({v(r.get('mult', 0), 'd')} "
+                  f"of them). Each contributes about (2/K)·Q(√(2R·d·Eb/N0)) to the BER: at 2 dB the "
+                  f"floor is {v(fl_s)}. It falls only "
+                  "slowly with SNR, while the waterfall falls by orders of magnitude per dB.</p>")
+        s += ("<p>Random interleavers occasionally map a short pattern onto another short pattern; "
+              "S-random interleavers forbid it, and LTE's QPP is designed for spread too.</p>")
+        return "<h3>Light codewords, low floors</h3>" + s + keybox(
+            "Floors are predicted from weight spectra, not simulated: a 10⁻⁹ floor would take "
+            "days of Monte Carlo.")
+
+
+# =============================================================================== the lab
+LAB = st.Lab(23, "Turbo Codes and EXIT Charts", chapter=15,
+             chapter_title="Turbo, LDPC and Polar Codes",
+             experiments=[Constituents, BcjrCheck, TurboIterations, ExitChart, DensityEvolution,
+                          Coupling, ErrorFloor])
+
+if __name__ == "__main__":
+    st.run(LAB)
