@@ -534,6 +534,117 @@ def test_fectools():
     assert sorted(pi.tolist()) == list(range(64))
 
 
+def test_spectral():
+    from commlib import spectral as sp
+    m = {n: sp.window_metrics(sp.window(n, 256)) for n in sp.WINDOWS}
+    assert abs(m["Rectangular"]["scallop"] - 3.92) < 0.01 and abs(m["Hann"]["enbw"] - 1.5) < 1e-6
+    assert abs(m["Hann"]["sidelobe"] + 31.5) < 0.2 and m["Blackman–Harris"]["sidelobe"] < -90
+    assert m["Flat-top"]["scallop"] < 0.02                           # Chapter 2's scalloping figures
+    c0, A, ph = sp.fourier_coeffs("Square", 199)
+    x = sp.fourier_sum(np.linspace(0, 1, 4001), c0, A, ph)
+    assert abs((x.max() - 1) / 2 - 0.0895) < 0.003                   # Gibbs: 8.95 % of the jump
+    assert abs(sp.fourier_sum([0.25], *sp.fourier_coeffs("Triangle", 99))[0] - 1) < 0.01
+    assert sp.alias_complex(700e3, 1e6) == -300e3 and sp.alias_real(-700e3, 1e6) == 300e3
+    rng = np.random.default_rng(3)
+    z = rng.standard_normal(100_000) + 1j * rng.standard_normal(100_000)
+    y = cl.iq_imbalance(z, 1.0, 6.0) + 0.1
+    yc, g, p = sp.blind_iq_correct(y)
+    assert abs(g - 1.0) < 0.05 and abs(p - 6.0) < 0.5
+    mu, nu, _ = sp.iq_fit(yc, z)
+    assert 10 * np.log10(abs(mu) ** 2 / abs(nu) ** 2) > 40
+    tone = 0.999 * np.exp(2j * np.pi * 811 / 16384 * np.arange(16384))
+    e = sp.quantize(tone, 10) - tone
+    assert abs(10 * np.log10(np.mean(np.abs(tone) ** 2) / np.mean(np.abs(e) ** 2)) - 61.96) < 0.5
+    t = (np.arange(1 << 15) - (1 << 14)) / 256
+    f = np.fft.fftshift(np.fft.fftfreq(1 << 15, 1 / 256))
+    g_ = np.exp(-np.pi * t ** 2)
+    st_, sf_ = sp.rms_widths(t, g_, f, np.fft.fftshift(np.fft.fft(np.fft.ifftshift(g_))))
+    assert abs(4 * np.pi * st_ * sf_ - 1) < 1e-3                    # the Gaussian meets the limit
+    sym = rng.choice([-1.0, 1.0], 300 * 32)
+    up = np.zeros(len(sym) * 8)
+    up[::8] = sym
+    s = np.convolve(up, cl.rrc_taps(0.35, 8, 8))[:300 * 256] * np.exp(2j * np.pi * 10 * np.arange(300 * 256) / 256)
+    a, nc, cj, P = sp.spectral_coherence(s, 256)
+    assert abs(abs(a[np.nanargmax(nc)]) - 1 / 8) < 1e-9 and abs(a[np.argmax(cj)] - 20 / 256) < 1e-9
+
+
+def test_noise():
+    from commlib import noise as nz
+    assert abs(nz.Qinv(1e-12) - 7.034) < 0.01 and abs(nz.Q(3.0) - 1.35e-3) < 1e-5
+    st_ = [("switch", -0.5, 0.5), ("SAW", -1.5, 1.5), ("LNA", 18, 1.0), ("mixer", 8, 10),
+           ("BB", 30, 12), ("ADC", 0, 27)]
+    assert abs(nz.friis(st_)["nf"] - 3.58) < 0.01                    # Chapter 3's handset line-up
+    assert abs(nz.butterworth_neb_ratio(2) - 1.1107) < 1e-3
+    fr = np.linspace(0, 1000, 200001)
+    assert abs(nz.neb_hz(fr, 1 / (1 + (fr / 50) ** 2)) / 50 - np.arctan(20)) < 1e-4   # RC to 1 kHz
+    F = nz.yfactor_f(10 ** 1.35, 15.0, 8.0, 20.0)
+    assert abs(10 * np.log10(F) - 1.54) < 0.02                        # Chapter 3's Y-factor example
+    assert abs(nz.pd_coherent(1e-6, 10 ** 1.27) - nz.Q(nz.Qinv(1e-6) - np.sqrt(2 * 10 ** 1.27))) < 1e-12
+    assert 0.9 < nz.pd_coherent(1e-6, 10 ** 1.27) < 0.92               # radar spec met at ~12.7 dB
+    assert nz.pd_envelope(1e-6, 10 ** 1.27) < nz.pd_coherent(1e-6, 10 ** 1.27)
+    assert nz.pd_energy(1e-6, 10 ** 1.27, 16) < nz.pd_envelope(1e-6, 10 ** 1.27)
+    r = np.linspace(0, 6, 60001)
+    assert abs(np.trapezoid(nz.rice_pdf(r, 3.0), r) - 1) < 1e-4
+    assert abs(nz.rice_cdf(np.sqrt(0.1), 0.0) - (1 - np.exp(-0.1))) < 1e-6
+
+
+def test_multirate():
+    from scipy import signal as sg
+    from commlib import multirate as mr
+    r = np.random.default_rng(17)
+    x = r.standard_normal(1003) + 1j * r.standard_normal(1003)
+    h = sg.firwin(61, 0.1)
+    for M in (2, 3, 8):                                   # polyphase = filter then keep every M-th
+        a, b = np.convolve(x, h)[::M], mr.polyphase_decimate(x, h, M)
+        assert len(a) == len(b) and np.max(np.abs(a - b)) < 1e-12
+    up = np.zeros(4 * len(x), complex)
+    up[::4] = x
+    a, b = np.convolve(up, h), mr.polyphase_interpolate(x, h, 4)
+    n = min(len(a), len(b))
+    assert np.max(np.abs(a[:n] - b[:n])) < 1e-12
+    xi = r.integers(-2 ** 11, 2 ** 11, 4000)              # Hogenauer: wrap-around is harmless...
+    B = mr.cic_bits(12, 16, 4)
+    assert B == 28
+    assert np.array_equal(mr.cic_decimate(xi, 16, 4), mr.cic_decimate(xi, 16, 4, width=B))
+    assert mr.cic_decimate(np.full(800, 1000), 16, 4)[-1] == 1000 * 16 ** 4
+    assert abs(-20 * np.log10(mr.cic_response(0.2 / 16, 16, 4)) - 2.3) < 0.05   # Ch. 6 droop
+    z, ftw, fa = mr.nco(1 << 14, 0.1234567, 32, 12, 16)
+    assert abs(mr.nco_sfdr(z)[0] - 72) < 2                # about 6 dB per phase bit
+    th = r.uniform(-np.pi, np.pi, 2000)
+    c, s = mr.cordic(th, 24)
+    assert np.max(np.abs(np.angle(np.exp(1j * (np.arctan2(s, c) - th))))) < 1e-6
+    c, s = mr.cordic(th, 16, bits=18)                     # an 18-bit datapath stalls near 1.5e-4
+    assert np.max(np.abs(np.angle(np.exp(1j * (np.arctan2(s, c) - th))))) > 1e-4
+    assert abs(mr.cordic_gain(30) - 1.64676) < 1e-4
+    assert mr.quantize_coefs([0.3, -0.7], 4).tolist() == [0.25, -0.75]
+
+
+def test_serdes():
+    from commlib import serdes as sd
+    from commlib import linecodes as lc
+    bits = np.r_[1, np.zeros(12, int), 1, 1, np.zeros(8, int)]
+    s, v = sd.b8zs(bits)
+    assert np.sum(s) == 0 or abs(np.sum(s)) <= 1 and v.sum() == 2
+    assert lc.run_lengths(np.abs(sd.hdb3(bits)[0])).max() <= 3 + 1
+    assert set(np.unique(sd.hdb3(np.zeros(40, int))[0])) <= {-1, 0, 1}
+    assert abs(np.sum(sd.hdb3(np.zeros(400, int))[0])) <= 2          # violations alternate: no DC
+    line = sd.enc64b66b(np.zeros(640, np.int8))
+    assert len(line) == 660 and np.all(line[::66] == 0) and np.all(line[1::66] == 1)
+    tj = sd.total_jitter(1e-12, 0.018, 0.15)
+    assert abs(tj - 0.40) < 0.01                                       # Chapter 8's 25G budget
+    x = np.linspace(0, 1, 2001)
+    ber = sd.dual_dirac_ber(x, 0.018, 0.15)
+    w = x[ber < 1e-12]
+    assert abs((w.max() - w.min()) - (1 - tj)) < 0.01
+    assert abs(20 * np.log10(abs(sd.ctle_response(np.array([1.0]), 10, 1.0)[0])) - 10) < 1e-6
+    d = np.array([1, 0, 1, 1, 0, 0, 1])                                # Chapter 8's worked example
+    b = sd.duobinary_precode(d)
+    assert b.tolist() == [1, 1, 0, 1, 1, 1, 0]
+    y = sd.partial_response(2.0 * b - 1, "1+D")
+    assert y.tolist() == [0, 2, 0, 0, 2, 2, 0]
+    assert sd.duobinary_decode_precoded(y).tolist() == d.tolist()
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in list(globals().items()):
