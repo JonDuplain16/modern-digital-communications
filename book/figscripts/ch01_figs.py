@@ -488,7 +488,841 @@ def fig_timeline():
     fig.tight_layout(); save(fig, "ch01_timeline")
 
 
+# ============================================================================ second-edition concept figures
+from matplotlib.patches import Polygon, Circle, Rectangle, FancyArrowPatch, Wedge, FancyBboxPatch, Arc
+
+
+def _clean(ax):
+    ax.set_xticks([]); ax.set_yticks([]); ax.grid(False)
+    for s in ax.spines.values():
+        s.set_visible(False)
+
+
+def fig_adversaries():
+    """Infographic: the four adversaries every communication engineer has faced."""
+    fig, axs = plt.subplots(1, 4, figsize=(W1, 1.75))
+    r = rng(3)
+    # 1 limited alphabet
+    ax = axs[0]
+    lv = np.array([-3, -1, 1, 3])
+    for k, v in enumerate(lv):
+        ax.scatter(np.full(40, v) + 0.35 * r.standard_normal(40), 0.35 * r.standard_normal(40), s=4,
+                   color=CYCLE[k], alpha=0.7)
+        ax.text(v, 1.0, f"{k:02b}", ha="center", fontsize=7, color=CYCLE[k])
+    ax.set_xlim(-4.5, 4.5); ax.set_ylim(-1.3, 1.5)
+    ax.set_title("1. A small alphabet", fontsize=8.5)
+    # 2 noise
+    ax = axs[1]
+    t = np.linspace(0, 1, 400)
+    s = np.sign(np.sin(2 * np.pi * 3 * t + 0.3))
+    ax.plot(t, s + 1.6, color=NAVY, lw=1)
+    ax.plot(t, s + 0.45 * r.standard_normal(t.size) - 1.4, color=ACCENT, lw=0.6)
+    ax.text(0.5, 3.0, "sent", ha="center", fontsize=7, color=NAVY)
+    ax.text(0.5, -3.3, "received", ha="center", fontsize=7, color=ACCENT)
+    ax.set_ylim(-3.6, 3.4); ax.set_title("2. Noise", fontsize=8.5)
+    # 3 dispersion
+    ax = axs[2]
+    t = np.linspace(0, 6, 600)
+    bits = [1, 0, 1, 1, 0, 1]
+    x = np.zeros_like(t); y = np.zeros_like(t)
+    for k, b in enumerate(bits):
+        x += b * ((t >= k) & (t < k + 1))
+        tt = np.clip(t - k, 1e-6, None)
+        y += b * 1.6 * np.exp(-1 / tt) * np.exp(-tt / 1.2) * (t > k)
+    ax.plot(t, x + 1.4, color=NAVY, lw=1)
+    ax.plot(t, y / y.max() * 1.1 - 1.2, color=ORANGE, lw=1.2)
+    ax.text(3, 2.75, "sent", ha="center", fontsize=7, color=NAVY)
+    ax.text(3, -1.75, "smeared", ha="center", fontsize=7, color=ORANGE)
+    ax.set_ylim(-2.1, 3.1); ax.set_title("3. Dispersion", fontsize=8.5)
+    # 4 sharing
+    ax = axs[3]
+    for k in range(4):
+        for j in range(5):
+            ax.add_patch(Rectangle((j * 1.0 + 0.05, k * 0.8 + 0.05), 0.9, 0.7, color=CYCLE[(k + j) % 4], alpha=0.55, lw=0))
+    ax.set_xlim(0, 5); ax.set_ylim(0, 3.3)
+    ax.text(2.5, -0.35, "time", ha="center", fontsize=7); ax.text(-0.25, 1.6, "frequency", rotation=90, va="center", fontsize=7)
+    ax.set_title("4. Sharing the medium", fontsize=8.5)
+    for ax in axs:
+        _clean(ax)
+    fig.tight_layout(w_pad=0.6); save(fig, "ch01_adversaries")
+
+
+def fig_beacons():
+    """Cartoon: a chain of hilltop beacons carries one prearranged bit very fast."""
+    fig, ax = plt.subplots(figsize=(W1, 1.55))
+    x = np.linspace(0, 10, 500)
+    ax.fill_between(x, 0, 0.25 + 0.05 * np.sin(3 * x), color=GREEN, alpha=0.15, lw=0)
+    peaks = [0.6, 2.9, 5.2, 7.5, 9.6]
+    for k, p in enumerate(peaks):
+        h = 0.9 + 0.15 * (k % 2)
+        ax.add_patch(Polygon([[p - 0.8, 0.2], [p, h], [p + 0.8, 0.2]], color=GREEN, alpha=0.45, lw=0))
+        lit = k < 4
+        if lit:
+            ax.add_patch(Polygon([[p - 0.12, h], [p, h + 0.42], [p + 0.12, h]], color=ORANGE, lw=0))
+            ax.add_patch(Polygon([[p - 0.06, h], [p, h + 0.25], [p + 0.06, h]], color="#F4D03F", lw=0))
+        else:
+            ax.add_patch(Polygon([[p - 0.12, h], [p, h + 0.15], [p + 0.12, h]], color=GRAY, lw=0))
+        if k < 4:
+            ax.add_patch(FancyArrowPatch((p + 0.25, h + 0.35), (peaks[k + 1] - 0.25, h + 0.35),
+                                         arrowstyle="-|>", mutation_scale=8, color=NAVY, lw=0.8,
+                                         connectionstyle="arc3,rad=-0.15"))
+    ax.text(0.6, -0.12, "Troy", ha="center", fontsize=8, color=NAVY)
+    ax.text(9.6, -0.12, "Argos", ha="center", fontsize=8, color=NAVY)
+    ax.text(5.0, 1.75, "alphabet: {dark, lit}   message: one prearranged bit   speed: light + reaction time",
+            ha="center", fontsize=7.8, color=ACCENT)
+    ax.set_xlim(-0.4, 10.6); ax.set_ylim(-0.3, 1.95); _clean(ax)
+    fig.tight_layout(); save(fig, "ch01_beacons")
+
+
+def fig_pipeline():
+    """Space-time diagram of a semaphore relay chain: latency vs throughput."""
+    fig, ax = plt.subplots(figsize=(3.0, 2.5))
+    N, d, T = 8, 1.0, 1.0
+    for k in range(5):
+        ax.plot([k * T + n * d for n in range(N)], range(N), "-o", ms=2.5, color=CYCLE[k % len(CYCLE)], lw=1)
+    ax.annotate("", xy=(N - 1, N - 1 + 0.4), xytext=(0, N - 1 + 0.4), arrowprops=dict(arrowstyle="<->", color=ACCENT, lw=0.8))
+    ax.text((N - 1) / 2, N - 1 + 0.65, "latency = hops x delay", ha="center", fontsize=7, color=ACCENT)
+    ax.annotate("", xy=(N - 1 + T, 0.6), xytext=(N - 1, 0.6), arrowprops=dict(arrowstyle="<->", color=GREEN, lw=0.8))
+    ax.text(N - 1 + 0.5, 1.0, "1 sign\nper T", ha="center", fontsize=6.5, color=GREEN)
+    ax.set_xlabel("time (sign periods)"); ax.set_ylabel("station")
+    ax.set_ylim(-0.5, N + 0.4); ax.set_xlim(-0.3, N + 4)
+    fig.tight_layout(); save(fig, "ch01_pipeline")
+
+
+def fig_morse_tree():
+    """The Morse code as a binary tree: dot = left, dash = right."""
+    fig, ax = plt.subplots(figsize=(W1, 2.35))
+    inv = {v: k for k, v in MORSE_FULL.items()}
+    def pos(code):
+        x, w = 0.0, 8.0
+        for c in code:
+            w /= 2
+            x += -w if c == "." else w
+        return x, -len(code)
+    codes = [""]
+    for depth in range(4):
+        codes += [c + s for c in codes if len(c) == depth for s in ".-"]
+    for c in codes:
+        if not c:
+            continue
+        x0, y0 = pos(c[:-1]); x1, y1 = pos(c)
+        ax.plot([x0, x1], [y0, y1], color=NAVY if c[-1] == "." else ACCENT, lw=0.8, alpha=0.7)
+    for c in codes:
+        x, y = pos(c)
+        letter = inv.get(c, "")
+        if not c:
+            ax.text(x, y + 0.05, "START", ha="center", va="bottom", fontsize=7.5, color=NAVY, weight="bold")
+            continue
+        sz = 6 + 0.45 * ENGLISH.get(letter, 0)
+        ax.scatter([x], [y], s=(sz * 2.1) ** 2 if letter else 6, color="white", edgecolor=NAVY if letter else GRAY,
+                   lw=0.8, zorder=3)
+        ax.text(x, y, letter, ha="center", va="center", fontsize=sz, color=NAVY, zorder=4)
+    ax.text(-7.6, -0.4, "dot: go left", color=NAVY, fontsize=7.5)
+    ax.text(5.3, -0.4, "dash: go right", color=ACCENT, fontsize=7.5)
+    ax.text(-8, -4.65, "letter size ~ frequency in English: the big letters sit near the top of the tree",
+            fontsize=7.2, color=GRAY)
+    ax.set_xlim(-8.3, 8.3); ax.set_ylim(-4.8, 0.45); _clean(ax)
+    fig.tight_layout(); save(fig, "ch01_morse_tree")
+
+
+def fig_relay_regen():
+    """A relay decides and re-sends: noise stops at every regenerator, but a wrong decision is passed on."""
+    r = rng(7)
+    bits = np.array([1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1])
+    fs = 60
+    x = np.repeat(bits, fs).astype(float)
+    t = np.arange(x.size) / fs
+    h = np.exp(-np.arange(0, 3, 1 / fs) / 0.35); h /= h.sum()
+    y = np.convolve(x, h)[:x.size] * 0.55 + 0.07 * r.standard_normal(x.size)
+    y[int(7.55 * fs):int(7.95 * fs)] += 0.42          # an impulse of noise -> one wrong decision
+    dec = np.array([y[int((k + 0.85) * fs)] > 0.27 for k in range(bits.size)]).astype(int)
+    out = np.repeat(dec, fs)
+    fig, ax = plt.subplots(2, 1, figsize=(W1, 2.6), sharex=True)
+    ax[0].plot(t, y, color=ORANGE, lw=1); ax[0].axhline(0.27, color=GRAY, ls="--", lw=0.8)
+    ax[0].text(12.1, 0.27, "threshold", fontsize=7, color=GRAY, va="center")
+    ax[0].plot((np.arange(bits.size) + 0.85), [y[int((k + 0.85) * fs)] for k in range(bits.size)], "o", ms=3, color=NAVY)
+    ax[0].set_ylabel("weak input", fontsize=8); ax[0].set_yticks([])
+    ax[1].step(t, out, where="post", color=NAVY, lw=1.3)
+    err = np.where(dec != bits)[0]
+    for k in err:
+        ax[1].axvspan(k, k + 1, color=ACCENT, alpha=0.15, lw=0)
+        ax[1].text(k + 0.5, 1.12, "wrong, but\nconfident", ha="center", fontsize=6.5, color=ACCENT)
+    ax[1].set_ylim(-0.2, 1.55); ax[1].set_yticks([]); ax[1].set_ylabel("fresh output", fontsize=8)
+    ax[1].set_xlabel("signalling element")
+    for a in ax:
+        a.set_xlim(0, 13.3)
+    fig.tight_layout(h_pad=0.3); save(fig, "ch01_relay_regen")
+
+
+def fig_quadruplex():
+    """Edison's quadruplex alphabet: polarity carries one bit, magnitude the other."""
+    sym = [2, -1, 1, -2, -2, 1, 2, -1]
+    fig, ax = plt.subplots(figsize=(3.0, 2.45))
+    t = np.arange(len(sym) + 1)
+    ax.step(t, sym + [sym[-1]], where="post", color=NAVY, lw=1.4)
+    for k, s in enumerate(sym):
+        b1 = "1" if s > 0 else "0"; b2 = "1" if abs(s) == 2 else "0"
+        ax.text(k + 0.5, s + (0.28 if s > 0 else -0.5), b1 + b2, ha="center", fontsize=6.5,
+                color=ACCENT if s > 0 else GREEN)
+    ax.axhline(0, color=GRAY, lw=0.6)
+    ax.set_yticks([-2, -1, 1, 2]); ax.set_ylim(-2.8, 2.8)
+    ax.set_xlabel("signalling element"); ax.set_ylabel("line current")
+    ax.text(0.1, -2.65, "bits: polarity relay, neutral relay", fontsize=6.5, color=GRAY)
+    fig.tight_layout(); save(fig, "ch01_quadruplex")
+
+
+def fig_startstop():
+    """Start-stop framing: an ITA2 teleprinter character and a modern UART 8N1 byte."""
+    fig, ax = plt.subplots(2, 1, figsize=(W1, 2.35))
+    def frame(a, bits, stop_len, labels, title, unit_ms):
+        lv = [1, 1, 0] + bits
+        seg = [0.8, 0.8 if False else 0, 1] + [1] * len(bits)
+        xs, ys = [0], [1]
+        x = 0
+        # idle mark
+        x += 1; xs += [x]; ys += [1]
+        widths = [1] * (1 + len(bits)) + [stop_len]
+        levels = [0] + bits + [1]
+        for w, l in zip(widths, levels):
+            xs += [x, x + w]; ys += [l, l]; x += w
+        xs += [x + 1]; ys += [1]
+        a.plot(xs, ys, color=NAVY, lw=1.4)
+        x = 1
+        for w, l, lab in zip(widths, levels, labels):
+            a.axvline(x, color=GRAY, lw=0.4, ls=":")
+            a.text(x + w / 2, 1.25, lab, ha="center", fontsize=6.8, color=ACCENT if lab in ("start", "stop") else NAVY)
+            x += w
+        a.text(0.0, 1.62, title, fontsize=7.8, color=NAVY)
+        a.set_ylim(-0.3, 1.85); a.set_xlim(-0.2, x + 1.3); _clean(a)
+        a.text(x + 1.25, 1.0, "mark", fontsize=6.5, color=GRAY, ha="right", va="bottom")
+        a.text(x + 1.25, 0.0, "space", fontsize=6.5, color=GRAY, ha="right", va="bottom")
+    frame(ax[0], [1, 1, 0, 0, 0], 1.5, ["start", "1", "1", "0", "0", "0", "stop"],
+          "Teleprinter (ITA2, 45.45 baud): letter A = 11000, 7.5 units, 22 ms per unit", 22)
+    frame(ax[1], [1, 0, 0, 0, 0, 0, 1, 0], 1, ["start"] + list("10000010") + ["stop"],
+          "Serial port today (UART 8N1): byte 0x41 ('A'), least significant bit first", 0)
+    fig.tight_layout(h_pad=0.2); save(fig, "ch01_startstop")
+
+
+def _line_response(t, x, R, L, G, C, ell):
+    N = t.size; dt = t[1] - t[0]
+    f = np.fft.fftfreq(N, dt); w = 2 * np.pi * f
+    gam = np.sqrt((R + 1j * w * L) * (G + 1j * w * C))
+    return np.real(np.fft.ifft(np.fft.fft(x) * np.exp(-gam * ell)))
+
+
+def fig_distortionless():
+    """Heaviside's insight: a line with L/R = C/G delivers a smaller but undistorted pulse."""
+    t = np.arange(0, 16, 0.002)
+    x = np.clip(np.minimum((t - 0.3) / 0.08, (0.8 - t) / 0.08), 0, 1)
+    x = 0.5 - 0.5 * np.cos(np.pi * x)
+    cases = [("Kelvin's cable (R, C only)", dict(R=1, L=0, G=0, C=1), ORANGE),
+             ("inductance added, no leakage (L = 0.3)", dict(R=1, L=0.3, G=0, C=1), PURPLE),
+             ("distortionless: L/R = C/G", dict(R=1, L=0.05, G=20, C=1), GREEN)]
+    fig, ax = plt.subplots(1, 2, figsize=(W1, 2.3))
+    ax[0].plot(t, x, color=NAVY, lw=1.2, label="sent pulse")
+    for lab, p, c in cases:
+        y = _line_response(t, x, ell=1.0, **p)
+        ax[1].plot(t, y / y.max(), color=c, lw=1.2, label=f"{lab}  (peak x{y.max():.2g})")
+    ax[0].set_xlim(0, 3); ax[0].set_ylim(-0.1, 1.2); ax[0].set_title("Sent", fontsize=9)
+    ax[0].set_xlabel("time (units of $RC\\ell^2$)")
+    ax[1].set_xlim(0, 3); ax[1].set_ylim(-0.1, 1.25); ax[1].set_title("Received, each scaled to unit peak", fontsize=9)
+    ax[1].legend(fontsize=6.3, loc="center right"); ax[1].set_xlabel("time (units of $RC\\ell^2$)")
+    fig.tight_layout(); save(fig, "ch01_distortionless")
+
+
+def fig_level_diagram():
+    """Level diagram of a transcontinental line: why gain must be distributed."""
+    L, a = 5400, 0.015
+    rep = [1100, 2200, 3300, 4400]
+    g = (L * a - 25) / len(rep)
+    xs, ys = [0], [0.0]
+    lvl = 0.0; x0 = 0
+    for p in rep:
+        lvl -= a * (p - x0); xs += [p, p]; ys += [lvl, lvl + g]; lvl += g; x0 = p
+    lvl -= a * (L - x0); xs += [L]; ys += [lvl]
+    fig, ax = plt.subplots(figsize=(W1, 2.3))
+    ax.plot([0, L], [0, -a * L], color=GRAY, ls="--", lw=1, label="no repeaters: $-81$ dB, buried in noise")
+    ax.plot(xs, ys, color=NAVY, lw=1.5, label=f"{len(rep)} repeaters of about {g:.0f} dB")
+    ax.axhspan(-95, -55, color=ACCENT, alpha=0.08, lw=0)
+    ax.text(150, -60, "noise and induced interference", fontsize=7.5, color=ACCENT)
+    for k in range(len(rep)):
+        ax.annotate("", xy=(xs[2 + 2 * k], ys[2 + 2 * k]), xytext=(xs[1 + 2 * k], ys[1 + 2 * k]),
+                    arrowprops=dict(arrowstyle="-|>", color=GREEN, lw=1.0))
+    ax.text(rep[0] + 60, ys[1] + 4, "repeater gain", fontsize=7, color=GREEN)
+    ax.set_xlabel("distance from New York (km)"); ax.set_ylabel("signal level (dB)")
+    ax.set_ylim(-90, 6); ax.set_xlim(0, L); ax.legend(fontsize=7, loc="lower left")
+    fig.tight_layout(); save(fig, "ch01_level_diagram")
+
+
+def fig_feedback_gain():
+    """Closed-loop gain flattens to 1/beta as the open-loop gain grows."""
+    A = np.logspace(0.5, 6, 300); beta = 0.01
+    fig, ax = plt.subplots(figsize=(3.0, 2.45))
+    ax.loglog(A, A, color=GRAY, ls=":", lw=1, label="no feedback")
+    ax.loglog(A, A / (1 + A * beta), color=NAVY, lw=1.5, label=r"with feedback, $\beta=0.01$")
+    ax.axhline(1 / beta, color=ACCENT, ls="--", lw=0.8)
+    ax.text(12, 1 / beta * 1.35, r"$1/\beta = 100$", fontsize=7, color=ACCENT)
+    ax.axvspan(9000, 10000, color=GREEN, alpha=0.3, lw=0)
+    ax.text(1.2e4, 8, "tube ages\n10%: G moves\n0.11%", fontsize=6.3, color=GREEN)
+    ax.set_xlabel("open-loop gain $A$"); ax.set_ylabel("closed-loop gain $G$")
+    ax.set_ylim(2, 2e3); ax.legend(fontsize=6.5, loc="upper left")
+    fig.tight_layout(); save(fig, "ch01_feedback_gain")
+
+
+def _erlang_b(A, N):
+    B = 1.0
+    for n in range(1, N + 1):
+        B = A * B / (n + A * B)
+    return B
+
+
+def fig_erlang():
+    """Erlang B: blocking against trunks, and the efficiency of large groups."""
+    fig, ax = plt.subplots(1, 2, figsize=(W1, 2.35))
+    for A, c in [(5, NAVY), (20, GREEN), (100, ORANGE)]:
+        Ns = np.arange(1, int(A * 1.6) + 6)
+        ax[0].semilogy(Ns, [_erlang_b(A, n) for n in Ns], color=c, lw=1.3, label=f"A = {A} erlangs")
+    ax[0].axhline(0.01, color=ACCENT, ls="--", lw=0.8); ax[0].text(120, 0.013, "1%", fontsize=7, color=ACCENT)
+    ax[0].set_ylim(1e-4, 1); ax[0].set_xlabel("trunks N"); ax[0].set_ylabel("blocking probability")
+    ax[0].legend(fontsize=7)
+    As = np.array([1, 2, 5, 10, 20, 50, 100, 200, 500])
+    util = []
+    for A in As:
+        n = 1
+        while _erlang_b(A, n) > 0.01:
+            n += 1
+        util.append(A * (1 - _erlang_b(A, n)) / n)
+    ax[1].semilogx(As, 100 * np.array(util), "o-", color=NAVY, ms=3)
+    ax[1].set_xlabel("offered traffic A (erlangs)"); ax[1].set_ylabel("trunk utilisation at 1% (%)")
+    ax[1].set_ylim(0, 100)
+    fig.tight_layout(); save(fig, "ch01_erlang_curves")
+
+
+def fig_skywave():
+    """Ground wave, line of sight and sky-wave hops off the ionosphere (heights exaggerated)."""
+    fig, ax = plt.subplots(figsize=(W1, 2.4))
+    R, h = 1.0, 0.075
+    th = np.radians(np.linspace(40, 140, 400))
+    ax.fill_between(np.cos(th), np.sin(th) - 0.3, np.sin(th), color=GREEN, alpha=0.18, lw=0)
+    ax.plot(R * np.cos(th), R * np.sin(th), color=GREEN, lw=1)
+    ax.fill_between((R + h) * np.cos(th), (R + h) * np.sin(th), (R + h + 0.03) * np.sin(th) + 0.0, color=PURPLE, alpha=0.25, lw=0)
+    ax.text(-0.02, R + h + 0.045, "ionosphere (reflecting layer)", ha="center", fontsize=7.5, color=PURPLE)
+    P = lambda deg, rr: (rr * np.cos(np.radians(deg)), rr * np.sin(np.radians(deg)))
+    hops = [(128, R), (110, R + h), (92, R), (74, R + h), (56, R)]
+    for (a1, r1), (a2, r2) in zip(hops[:-1], hops[1:]):
+        x1, y1 = P(a1, r1); x2, y2 = P(a2, r2)
+        ax.add_patch(FancyArrowPatch((x1, y1), (x2, y2), arrowstyle="-|>", mutation_scale=7, color=ACCENT, lw=1))
+    tg = np.radians(np.linspace(128, 116, 30))
+    ax.plot(1.003 * np.cos(tg), 1.003 * np.sin(tg), color=NAVY, lw=2.2, alpha=0.7)
+    xt, yt = P(128, R); ax.plot([xt, xt], [yt, yt + 0.035], color=NAVY, lw=2)
+    ax.text(xt - 0.02, yt + 0.05, "transmitter", ha="right", fontsize=7.5, color=NAVY)
+    xg, yg = P(121, R); ax.text(xg + 0.02, yg - 0.085,"ground wave\n(fades quickly at HF)", fontsize=7, color=NAVY, ha="center")
+    xs_, ys_ = P(101, R); ax.text(xs_, ys_ - 0.06, "skip zone:\nsilence", fontsize=7, color=GRAY, ha="center")
+    for deg, lab in [(92, "1st hop"), (56, "2nd hop")]:
+        x, y = P(deg, R); ax.plot([x], [y], "o", color=ACCENT, ms=3)
+        ax.text(x, y - 0.05, lab, ha="center", fontsize=7, color=ACCENT)
+    ax.set_aspect("equal"); ax.set_xlim(-0.72, 0.72); ax.set_ylim(0.66, 1.13); _clean(ax)
+    fig.tight_layout(); save(fig, "ch01_skywave")
+
+
+def fig_ntsc_interleave():
+    """NTSC colour: chroma spectral lines sit between the luminance lines."""
+    fig, ax = plt.subplots(figsize=(W1, 1.95))
+    n = np.arange(222, 234)
+    lum = 0.5 + 0.5 * np.exp(-(n - 222) / 8)
+    ax.vlines(n, 0, lum, color=NAVY, lw=2, label="luminance lines at $n f_H$")
+    m = np.arange(222, 233) + 0.5
+    chrom = 0.55 * np.exp(-((m - 227.5) / 3.0) ** 2)
+    ax.vlines(m, 0, chrom, color=ACCENT, lw=2, label=r"chroma lines at $(n+\frac{1}{2}) f_H$")
+    ax.axvline(227.5, color=ACCENT, ls=":", lw=0.8)
+    ax.text(227.7, 0.78, r"$f_{sc}=\frac{455}{2}f_H\approx3.58$ MHz", fontsize=7.5, color=ACCENT)
+    ax.set_xlabel("frequency (multiples of the line rate $f_H$)"); ax.set_yticks([])
+    ax.set_ylim(0, 1.38); ax.legend(fontsize=7, loc="upper center", ncol=2)
+    fig.tight_layout(); save(fig, "ch01_ntsc_interleave")
+
+
+def fig_currencies():
+    """Bandwidth and power as interchangeable currencies (Shannon's formula)."""
+    fig, ax = plt.subplots(1, 2, figsize=(W1, 2.3))
+    P_N0 = 1e4
+    B = np.logspace(2, 6, 300)
+    ax[0].semilogx(B, B * np.log2(1 + P_N0 / B) / 1e3, color=NAVY, lw=1.5)
+    ax[0].axhline(P_N0 * np.log2(np.e) / 1e3, color=ACCENT, ls="--", lw=0.8)
+    ax[0].text(120, P_N0 * np.log2(np.e) / 1e3 * 1.03, r"limit $1.44\,P/N_0$", fontsize=7, color=ACCENT)
+    ax[0].set_xlabel("bandwidth $B$ (Hz), fixed power"); ax[0].set_ylabel("capacity (kb/s)")
+    ax[0].set_title("Spend bandwidth (Armstrong's FM)", fontsize=8.5); ax[0].set_ylim(0, 16)
+    snr_db = np.linspace(0, 40, 200)
+    ax[1].plot(snr_db, 3100 * np.log2(1 + 10 ** (snr_db / 10)) / 1e3, color=GREEN, lw=1.5)
+    for s in (20, 30):
+        c1 = 3100 * np.log2(1 + 10 ** (s / 10)) / 1e3; c2 = 3100 * np.log2(1 + 10 ** ((s + 3) / 10)) / 1e3
+        ax[1].plot([s, s + 3], [c1, c2], "o", color=ORANGE, ms=3)
+    ax[1].text(14, 34, "double the power (+3 dB):\nabout +1 bit per sample", fontsize=7, color=ORANGE)
+    ax[1].set_xlabel("SNR (dB), 3.1 kHz channel"); ax[1].set_ylabel("capacity (kb/s)")
+    ax[1].set_title("Spend power", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch01_currencies")
+
+
+def fig_pcm_steps():
+    """Pulse-code modulation in three steps: sample, quantise, code."""
+    t = np.linspace(0, 1, 500)
+    s = 0.8 * np.sin(2 * np.pi * 1.3 * t) + 0.25 * np.sin(2 * np.pi * 3.1 * t + 1)
+    ts = np.arange(0.03, 1, 1 / 12)
+    ss = np.interp(ts, t, s)
+    q = np.clip(np.round((ss + 1) / 2 * 7), 0, 7)
+    fig, ax = plt.subplots(figsize=(W1, 2.2))
+    for k in range(8):
+        ax.axhline(k / 7 * 2 - 1, color=GRAY, lw=0.4, alpha=0.6)
+        ax.text(1.01, k / 7 * 2 - 1, f"{k:03b}", fontsize=6.5, color=GRAY, va="center")
+    ax.plot(t, s, color=NAVY, lw=1.2, label="voice waveform")
+    ax.vlines(ts, 0, ss, color=GRAY, lw=0.6)
+    ax.plot(ts, ss, "o", color=NAVY, ms=3, label="samples (8000 per second)")
+    ax.plot(ts, q / 7 * 2 - 1, "s", color=ACCENT, ms=3.5, label="quantised to 8 levels")
+    for x, v in zip(ts, q):
+        ax.text(x, -1.32, f"{int(v):03b}", ha="center", fontsize=6.5, color=ACCENT, rotation=90)
+    ax.set_ylim(-1.5, 1.55); ax.set_xlim(0, 1.06); ax.set_yticks([]); ax.set_xticks([])
+    ax.legend(fontsize=6.8, loc="upper center", ncol=3, frameon=False)
+    fig.tight_layout(); save(fig, "ch01_pcm_steps")
+
+
+def fig_tasi():
+    """Speech is mostly silence: statistical multiplexing of talkspurts (TASI)."""
+    r = rng(11)
+    n_talk, Tend = 36, 60.0
+    act = []
+    tt = np.arange(0, Tend, 0.05)
+    count = np.zeros_like(tt)
+    for k in range(n_talk):
+        t, on, segs = 0.0, r.random() < 0.4, []
+        while t < Tend:
+            d = r.exponential(1.2 if on else 1.8)
+            if on:
+                segs.append((t, min(t + d, Tend)))
+            t += d; on = not on
+        act.append(segs)
+        for a, b in segs:
+            count[(tt >= a) & (tt < b)] += 1
+    fig, ax = plt.subplots(1, 2, figsize=(W1, 2.3), gridspec_kw={"width_ratios": [1.2, 1]})
+    for k in range(12):
+        for a, b in act[k]:
+            if a < 20:
+                ax[0].add_patch(Rectangle((a, k + 0.15), min(b, 20) - a, 0.7, color=CYCLE[k % 5], alpha=0.7, lw=0))
+    ax[0].set_xlim(0, 20); ax[0].set_ylim(0, 12); ax[0].set_xlabel("time (s)"); ax[0].set_ylabel("talker (one direction)")
+    ax[0].set_yticks([]); ax[0].set_title("Talkspurts and silences", fontsize=8.5)
+    ax[1].plot(tt, count, color=NAVY, lw=0.8)
+    ax[1].axhline(n_talk, color=GRAY, ls="--", lw=0.8); ax[1].text(1, n_talk - 2.6, f"{n_talk} circuits if each talker owns one", fontsize=6.5, color=GRAY)
+    ax[1].axhline(np.percentile(count, 99.5), color=ACCENT, ls="--", lw=0.8)
+    ax[1].text(1, np.percentile(count, 99.5) + 0.8, "enough when shared", fontsize=6.5, color=ACCENT)
+    ax[1].set_ylim(0, n_talk + 3); ax[1].set_xlabel("time (s)"); ax[1].set_ylabel("simultaneously talking")
+    ax[1].set_title(f"{n_talk} one-way speech channels", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch01_tasi")
+
+
+def fig_geo():
+    """Clarke's 1945 idea: three geostationary relays cover almost the whole Earth."""
+    fig, ax = plt.subplots(figsize=(3.0, 3.0))
+    Re, Rg = 1.0, 6.62
+    ax.add_patch(Circle((0, 0), Re, color="#2E86C1", alpha=0.35, lw=0))
+    ax.add_patch(Circle((0, 0), Rg, fill=False, color=GRAY, ls="--", lw=0.7))
+    for k, ang in enumerate([90, 210, 330]):
+        a = np.radians(ang)
+        sx, sy = Rg * np.cos(a), Rg * np.sin(a)
+        half = np.arccos(Re / Rg)
+        for sgn in (-1, 1):
+            tx, ty = Re * np.cos(a + sgn * half), Re * np.sin(a + sgn * half)
+            ax.plot([sx, tx], [sy, ty], color=CYCLE[k], lw=0.8)
+        ax.add_patch(Polygon([[sx, sy], [Re * np.cos(a - half), Re * np.sin(a - half)], [Re * np.cos(a + half), Re * np.sin(a + half)]],
+                             color=CYCLE[k], alpha=0.1, lw=0))
+        ax.plot([sx], [sy], "s", color=CYCLE[k], ms=5)
+    ax.text(0, -0.15, "Earth", ha="center", fontsize=7.5, color=NAVY)
+    ax.text(0, -Rg - 0.9, "orbit radius 42 164 km\n(35 786 km altitude)", ha="center", fontsize=7, color=GRAY)
+    ax.set_aspect("equal"); ax.set_xlim(-7.3, 7.3); ax.set_ylim(-8.3, 7.4); _clean(ax)
+    fig.tight_layout(); save(fig, "ch01_geo")
+
+
+def fig_fibre_loss():
+    """The collapse of optical-fibre loss (approximate milestones)."""
+    pts = [(1966, 1000, "typical glass\n(Kao & Hockham)"), (1970, 17, "Corning, 1970"),
+           (1972, 4, ""), (1979, 0.2, "1.55 $\\mu$m, 1979"), (2020, 0.15, "today, about 0.15")]
+    fig, ax = plt.subplots(figsize=(3.0, 2.5))
+    ax.semilogy([p[0] for p in pts], [p[1] for p in pts], "o-", color=NAVY, ms=4)
+    for y, v, lab in pts:
+        if lab:
+            ax.text(y + (1.5 if y < 2000 else -1.5), v * 1.4, lab, fontsize=6.5, color=NAVY, ha="left" if y < 2000 else "right")
+    ax.axhline(20, color=ACCENT, ls="--", lw=0.8); ax.text(1990, 25, "Kao's 20 dB/km target", fontsize=6.5, color=ACCENT)
+    ax.set_xlabel("year"); ax.set_ylabel("loss (dB/km)"); ax.set_ylim(0.08, 5000); ax.set_xlim(1962, 2025)
+    fig.tight_layout(); save(fig, "ch01_fibre_loss")
+
+
+def fig_circuit_packet():
+    """Circuit switching reserves a path; packet switching shares it statistically."""
+    r = rng(5)
+    fig, ax = plt.subplots(2, 1, figsize=(W1, 2.3), sharex=True)
+    users = 3
+    bursts = []
+    for u in range(users):
+        b, t = [], r.uniform(0, 2)
+        while t < 30:
+            d = r.uniform(0.6, 1.6); b.append((t, d)); t += d + r.exponential(5)
+        bursts.append(b)
+    for u in range(users):
+        ax[0].add_patch(Rectangle((0, u + 0.1), 30, 0.8, color=CYCLE[u], alpha=0.12, lw=0))
+        for t, d in bursts[u]:
+            ax[0].add_patch(Rectangle((t, u + 0.1), d, 0.8, color=CYCLE[u], alpha=0.8, lw=0))
+    ax[0].set_ylim(0, 3); ax[0].set_yticks([0.5, 1.5, 2.5]); ax[0].set_yticklabels(["A", "B", "C"], fontsize=7)
+    ax[0].set_title("Circuit switching: each user owns a third of the link, mostly idle (pale)", fontsize=8)
+    allb = sorted((t, d, u) for u in range(users) for t, d in bursts[u])
+    tfree = 0
+    for t, d, u in allb:
+        s = max(t, tfree); dd = d / 3
+        ax[1].add_patch(Rectangle((s, 0.1), dd, 0.8, color=CYCLE[u], alpha=0.85, lw=0)); tfree = s + dd
+    ax[1].set_ylim(0, 1); ax[1].set_yticks([]); ax[1].set_xlim(0, 30); ax[1].set_xlabel("time")
+    ax[1].set_title("Packet switching: whoever has data uses the whole link, three times faster", fontsize=8)
+    fig.tight_layout(); save(fig, "ch01_circuit_packet")
+
+
+def fig_hartley_levels():
+    """Noise decides how many levels can be told apart (Hartley's M, Shannon's sqrt(1+S/N))."""
+    fig, ax = plt.subplots(1, 2, figsize=(W1, 2.0), sharey=True)
+    x = np.linspace(-1.4, 1.4, 1200)
+    for a, (M, snr_db) in zip(ax, [(4, 15), (16, 35)]):
+        lv = np.linspace(-1, 1, M)
+        P = np.mean(lv ** 2); sig = np.sqrt(P / 10 ** (snr_db / 10))
+        tot = np.zeros_like(x)
+        for k, v in enumerate(lv):
+            p = np.exp(-0.5 * ((x - v) / sig) ** 2); tot += p
+            a.fill_between(x, p, color=CYCLE[k % 5], alpha=0.35, lw=0)
+        a.plot(x, tot, color=NAVY, lw=0.7)
+        a.set_title(f"SNR {snr_db} dB: {M} levels, $\\sqrt{{1+S/N}}\\approx{np.sqrt(1 + 10 ** (snr_db / 10)):.0f}$", fontsize=8.5)
+        a.set_yticks([]); a.set_xlabel("received amplitude")
+    fig.tight_layout(); save(fig, "ch01_hartley_levels")
+
+
+def fig_fossils():
+    """Museum labels: numbers in today's equipment that are fossils of old decisions."""
+    items = [("3.4 kHz", "top of the telephone\nvoice band", "listener tests and\nloading coils, 1920s"),
+             ("8 kHz", "digital-voice\nsampling rate", "twice the 4 kHz\nchannel slot"),
+             ("1.544 Mb/s", "T1 line rate", "24 x 64 kb/s +\nframing, 1962"),
+             ("455 kHz", "AM radio IF", "the superhet\nera"),
+             ("29.97 Hz", "US TV frame\nrate", "colour compatibility,\n1953"),
+             ("$-$48 V", "telephone-line\nbattery", "powering carbon\nmicrophones")]
+    fig, ax = plt.subplots(figsize=(W1, 1.15))
+    for k, (num, what, why) in enumerate(items):
+        x, y = k * 1.05, 0.0
+        ax.add_patch(FancyBboxPatch((x, y), 0.95, 0.95, boxstyle="round,pad=0.0,rounding_size=0.06",
+                                    fc="#F4F1EA", ec=GRAY, lw=0.6))
+        ax.text(x + 0.475, y + 0.74, num, ha="center", va="center", fontsize=11, color=ACCENT, weight="bold")
+        ax.text(x + 0.475, y + 0.47, what, ha="center", va="center", fontsize=6.6, color=NAVY)
+        ax.text(x + 0.475, y + 0.17, why, ha="center", va="center", fontsize=5.8, color=GRAY, style="italic")
+    ax.set_xlim(-0.03, 6.3); ax.set_ylim(-0.03, 0.98); ax.set_aspect("equal"); _clean(ax)
+    fig.tight_layout(pad=0.1); save(fig, "ch01_fossils")
+
+
+def fig_chappe_map():
+    """Schematic map of the main Chappe lines radiating from Paris (1840s)."""
+    outline = [(-4.7, 48.5), (-1.5, 49.6), (1.6, 50.9), (2.5, 51.1), (4.2, 49.9), (6.0, 49.4), (8.2, 49.0),
+               (7.6, 47.6), (6.8, 47.4), (6.0, 46.2), (7.0, 45.9), (6.6, 45.1), (7.6, 43.8), (6.0, 43.1),
+               (4.6, 43.4), (3.1, 43.1), (3.1, 42.4), (1.5, 42.5), (-1.8, 43.4), (-1.2, 44.6), (-1.2, 46.2),
+               (-2.5, 47.3), (-4.7, 47.9)]
+    city = {"Paris": (2.35, 48.86), "Lille": (3.06, 50.63), "Strasbourg": (7.75, 48.57), "Lyon": (4.83, 45.76),
+            "Toulon": (5.93, 43.12), "Bordeaux": (-0.58, 44.84), "Brest": (-4.49, 48.39), "Tours": (0.69, 47.39),
+            "Dijon": (5.04, 47.32), "Avignon": (4.81, 43.95)}
+    lines = [["Paris", "Lille"], ["Paris", "Strasbourg"], ["Paris", "Dijon", "Lyon", "Avignon", "Toulon"],
+             ["Paris", "Tours", "Bordeaux"], ["Paris", "Brest"]]
+    fig, ax = plt.subplots(figsize=(3.0, 2.9))
+    ax.add_patch(Polygon(outline, closed=True, fc=GREEN, alpha=0.08, ec=GREEN, lw=0.6))
+    for ln in lines:
+        pts = np.array([city[c] for c in ln])
+        ax.plot(pts[:, 0], pts[:, 1], color=NAVY, lw=1.1)
+        for a, b in zip(pts[:-1], pts[1:]):
+            n = int(np.hypot(*(b - a)) * 111 / 12)          # one tower every ~12 km
+            t = np.linspace(0, 1, n + 1)[1:-1]
+            ax.plot(a[0] + t * (b - a)[0], a[1] + t * (b - a)[1], "o", ms=1.3, color=ACCENT)
+    for c, (x, y) in city.items():
+        ax.plot([x], [y], "s" if c == "Paris" else "o", ms=4 if c == "Paris" else 3, color=NAVY)
+        dx = {"Brest": 0.2, "Bordeaux": 0.2, "Strasbourg": -0.2, "Toulon": -0.3}.get(c, 0.2)
+        ax.text(x + dx, y + 0.2, c, fontsize=6.5, color=NAVY, ha="right" if dx < 0 else "left")
+    ax.text(-4.5, 42.7, "red dots: one tower\nevery ~12 km (schematic)", fontsize=5.8, color=ACCENT)
+    ax.set_aspect(1.4); ax.set_xlim(-5.2, 8.6); ax.set_ylim(42.2, 51.4); _clean(ax)
+    fig.tight_layout(pad=0.1); save(fig, "ch01_chappe_map")
+
+
+def fig_paris_timing():
+    """The standard word PARIS: 50 dot units including the word gap."""
+    seq = []
+    for li, ch in enumerate("PARIS"):
+        for si, sym in enumerate(MORSE_FULL[ch]):
+            seq += [1] * (1 if sym == "." else 3) + [0]
+        seq[-1:] = [0, 0, 0]
+    seq[-3:] = [0] * 7
+    fig, ax = plt.subplots(figsize=(W1, 1.35))
+    x = np.arange(len(seq) + 1)
+    ax.step(x, seq + [0], where="post", color=NAVY, lw=1.3)
+    for k in range(len(seq) + 1):
+        ax.axvline(k, color=GRAY, lw=0.25, alpha=0.5)
+    pos = 0
+    for ch in "PARIS":
+        d = morse_units(MORSE_FULL[ch], letter_gap=False)
+        ax.text(pos + d / 2, 1.25, f"{ch}   " + " ".join(MORSE_FULL[ch]), ha="center", fontsize=7.5, color=ACCENT)
+        pos += d + 3
+    ax.text(len(seq) - 3.5, 0.45, "word gap\n(7 units)", ha="center", fontsize=6.5, color=GRAY)
+    ax.set_xlim(0, len(seq)); ax.set_ylim(-0.15, 1.55); ax.set_yticks([])
+    ax.set_xlabel(f"time (dot units): {len(seq)} units in all"); ax.spines["left"].set_visible(False)
+    fig.tight_layout(); save(fig, "ch01_paris_timing")
+
+
+def fig_voiceband():
+    """Illustrative long-term speech spectrum and the bands carried by telephone, AM and FM."""
+    f = np.logspace(np.log10(50), np.log10(20000), 400)
+    s = -10 * np.log10(1 + (150 / f) ** 4) - 10 * np.log10(1 + (f / 500) ** 2.2) \
+        + 8 * np.exp(-0.5 * (np.log(f / 5000) / 0.5) ** 2) - 3
+    fig, ax = plt.subplots(figsize=(W1, 2.1))
+    ax.semilogx(f, s, color=NAVY, lw=1.4)
+    for lo, hi, c, lab, y in [(300, 3400, ACCENT, "telephone 300--3400 Hz", 2), (50, 5000, ORANGE, "AM broadcast audio, about 5 kHz", 8.5),
+                              (30, 15000, GREEN, "FM broadcast audio, 15 kHz", 15)]:
+        ax.plot([lo, hi], [y, y], color=c, lw=3, solid_capstyle="butt", alpha=0.8)
+        ax.text(lo * 1.05, y + 1.1, lab.replace("--", "-"), fontsize=6.8, color=c, va="bottom")
+    ax.axvspan(300, 3400, color=ACCENT, alpha=0.06, lw=0)
+    ax.text(6500, -26, "'s', 'f', 'th'\nenergy", fontsize=7, color=GRAY, ha="center")
+    ax.set_xlim(25, 20000); ax.set_ylim(-35, 21)
+    ax.set_xlabel("frequency (Hz)"); ax.set_ylabel("relative level (dB)")
+    fig.tight_layout(); save(fig, "ch01_voiceband")
+
+
+def fig_ssb():
+    """From voice to a single-sideband channel slot: multiply by a carrier, keep one sideband."""
+    fig, ax = plt.subplots(3, 1, figsize=(W1, 2.6), sharex=True)
+    def tri(a, f0, f1, c, up=True, alpha=0.5):
+        a.add_patch(Polygon([[f0, 0], [f1, 0], [f1 if up else f0, 1]], color=c, alpha=alpha, lw=0))
+    tri(ax[0], 0.3, 3.4, NAVY); tri(ax[0], -3.4, -0.3, NAVY, up=False)
+    ax[0].text(4.2, 0.5, "voice, 0.3--3.4 kHz (and its mirror image)".replace("--", "–"), fontsize=7, color=NAVY)
+    fc = 12
+    for a in ax[1:]:
+        a.axvline(fc, color=GRAY, ls=":", lw=0.8)
+    tri(ax[1], fc + 0.3, fc + 3.4, NAVY); tri(ax[1], fc - 3.4, fc - 0.3, ACCENT, up=False)
+    ax[1].text(fc + 4.2, 0.5, "multiply by a 12 kHz carrier: two sidebands", fontsize=7, color=NAVY)
+    tri(ax[2], fc - 3.4, fc - 0.3, ACCENT, up=False)
+    ax[2].add_patch(Rectangle((fc - 4, 0), 4, 1.12, fill=False, ec=GREEN, ls="--", lw=0.8))
+    ax[2].text(fc + 1.0, 0.5, "filter: keep the lower sideband only (inverted),\none 4 kHz slot per conversation", fontsize=7, color=ACCENT)
+    for a in ax:
+        a.set_ylim(0, 1.3); a.set_yticks([]); a.axvline(0, color=GRAY, lw=0.5)
+    ax[2].set_xlim(-4.5, 30); ax[2].set_xlabel("frequency (kHz)")
+    fig.tight_layout(h_pad=0.2); save(fig, "ch01_ssb")
+
+
+def fig_scan():
+    """Television scanning turns a 2-D picture into a 1-D signal, line by line."""
+    n_l, n_p = 12, 160
+    yy, xx = np.mgrid[0:n_l, 0:n_p]
+    img = 0.85 - 0.65 * (((xx - 80) / 45.0) ** 2 + ((yy - 5.5) / 4.0) ** 2 < 1) - 0.0 * xx
+    img[:, 120:135] = 0.15
+    fig, ax = plt.subplots(1, 2, figsize=(W1, 1.9), gridspec_kw={"width_ratios": [1, 2.2]})
+    ax[0].imshow(img, cmap="gray", vmin=0, vmax=1, aspect="auto", extent=(0, n_p, n_l, 0))
+    for k in range(n_l):
+        ax[0].annotate("", xy=(n_p - 4, k + 0.5), xytext=(4, k + 0.5), arrowprops=dict(arrowstyle="-|>", color=ACCENT, lw=0.4, mutation_scale=4))
+    ax[0].set_title("picture, scanned line by line", fontsize=8); _clean(ax[0])
+    sig = []
+    for k in range(3, 8):
+        sig += [-0.3] * 12 + list(img[k])
+    ax[1].plot(np.arange(len(sig)), sig, color=NAVY, lw=0.9)
+    for k in range(5):
+        ax[1].text(k * (n_p + 12) + 6, -0.42, "sync", fontsize=5.5, color=ACCENT, ha="center")
+    ax[1].set_ylim(-0.5, 1.0); ax[1].set_yticks([]); ax[1].set_xticks([])
+    ax[1].set_title("the video signal: brightness along lines 4--8, with line-sync pulses".replace("--", "–"), fontsize=8)
+    ax[1].spines["left"].set_visible(False)
+    fig.tight_layout(); save(fig, "ch01_scan")
+
+
+def fig_coding_gap():
+    """The march toward the Shannon limit (approximate, rate about 1/2, BER 1e-5)."""
+    rows = [("uncoded BPSK", "", 9.6), ("convolutional code, $K=7$, Viterbi decoding", "1970s", 4.4),
+            ("Reed--Solomon + convolutional (Voyager)", "1977", 2.5), ("turbo code", "1993", 0.7),
+            ("long LDPC code", "2001", 0.25)]
+    fig, ax = plt.subplots(figsize=(W1, 2.0))
+    for k, (lab, yr, v) in enumerate(rows):
+        y = len(rows) - 1 - k
+        ax.barh(y, v, color=CYCLE[k], alpha=0.75, height=0.6)
+        ax.text(v + 0.15, y, f"{lab.replace('--', '–')}{' (' + yr + ')' if yr else ''}: {v:g} dB", va="center", fontsize=7)
+    ax.axvline(0.19, color=ACCENT, ls="--", lw=0.9)
+    ax.text(0.3, len(rows) - 0.35, "Shannon limit for rate 1/2, binary input: about 0.2 dB", fontsize=7, color=ACCENT)
+    ax.set_yticks([]); ax.set_xlim(0, 16); ax.set_ylim(-0.6, len(rows) - 0.1)
+    ax.set_xlabel("$E_b/N_0$ needed for a bit error rate of $10^{-5}$ (dB, approximate)")
+    ax.spines["left"].set_visible(False)
+    fig.tight_layout(); save(fig, "ch01_coding_gap")
+
+
+def fig_cable_xsec():
+    """Cross-sections of the 1858 and 1866 Atlantic cable cores, to scale (radii estimated from the
+    published masses of copper and gutta-percha per nautical mile, as in the worked example)."""
+    cores = [("1858", np.sqrt(2.9 / np.pi), np.sqrt((2.9 + 0.0639 / 970 * 1e6) / np.pi)),
+             ("1866", np.sqrt(8.2 / np.pi), np.sqrt((8.2 + 0.0979 / 970 * 1e6) / np.pi))]
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.15))
+    for ax, (yr, a, b) in zip(axs, cores):
+        arm = b + 1.6
+        for k in range(18 if yr == "1858" else 10):
+            ang = 2 * np.pi * k / (18 if yr == "1858" else 10)
+            rr = 0.55 if yr == "1858" else 1.2
+            ax.add_patch(Circle(((b + 0.25 + rr) * np.cos(ang), (b + 0.25 + rr) * np.sin(ang)), rr, fc="#9AA3A8", ec=GRAY, lw=0.4))
+        ax.add_patch(Circle((0, 0), b + 0.25, fc="#C9B79C", ec="none", alpha=0.6))
+        ax.add_patch(Circle((0, 0), b, fc="#4A3B2C", ec="none", alpha=0.85))
+        ax.add_patch(Circle((0, 0), a, fc="#D4823A", ec="#8A4B12", lw=0.6))
+        ax.annotate(f"copper, radius {a:.1f} mm", xy=(0, 0), xytext=(-9.5, -9.2), fontsize=7, color=ORANGE,
+                    arrowprops=dict(arrowstyle="-", color=ORANGE, lw=0.6))
+        ax.annotate(f"gutta-percha to {b:.1f} mm", xy=(b * 0.7, b * 0.7), xytext=(1.5, 9.0), fontsize=7, color="#4A3B2C",
+                    arrowprops=dict(arrowstyle="-", color="#4A3B2C", lw=0.6))
+        ax.text(-9.5, 8.2, f"{yr} core", fontsize=9, color=NAVY, weight="bold")
+        ax.set_xlim(-10, 10); ax.set_ylim(-10, 10); ax.set_aspect("equal"); _clean(ax)
+    axs[1].text(-1, -10.6, "iron armour wires (schematic)", fontsize=6.5, color=GRAY, ha="center")
+    fig.tight_layout(); save(fig, "ch01_cable_xsec")
+
+
+def fig_intermod():
+    """Two tones through a slightly nonlinear amplifier, without and with 40 dB of feedback."""
+    fs, N = 64000, 1 << 15
+    t = np.arange(N) / fs
+    f1, f2 = 10000, 11000
+    x = 0.5 * np.cos(2 * np.pi * f1 * t) + 0.5 * np.cos(2 * np.pi * f2 * t)
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.15), sharey=True)
+    for ax, (lab, k3) in zip(axs, [("open loop: tube alone", 0.03), ("with feedback, $A\\beta = 100$", 0.03 / 101)]):
+        y = x - k3 * x ** 3
+        Y = np.fft.rfft(y * np.hanning(N)); P = 20 * np.log10(np.abs(Y) / np.abs(Y).max() + 1e-12)
+        f = np.fft.rfftfreq(N, 1 / fs) / 1000
+        ax.plot(f, P, color=NAVY, lw=0.8)
+        ax.set_xlim(7, 14); ax.set_ylim(-120, 5); ax.set_xlabel("frequency (kHz)"); ax.set_title(lab, fontsize=8.5)
+        for fi in (2 * f1 - f2, 2 * f2 - f1):
+            ax.annotate("", xy=(fi / 1000, -40 if k3 > 0.01 else -80), xytext=(fi / 1000, -15 if k3 > 0.01 else -55),
+                        arrowprops=dict(arrowstyle="-|>", color=ACCENT, lw=0.8))
+    axs[0].text(7.2, -12, "intermodulation\n(crosstalk into\nother channels)", fontsize=6.5, color=ACCENT)
+    axs[0].set_ylabel("relative level (dB)")
+    fig.tight_layout(); save(fig, "ch01_intermod")
+
+
+def fig_power_vs_isi():
+    """Lesson 2 in one picture: more power opens a noisy eye but not an ISI-limited one."""
+    r = rng(4)
+    sps, nsym = 32, 400
+    bits = r.integers(0, 2, nsym) * 2 - 1
+    p = np.ones(sps)
+    def eye(ax, y, title, a):
+        for k in range(4, nsym - 4):
+            seg = y[k * sps - sps // 2:k * sps + 3 * sps // 2]
+            ax.plot(np.arange(seg.size) / sps, seg, color=NAVY, lw=0.3, alpha=0.25)
+        ax.set_title(title, fontsize=7.5); ax.set_yticks([]); ax.set_xticks([]); ax.set_ylim(-1.9 * a, 1.9 * a)
+    x = np.convolve(np.repeat(bits, sps).astype(float), np.ones(8) / 8, "same")
+    h = np.exp(-np.arange(0, 6 * sps) / (1.6 * sps)); h /= h.sum()
+    xi = np.convolve(np.repeat(bits, sps).astype(float), h)[:nsym * sps]; xi = xi - xi.mean(); xi /= np.abs(xi).max()
+    fig, axs = plt.subplots(1, 4, figsize=(W1, 1.75))
+    n = 0.33 * r.standard_normal(nsym * sps)
+    eye(axs[0], 1.0 * x + n, "noise-limited, low power", 1.0)
+    eye(axs[1], 3.0 * x + n, "noise-limited, 3x voltage", 3.0)
+    eye(axs[2], 1.0 * xi + 0.1 * n, "ISI-limited, low power", 1.0)
+    eye(axs[3], 3.0 * xi + 0.1 * n, "ISI-limited, 3x voltage", 3.0)
+    for ax in axs:
+        for s in ax.spines.values():
+            s.set_visible(False)
+    fig.tight_layout(w_pad=0.4); save(fig, "ch01_power_vs_isi")
+
+
+def fig_rc_ladder():
+    """Kelvin's picture of the cable: series resistance along the copper, capacitance to the sea."""
+    fig, ax = plt.subplots(figsize=(3.0, 1.9))
+    n = 4
+    def resistor(x0, x1, y):
+        xs = np.linspace(x0, x1, 13); ys = y + 0.12 * np.array([0, 0, 1, -1, 1, -1, 1, -1, 1, -1, 1, 0, 0])
+        ax.plot(xs, ys, color=ORANGE, lw=1.1)
+    for k in range(n):
+        x = k * 1.0
+        ax.plot([x, x + 0.15], [1, 1], color=NAVY, lw=1)
+        resistor(x + 0.15, x + 0.75, 1.0)
+        ax.plot([x + 0.75, x + 1.0], [1, 1], color=NAVY, lw=1)
+        ax.plot([x + 1.0, x + 1.0], [1, 0.62], color=NAVY, lw=1)
+        ax.plot([x + 0.88, x + 1.12], [0.62, 0.62], color=PURPLE, lw=1.6)
+        ax.plot([x + 0.88, x + 1.12], [0.52, 0.52], color=PURPLE, lw=1.6)
+        ax.plot([x + 1.0, x + 1.0], [0.52, 0.2], color=NAVY, lw=1)
+    ax.plot([0, n + 0.3], [0.2, 0.2], color="#2E86C1", lw=2)
+    ax.text(0.45, 1.25, "$R\\,\\Delta x$", fontsize=8, color=ORANGE, ha="center")
+    ax.text(1.2, 0.57, "$C\\,\\Delta x$", fontsize=8, color=PURPLE, va="center")
+    ax.text((n + 0.3) / 2, 0.02, "sea water (the return path)", fontsize=7, color="#2E86C1", ha="center")
+    ax.text(-0.05, 1.0, "in", fontsize=7, ha="right", va="center", color=NAVY)
+    ax.text(n + 0.35, 1.0, "...  far end", fontsize=7, va="center", color=NAVY)
+    ax.set_xlim(-0.35, n + 1.3); ax.set_ylim(-0.1, 1.45); _clean(ax)
+    fig.tight_layout(pad=0.1); save(fig, "ch01_rc_ladder")
+
+
+def fig_dtmf():
+    """Touch-Tone: each key is a chord of one low and one high tone."""
+    lows, highs = [697, 770, 852, 941], [1209, 1336, 1477]
+    keys = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["*", "0", "#"]]
+    fig, ax = plt.subplots(figsize=(3.0, 2.6))
+    for i, lo in enumerate(lows):
+        ax.text(-0.25, -i, f"{lo} Hz", ha="right", va="center", fontsize=7.5, color=NAVY)
+        for j, hi in enumerate(highs):
+            ax.add_patch(FancyBboxPatch((j - 0.35, -i - 0.33), 0.7, 0.66, boxstyle="round,pad=0,rounding_size=0.12",
+                                        fc="#F4F1EA", ec=GRAY, lw=0.7))
+            ax.text(j, -i, keys[i][j], ha="center", va="center", fontsize=11, color=ACCENT if keys[i][j] == "5" else NAVY)
+    for j, hi in enumerate(highs):
+        ax.text(j, 0.62, f"{hi}\nHz", ha="center", va="bottom", fontsize=7.5, color=GREEN)
+    ax.text(1.0, -4.0, "key 5 = 770 Hz + 1336 Hz", ha="center", fontsize=7.5, color=ACCENT)
+    ax.text(-0.95, 1.25, "low group", fontsize=6.5, color=NAVY, ha="center")
+    ax.text(1.0, 1.55, "high group", fontsize=6.5, color=GREEN, ha="center")
+    ax.set_xlim(-1.6, 2.6); ax.set_ylim(-4.3, 1.75); ax.set_aspect("equal"); _clean(ax)
+    fig.tight_layout(pad=0.1); save(fig, "ch01_dtmf")
+
+
+def fig_old_ideas():
+    """Lesson 6: ideas that waited decades for cheap enough electronics (dates as given in the text)."""
+    rows = [("harmonic telegraph -> carrier FDM", 1876, 1918), ("PCM -> T1 carrier", 1937, 1962),
+            ("frequency hopping -> Bluetooth", 1942, 1999), ("cellular concept -> first network (Tokyo)", 1947, 1979),
+            ("LDPC codes -> DVB-S2 standard (ETSI)", 1960, 2005), ("multicarrier (Chang) -> 802.11a Wi-Fi OFDM", 1966, 1999)]
+    fig, ax = plt.subplots(figsize=(W1, 2.1))
+    for k, (lab, a, b) in enumerate(rows):
+        y = len(rows) - 1 - k
+        ax.plot([a, b], [y, y], color=GRAY, lw=2.2, alpha=0.5, solid_capstyle="round")
+        ax.plot([a], [y], "o", color=ORANGE, ms=5); ax.plot([b], [y], "s", color=NAVY, ms=5)
+        ax.text(b + 2, y, f"{lab.replace('->', '$\\rightarrow$')}   ({b - a} years)", va="center", fontsize=7)
+    ax.plot([], [], "o", color=ORANGE, label="idea"); ax.plot([], [], "s", color=NAVY, label="in service / standard")
+    ax.set_xlim(1870, 2075); ax.set_yticks([]); ax.set_ylim(-0.7, len(rows) - 0.3)
+    ax.set_xticks(range(1880, 2021, 20)); ax.set_xlabel("year"); ax.legend(fontsize=7, loc="lower left")
+    ax.spines["left"].set_visible(False)
+    fig.tight_layout(); save(fig, "ch01_old_ideas")
+
+
+def fig_regen_waveform():
+    """The photocopier and the copyist in the time domain: three analog hops vs three regenerated hops."""
+    r = rng(21)
+    bits = r.integers(0, 2, 16)
+    sps = 40
+    x = np.repeat(2.0 * bits - 1, sps)
+    h = np.ones(3) / 3
+    sig = 0.33
+    fig, axs = plt.subplots(2, 4, figsize=(W1, 2.3), sharey=True)
+    a = x.copy(); d = x.copy()
+    titles = ["sent", "after hop 1", "after hop 2", "after hop 3"]
+    for k in range(4):
+        if k:
+            a = np.convolve(a, h, "same") + sig * r.standard_normal(a.size)   # amplify everything, noise adds up
+            y = np.convolve(d, h, "same") + sig * r.standard_normal(d.size)
+            dec = np.sign(y[sps // 2::sps]); d = np.repeat(dec, sps)          # decide and re-send
+        axs[0, k].plot(a, color=ORANGE, lw=0.7); axs[1, k].plot(d, color=NAVY, lw=0.9)
+        axs[0, k].set_title(titles[k], fontsize=8)
+    axs[0, 0].set_ylabel("analog\nrepeaters", fontsize=7.5); axs[1, 0].set_ylabel("regenerators", fontsize=7.5)
+    for ax in axs.flat:
+        ax.set_xticks([]); ax.set_yticks([]); ax.set_ylim(-2.6, 2.6)
+    fig.tight_layout(h_pad=0.3, w_pad=0.3); save(fig, "ch01_regen_waveform")
+
+
+NEW = ["fig_regen_waveform", "fig_old_ideas", "fig_rc_ladder", "fig_dtmf", "fig_cable_xsec", "fig_intermod", "fig_power_vs_isi", "fig_fossils", "fig_chappe_map", "fig_paris_timing", "fig_voiceband", "fig_ssb", "fig_scan", "fig_coding_gap",
+       "fig_adversaries", "fig_beacons", "fig_pipeline", "fig_morse_tree", "fig_relay_regen", "fig_quadruplex",
+       "fig_startstop", "fig_distortionless", "fig_level_diagram", "fig_feedback_gain", "fig_erlang", "fig_skywave",
+       "fig_ntsc_interleave", "fig_currencies", "fig_pcm_steps", "fig_tasi", "fig_geo", "fig_fibre_loss",
+       "fig_circuit_packet", "fig_hartley_levels"]
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        for name in sys.argv[1:]:
+            globals()[name]()
+        sys.exit()
     fig_morse(); fig_cable(); fig_rates()
     fig_morse_huffman(); fig_chappe(); fig_cable_speed(); fig_loading(); fig_fdm()
     fig_regeneration(); fig_spark(); fig_topologies(); fig_modems(); fig_timeline()
+    for name in NEW:
+        globals()[name]()

@@ -111,3 +111,6 @@ describe it in your final report so the lab author can add it.
 12. Wikimedia rate-limits parallel agents: fetch all photos in one early batch with long backoff, then view each.
 13. A small page-map script (captions, headings, boxes and bottom gap per page) makes the coverage sweep fast.
 14. Cheap, valuable visuals: simulation-driven analogy pictures; photos of front panels whose labelled knobs illustrate the text.
+15. `\mdcpairany[placement]{a}{capA}{b}{capB}` puts two items side by side; each may be a photo
+    (figs/photos/a.jpg, credit appended automatically) or a figure (figs/a.pdf). Use it instead of local pair macros.
+16. Before fetching, check figs/photos/ for an existing photo of the same subject from another chapter; pick a different image rather than duplicating.
