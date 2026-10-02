@@ -2,47 +2,100 @@
 \label{ch:modulation}
 
 \begin{chapterintro}
-Chapter~\ref{ch:baseband} sent bits as pulses on a wire. This chapter puts them on a carrier and
-asks the two questions that define the whole discipline: \emph{which} set of waveforms should
-represent the messages, and \emph{how} should a receiver decide which one was sent? The answers
-come from one of the most beautiful ideas in engineering---that waveforms are vectors, noise is
-a cloud around them, and optimal detection is a question of geometry. With that picture we
-derive the maximum-likelihood receiver, compute the error rate of every classical constellation
-(PAM, PSK, QAM, APSK, FSK), map the trade-off between power and bandwidth against Shannon's
-limit, and meet the practical variants that real radios use: differential and noncoherent
-detection, offset and $\pi/4$ schemes, MSK and GMSK, soft bit metrics for decoders, and the
-measurements---EVM and MER---by which every transmitter on the market is judged. We finish at the
-frontier: the constellations with deliberately unequal probabilities that now carry most of the
-world's long-haul optical traffic.
+If you are old enough, you remember the sound: a dial tone, a burst of touch-tones, and then
+a shriek of whistles, hisses and warbles as two modems sized each other up over a telephone
+line. That noise was two machines negotiating which \emph{constellation} to use---how many
+distinct signals they could squeeze through a 3\,kHz voice channel without the noise confusing
+one for another. This chapter is about exactly that negotiation, and about the receiver that has
+to make the final call.
+
+Chapter~\ref{ch:baseband} sent bits as pulses on a wire. Here we put them on a carrier and ask the
+two questions that define the whole discipline: \emph{which} set of waveforms should represent the
+messages, and \emph{how} should a receiver decide which one was sent? The answers come from one of
+the most beautiful ideas in engineering---that waveforms are vectors, noise is a cloud around
+them, and optimal detection is a question of geometry. With that picture we derive the
+maximum-likelihood receiver, compute the error rate of every classical constellation (PAM, PSK,
+QAM, APSK, FSK), map the trade-off between power and bandwidth against Shannon's limit, and meet
+the practical variants that real radios use: differential and noncoherent detection, offset and
+$\pi/4$ schemes, MSK and GMSK, soft bit metrics for decoders, and the measurements---EVM and
+MER---by which every transmitter on the market is judged. We finish at the frontier: the
+constellations with deliberately unequal probabilities that now carry most of the world's
+long-haul optical traffic.
 \end{chapterintro}
+
+\mdcfig[0.96]{ch09_by_numbers}{Digital modulation by the numbers. Every figure here is derived or
+explained somewhere in this chapter---by the end you should be able to reproduce each of them on
+the back of an envelope.}
 
 \section{From bits to bandpass waveforms}
 \label{sec:ch09:bandpass}
 
 \subsection{What there is to modulate}
 
-A sinusoid has three properties an engineer can vary: amplitude, phase and frequency.
-Chapter~\ref{ch:analog} varied them continuously with a voice; a digital modulator varies them
-in discrete steps, one step per \term{symbol}. Every $T$ seconds the modulator reads
-$k=\log_2 M$ bits, chooses one of $M$ waveforms $s_1(t),\dots,s_M(t)$, and sends it. The
-\term{symbol rate} is $R_s=1/T$ (in baud, after \'Emile Baudot) and the bit rate is
-$R_b=kR_s$. The three classical families are named for what they vary:
+Picture an engineer at Bell Labs around 1960, holding an ordinary telephone handset. The
+network on the other end was built for one thing: carrying a human voice between about 300 and
+3400\,Hz. It knows nothing about bits. To send data through it, you have to \emph{dress the bits
+up as sound}---tones the network will happily carry---and teach a machine at the far end to undress
+them again. The acoustic coupler of Figure~\ref{fig:ch09_coupler} did this quite literally: a
+speaker whistled into the telephone's mouthpiece and a microphone listened at its earpiece.
+
+\mdcphoto[0.58]{ch09_coupler}{An acoustic-coupler modem from 1984 (a Protek 1200, built for the UK
+network). The handset sits in two rubber cups: a small loudspeaker whistles the modulated tones
+into the mouthpiece and a microphone picks up the far end's tones from the earpiece. Everything
+in this chapter was once done through two rubber cups.}
+
+A sinusoid has exactly three properties an engineer can vary: amplitude, phase and frequency.
+Chapter~\ref{ch:analog} varied them continuously with a voice; a digital modulator varies them in
+discrete steps, one step per \term{symbol}. Every $T$ seconds the modulator reads $k=\log_2 M$
+bits, chooses one of $M$ waveforms $s_1(t),\dots,s_M(t)$, and sends it. The \term{symbol rate} is
+$R_s=1/T$ (in baud, after \'Emile Baudot) and the bit rate is $R_b=kR_s$.
+Figure~\ref{fig:ch09_three_knobs} shows the three knobs being turned by the same eight bits. The
+three classical families are named for what they vary:
 \begin{itemize}
 \item \term{amplitude-shift keying} (ASK) or, for a real signed alphabet, pulse-amplitude
 modulation (PAM);
 \item \term{phase-shift keying} (PSK), which varies only the phase;
 \item \term{frequency-shift keying} (FSK), which varies the frequency;
 \end{itemize}
-and \term{quadrature amplitude modulation} (QAM) varies amplitude and phase together. In the
-language of Chapter~\ref{ch:signals} every one of them is simply a rule for building the complex
-envelope $\tilde s(t)$ in
+and \term{quadrature amplitude modulation} (QAM) turns two knobs at once, amplitude and phase.
+
+\mdcfig[0.9]{ch09_three_knobs}{The three knobs of a carrier, turned by the same bits. ASK changes
+the height of the wave, PSK flips it upside down, FSK squeezes or stretches it, and QAM (bottom,
+two bits per symbol) changes height and phase together. Watch the bit boundaries: each scheme
+leaves a different kind of ``scar'' there, which is what the receiver looks for---and, as we will
+see in Section~\ref{sec:ch09:constenv}, what the spectrum pays for.}
+
+In the language of Chapter~\ref{ch:signals} every one of these schemes is simply a rule for
+building the complex envelope $\tilde s(t)$ in
 \begin{equation}
 s(t)=\re\{\tilde s(t)\,e^{j2\pi f_c t}\}=s_I(t)\cos 2\pi f_c t-s_Q(t)\sin 2\pi f_c t
 \label{eq:ch09:bandpass}
 \end{equation}
-(equation~\eqref{eq:ch02:envelope}). The receiver's job is to recover $\tilde s(t)$ from a noisy,
-distorted, frequency-shifted copy of $s(t)$, and then to decide which of the $M$ allowed
-envelopes it most resembles.
+(equation~\eqref{eq:ch02:envelope}). Read it in words: whatever we transmit is a cosine and a
+sine at the carrier frequency, each with its own slowly varying volume knob, $s_I(t)$ and
+$s_Q(t)$. The receiver's job is to recover those two knob settings from a noisy, distorted,
+frequency-shifted copy of $s(t)$, and then to decide which of the $M$ allowed settings they most
+resemble.
+
+\begin{analogy}[A clock hand and its two shadows]
+Think of the complex envelope as the hand of a clock, spinning at the carrier frequency. Shine one
+lamp from above and another from the side: the hand casts a shadow on the floor (that is $I$, the
+cosine part) and one on the wall (that is $Q$, the sine part). Fix the two shadows and you have
+fixed the hand---its length is the amplitude, its angle the phase
+(Figure~\ref{fig:ch09_phasor_shadows}). A digital modulator simply jumps the hand to a new
+position every symbol; the set of allowed positions is the constellation. The analogy's limit:
+real hands don't jump---the pulse shaping of Chapter~\ref{ch:baseband} makes the hand glide from
+one position to the next, and Section~\ref{sec:ch09:constenv} shows that how it glides matters a
+great deal.
+\end{analogy}
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.42\linewidth]{figs/ch09_phasor_shadows}
+\caption{The complex symbol $a=I+jQ$ as a clock hand. Its shadow on the horizontal axis is the
+in-phase amplitude, its shadow on the vertical axis the quadrature amplitude. Two shadows, two
+independent numbers, one point.}
+\label{fig:ch09_phasor_shadows}
+\end{figure}
 
 \subsection{Linear modulation and the IQ modulator}
 
@@ -54,14 +107,14 @@ envelope is a train of pulses weighted by those numbers:
 \tilde s(t)=\sum_n a_n\,p(t-nT).
 \label{eq:ch09:linmod}
 \end{equation}
-The pulse $p(t)$ is the root-raised-cosine or other Nyquist-compatible shape of
-Chapter~\ref{ch:baseband}; the alphabet decides \emph{what} is sent, the pulse decides \emph{how
-much spectrum} it takes. Because~\eqref{eq:ch09:linmod} is linear in the symbols, the spectrum of
-$\tilde s(t)$ is just $|P(f)|^2$ scaled by the symbol variance (for zero-mean, uncorrelated
-symbols), whatever the constellation. A 16-QAM and a QPSK signal with the same pulse and symbol
-rate occupy exactly the same bandwidth; the 16-QAM signal simply carries twice as many bits in
-it. That is the whole attraction of large constellations, and their price, as we shall see, is
-power.
+In words: stamp a pulse every $T$ seconds, and scale each stamp by a complex number. The pulse
+$p(t)$ is the root-raised-cosine or other Nyquist-compatible shape of Chapter~\ref{ch:baseband};
+the alphabet decides \emph{what} is sent, the pulse decides \emph{how much spectrum} it takes.
+Because~\eqref{eq:ch09:linmod} is linear in the symbols, the spectrum of $\tilde s(t)$ is just
+$|P(f)|^2$ scaled by the symbol variance (for zero-mean, uncorrelated symbols), whatever the
+constellation. A 16-QAM and a QPSK signal with the same pulse and symbol rate occupy exactly the
+same bandwidth; the 16-QAM signal simply carries twice as many bits in it. That is the whole
+attraction of large constellations---and their price, as we shall see, is power.
 
 Figure~\ref{fig:ch09_iq} shows the hardware. The I and Q symbol streams are shaped by identical
 filters, multiply a cosine and a negative sine from a single local oscillator, and are summed.
@@ -70,7 +123,8 @@ matched filters $p^*(-t)$ maximise the signal-to-noise ratio (Chapter~\ref{ch:ba
 sampler takes one value per symbol at the right instant (Chapter~\ref{ch:sync}), and a
 \term{detector} decides which constellation point each sample represents. In a software-defined
 radio such as the B200 (Chapter~\ref{ch:sdr}) everything to the left of the DAC and right of the
-ADC is arithmetic, but the structure is the same.
+ADC is arithmetic, but the structure is the same---and it is the same structure, give or take a
+few decades of integration, that sat inside the modems of the 1980s.
 
 \begin{figure}[htbp]
 \centering
@@ -129,37 +183,70 @@ carrier phase and sampling instant this diagram takes for granted.}
 \label{fig:ch09_iq}
 \end{figure}
 
+\begin{tryit}[Meet the constellation zoo]
+Run \lab{python labs/lab02\_modulation.py} and open the \emph{Constellation gallery}. Step the
+\emph{Constellation} menu from BPSK through 16-QAM, 32-cross and 32-APSK and watch the readouts
+of minimum distance and peak-to-average ratio. Switch \emph{Bit labelling} from Gray to Natural
+binary with \emph{Link nearest neighbours} on: the red links are the pairs that will cost you two
+bit errors instead of one.
+\end{tryit}
+
 \subsection{Nonlinear modulation}
 
 Not every useful scheme fits~\eqref{eq:ch09:linmod}. In FSK and its refined descendants---the
 continuous-phase modulations MSK and GMSK of Section~\ref{sec:ch09:constenv}---the bits steer the
-\emph{frequency}, and the envelope is $e^{j\phi(t)}$ with a phase that remembers every past
-bit. These signals have constant amplitude, which a power amplifier loves, but they do not have
-the tidy spectral properties of linear modulation, and their optimal receivers need memory. We
-develop the geometric theory first for arbitrary signal sets, so that it covers linear and
-nonlinear schemes alike, and return to the nonlinear family once the tools are in hand.
+\emph{frequency}, and the envelope is $e^{j\phi(t)}$ with a phase that remembers every past bit.
+These signals have constant amplitude, which a power amplifier loves, but they do not have the
+tidy spectral properties of linear modulation, and their optimal receivers need memory. The clock
+hand of our analogy never changes length; it only changes speed. We develop the geometric theory
+first for arbitrary signal sets, so that it covers linear and nonlinear schemes alike, and return
+to the nonlinear family once the tools are in hand.
 
 \section{Signal space}
 \label{sec:ch09:signalspace}
 
 \subsection{Waveforms are vectors}
 
-The central trick of detection theory is to stop thinking about waveforms. Signals of finite
-energy on an interval $[0,T)$ form a vector space with inner product and norm
+Here is the trick that turns detection from a calculus problem into a geometry problem, and it
+is worth savouring: \emph{stop thinking about waveforms.} A QPSK symbol is a burst of a few
+thousand carrier cycles; a modem on a phone line sends a smooth, wiggly voltage. Comparing two
+such wiggles directly is hopeless. But if every waveform the transmitter can send is a weighted
+sum of a few fixed ``ingredient'' waveforms, then all the receiver needs is the weights---a short
+list of numbers, a point in space. Noise jostles that point a little; the receiver asks which
+allowed point it is nearest to. Detection becomes darts.
+
+\begin{analogy}[A dartboard and a shaky hand]
+Draw the constellation as a set of bullseyes on a wall. The transmitter aims a dart at one of
+them; the channel's noise is a shaky hand, so the dart lands somewhere near the bullseye it was
+aimed at, scattered in a round cloud. The receiver sees only where the dart landed and must guess
+which bullseye was the target: obviously, the nearest one. A steady hand (high SNR) almost never
+lands in a neighbour's territory; a shaky one (low SNR) often does
+(Figure~\ref{fig:ch09_dartboard}). Bigger constellations pack more bullseyes onto the same wall,
+so the hand must be steadier. The limit of the analogy: real noise is Gaussian, so a very
+occasional dart flies absurdly far---which is why error rates never quite reach zero.
+\end{analogy}
+
+\mdcfig[0.92]{ch09_dartboard}{The dartboard picture of 16-QAM, simulated with 2400 symbols at two
+signal-to-noise ratios. Dashed lines are the borders the receiver uses. With a steady hand every
+dart lands in the right square; at 13\,dB about one dart in sixteen crosses a border (red crosses),
+and almost always into an \emph{adjacent} square---a fact Gray labelling will exploit.}
+
+Let us make the picture precise. Signals of finite energy on an interval $[0,T)$ form a vector
+space with inner product and norm
 \begin{equation}
 \langle x,y\rangle=\int_0^T x(t)\,y^*(t)\,dt,\qquad \|x\|^2=\langle x,x\rangle=E_x .
 \label{eq:ch09:inner}
 \end{equation}
-Suppose the $M$ signals of a modulation all lie in an $N$-dimensional subspace ($N\le M$)
-spanned by \term{orthonormal basis functions} $\phi_1(t),\dots,\phi_N(t)$, meaning
-$\langle\phi_m,\phi_n\rangle=\delta_{mn}$. Then each signal is a weighted sum of basis
-functions,
+The inner product measures how much two waveforms ``agree''---multiply them and add up. Suppose
+the $M$ signals of a modulation all lie in an $N$-dimensional subspace ($N\le M$) spanned by
+\term{orthonormal basis functions} $\phi_1(t),\dots,\phi_N(t)$, meaning
+$\langle\phi_m,\phi_n\rangle=\delta_{mn}$. Then each signal is a weighted sum of basis functions,
 \begin{equation}
 s_i(t)=\sum_{n=1}^{N}s_{in}\,\phi_n(t),\qquad s_{in}=\langle s_i,\phi_n\rangle,
 \label{eq:ch09:expansion}
 \end{equation}
-and is completely described by its coefficient vector $\vect s_i=(s_{i1},\dots,s_{iN})$. The
-map from waveforms to vectors is an \emph{isometry}: energies and distances are preserved,
+and is completely described by its coefficient vector $\vect s_i=(s_{i1},\dots,s_{iN})$. The map
+from waveforms to vectors is an \emph{isometry}: energies and distances are preserved,
 \begin{equation}
 E_i=\int|s_i(t)|^2dt=\|\vect s_i\|^2,\qquad
 \int|s_i(t)-s_j(t)|^2dt=\|\vect s_i-\vect s_j\|^2 .
@@ -167,7 +254,7 @@ E_i=\int|s_i(t)|^2dt=\|\vect s_i\|^2,\qquad
 \end{equation}
 This is Parseval's theorem in disguise, and it means that every question about the energy or
 distinguishability of a set of waveforms becomes a question of plane (or $N$-dimensional)
-geometry.
+geometry. Energy is length squared; ``how different are these two signals'' is distance.
 
 Figure~\ref{fig:ch09_signal_space} makes the idea concrete for QPSK. The four waveforms are
 cosine bursts with phases $45^\circ$, $135^\circ$, $225^\circ$ and $315^\circ$; all four are
@@ -185,32 +272,38 @@ For a linear modulation with a pulse $p(t)$ of unit energy, the basis functions 
 \begin{equation}
 \phi_1(t)=\sqrt2\,p(t)\cos 2\pi f_ct,\qquad \phi_2(t)=-\sqrt2\,p(t)\sin 2\pi f_ct
 \end{equation}
-(orthogonal when $f_c$ is much
-larger than the pulse bandwidth), and the signal-space point of a symbol is simply the complex
-number $a_n$ read as a two-vector. This is why engineers draw constellations in the complex
+(orthogonal when $f_c$ is much larger than the pulse bandwidth), and the signal-space point of a
+symbol is simply the complex number $a_n$ read as a two-vector---the clock hand of
+Figure~\ref{fig:ch09_phasor_shadows}. This is why engineers draw constellations in the complex
 plane and why this book uses the words ``constellation point'', ``symbol'' and ``signal vector''
 interchangeably. FSK is different: $M$ tones with suitable spacing are mutually orthogonal, so
 $M$-FSK needs $N=M$ dimensions, a fact whose consequences fill Section~\ref{sec:ch09:orthogonal}.
 
 \subsection{Finding a basis: Gram--Schmidt}
 
-Given any finite set of signals, the \term{Gram--Schmidt procedure} builds an orthonormal basis
-for them. Take the first signal and normalise it: $\phi_1=s_1/\|s_1\|$. For each subsequent
-signal, subtract its projections on the basis functions found so far and normalise what is
-left, if anything:
+What if somebody hands you a bag of arbitrary waveforms and asks for the ingredients? The
+\term{Gram--Schmidt procedure} builds an orthonormal basis for any finite set of signals, and the
+idea is the one you would invent yourself. Take the first signal and normalise it:
+$\phi_1=s_1/\|s_1\|$. For each subsequent signal, subtract the parts of it you can already make
+from the basis found so far, and normalise what is left, if anything:
 \begin{equation}
 g_i(t)=s_i(t)-\sum_{n<i}\langle s_i,\phi_n\rangle\phi_n(t),\qquad
 \phi_i(t)=\frac{g_i(t)}{\|g_i\|}\quad\text{if }\|g_i\|>0 .
 \label{eq:ch09:gs}
 \end{equation}
-If the residual $g_i$ is zero, $s_i$ already lies in the span and adds no dimension. The
-procedure always terminates with $N\le M$ basis functions. The basis is not unique---a different
-ordering or any rotation gives another---but the \emph{geometry} (all lengths and angles) is the
-same in every basis, and so is every error probability.
+If the residual $g_i$ is zero, $s_i$ already lies in the span and adds no dimension. The procedure
+always terminates with $N\le M$ basis functions. The basis is not unique---a different ordering or
+any rotation gives another---but the \emph{geometry} (all lengths and angles) is the same in every
+basis, and so is every error probability.
+
+\mdcfig[0.92]{ch09_gram_schmidt}{Gram--Schmidt on the three rectangular signals of the worked
+example. Top: the signals. Bottom left: the two unit-energy basis functions the procedure
+produces; the third signal contributes nothing new. Right: the three signals as points in a plane,
+with the distance between $\mathbf s_1$ and $\mathbf s_3$ marked.}
 
 \begin{worked}[Gram--Schmidt on three rectangular signals]
 Let $T=2$ and define $s_1(t)=1$ on $[0,2)$; $s_2(t)=2$ on $[0,1)$ and $0$ on $[1,2)$;
-$s_3(t)=+1$ on $[0,1)$ and $-1$ on $[1,2)$.
+$s_3(t)=+1$ on $[0,1)$ and $-1$ on $[1,2)$ (Figure~\ref{fig:ch09_gram_schmidt}).
 
 \emph{Step 1.} $\|s_1\|^2=2$, so $\phi_1=s_1/\sqrt2$ and $\vect s_1=(\sqrt2,0)$.
 
@@ -234,41 +327,69 @@ Now send $s_i(t)$ through the additive white Gaussian noise channel of Chapter~\
 r(t)=s_i(t)+w(t),
 \end{equation}
 where $w(t)$ is white with two-sided power spectral density $N_0/2$ (for real passband signals;
-for complex envelopes the noise is circularly symmetric with variance $N_0$ per complex sample
-at the output of a unit-energy matched filter). Project the received waveform onto each basis
-function:
+for complex envelopes the noise is circularly symmetric with variance $N_0$ per complex sample at
+the output of a unit-energy matched filter). Project the received waveform onto each basis
+function---that is, ask ``how much of each ingredient is in what I received?'':
 \begin{equation}
 r_n=\langle r,\phi_n\rangle=s_{in}+w_n,\qquad n=1,\dots,N .
 \label{eq:ch09:project}
 \end{equation}
-Because the $\phi_n$ are orthonormal and the noise is white, the noise coordinates $w_n$ are
-independent Gaussian random variables, each of variance $N_0/2$:
-\begin{equation}
-\E[w_mw_n]=\int\!\!\int\phi_m(t)\,\frac{N_0}{2}\delta(t-u)\,\phi_n(u)\,dt\,du=\frac{N_0}{2}\delta_{mn}.
-\end{equation}
-The whole waveform channel has become a \term{vector channel},
+Because the $\phi_n$ are orthonormal and the noise is white, the noise coordinates $w_n$ turn out
+to be independent Gaussian random variables, each of variance $N_0/2$ (the box below shows the
+one-line reason). The whole waveform channel has become a \term{vector channel},
 \begin{equation}
 \vect r=\vect s_i+\vect w,\qquad \vect w\sim\mathcal N\!\left(\vect 0,\tfrac{N_0}{2}\vect I_N\right),
 \label{eq:ch09:vecchan}
 \end{equation}
 and the received vector is a sample from a spherical Gaussian cloud centred on the transmitted
-point. The spherical shape is the key: white noise has no preferred direction, so it disturbs
-every coordinate equally, and a rotation of the constellation changes nothing.
+point---exactly the dart cloud of Figure~\ref{fig:ch09_dartboard}. The spherical shape is the
+key: white noise has no preferred direction, so it disturbs every coordinate equally, and a
+rotation of the constellation changes nothing
+(Figure~\ref{fig:ch09_noise_cloud}).
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.44\linewidth]{figs/ch09_noise_cloud}
+\caption{Four thousand simulated noise vectors $(w_1,w_2)$ after projection onto an orthonormal basis. Each coordinate is Gaussian with the same variance (the histograms), the two are uncorrelated, and together they form a perfectly round cloud: white noise has no favourite direction.}
+\label{fig:ch09_noise_cloud}
+\end{figure}
+
+\begin{deeper}[Why white noise gives independent coordinates]
+The covariance of two noise coordinates is
+\begin{equation*}
+\E[w_mw_n]=\int\!\!\int\phi_m(t)\,\frac{N_0}{2}\delta(t-u)\,\phi_n(u)\,dt\,du
+=\frac{N_0}{2}\int\phi_m(t)\phi_n(t)\,dt=\frac{N_0}{2}\delta_{mn}.
+\end{equation*}
+The delta function collapses the double integral to a single inner product of two basis
+functions, which is zero unless $m=n$. Uncorrelated jointly Gaussian variables are independent,
+so the $w_n$ are i.i.d.\ $\mathcal N(0,N_0/2)$. Notice what was used: the noise is white (flat
+spectrum, hence the delta) and the basis is orthonormal. Coloured noise would leave the
+coordinates correlated, which is why a whitening filter must come first in that case.
+\end{deeper}
 
 \subsection{Sufficient statistics and the theorem of irrelevance}
 
 Something seems to have been thrown away. The received waveform $r(t)$ is infinite-dimensional;
-its projection $\vect r$ has only $N$ components. The part left over,
+its projection $\vect r$ has only $N$ components. Are we discarding information? The part left
+over,
 \begin{equation}
 r'(t)=r(t)-\sum_{n=1}^N r_n\phi_n(t)=w(t)-\sum_n w_n\phi_n(t),
 \end{equation}
-contains no signal at all---only the component of the noise orthogonal to the signal space. And
-because Gaussian random variables that are uncorrelated are independent, $r'(t)$ is independent
-of the $w_n$ and hence of everything the receiver cares about. It carries no information about
-which signal was sent, and no information about the noise in the signal space either. This is
-the \term{theorem of irrelevance} (Wozencraft and Jacobs, 1965): for signals in white Gaussian
-noise, the projections $\vect r$ are a \term{sufficient statistic}; the optimal receiver may
-discard everything else without loss.
+contains no signal at all---only the component of the noise orthogonal to the signal space
+(Figure~\ref{fig:ch09_irrelevance}). And because Gaussian random variables that are uncorrelated
+are independent, $r'(t)$ is independent of the $w_n$ and hence of everything the receiver cares
+about. It carries no information about which signal was sent, and no information about the noise
+in the signal space either. This is the \term{theorem of irrelevance} (Wozencraft and Jacobs,
+1965): for signals in white Gaussian noise, the projections $\vect r$ are a \term{sufficient
+statistic}; the optimal receiver may discard everything else without loss.
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.46\linewidth]{figs/ch09_irrelevance}
+\caption{The theorem of irrelevance in one picture. The received waveform (navy) splits into its
+shadow on the signal plane (green, kept) and a component sticking out of the plane (grey). That
+grey part is pure noise, independent of everything in the plane: throwing it away loses
+nothing.}
+\label{fig:ch09_irrelevance}
+\end{figure}
 
 \begin{keyidea}[The dimensionality of detection]
 A receiver for $M$ signals in white Gaussian noise never needs to process more than $N\le M$
@@ -276,6 +397,12 @@ numbers per symbol: the correlations of the received waveform with an orthonorma
 signals. For every linear modulation, however large the constellation, $N=2$---one I sample and
 one Q sample from a matched filter. Everything else in $r(t)$ is irrelevant noise.
 \end{keyidea}
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.5\linewidth]{figs/photos/ch09_jacobs}
+\caption{Irwin Jacobs speaking at the 25th anniversary of UC San Diego's Jacobs School of Engineering in 2023. His 1965 textbook with John Wozencraft made signal space the language of the field; he went on to co-found Linkabit and Qualcomm.\mdccredit{ch09_jacobs}}
+\label{fig:ch09_jacobs}
+\end{figure}
 
 The theorem has conditions, and practising engineers must know where they break. The noise must
 be white (or whitened first, as the equalisers of Chapter~\ref{ch:equalization} do) and
@@ -287,30 +414,71 @@ And the argument is per symbol; when pulses overlap (intersymbol interference), 
 statistic is the whole sequence of matched-filter outputs, which is where the sequence detectors
 of Chapter~\ref{ch:equalization} begin.
 
+\begin{history}[Kotelnikov, Shannon and the geometry of signals]
+The geometric view of signals has two independent origins. In his 1947 doctoral thesis, published
+in English in 1959 as \emph{The Theory of Optimum Noise Immunity}, Vladimir Kotelnikov represented
+signals as vectors, derived the optimal receiver for signals in Gaussian noise, and computed the
+error probabilities of amplitude, frequency and phase keying---work essentially unknown in the
+West for a decade. Claude Shannon's 1949 paper ``Communication in the presence of noise'' used
+the same geometry to prove the capacity formula, treating a band-limited signal of duration $T$
+as a point in a space of $2WT$ dimensions and noise as a small sphere around it. It was John
+Wozencraft and Irwin Jacobs's 1965 textbook \emph{Principles of Communication Engineering} that
+made signal space the standard language of the field; its theorem of irrelevance is still quoted
+in their words. Jacobs went on to co-found Linkabit and then Qualcomm, where the geometry became
+CDMA handsets by the hundred million.
+\end{history}
+
+\begin{tryit}[Watch a waveform become a point]
+In Lab~2, open \emph{From waveforms to points}. Pick QPSK, then drag the \emph{Correlator
+integration window} slider from $1\,T$ down to $0.1\,T$: the correlator collects less of the
+symbol's energy, and the received point's cloud swells relative to the constellation. Raise
+\emph{Carrier cycles per symbol}: nothing changes in signal space---the carrier really has vanished.
+\end{tryit}
+
 \section{Optimal detection}
 \label{sec:ch09:detection}
 
 \subsection{MAP and ML decision rules}
 
+A dart has landed. Which bullseye was it thrown at? You might be tempted to say ``the nearest
+one'', and most of the time you would be right---but not always. Suppose you know that the
+thrower aims at the top-left bullseye 80\% of the time. A dart that lands halfway between two
+targets should then be credited to the popular one. That is the whole of detection theory in two
+sentences; the rest is making it precise.
+
 The receiver observes $\vect r$ and must choose $\hat\imath$. The rule that minimises the
-probability of error is the one that picks the most probable signal given the observation, the
+probability of error picks the most probable signal given the observation, the
 \term{maximum a posteriori} (MAP) rule:
 \begin{equation}
 \hat\imath=\arg\max_i\,P(\vect s_i\mid\vect r)=\arg\max_i\,p_i\,f(\vect r\mid\vect s_i),
 \label{eq:ch09:map}
 \end{equation}
 where $p_i$ is the prior probability of symbol $i$ and the second form follows from Bayes' rule
-(the denominator $f(\vect r)$ is common to all $i$). The proof is one line: the probability of a
-correct decision is $\int P(\vect s_{\hat\imath(\vect r)}\mid\vect r)f(\vect r)\,d\vect r$, which is
-maximised pointwise by choosing, for each $\vect r$, the $i$ with the largest posterior. When the
-priors are equal---as they are for scrambled, compressed or encrypted data---the MAP rule reduces
-to the \term{maximum-likelihood} (ML) rule, $\hat\imath=\arg\max_i f(\vect r\mid\vect s_i)$.
+(the denominator $f(\vect r)$ is common to all $i$). In words: weigh how well each candidate
+explains what you saw by how often that candidate is sent. When the priors are equal---as they
+are for scrambled, compressed or encrypted data---the MAP rule reduces to the
+\term{maximum-likelihood} (ML) rule, $\hat\imath=\arg\max_i f(\vect r\mid\vect s_i)$
+(Figure~\ref{fig:ch09_likelihood_bells}).
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.9\linewidth]{figs/ch09_likelihood_bells}
+\caption{Maximum likelihood for 4-PAM in Gaussian noise. Each bell is the likelihood of one candidate; reading all four at the received value $r=1.6$, the $+1$ bell is tallest, so the ML detector decides $+1$---which is also the nearest level. In Gaussian noise ``most likely'' and ``nearest'' are the same thing.}
+\label{fig:ch09_likelihood_bells}
+\end{figure}
+
+\begin{deeper}[Why MAP is optimal]
+The probability of a correct decision is
+$\int P(\vect s_{\hat\imath(\vect r)}\mid\vect r)f(\vect r)\,d\vect r$. The weight $f(\vect r)$ is
+positive and does not depend on the decision rule, so the integral is maximised pointwise: for
+each $\vect r$, choose the $i$ with the largest posterior. No rule can do better, because no rule
+can beat the best choice at every single point.
+\end{deeper}
 
 For the Gaussian vector channel~\eqref{eq:ch09:vecchan} the likelihood is
 \begin{equation}
 f(\vect r\mid\vect s_i)=(\pi N_0)^{-N/2}\exp\!\left(-\frac{\|\vect r-\vect s_i\|^2}{N_0}\right),
 \end{equation}
-so taking logarithms,
+a bell that falls off with squared distance. Taking logarithms,
 \begin{equation}
 \hat\imath_{\text{MAP}}=\arg\min_i\Big[\|\vect r-\vect s_i\|^2-N_0\ln p_i\Big],
 \qquad
@@ -318,13 +486,32 @@ so taking logarithms,
 \label{eq:ch09:mindist}
 \end{equation}
 The ML detector in white Gaussian noise is a \term{minimum-distance detector}: choose the
-constellation point nearest the received vector. The MAP detector adds a bias that favours
-likely symbols, weighted by $N_0$---negligible at high SNR, important at low SNR and whenever
-priors are strongly unequal, as they are in the shaped constellations of
+constellation point nearest the received vector---exactly the dartboard instinct. The MAP detector
+adds a bias that favours likely symbols, weighted by $N_0$: negligible at high SNR, important at
+low SNR and whenever priors are strongly unequal, as they are in the shaped constellations of
 Section~\ref{sec:ch09:shaping} and in iterative decoders that feed prior information back to the
 demapper.
 
 \subsection{Decision regions}
+
+\begin{analogy}[Postcodes: which town is closest?]
+Drop a pin anywhere on a map and ask which town it belongs to, if every spot belongs to its
+nearest town. The answer carves the map into territories whose borders run exactly halfway
+between neighbouring towns (Figure~\ref{fig:ch09_postcodes}). The ML detector does the same
+thing to signal space: the towns are constellation points, the pin is the received sample, and
+the territories are the \emph{decision regions}. Once the map is drawn, detecting is just
+reading which territory the pin fell in---no distances need be computed at all. Where the analogy
+stops: with unequal priors (MAP), the popular towns annex a strip of their neighbours'
+territory.
+\end{analogy}
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.44\linewidth]{figs/ch09_postcodes}
+\caption{Nine towns and the territories of ``whichever town is nearest''. The borders are
+perpendicular bisectors between neighbouring towns; these are Voronoi cells, and every ML
+detector in Gaussian noise draws them.}
+\label{fig:ch09_postcodes}
+\end{figure}
 
 The minimum-distance rule partitions signal space into \term{decision regions}: the region
 $\mathcal D_i$ is the set of points closer to $\vect s_i$ than to any other signal point. The
@@ -348,11 +535,28 @@ variance $\sigma^2$, equating the two MAP metrics gives the threshold
 \tau=\frac{\sigma^2}{2A}\ln\frac{p_0}{p_1},
 \label{eq:ch09:mapthresh}
 \end{equation}
-where $p_0$ is the prior of $-A$. The boundary slides away from the more probable symbol, giving
-it a larger region. In the example of the figure ($p_0=0.8$, $A=1$, $\sigma=0.8$) the threshold
-moves to $0.44$, and the error probability drops from $\Q(1.25)=0.106$ with the ML threshold to
+where $p_0$ is the prior of $-A$. Read it back: the boundary slides away from the more probable
+symbol, giving it a larger region, and it slides further when the noise is large (big $\sigma$)
+because then the observation is less trustworthy and the prior matters more. In the example of
+Figure~\ref{fig:ch09_map_threshold} ($p_0=0.8$, $A=1$, $\sigma=0.8$) the threshold moves to
+$0.44$, and the error probability drops from $\Q(1.25)=0.106$ with the ML threshold to
 $0.8\,\Q(1.80)+0.2\,\Q(0.70)=0.077$---a real gain, bought purely by using what the receiver
 knew about the source.
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.9\linewidth]{figs/ch09_map_threshold}
+\caption{The MAP threshold is where the two \emph{weighted} bells cross. The shaded tails are
+the two kinds of error; moving the threshold from 0 to $+0.44$ trades a few more errors on the
+rare symbol for many fewer on the common one.}
+\label{fig:ch09_map_threshold}
+\end{figure}
+
+\begin{tryit}[Beat the textbook threshold]
+Lab~2, \emph{Priors move the boundary}: set \emph{Probability that $-1$ is sent} to 0.8 and
+$E_s/N_0$ to 2\,dB, then drag \emph{Your threshold} by hand to minimise the measured error rate.
+Now tick \emph{Snap my threshold to MAP}. Did you find~\eqref{eq:ch09:mapthresh} on your own?
+Raise $E_s/N_0$ to 12\,dB and notice how little the threshold matters any more.
+\end{tryit}
 
 \subsection{The correlation receiver}
 
@@ -365,14 +569,14 @@ and dropping the term common to all hypotheses gives an equivalent rule,
 \hat\imath=\arg\max_i\left[\re\langle\vect r,\vect s_i\rangle-\frac{E_i}{2}+\frac{N_0}{2}\ln p_i\right].
 \label{eq:ch09:corr}
 \end{equation}
-The receiver correlates the input against each candidate, subtracts half its energy (so that a
-high-energy signal does not win merely by being large) and, for MAP, adds a prior bias. For
+In words: correlate the input against each candidate, subtract half its energy (so that a
+high-energy signal does not win merely by being large) and, for MAP, add a prior bias. For
 equal-energy sets such as PSK and FSK with equal priors, the rule is simply \emph{pick the largest
-correlation}. The correlations can be computed in signal space ($N$ correlators followed by a
-small matrix multiply) or directly against the waveforms ($M$ correlators); either way, each
-correlator can be replaced by a filter matched to the basis function and sampled at $t=T$, the
-matched filter of Chapter~\ref{ch:baseband}. Figure~\ref{fig:ch09_correlator} shows the
-structure.
+correlation}---``which template does this look most like?'' The correlations can be computed in
+signal space ($N$ correlators followed by a small matrix multiply) or directly against the
+waveforms ($M$ correlators); either way, each correlator can be replaced by a filter matched to
+the basis function and sampled at $t=T$, the matched filter of Chapter~\ref{ch:baseband}.
+Figure~\ref{fig:ch09_correlator} shows the structure.
 
 \begin{figure}[htbp]
 \centering
@@ -405,42 +609,45 @@ nearest-point slicer.}
 \label{fig:ch09_correlator}
 \end{figure}
 
-\begin{history}[Kotelnikov, Shannon and the geometry of signals]
-The geometric view of signals has two independent origins. In his 1947 doctoral thesis, published
-in English in 1959 as \emph{The Theory of Optimum Noise Immunity}, Vladimir Kotelnikov represented
-signals as vectors, derived the optimal receiver for signals in Gaussian noise, and computed the
-error probabilities of amplitude, frequency and phase keying---work essentially unknown in the
-West for a decade. Claude Shannon's 1949 paper ``Communication in the presence of noise'' used
-the same geometry to prove the capacity formula, treating a band-limited signal of duration $T$
-as a point in a space of $2WT$ dimensions and noise as a small sphere around it. It was John
-Wozencraft and Irwin Jacobs's 1965 textbook \emph{Principles of Communication Engineering} that
-made signal space the standard language of the field; its theorem of irrelevance is still quoted
-in their words. Jacobs went on to co-found Linkabit and then Qualcomm, where the geometry became
-CDMA handsets by the hundred million.
-\end{history}
-
 \section{Error probability}
 \label{sec:ch09:errorprob}
 
 \subsection{Two signals: the pairwise error probability}
 
-Everything starts with two points. If $\vect s_i$ is sent and only $\vect s_j$ competes, the ML
-detector errs when the noise carries $\vect r$ across the bisector between them. Only the
-component of the noise along the line joining the points matters---the perpendicular components
-move $\vect r$ parallel to the boundary---and that component is a one-dimensional Gaussian of
-variance $N_0/2$. The boundary is $d_{ij}/2$ away, where $d_{ij}=\|\vect s_i-\vect s_j\|$, so
+How often does the dart land in the wrong territory? Everything starts with just two points. If
+$\vect s_i$ is sent and only $\vect s_j$ competes, the ML detector errs when the noise carries
+$\vect r$ across the bisector between them. Here is the lovely simplification: only the component
+of the noise along the line joining the points matters. The perpendicular component moves
+$\vect r$ \emph{parallel} to the boundary and can never push it across
+(Figure~\ref{fig:ch09_pairwise}). That one component is a one-dimensional Gaussian of variance
+$N_0/2$, and the boundary is $d_{ij}/2$ away, where $d_{ij}=\|\vect s_i-\vect s_j\|$, so
 \begin{equation}
 P(\vect s_i\to\vect s_j)=\Q\!\left(\frac{d_{ij}/2}{\sqrt{N_0/2}}\right)=\Q\!\left(\sqrt{\frac{d_{ij}^2}{2N_0}}\right),
 \label{eq:ch09:pairwise}
 \end{equation}
-with $\Q(\cdot)$ the Gaussian tail function of equation~\eqref{eq:ch03:q}. This
-\term{pairwise error probability} depends on nothing but the distance between the two signals
-and the noise density: not their shapes, not their individual energies, not the carrier. For
-antipodal signals $\pm\sqrt{E_b}$, $d^2=4E_b$ and $P_b=\Q(\sqrt{2E_b/N_0})$; for orthogonal
+with $\Q(\cdot)$ the Gaussian tail function of equation~\eqref{eq:ch03:q}.
+
+\mdcfig[0.9]{ch09_pairwise}{Left: noise around $\mathbf s_i$; only samples pushed across the
+bisector (red) are errors, and only the noise component along the line between the points can do
+that. Right: that component's bell curve, with the error tail shaded---a single $\mathrm Q$
+function of half the distance.}
+
+This \term{pairwise error probability} depends on nothing but the distance between the two
+signals and the noise density: not their shapes, not their individual energies, not the carrier.
+For antipodal signals $\pm\sqrt{E_b}$, $d^2=4E_b$ and $P_b=\Q(\sqrt{2E_b/N_0})$; for orthogonal
 signals of energy $E_b$, $d^2=2E_b$ and $P_b=\Q(\sqrt{E_b/N_0})$, the 3\,dB penalty found in
 Chapter~\ref{ch:baseband}. Distance is the currency of detection.
 
 \subsection{Many signals: the union bound}
+
+\begin{analogy}[The neighbours you might stumble into]
+Imagine walking home in the dark along a street of identical houses. You will occasionally walk
+into the wrong one---but almost always the house \emph{next door}, rarely the one two doors down,
+and never one across town. To estimate how often you get it wrong, you can just add up the
+chances of stumbling into each neighbour. You will slightly overcount (some stumbles might lead to
+either of two neighbours), but in the dark that matters little, and the nearest neighbours
+dominate everything. That is the union bound.
+\end{analogy}
 
 With $M$ signals the exact error probability is an integral of the Gaussian cloud over the
 outside of a polygonal (or polyhedral) region, rarely available in closed form. But an error
@@ -454,16 +661,24 @@ for equiprobable signals. It overcounts regions where several pairwise error eve
 which matters only when errors are common. At the error rates engineers care about, the bound is
 dominated by the smallest distances, because $\Q$ falls so steeply: a competitor at
 $\sqrt2\,d_{\min}$ contributes roughly a factor $e^{-d_{\min}^2/(4N_0)}$ less than a nearest
-neighbour, which at $10^{-5}$ error rates is a factor of several thousand. Keeping only the nearest
-neighbours gives the \term{nearest-neighbour approximation}
+neighbour, which at $10^{-5}$ error rates is a factor of several thousand
+(Figure~\ref{fig:ch09_union_neighbours}). Keeping only the nearest neighbours gives the
+\term{nearest-neighbour approximation}
 \begin{equation}
 P_s\approx\bar N_{\min}\,\Q\!\left(\sqrt{\frac{d_{\min}^2}{2N_0}}\right),
 \label{eq:ch09:nn}
 \end{equation}
 where $d_{\min}$ is the \term{minimum distance} of the constellation and $\bar N_{\min}$ the
-average number of neighbours at that distance. Figure~\ref{fig:ch09_union_bound} compares the
-exact result, the full bound and the approximation for 8-PSK and 16-QAM: below a symbol error
-rate of about $10^{-2}$ they are indistinguishable.
+average number of neighbours at that distance.
+
+\mdcfig[0.92]{ch09_union_neighbours}{Which neighbours matter. Left: from an inner 16-QAM point,
+the four nearest neighbours (red), the four diagonal ones (orange) and the rest (grey). Right:
+each group's term in the union bound at $E_s/N_0=16$\,dB, on a logarithmic scale. The nearest four
+outweigh everything else by roughly a hundredfold; the far points are irrelevant by dozens of
+orders of magnitude.}
+
+Figure~\ref{fig:ch09_union_bound} compares the exact result, the full bound and the approximation
+for 8-PSK and 16-QAM: below a symbol error rate of about $10^{-2}$ they are indistinguishable.
 
 \mdcfig{ch09_union_bound}{Exact symbol error probability, the union bound~\eqref{eq:ch09:union}
 and the nearest-neighbour approximation~\eqref{eq:ch09:nn}, with Monte Carlo points (400\,000
@@ -481,36 +696,54 @@ merit. Every decibel lost in $d_{\min}^2/E_b$ is a decibel of transmit power.
 \subsection{Bit errors and symbol errors}
 
 The union bound speaks of symbol errors, but users and decoders count bits. The relationship
-depends on the \term{labelling}---which $k$-bit pattern is assigned to which point. Almost every
-symbol error at useful SNR is to a nearest neighbour, so if neighbours differ in only one bit,
-a symbol error costs one bit error out of $k$:
+depends on the \term{labelling}---which $k$-bit pattern is assigned to which point. Recall the
+dartboard: almost every miss lands in an adjacent square. So if \emph{neighbours differ in only
+one bit}, a near-miss costs one bit error out of $k$:
 \begin{equation}
 P_b\approx\frac{P_s}{k}\qquad\text{(Gray labelling)} .
 \label{eq:ch09:graybits}
 \end{equation}
 A labelling in which every pair of nearest neighbours differs in exactly one bit is a
-\term{Gray labelling}, after Frank Gray of Bell Labs, whose patent on the reflected binary
-code (filed 1947, granted 1953) was motivated by an electron-beam tube for PCM encoding.
-For PSK, labelling the points around the circle with
-the reflected binary sequence 000, 001, 011, 010, 110, 111, 101, 100 achieves it; for square QAM, Gray
-labelling each axis independently does. Cross constellations (32 and 128 points) cannot be
-perfectly Gray-labelled, and the best labellings leave a few neighbour pairs differing in two
-bits, a penalty of a small fraction of a decibel. Figure~\ref{fig:ch09_gray_mapping} compares
-Gray and natural binary labels on 16-QAM. The difference is smaller than folklore suggests---about
-a third more bit errors, a couple of tenths of a decibel---but it is free to avoid, and it
-matters more in coded systems, where the labelling also sets the reliability of the individual
-bits the decoder sees (Section~\ref{sec:ch09:soft}).
+\term{Gray labelling}, after Frank Gray of Bell Labs, whose patent on the reflected binary code
+(filed 1947, granted 1953) was motivated by an electron-beam tube for PCM encoding. For PSK,
+labelling the points around the circle with the reflected binary sequence 000, 001, 011, 010,
+110, 111, 101, 100 achieves it (Figure~\ref{fig:ch09_gray_wheel}); for square QAM, Gray labelling
+each axis independently does.
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.56\linewidth]{figs/ch09_gray_wheel}
+\caption{8-PSK labelled with the Gray (reflected binary) code and with natural binary. Green
+edges join neighbours that differ in one bit; red edges join neighbours that differ in two or
+three. With natural labels, half the neighbour pairs are expensive.}
+\label{fig:ch09_gray_wheel}
+\end{figure}
+
+Cross constellations (32 and 128 points) cannot be perfectly Gray-labelled, and the best
+labellings leave a few neighbour pairs differing in two bits, a penalty of a small fraction of a
+decibel. Figure~\ref{fig:ch09_gray_mapping} compares Gray and natural binary labels on 16-QAM. The
+difference is smaller than folklore suggests---about a third more bit errors, a couple of tenths of
+a decibel---but it is free to avoid, and it matters more in coded systems, where the labelling also
+sets the reliability of the individual bits the decoder sees (Section~\ref{sec:ch09:soft}).
 
 \mdcfig{ch09_gray_mapping}{Gray versus natural binary labels on 16-QAM. With Gray labels,
 adjacent points differ in one bit; with natural labels some neighbours differ in two (arrows).
 The bit error rate with Gray labels follows $P_s/k$ closely; natural labels cost about a third
 more bit errors.}
 
+\begin{tryit}[Throw darts by the million]
+In Lab~2, \emph{Noise and decision regions}, choose 16-QAM and drag $E_s/N_0$ down from 20 to
+10\,dB with \emph{Show where errors came from} on: the arrows almost always point to an adjacent
+cell. Then go to \emph{BER: Monte Carlo vs theory}, pick 16-QAM and switch \emph{Bit labelling}
+between Gray and Natural binary; the simulated points move by about the third predicted above.
+\end{tryit}
+
 \section{The classical constellations}
 \label{sec:ch09:constellations}
 
-Figure~\ref{fig:ch09_constellations} is a gallery of the constellations that carry most of the
-world's digital radio traffic, each normalised to unit average energy, with its normalised
+Every constellation is an answer to the same puzzle: how do you place $M$ points so that they are
+as far apart as possible, for a given average energy, while keeping the receiver cheap and the
+amplifier happy? Figure~\ref{fig:ch09_constellations} is a gallery of the answers that carry most
+of the world's digital radio traffic, each normalised to unit average energy, with its normalised
 minimum distance and its peak-to-average power ratio. We derive their error rates in turn.
 
 \mdcfig{ch09_constellations}{A constellation gallery at unit average energy. Labels on 8-PSK and
@@ -531,7 +764,13 @@ P_s^{\text{PAM}}=2\left(1-\frac1M\right)\Q\!\left(\sqrt{\frac{6}{M^2-1}\,\frac{E
 Each doubling of $M$ adds one bit per symbol and multiplies $M^2-1$ by roughly four: 6\,dB more
 energy per symbol for the same error rate. That exchange rate---6\,dB per bit per dimension---is
 the steep price of amplitude levels, and it recurs in QAM, in the quantization rule of
-Chapter~\ref{ch:pcm} and in Shannon's formula at high SNR.
+Chapter~\ref{ch:pcm} and in Shannon's formula at high SNR. Figure~\ref{fig:ch09_price_per_bit}
+shows it as a staircase you climb one bit at a time.
+
+\mdcfig[0.9]{ch09_price_per_bit}{The price of one more bit. Each marker is the $E_s/N_0$ a
+constellation needs for a symbol error rate of $10^{-5}$ (exact formulas of this section). Points
+on a line (PAM) or a circle (PSK) pay about 6\,dB per extra bit; square QAM, which spreads the bits
+over two dimensions, pays about 3\,dB.}
 
 \subsection{\texorpdfstring{$M$}{M}-ary PSK}
 
@@ -548,18 +787,32 @@ An exact result, easy to integrate numerically, is Craig's formula (1991):
 P_s^{\text{PSK}}=\frac1\pi\int_0^{(M-1)\pi/M}\exp\!\left(-\frac{E_s}{N_0}\,\frac{\sin^2(\pi/M)}{\sin^2\theta}\right)d\theta .
 \label{eq:ch09:craig}
 \end{equation}
+Its charm is that the limits are finite and the integrand is a plain exponential, which is what
+makes it so useful when we later average over fading.
+
 Two special cases deserve their own names. \term{BPSK} ($M=2$) is antipodal signalling,
 $P_b=\Q(\sqrt{2E_b/N_0})$. \term{QPSK} ($M=4$) is two BPSK signals in quadrature, one on I and one
-on Q; with Gray labels each bit sees an independent BPSK channel with the same $E_b$, so
+on Q (Figure~\ref{fig:ch09_qpsk_two_bpsk}); with Gray labels each bit sees an independent BPSK
+channel with the same $E_b$, so
 \begin{equation}
 P_b^{\text{QPSK}}=\Q\!\left(\sqrt{2E_b/N_0}\right),
 \end{equation}
-identical to BPSK. QPSK doubles the bit rate in the same bandwidth for no loss in power
-efficiency---the nearest thing to a free lunch in this subject, and the reason QPSK is the default
-robust mode of nearly every modern system. Beyond four points, PSK becomes expensive. For large
-$M$, $\sin(\pi/M)\approx\pi/M$ and each doubling of $M$ costs 6\,dB of $E_s/N_0$, the same as
-PAM, because the points are strung along a one-dimensional circle. 8-PSK needs
-$E_b/N_0\approx13.0$\,dB for $P_b=10^{-5}$, 3.4\,dB more than QPSK; 16-PSK needs 17.4\,dB.
+identical to BPSK.
+
+\mdcfig[0.82]{ch09_qpsk_two_bpsk}{QPSK is two BPSK signals sharing a carrier: one on the cosine,
+one on the sine. Because the two never interfere (they are orthogonal), each bit sees its own
+BPSK channel---twice the bits, same bandwidth, same error rate per bit.}
+
+\begin{keyidea}[QPSK: the nearest thing to a free lunch]
+QPSK doubles the bit rate in the same bandwidth for no loss in power efficiency. It is the
+default robust mode of nearly every modern system---what a satellite modem in a rain fade or a
+handset at the cell edge falls back to when everything else fails.
+\end{keyidea}
+
+Beyond four points, PSK becomes expensive. For large $M$, $\sin(\pi/M)\approx\pi/M$ and each
+doubling of $M$ costs 6\,dB of $E_s/N_0$, the same as PAM, because the points are strung along a
+one-dimensional circle. 8-PSK needs $E_b/N_0\approx13.0$\,dB for $P_b=10^{-5}$, 3.4\,dB more than
+QPSK; 16-PSK needs 17.4\,dB.
 
 \subsection{Square QAM}
 
@@ -580,15 +833,27 @@ P_b^{\text{QAM}}\approx\frac4{\log_2M}\left(1-\frac1{\sqrt M}\right)
 \Q\!\left(\sqrt{\frac{3\log_2M}{M-1}\,\frac{E_b}{N_0}}\right).
 \label{eq:ch09:qamber}
 \end{equation}
+
 Compare PSK and QAM at 16 points: $d_{\min}^2/E_s$ is $4\sin^2(\pi/16)=0.152$ for 16-PSK and
 $6/15=0.400$ for 16-QAM, a 4.2\,dB advantage for QAM, because QAM spreads its points over the
-disc rather than confining them to its rim. At every size above eight points, QAM beats PSK in
-white Gaussian noise; that is why PSK stops at 8 (in EDGE and DVB-S2) and QAM goes to 4096.
+disc rather than confining them to its rim (Figure~\ref{fig:ch09_psk_vs_qam16}). At every size
+above eight points, QAM beats PSK in white Gaussian noise; that is why PSK stops at 8 (in EDGE and
+DVB-S2) and QAM goes to 4096.
+
+\mdcfig[0.82]{ch09_psk_vs_qam16}{Sixteen points, the same average energy, two arrangements. Each
+point's shaded disc has radius $d_{\min}/2$---its private zone that noise must escape. 16-PSK
+lines its points up around the rim and leaves the middle empty; 16-QAM uses the whole disc and
+gets discs 1.6 times wider.}
 
 Figure~\ref{fig:ch09_ber_families} collects the bit error rates. Each factor of four in QAM size
 (two more bits per symbol) costs about 6\,dB of $E_s/N_0$ and about 4.4 to 5.2\,dB of $E_b/N_0$ at a
-given error rate. Small constellations are power-efficient; large ones are
-bandwidth-efficient. Section~\ref{sec:ch09:tradeoff} makes that trade precise.
+given error rate. Small constellations are power-efficient; large ones are bandwidth-efficient.
+Section~\ref{sec:ch09:tradeoff} makes that trade precise.
+
+\mdcfig{ch09_ber_families}{Bit error probability of Gray-labelled $M$-PSK (left) and square
+$M$-QAM (right) against $E_b/N_0$. Lines are exact (PSK, via~\eqref{eq:ch09:craig} divided by
+$k$) or the nearest-neighbour approximation~\eqref{eq:ch09:qamber}; circles are simulations with
+\texttt{commlib}. The dotted line marks $10^{-5}$.}
 
 \begin{worked}[How much $E_b/N_0$ does uncoded 64-QAM need?]
 For $M=64$, $k=6$, equation~\eqref{eq:ch09:qamber} reads
@@ -608,23 +873,23 @@ $E_s/N_0$ of roughly 17 to 18\,dB, within about 3\,dB of the Shannon limit of 14
 rate (Chapter~\ref{ch:moderncodes}).
 \end{worked}
 
-\mdcfig{ch09_ber_families}{Bit error probability of Gray-labelled $M$-PSK (left) and square
-$M$-QAM (right) against $E_b/N_0$. Lines are exact (PSK, via~\eqref{eq:ch09:craig} divided by
-$k$) or the nearest-neighbour approximation~\eqref{eq:ch09:qamber}; circles are simulations with
-\texttt{commlib}. The dotted line marks $10^{-5}$.}
-
-
 \subsection{Cross and rectangular QAM}
 
 When $k$ is odd, $M=2^k$ is not a perfect square. A rectangular $4\times8$ grid works but wastes
 energy on its long axis. The \term{cross constellation} does better: take a $6\times6$ grid and
 remove the four corners (32-QAM), or a $12\times12$ grid and remove $2\times2$ blocks from each
 corner (128-QAM). The corners are the most expensive points in energy, so removing them lowers
-the average energy for the same minimum distance. For 32 points, $d_{\min}^2/E_s$ is $0.200$ for
-the cross against $0.154$ for the $4\times8$ rectangle, a 1.1\,dB advantage. Cross constellations
-were workhorses of the voiceband-modem era (the history box below) and 32- and 128-QAM remain
-options in DVB-C cable television and in microwave backhaul. Their Gray labelling is imperfect, so
-they have largely given way to square QAM combined with the fine rate granularity of modern codes.
+the average energy for the same minimum distance (Figure~\ref{fig:ch09_cross_qam}). For 32 points,
+$d_{\min}^2/E_s$ is $0.200$ for the cross against $0.154$ for the $4\times8$ rectangle, a 1.1\,dB
+advantage. Cross constellations were workhorses of the voiceband-modem era (the history box
+below) and 32- and 128-QAM remain options in DVB-C cable television and in microwave backhaul.
+Their Gray labelling is imperfect, so they have largely given way to square QAM combined with the
+fine rate granularity of modern codes.
+
+\mdcfig[0.88]{ch09_cross_qam}{Odd numbers of bits. A $4\times8$ rectangle (left) spends energy on
+its long arms; the 32-cross (centre) trims the four corners of a $6\times6$ square and gains
+1.1\,dB; the 128-cross (right) trims $2\times2$ blocks from a $12\times12$ square. Dotted squares
+show what was removed.}
 
 \subsection{APSK}
 
@@ -635,7 +900,15 @@ efficient near saturation, where it compresses amplitude and rotates phase by an
 depends on the input amplitude (AM/AM and AM/PM conversion, Chapter~\ref{ch:sdr}). Such
 distortion is hard to correct across many amplitude levels (16-QAM has three distinct amplitudes,
 64-QAM nine) but easy across two or three rings: the ground station simply predistorts each ring's
-radius and phase. APSK also has a lower peak-to-average ratio than QAM of the same size
+radius and phase (Figure~\ref{fig:ch09_apsk_pa}).
+
+\mdcfig[0.92]{ch09_apsk_pa}{Why satellites prefer rings. Left: a compressive amplifier's AM/AM
+curve, with the amplitude levels of 16-QAM (circles) and 16-APSK (squares) driven near
+saturation. Centre: 16-QAM after the amplifier---the grid is bent out of shape, with each of its
+three amplitude classes squeezed differently. Right: 16-APSK merely has its two rings shrunk,
+which one scale factor per ring undoes. (AM/AM only; a real TWTA also rotates each ring.)}
+
+APSK also has a lower peak-to-average ratio than QAM of the same size
 (Figure~\ref{fig:ch09_constellations}), so the amplifier can run closer to saturation. The cost is
 distance: 16-APSK with ring ratio $\gamma=R_2/R_1=2.85$ has $d_{\min}^2/E_s=0.315$ against
 16-QAM's 0.400, about 1\,dB worse on a perfectly linear channel. On a real satellite the
@@ -643,6 +916,40 @@ nonlinearity erases that deficit and more. DVB-S2 specifies the ring ratio as a 
 rate---from 3.15 at rate 2/3 down to about 2.6 at rate 9/10---and DVB-S2X (EN~302~307-2) extends
 the family to 64-, 128- and 256-APSK, used for professional contribution links and high-throughput
 backhaul (Chapter~\ref{ch:satellite}).
+
+\begin{tryit}[Tune a ring ratio]
+In Lab~2's \emph{Constellation gallery}, choose 16-APSK and drag \emph{APSK ring ratio $\gamma$}
+from 1.5 to 4. Watch $d_{\min}^2/E_s$ rise, peak and fall again: too small and the inner ring's
+points crowd each other, too large and the outer ring eats all the energy. Where does the peak
+fall, and how close is it to DVB-S2's values?
+\end{tryit}
+
+\subsection{High-order QAM in real systems}
+
+Walk into any house with broadband and you will find two boxes quietly running constellations
+that would have seemed absurd to a 1980s modem designer: a cable modem
+(Figure~\ref{fig:ch09_house}, left) receiving thousands-point QAM over coaxial cable, and a Wi-Fi
+router (right) using 1024-QAM to the laptop on the sofa. Figure~\ref{fig:ch09_qam_timeline}
+shows how quickly the ladder was climbed.
+
+\begin{figure}[htbp]\centering
+\begin{minipage}[b]{0.49\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch09_cablemodem}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.43\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch09_wifi6}
+\end{minipage}
+\caption{High-order QAM at home. Left: a DOCSIS cable modem; its ``DS'' and ``US'' lights report the
+downstream and upstream channels, where each subcarrier or channel runs a QAM constellation chosen
+from the measured SNR\mdccredit{ch09_cablemodem}. Right: a Wi-Fi~6 (802.11ax) router, whose top
+modulation is 1024-QAM\mdccredit{ch09_wifi6}.}
+\label{fig:ch09_house}
+\end{figure}
+
+\mdcfig[0.88]{ch09_qam_timeline}{Climbing the QAM ladder: the largest constellation each family of
+standards defined, by approximate year of standardisation. Every step of two bits per symbol
+demands roughly 6\,dB more SNR---and a transmitter clean enough to deliver it
+(Section~\ref{sec:ch09:evm}).}
 
 \begin{inpractice}[High-order QAM in the wild]
 Constellation sizes have climbed steadily as radios have become cleaner and SNRs higher:
@@ -669,6 +976,25 @@ SNR. That is \emph{link adaptation}, and it is why modulation tables in modern s
 menus.
 \end{inpractice}
 
+\mdcphoto[0.86]{ch09_qam4096}{A 4096-QAM signal in a software signal analyser. Top left: the
+I and Q waveforms, which look like pure noise. Bottom: the same samples as a constellation---a
+$64\times64$ grid---and as a two-dimensional histogram; right: the histogram in 3-D, a field of
+4096 tiny peaks. A grid this fine survives only if noise and every impairment stay about 35 to
+40\,dB below the signal.}
+
+\subsection{Modems: a thirty-year masterclass}
+
+The analog telephone line was the proving ground of everything in this chapter so far. Its 3\,kHz
+bandwidth never changed, so every improvement in bit rate had to come from cleverer modulation,
+coding and signal processing---a perfectly controlled experiment that ran for three decades
+(Figure~\ref{fig:ch09_modem_speeds}).
+
+\mdcfig[0.88]{ch09_modem_speeds}{Thirty-six years of voiceband modems, on a logarithmic scale.
+Rates climbed almost two hundredfold through the \emph{same} telephone channel: first by moving
+from FSK to QAM, then by trellis coding, then by shaping and adaptive equalisation, until V.34 sat
+within a few decibels of the channel's capacity. V.90's last jump came from changing the problem:
+it exploited the digital network behind the local loop.}
+
 \begin{history}[From 300 baud to 33.6 kb/s: the modem wars]
 The analog telephone channel, 300 to 3400\,Hz wide with an SNR of perhaps 30 to 40\,dB, was the
 proving ground of digital modulation for thirty years. The Bell 103 modem (1962) sent 300\,b/s by
@@ -692,10 +1018,50 @@ the telephone channel. It was the last and best analog modem; V.90 (1998) reache
 exploiting the digital PCM network of Chapter~\ref{ch:pcm}.
 \end{history}
 
+\begin{figure}[H]\centering
+\begin{minipage}[b]{0.40\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch09_dataphone}\\[-1pt]
+{\footnotesize (a)}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.56\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch09_hayes}\\[2pt]
+\includegraphics[width=\linewidth]{figs/photos/ch09_usr}\\[-1pt]
+{\footnotesize (b) \hspace{0.4\linewidth} (c)}
+\end{minipage}
+\caption{Three generations of the modem. (a) A Bell System Dataphone~300 (around 1978), which
+spoke the Bell~103 FSK protocol at 300\,b/s\mdccredit{ch09_dataphone}. (b) The Hayes Smartmodem
+(1982), a 300\,b/s FSK modem whose command language became the industry
+standard\mdccredit{ch09_hayes}. (c) A US Robotics Sportster 33.6, a V.34 modem from the last
+generation of analog modems: trellis-coded QAM with shaping, adaptive equalisation and echo
+cancellation in one consumer box\mdccredit{ch09_usr}.}
+\label{fig:ch09_modems}
+\end{figure}
+
+How does TCM get 3\,dB ``for free''? Ungerboeck's trick, \emph{set partitioning}, is pure
+signal-space geometry (Figure~\ref{fig:ch09_tcm_partition}). Split 8-PSK into two QPSK subsets,
+then each QPSK into two BPSK pairs. At every split the points \emph{within} a subset get further
+apart: $0.765$, then $1.414$, then $2$ times $\sqrt{E_s}$. A convolutional code then chooses the
+subset, protecting the bits that select it with a sequence of decisions, while uncoded bits pick
+the point within a subset, where the distance is already large. The result is a set of signal
+\emph{sequences} whose minimum distance exceeds that of the uncoded constellation, with no extra
+bandwidth: the extra bit the code adds is absorbed by doubling the constellation, not the symbol
+rate. Chapter~\ref{ch:classiccodes} treats the trellis and the Viterbi decoder that makes it
+practical.
+
+\mdcfig[0.82]{ch09_tcm_partition}{Ungerboeck's set partitioning of 8-PSK. Each split separates
+the points into two subsets whose internal minimum distance grows: from $0.765\sqrt{E_s}$ for 8-PSK
+to $1.414\sqrt{E_s}$ for the QPSK subsets and $2\sqrt{E_s}$ for the antipodal pairs. The labels on
+the branches are the bits the trellis code supplies.}
+
 \section{The bandwidth--power trade-off}
 \label{sec:ch09:tradeoff}
 
 \subsection{Spectral efficiency}
+
+Every link designer is spending two currencies at once. One is spectrum: hertz are licensed,
+auctioned, fought over and, in cellular bands, priced in billions. The other is power: watts at
+the transmitter, decibels of antenna gain, hours of battery. A modulation scheme is a recipe for
+exchanging one for the other, and this section draws the exchange rates on a single map.
 
 A linear modulation with symbol rate $R_s$ and root-raised-cosine pulses of roll-off $\beta$
 occupies a passband bandwidth $W=R_s(1+\beta)$ (Chapter~\ref{ch:baseband}). Its
@@ -720,9 +1086,9 @@ possible if and only if $R_b<C$. Writing the received power as $P=E_bR_b$ and di
 \frac{E_b}{N_0}>\frac{2^\eta-1}{\eta}.
 \label{eq:ch09:shannon}
 \end{equation}
-This is the boundary of the achievable region in the \term{bandwidth--power plane}. At
-$\eta=1$ it demands $E_b/N_0>0$\,dB; at $\eta=2$, 1.76\,dB; at $\eta=6$, 10.2\,dB; at $\eta=10$,
-20.1\,dB. As $\eta\to0$---unlimited bandwidth---the bound falls to
+This is the boundary of the achievable region in the \term{bandwidth--power plane}. Read it as a
+price list: at $\eta=1$ it demands $E_b/N_0>0$\,dB; at $\eta=2$, 1.76\,dB; at $\eta=6$, 10.2\,dB; at
+$\eta=10$, 20.1\,dB. As $\eta\to0$---unlimited bandwidth---the bound falls to
 \begin{equation}
 \frac{E_b}{N_0}>\ln2=0.693=-1.59\ \text{dB},
 \label{eq:ch09:ln2}
@@ -730,12 +1096,25 @@ $\eta=1$ it demands $E_b/N_0>0$\,dB; at $\eta=2$, 1.76\,dB; at $\eta=6$, 10.2\,d
 the \term{Shannon limit}, the minimum energy per bit with which any system, however complex and
 however wasteful of bandwidth, can communicate reliably through white Gaussian noise.
 
-\mdcfig{ch09_efficiency_plane}{The bandwidth--power plane. Each marker is an uncoded modulation
+\begin{analogy}[A map with a wall across it]
+Think of Figure~\ref{fig:ch09_efficiency_plane} as a map. North is spectral efficiency (more bits
+per hertz), west is thrift (less energy per bit). Everybody wants to go north-west. Shannon's
+curve is a wall: on its far side lies territory no engineer will ever enter, whatever the budget.
+Every modulation is a town somewhere east of the wall, and every error-correcting code is a road
+that carries the town westward towards it. The wall's bottom end, at $-1.59$\,dB, is where it
+meets the sea: there is no going further west at any price.
+\end{analogy}
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.92\linewidth]{figs/ch09_efficiency_plane}
+\caption{The bandwidth--power plane. Each marker is an uncoded modulation
 at the $E_b/N_0$ it needs for $P_b=10^{-5}$ and its spectral efficiency with ideal Nyquist
 pulses; numbers are the constellation size $M$. PSK and QAM climb into the bandwidth-limited
 region at a cost in power; orthogonal FSK descends towards the $-1.59$\,dB limit at a cost in
 bandwidth. The 7 to 8\,dB between the uncoded points and Shannon's curve is the territory that
 error-correcting codes reclaim.}
+\label{fig:ch09_efficiency_plane}
+\end{figure}
 
 Figure~\ref{fig:ch09_efficiency_plane} places the classical modulations on this plane. Two
 regimes stand out. Above $\eta=1$ is the \term{bandwidth-limited} region, where spectrum is
@@ -745,20 +1124,27 @@ the \term{power-limited} region, where every decibel of received power is precio
 is available: deep-space probes, GPS, low-power sensors, battery-powered tags. Designs there trade
 bandwidth for power, using orthogonal signalling, spreading or very-low-rate codes.
 
+\subsection{The SNR gap}
+
 The gap between the uncoded points and the curve is striking. At $P_b=10^{-5}$ uncoded QPSK sits
 7.8\,dB from the limit for $\eta=2$, and uncoded 64-QAM 7.6\,dB from it for $\eta=6$. For large QAM
-constellations the gap is nearly independent of size, which leads to a handy engineering rule:
-the rate of uncoded QAM is approximately
+constellations the gap is nearly independent of size (Figure~\ref{fig:ch09_snr_gap}), which leads
+to a handy engineering rule: the rate of uncoded QAM is approximately
 \begin{equation}
 R_b\approx W\log_2\!\left(1+\frac{\mathrm{SNR}}{\Gamma}\right),
 \label{eq:ch09:gap}
 \end{equation}
-where the \term{SNR gap} $\Gamma$ is roughly 9\,dB at symbol error rates near $10^{-6}$. The
-gap approximation, due to Forney and to the DSL designers of the 1990s, is how DSL and cable
-modems allocate bits across frequencies (Chapter~\ref{ch:wireline}). A code with $g$\,dB of
-coding gain reduces the gap to $\Gamma-g$; modern LDPC and polar codes
+where the \term{SNR gap} $\Gamma$ is roughly 9\,dB at symbol error rates near $10^{-6}$. In words:
+uncoded QAM behaves exactly like Shannon's formula, except that it needs about eight times more
+SNR to get there. The gap approximation, due to Forney and to the DSL designers of the 1990s, is
+how DSL and cable modems allocate bits across frequencies (Chapter~\ref{ch:wireline}). A code with
+$g$\,dB of coding gain reduces the gap to $\Gamma-g$; modern LDPC and polar codes
 (Chapter~\ref{ch:moderncodes}) cut it to 1 to 2\,dB, and the remaining 1.53\,dB of the uncoded
 constellation's shape is the subject of Section~\ref{sec:ch09:shaping}.
+
+\mdcfig[0.88]{ch09_snr_gap}{The SNR gap. Diamonds: the SNR at which uncoded square QAM reaches a
+symbol error rate of $10^{-6}$. They sit on a copy of Shannon's curve shifted about 9\,dB to the
+right (dashed)---a rule of thumb accurate enough to plan a DSL line or a microwave hop.}
 
 \begin{worked}[Choosing a modulation for a satellite transponder]
 A 36\,MHz satellite transponder delivers $C/N_0=90$\,dB-Hz to a ground terminal. The operator
@@ -777,10 +1163,21 @@ eats part of that margin, and operators often settle one step lower. Chapter~\re
 develops such budgets properly, including the nonlinearity.
 \end{worked}
 
+\begin{tryit}[Walk towards the wall]
+Lab~2, \emph{The bandwidth--power plane}: pick 16-QAM and drag \emph{Coding gain} from 0 to 8\,dB;
+the marker slides west towards Shannon's wall. Then raise \emph{Roll-off $\beta$} and watch it
+sink south. Tick \emph{Overlay a link budget} and set \emph{$C/N_0$} to 90\,dB-Hz and
+\emph{Channel bandwidth} to 36\,MHz to replay the worked example above.
+\end{tryit}
+
 \section{Orthogonal signalling and FSK}
 \label{sec:ch09:orthogonal}
 
 \subsection{\texorpdfstring{$M$}{M}-ary orthogonal signals}
+
+So far, adding bits has meant crowding more points into the same two dimensions, and paying
+for it in power. Is there a way to add bits and \emph{gain} power efficiency? Astonishingly,
+yes---if you are willing to spend bandwidth. Give every message its own private dimension.
 
 The bottom-left of the efficiency plane belongs to \term{orthogonal signalling}: $M$ signals of
 equal energy, each along its own axis, $\vect s_i=\sqrt{E_s}\,\vect e_i$. Every pair is separated
@@ -788,17 +1185,18 @@ by $d=\sqrt{2E_s}$, so every other signal is a nearest neighbour, and the union 
 \begin{equation}
 P_s\le(M-1)\,\Q\!\left(\sqrt{E_s/N_0}\right).
 \end{equation}
-The exact result follows from the correlation receiver. With signal 1 sent, the $M$
-correlator outputs (normalised by $\sqrt{N_0/2}$) are independent Gaussians of unit variance,
-one with mean $\sqrt{2E_s/N_0}$ and $M-1$ with mean zero, and a correct decision needs the first
-to be the largest:
+The exact result follows from the correlation receiver. With signal 1 sent, the $M$ correlator
+outputs (normalised by $\sqrt{N_0/2}$) are independent Gaussians of unit variance, one with mean
+$\sqrt{2E_s/N_0}$ and $M-1$ with mean zero, and a correct decision needs the first to be the
+largest:
 \begin{equation}
 P_s=1-\int_{-\infty}^{\infty}\frac{e^{-u^2/2}}{\sqrt{2\pi}}\,
 \Phi\!\left(u+\sqrt{2E_s/N_0}\right)^{M-1}du ,
 \label{eq:ch09:orth}
 \end{equation}
-where $\Phi=1-\Q$ is the Gaussian distribution function. All errors are equally likely, and for
-any bit position exactly $M/2$ of the $M-1$ wrong symbols carry the wrong bit, so
+where $\Phi=1-\Q$ is the Gaussian distribution function. In words: the right correlator must beat
+all $M-1$ wrong ones, each of which is pure noise. All errors are equally likely, and for any bit
+position exactly $M/2$ of the $M-1$ wrong symbols carry the wrong bit, so
 $P_b=\frac{M/2}{M-1}P_s$.
 
 Now the remarkable part. Each orthogonal signal carries $k=\log_2M$ bits with energy
@@ -806,50 +1204,78 @@ $E_s=kE_b$, but the distance between signals \emph{grows} with $k$: $d^2=2kE_b$.
 orthogonal set adds dimensions and pushes every signal further from every other, whereas adding
 bits to QAM crowds more points into the same two dimensions. Figure~\ref{fig:ch09_orthogonal}
 shows the result: the $E_b/N_0$ needed for $P_b=10^{-5}$ falls from 12.6\,dB for $M=2$ to 7.4\,dB
-for $M=16$ and 4.7\,dB for $M=1024$. How far can it go? Bounding~\eqref{eq:ch09:orth} with
-$\Q(x)\le\frac12e^{-x^2/2}$ gives
-$P_s<M\,e^{-E_s/2N_0}=e^{-k(E_b/N_0-2\ln2)/2}$, which vanishes as $k\to\infty$ whenever
-$E_b/N_0>2\ln2$ (1.42\,dB). A more careful bound, splitting the integral in two, sharpens the
-threshold to exactly $\ln2$: \emph{orthogonal signalling achieves the Shannon limit
-of~\eqref{eq:ch09:ln2} as $M\to\infty$}. It was the first explicit scheme known to do so. The
-price is bandwidth, which grows as $M/\log_2M$, and complexity, which grows as $M$ correlators.
+for $M=16$ and 4.7\,dB for $M=1024$.
 
-\mdcfig[0.85]{ch09_orthogonal}{Bit error probability of coherent $M$-ary orthogonal signalling,
+\begin{figure}[H]\centering
+\includegraphics[width=0.8\linewidth]{figs/ch09_orthogonal}
+\caption{Bit error probability of coherent $M$-ary orthogonal signalling,
 from~\eqref{eq:ch09:orth}. Each doubling of $M$ lowers the required $E_b/N_0$, and as
 $M\to\infty$ the curves approach a vertical wall at the Shannon limit, $-1.59$\,dB. Dotted:
 noncoherent detection for $M=2$ and $M=16$.}
+\label{fig:ch09_orthogonal}
+\end{figure}
 
-Two relatives are worth knowing. A \term{biorthogonal} set adds the negative of each orthogonal
-signal, giving $2M$ signals in $M$ dimensions: half the bandwidth of an orthogonal set of the same
-size, with almost the same power efficiency (the new antipodal pairs are further apart than the
-orthogonal ones). A \term{simplex} set subtracts the centroid from an orthogonal set, saving a
-fraction $1/M$ of the energy; for $M=2$ the simplex is antipodal signalling, which is why BPSK is
-3\,dB better than binary orthogonal FSK. In practice orthogonal sets appear as Walsh--Hadamard
-codewords (the IS-95 CDMA uplink used 64-ary orthogonal Walsh modulation with noncoherent
-detection, Chapter~\ref{ch:spreadspectrum}), as pulse-position modulation in optical and
-deep-space links, and as the chirps of LoRa (Chapter~\ref{ch:wifi}), which are orthogonal
-cyclic shifts of a single sweep.
+How far can it go? The box below shows that \emph{orthogonal signalling achieves the Shannon
+limit of~\eqref{eq:ch09:ln2} as $M\to\infty$}. It was the first explicit scheme known to do so.
+The price is bandwidth, which grows as $M/\log_2M$, and complexity, which grows as $M$
+correlators.
+
+\begin{deeper}[Orthogonal signals reach $-1.59$\,dB]
+Bounding~\eqref{eq:ch09:orth} with the union bound and $\Q(x)\le\frac12e^{-x^2/2}$ gives
+\[
+P_s<M\,e^{-E_s/2N_0}=e^{k\ln 2-kE_b/2N_0}=e^{-k(E_b/N_0-2\ln2)/2},
+\]
+which vanishes as $k\to\infty$ whenever $E_b/N_0>2\ln2$ (1.42\,dB). The union bound is loose here
+because, with so many competitors, the error events overlap heavily. A more careful bound splits
+the integral in two---using the union bound only where the correct correlator's output is small
+and the trivial bound $P_s\le1$ elsewhere---and sharpens the threshold to exactly $\ln2$.
+\end{deeper}
+
+Two relatives are worth knowing (Figure~\ref{fig:ch09_simplex_sets}). A \term{biorthogonal} set
+adds the negative of each orthogonal signal, giving $2M$ signals in $M$ dimensions: half the
+bandwidth of an orthogonal set of the same size, with almost the same power efficiency (the new
+antipodal pairs are further apart than the orthogonal ones). A \term{simplex} set subtracts the
+centroid from an orthogonal set, saving a fraction $1/M$ of the energy; for $M=2$ the simplex is
+antipodal signalling, which is why BPSK is 3\,dB better than binary orthogonal FSK.
+
+\mdcfig[0.92]{ch09_simplex_sets}{The orthogonal family at unit energy. Binary orthogonal signals
+are $\sqrt2$ apart; pulling them onto one line (the simplex for $M=2$, i.e.\ antipodal) makes them
+2 apart---the 3\,dB difference between FSK and BPSK. Three simplex points form a triangle;
+a biorthogonal set of four is QPSK.}
+
+In practice orthogonal sets appear as Walsh--Hadamard codewords (the IS-95 CDMA uplink used
+64-ary orthogonal Walsh modulation with noncoherent detection, Chapter~\ref{ch:spreadspectrum}),
+as pulse-position modulation in optical and deep-space links, and as the chirps of LoRa
+(Chapter~\ref{ch:wifi}), which are orthogonal cyclic shifts of a single sweep.
 
 \subsection{Frequency-shift keying}
 
 The most familiar orthogonal set is $M$ tones,
 $s_i(t)=\sqrt{2E_s/T}\cos(2\pi f_it+\theta_i)$ with $f_i=f_0+i\,\Delta f$. How close can the tones
-be and remain orthogonal? For two tones over one symbol, with $f_c\gg1/T$,
+be and remain orthogonal? Intuition first: over one symbol, two tones must ``drift apart'' by
+enough cycles that their product averages to zero. For two tones over one symbol, with
+$f_c\gg1/T$,
 \begin{equation}
 \int_0^T\cos(2\pi f_1t)\cos(2\pi f_2t+\theta)\,dt\approx
 \frac{T}{2}\,\frac{\sin(2\pi\Delta fT-\theta)+\sin\theta}{2\pi\Delta fT}.
 \end{equation}
 If the receiver knows the phases (coherent detection, $\theta=0$), the integral vanishes when
-$2\Delta fT$ is an integer: the minimum spacing is $\Delta f=1/(2T)$. If the phases are unknown
-and arbitrary (noncoherent detection), it must vanish for every $\theta$, which requires
-$\Delta fT$ to be an integer: the minimum spacing doubles to $\Delta f=1/T$. The occupied
-bandwidth is roughly $M\Delta f$, so coherent $M$-FSK achieves
+$2\Delta fT$ is an integer: the minimum spacing is $\Delta f=1/(2T)$, half a cycle of drift per
+symbol. If the phases are unknown and arbitrary (noncoherent detection), it must vanish for every
+$\theta$, which requires $\Delta fT$ to be an integer: the minimum spacing doubles to
+$\Delta f=1/T$ (Figure~\ref{fig:ch09_fsk_orthogonality}).
+
+\mdcfig[0.92]{ch09_fsk_orthogonality}{How far apart must FSK tones be? Left: correlation between
+two tones against their spacing. With known phase (navy) it first reaches zero at $1/2T$; for the
+worst-case unknown phase (red) not until $1/T$. Right: two tones $1/2T$ apart drift exactly half
+a cycle against each other in one symbol.}
+
+The occupied bandwidth is roughly $M\Delta f$, so coherent $M$-FSK achieves
 $\eta\approx2\log_2M/M$ and noncoherent $\eta\approx\log_2M/M$: one bit per hertz at best for
 coherent binary or 4-ary FSK, falling rapidly for larger $M$. This is the price of the power
-efficiency in Figure~\ref{fig:ch09_orthogonal}.
-
-Binary FSK with spacing $1/(2T)$ and continuous phase has a special name---minimum-shift keying---and
-a special place in Section~\ref{sec:ch09:constenv}.
+efficiency in Figure~\ref{fig:ch09_orthogonal}. Binary FSK with spacing $1/(2T)$ and continuous
+phase has a special name---minimum-shift keying---and a special place in
+Section~\ref{sec:ch09:constenv}.
 
 \begin{history}[Teleprinters and the triumph of FSK]
 The first radioteletype circuits of the 1920s and 1930s keyed a carrier on and off, like Morse
@@ -866,6 +1292,19 @@ survives in the Bell 103 and 202 modems, in the FSK of pagers, and in the Gaussi
 Bluetooth and DECT.
 \end{history}
 
+\begin{figure}[H]\centering
+\includegraphics[width=0.46\linewidth]{figs/photos/ch09_teletype}
+\caption{A restored Teletype Model~15 printing a news feed. Machines like this sat at the end of the mid-century radioteletype circuits, driven by a noncoherent FSK receiver deciding, character by character, which of two tones was louder.\mdccredit{ch09_teletype}}
+\label{fig:ch09_teletype}
+\end{figure}
+
+\begin{tryit}[Trade bandwidth for power]
+Lab~2, \emph{Orthogonal FSK, noncoherently}: set \emph{Number of tones $M$} to 2 and $E_b/N_0$ to
+8\,dB, note the bit error rate, then step $M$ up to 64 at the \emph{same} $E_b/N_0$. Errors
+nearly vanish---but remember the bandwidth bill: 64 tones need about five times the spectrum per bit of two. Switch \emph{Receiver} between Coherent and
+Noncoherent: the difference is under a decibel.
+\end{tryit}
+
 \section{Noncoherent and differential detection}
 \label{sec:ch09:noncoherent}
 
@@ -877,7 +1316,39 @@ and at what cost: a phase-locked loop, a training sequence or pilots, and a dela
 first bit can be trusted. Some receivers cannot afford that cost. A burst lasting a few
 milliseconds may be over before a loop settles; a channel whose phase spins with Doppler may
 move faster than any loop can track; a tiny sensor may not have the power for a synthesiser
-precise enough. For them, detection must work with the phase unknown.
+precise enough. For them, detection must work with the phase unknown---with a clock hand whose
+zero mark has been rubbed off.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize, >=Latex,
+  blk/.style={draw=navy, fill=navy!6, thick, minimum height=6.5mm, minimum width=11mm, align=center},
+  mix/.style={draw=navy, thick, circle, minimum size=5mm, inner sep=0pt},
+  lab/.style={color=navy!80}]
+\node (in) at (0,0) {$r(t)$};
+\foreach \y/\n/\f/\c in {1.5/1/{\cos 2\pi f_1t}/navy, 0.5/2/{\sin 2\pi f_1t}/navy, -0.5/3/{\cos 2\pi f_2t}/accent, -1.5/4/{\sin 2\pi f_2t}/accent}{
+  \node[mix] (m\n) at (1.5,\y) {$\times$};
+  \node[blk, right=4mm of m\n] (int\n) {$\int_0^T$};
+  \node[blk, right=4mm of int\n, minimum width=7mm] (sq\n) {$(\cdot)^2$};
+  \node[left=0.5mm of m\n, lab, font=\sffamily\tiny, anchor=south east, yshift=1.5mm] {$\f$};
+  \draw[->] (in.east) -- ++(0.3,0) |- (m\n.west);
+  \draw[->] (m\n) -- (int\n); \draw[->] (int\n) -- (sq\n);
+}
+\node[mix] (s1) at (6.0,1.0) {$+$};
+\node[mix] (s2) at (6.0,-1.0) {$+$};
+\draw[->] (sq1.east) -| (s1); \draw[->] (sq2.east) -| (s1);
+\draw[->] (sq3.east) -| (s2); \draw[->] (sq4.east) -| (s2);
+\node[blk, fill=accent!8, draw=accent, minimum height=16mm] (cmp) at (7.6,0) {pick the\\larger\\energy};
+\draw[->] (s1) -- node[lab, above, sloped] {$|z_1|^2$} (cmp);
+\draw[->] (s2) -- node[lab, below, sloped] {$|z_2|^2$} (cmp);
+\draw[->] (cmp.east) -- ++(0.5,0) node[right, lab] {$\hat b$};
+\end{tikzpicture}
+\caption{The noncoherent (square-law) receiver for binary FSK. For each tone an I and a Q
+correlator capture the energy whatever its phase; the receiver simply asks which tone carried more
+energy. No oscillator needs to be locked to anything---only tuned to roughly the right
+frequencies.}
+\label{fig:ch09_ncfsk_rx}
+\end{figure}
 
 Model the unknown phase as a random variable $\theta$ uniform on $[0,2\pi)$:
 $\tilde r=\tilde s_ie^{j\theta}+\tilde w$ in complex baseband. Averaging the likelihood over
@@ -894,7 +1365,7 @@ it is the magnitude of a complex correlation, or of an FFT bin. The phase uncert
 consequence unavoidable: the detector cannot distinguish $\tilde s$ from $-\tilde s$, so
 information cannot be carried in the absolute phase. Noncoherent detection works with FSK (and
 orthogonal signals generally), with on-off keying, and with the phase \emph{differences} of
-differential PSK.
+differential PSK (Figure~\ref{fig:ch09_ncfsk_rx}).
 
 \subsection{Noncoherent FSK}
 
@@ -916,6 +1387,15 @@ phase costs well under a decibel---a bargain for a receiver that needs no carrie
 
 \subsection{Differential PSK}
 
+\begin{analogy}[Directions without a compass]
+Lost in fog without a compass, you cannot say which way is north---but you can still say ``turn
+left 90 degrees'' and be understood. Differential PSK sends exactly such relative directions.
+The receiver never learns the absolute phase of the carrier; it only compares each symbol with
+the one before. Whatever unknown rotation the channel applied, it applied to both, and it
+cancels (Figure~\ref{fig:ch09_dpsk_idea}). The catch: the previous symbol is your only reference,
+and it is just as noisy as the current one.
+\end{analogy}
+
 PSK needs a phase reference; \term{differential PSK} (DPSK) uses the previous symbol as one. The
 transmitter encodes the data in phase \emph{changes}: $a_n=a_{n-1}\,e^{j\Delta\phi_n}$, where
 $\Delta\phi_n$ is chosen from the data. The receiver forms
@@ -924,6 +1404,12 @@ z_n=\tilde r_n\,\tilde r_{n-1}^{*}=|a|^2e^{j\Delta\phi_n}+\text{noise terms},
 \label{eq:ch09:dpsk}
 \end{equation}
 in which any unknown but slowly varying channel phase cancels, and decides on the phase of $z_n$.
+
+\mdcfig[0.88]{ch09_dpsk_idea}{Why differential detection works. The channel rotates every
+received phasor by the same unknown angle $\theta$ (centre), destroying the absolute phases---but
+the product $r_nr_{n-1}^*$ (right) depends only on the phase \emph{change} between consecutive
+symbols, which is where the data lives.}
+
 For binary DPSK, deciding on the sign of $\re z_n$ gives
 \begin{equation}
 P_b^{\text{DBPSK}}=\tfrac12\,e^{-E_b/N_0}.
@@ -936,19 +1422,20 @@ is larger: DQPSK with Gray labels needs 12.0\,dB, about 2.4\,dB more than cohere
 large $M$ the penalty approaches 3\,dB, because the effective noise, the sum of two independent
 noise terms, has doubled. Figure~\ref{fig:ch09_noncoherent} compares the family.
 
-\mdcfig[0.85]{ch09_noncoherent}{Coherent and noncoherent binary and quaternary schemes. Lines are
+\mdcfig[0.8]{ch09_noncoherent}{Coherent and noncoherent binary and quaternary schemes. Lines are
 closed-form results; circles are simulations of differential encoding and delay-and-multiply
 detection (two million bits per point). DBPSK is within a decibel of coherent BPSK; DQPSK pays
 about 2.4\,dB; noncoherent FSK pays another 3\,dB for its orthogonal rather than antipodal
 geometry.}
 
-\textbf{Differential encoding}\index{differential encoding} is also used with \emph{coherent} detection, for a different reason.
-A carrier recovery loop for $M$-PSK or QAM has an $M$-fold (or fourfold) phase ambiguity
-(Chapter~\ref{ch:sync}): it locks with equal happiness at $0^\circ$, $90^\circ$, $180^\circ$ or
-$270^\circ$. Encoding the data differentially makes the ambiguity harmless, at the cost that each
-detection error corrupts two consecutive differences, roughly doubling the bit error rate---a
-fraction of a decibel. Satellite and cable modems of the QPSK era almost all did this; modern
-systems usually resolve the ambiguity with known pilot or synchronisation symbols instead.
+\textbf{Differential encoding}\index{differential encoding} is also used with \emph{coherent}
+detection, for a different reason. A carrier recovery loop for $M$-PSK or QAM has an $M$-fold (or
+fourfold) phase ambiguity (Chapter~\ref{ch:sync}): it locks with equal happiness at $0^\circ$,
+$90^\circ$, $180^\circ$ or $270^\circ$. Encoding the data differentially makes the ambiguity
+harmless, at the cost that each detection error corrupts two consecutive differences, roughly
+doubling the bit error rate---a fraction of a decibel. Satellite and cable modems of the QPSK era
+almost all did this; modern systems usually resolve the ambiguity with known pilot or
+synchronisation symbols instead.
 
 \begin{inpractice}[Where differential detection lives]
 Differential schemes survive wherever the channel phase is untrustworthy or receivers must be
@@ -966,39 +1453,54 @@ coherent receivers as a quick, robust estimator of frequency offset (Chapter~\re
 \begin{pitfall}[Differential detection is not immune to frequency offset]
 DPSK tolerates an unknown \emph{phase}, but a residual carrier \emph{frequency} offset $\Delta f$
 rotates $z_n$ in~\eqref{eq:ch09:dpsk} by $2\pi\Delta fT$ every symbol, biasing every decision in
-the same direction. For DQPSK, whose decision regions are $\pm45^\circ$ wide, an offset of just 5\%
-of the symbol rate rotates $z_n$ by $18^\circ$ and costs several decibels. Budget for it: differential
-receivers still need a coarse frequency correction, and their error-rate curves assume it has been
-done.
+the same direction (Figure~\ref{fig:ch09_dqpsk_cfo}). For DQPSK, whose decision regions are
+$\pm45^\circ$ wide, an offset of just 5\% of the symbol rate rotates $z_n$ by $18^\circ$ and costs
+several decibels. Budget for it: differential receivers still need a coarse frequency correction,
+and their error-rate curves assume it has been done.
 \end{pitfall}
+
+\mdcfig[0.8]{ch09_dqpsk_cfo}{The differential products $z_n$ of DQPSK at $E_s/N_0=16$\,dB. Left:
+with no frequency offset the clouds sit on the ideal points (crosses), centred in their
+$90^\circ$ wedges. Right: an offset of 5\% of the symbol rate rotates every cloud by $18^\circ$
+towards a wedge boundary, so a modest noise spike is now enough to cause an error.}
 
 \section{Envelope, amplifiers and continuous-phase modulation}
 \label{sec:ch09:constenv}
 
 \subsection{Why the envelope matters}
 
-Error-rate curves compare modulations at equal \emph{average} power. Power amplifiers do not
-care about average power; they care about \emph{peak} power. An amplifier driven beyond its
-linear range compresses the peaks, distorting the constellation and, far worse, spreading the
-signal's spectrum into neighbouring channels (the spectral regrowth of
-Figure~\ref{fig:ch07_pa_regrowth}). To avoid it, a linear signal must be amplified with its
-average power \emph{backed off} below the amplifier's saturation by roughly its
-\term{peak-to-average power ratio} (PAPR). Back-off is expensive, because amplifier efficiency
-falls with it: an ideal class-A stage converts at most 50\% of its DC power to RF at saturation
-but only 12.5\% at 6\,dB back-off; an ideal class-B stage falls from 78.5\% to 39\%. In a handset,
-where the PA can be the largest single consumer of battery, a few decibels of PAPR are hours of
-talk time; in a satellite, they are kilograms of solar array.
+Your phone's battery has a powerful enemy, and it is not the screen during a call: it is the
+power amplifier. And the amplifier's mood depends on something none of our error-rate curves has
+looked at---how much the signal's envelope \emph{wobbles}.
+
+Error-rate curves compare modulations at equal \emph{average} power. Power amplifiers do not care
+about average power; they care about \emph{peak} power. An amplifier driven beyond its linear
+range compresses the peaks, distorting the constellation and, far worse, spreading the signal's
+spectrum into neighbouring channels (the spectral regrowth of Figure~\ref{fig:ch07_pa_regrowth}).
+To avoid it, a linear signal must be amplified with its average power \emph{backed off} below the
+amplifier's saturation by roughly its \term{peak-to-average power ratio} (PAPR). Back-off is
+expensive, because amplifier efficiency falls with it: an ideal class-A stage converts at most
+50\% of its DC power to RF at saturation but only 12.5\% at 6\,dB back-off; an ideal class-B stage
+falls from 78.5\% to 39\% (Figure~\ref{fig:ch09_pa_backoff}). In a handset, where the PA can be
+the largest single consumer of battery, a few decibels of PAPR are hours of talk time; in a
+satellite, they are kilograms of solar array.
+
+\mdcfig[0.92]{ch09_pa_backoff}{The amplifier's dilemma. Left: a power amplifier is linear only well
+below saturation; to keep a 16-QAM signal's peaks (shaded) out of the bend, its average must sit
+several decibels lower. Right: the cost of that back-off in efficiency, for ideal class-A and
+class-B stages. Six decibels of back-off throws away three-quarters of a class-A amplifier's
+efficiency.}
 
 Two things set a signal's PAPR: the constellation (16-QAM's corner points are 2.55\,dB above its
 average) and, more importantly, the \emph{transitions} between symbols after pulse shaping. When
 consecutive QPSK symbols are diametrically opposite, the filtered trajectory passes through or
 near the origin, and the envelope collapses to zero before rising again
 (Figure~\ref{fig:ch09_trajectories}). The resulting envelope swings produce peaks well above the
-constellation's own and, through a nonlinear amplifier, strong regrowth. Figure~\ref{fig:ch09_papr_ccdf}
-shows the statistics as a complementary distribution: with RRC pulses of roll-off 0.25, the power
-of QPSK exceeds its average by 4.6\,dB for $10^{-4}$ of the time, 16-QAM by 6.3\,dB and 64-QAM by
-6.6\,dB; an OFDM signal (Chapter~\ref{ch:ofdm}) needs about 9.6\,dB. Constant-envelope GMSK needs
-none.
+constellation's own and, through a nonlinear amplifier, strong regrowth.
+Figure~\ref{fig:ch09_papr_ccdf} shows the statistics as a complementary distribution: with RRC
+pulses of roll-off 0.25, the power of QPSK exceeds its average by 4.6\,dB for $10^{-4}$ of the
+time, 16-QAM by 6.3\,dB and 64-QAM by 6.6\,dB; an OFDM signal (Chapter~\ref{ch:ofdm}) needs about
+9.6\,dB. Constant-envelope GMSK needs none.
 
 \mdcfig{ch09_trajectories}{I/Q trajectories of RRC-filtered ($\beta=0.35$) QPSK, offset QPSK and
 $\pi/4$-QPSK, and of GMSK. Red dots mark the transmitted waveform at the symbol instants (they do
@@ -1007,34 +1509,50 @@ the receiver's matched filter completes it). QPSK passes through the origin; OQP
 $\pi/4$-QPSK avoid the centre (dashed circle); GMSK stays on the unit circle. The minimum envelope
 relative to its RMS value is printed beneath each panel.}
 
-\mdcfig[0.85]{ch09_papr_ccdf}{Complementary cumulative distribution of instantaneous power for
+\mdcfig[0.8]{ch09_papr_ccdf}{Complementary cumulative distribution of instantaneous power for
 several modulations with RRC pulses ($\beta=0.25$) and, for reference, an OFDM signal. The
 horizontal distance at a chosen probability, commonly $10^{-4}$, is the back-off a linear
 amplifier needs. GMSK is a vertical line at 0\,dB.}
 
+\begin{analogy}[A smooth steering wheel instead of jerks]
+Picture the IQ trajectory as a car driven around a car park, with the constellation points as
+parking bays. QPSK's driver yanks the wheel at every symbol, sometimes driving straight across
+the middle of the car park; the passengers (the amplifier) are thrown about. Offset QPSK never
+turns more than a quarter turn at once; $\pi/4$-QPSK always swerves around the central pillar.
+MSK and GMSK drive in a perfect circle at constant speed, steering only gently left or right---the
+smoothest ride of all, and the amplifier can sleep through it. The analogy's limit: the smooth
+ride costs bays---constant-envelope schemes carry fewer bits per hertz.
+\end{analogy}
+
 \subsection{Offset QPSK and \texorpdfstring{$\pi/4$}{pi/4}-QPSK}
 
 Two small modifications remove QPSK's zero crossings without changing its error rate in AWGN.
-\textbf{Offset QPSK}\index{offset QPSK} (OQPSK, also called staggered QPSK) delays the Q stream by half a symbol,
-$T_b$. I and Q never change at the same instant, so the phase jumps by at most $90^\circ$ at a time
-and the trajectory never passes through the origin; the PAPR falls by about 0.6\,dB and the
-envelope's minimum rises from zero to about half its RMS value. Because I and Q are still
-independent BPSK streams, the matched-filter receiver and the error rate are exactly those of
-QPSK. OQPSK carried the IS-95 CDMA uplink, where handset PA efficiency was paramount, and IEEE
+\textbf{Offset QPSK}\index{offset QPSK} (OQPSK, also called staggered QPSK) delays the Q stream by
+half a symbol, $T_b$. I and Q never change at the same instant, so the phase jumps by at most
+$90^\circ$ at a time and the trajectory never passes through the origin; the PAPR falls by about
+0.6\,dB and the envelope's minimum rises from zero to about half its RMS value. Because I and Q are
+still independent BPSK streams, the matched-filter receiver and the error rate are exactly those
+of QPSK. OQPSK carried the IS-95 CDMA uplink, where handset PA efficiency was paramount, and IEEE
 802.15.4 (the physical layer of Zigbee and Thread) uses OQPSK with half-sine pulses at the
 2.4\,GHz band---a combination we are about to recognise as MSK.
 
 \term{$\pi/4$-QPSK} uses two QPSK constellations rotated by $45^\circ$ from each other and
-alternates between them, so that every symbol changes the phase by $\pm45^\circ$ or $\pm135^\circ$.
-No transition passes through the origin, and because the phase always changes, a timing
-recovery circuit always has something to lock to. Encoded differentially, as
-\term{$\pi/4$-DQPSK}, it can be detected either coherently or with the delay-and-multiply
-receiver of Section~\ref{sec:ch09:noncoherent}. That flexibility made it the modulation of the
-second-generation digital cellular systems of North America (IS-54/IS-136, 48.6\,kb/s in 30\,kHz
-channels) and Japan (PDC), of the TETRA professional radio system, of DAB, and of Bluetooth EDR. The
-same idea generalises. EDGE rotates 8-PSK by $3\pi/8$ per symbol to avoid the origin, and 5G NR
-defines $\pi/2$-BPSK---BPSK rotated by $90^\circ$ each symbol---for its lowest-PAPR uplink mode
-(3GPP TS 38.211), where it is combined with DFT-spread OFDM for cell-edge handsets.
+alternates between them, so that every symbol changes the phase by $\pm45^\circ$ or $\pm135^\circ$
+(Figure~\ref{fig:ch09_pi4_states}). No transition passes through the origin, and because the phase
+always changes, a timing recovery circuit always has something to lock to. Encoded
+differentially, as \term{$\pi/4$-DQPSK}, it can be detected either coherently or with the
+delay-and-multiply receiver of Section~\ref{sec:ch09:noncoherent}. That flexibility made it the
+modulation of the second-generation digital cellular systems of North America (IS-54/IS-136,
+48.6\,kb/s in 30\,kHz channels) and Japan (PDC), of the TETRA professional radio system, of DAB,
+and of Bluetooth EDR. The same idea generalises. EDGE rotates 8-PSK by $3\pi/8$ per symbol to
+avoid the origin, and 5G NR defines $\pi/2$-BPSK---BPSK rotated by $90^\circ$ each symbol---for its
+lowest-PAPR uplink mode (3GPP TS 38.211), where it is combined with DFT-spread OFDM for cell-edge
+handsets.
+
+\mdcfig[0.78]{ch09_pi4_states}{Allowed transitions. Left: in QPSK, the diagonal (red) jumps of
+$180^\circ$ pass straight through the origin, where the envelope dies. Right: $\pi/4$-QPSK
+alternates between the circles' two square sets, so every move is a $45^\circ$ or $135^\circ$
+step that skirts the centre (dashed circle).}
 
 \subsection{Continuous-phase modulation}
 
@@ -1045,52 +1563,64 @@ whose complex envelope has constant amplitude and a phase that is a smooth funct
 \qquad q(t)=\int_{-\infty}^tg(\tau)\,d\tau .
 \label{eq:ch09:cpm}
 \end{equation}
-Here $a_n\in\{\pm1,\pm3,\dots\}$ are the data symbols, $h$ is the \term{modulation index}, and
-$g(t)$ is the \emph{frequency pulse}, normalised so that $q(\infty)=\tfrac12$. Each symbol
-therefore changes the phase by $\pi ha_n$ in total. When $g(t)$ lasts one symbol the scheme is
-\emph{full response} (continuous-phase FSK); when it lasts $L>1$ symbols it is \emph{partial
-response}, and each symbol's phase change is spread over several symbol periods, which narrows the
-spectrum. Because the phase remembers every past symbol, a CPM signal is a finite-state
-machine---its states are the accumulated phase modulo $2\pi$ and the last $L-1$ symbols---and the
-optimal receiver is a Viterbi detector on that trellis (Chapter~\ref{ch:classiccodes}). Anderson,
-Aulin and Sundberg's 1986 book developed this family thoroughly; its practical members are few but
-enormously important.
+Read it as steering: the data symbols $a_n\in\{\pm1,\pm3,\dots\}$ push the steering wheel left or
+right, $g(t)$ (the \emph{frequency pulse}) says how gently each push is applied, and $h$, the
+\term{modulation index}, says how far each push turns the car. With $g$ normalised so that
+$q(\infty)=\tfrac12$, each symbol changes the phase by $\pi ha_n$ in total. When $g(t)$ lasts one
+symbol the scheme is \emph{full response} (continuous-phase FSK); when it lasts $L>1$ symbols it
+is \emph{partial response}, and each symbol's phase change is spread over several symbol periods,
+which narrows the spectrum. Because the phase remembers every past symbol, a CPM signal is a
+finite-state machine---its states are the accumulated phase modulo $2\pi$ and the last $L-1$
+symbols---and the optimal receiver is a Viterbi detector on that trellis
+(Chapter~\ref{ch:classiccodes}). Anderson, Aulin and Sundberg's 1986 book developed this family
+thoroughly; its practical members are few but enormously important.
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.92\linewidth]{figs/ch09_cpm_phase}
+\caption{Left: the phase of MSK for the bits shown ramps by $\pm90^\circ$ per bit
+along the edges of the phase tree (grey); Gaussian filtering in GMSK rounds the corners and, at
+$BT=0.3$, no longer reaches the full $\pm90^\circ$ within one bit. Right: the frequency pulses
+$g(t)$: MSK's rectangle and GMSK's Gaussian-smoothed rectangles, which last two to three bit periods.}
+\label{fig:ch09_cpm_phase}
+\end{figure}
 
 \subsection{MSK}
 
-\textbf{Minimum-shift keying}\index{minimum-shift keying} (MSK) is binary CPFSK with $h=\tfrac12$: a rectangular frequency pulse,
-a frequency deviation of $\pm R_b/4$ (tone spacing $1/(2T_b)$, the minimum for coherent
-orthogonality, hence the name), and a phase that ramps linearly by exactly $\pm90^\circ$ in every
-bit (Figure~\ref{fig:ch09_cpm_phase}). It has a second, equally useful description. Working out the
-I and Q components of~\eqref{eq:ch09:cpm} shows that MSK is \emph{identical} to offset QPSK in
-which each bit is shaped by a half-sinusoid of duration $2T_b$:
+\textbf{Minimum-shift keying}\index{minimum-shift keying} (MSK) is binary CPFSK with $h=\tfrac12$:
+a rectangular frequency pulse, a frequency deviation of $\pm R_b/4$ (tone spacing $1/(2T_b)$, the
+minimum for coherent orthogonality, hence the name), and a phase that ramps linearly by exactly
+$\pm90^\circ$ in every bit (Figure~\ref{fig:ch09_cpm_phase}). It has a second, equally useful
+description. Working out the I and Q components of~\eqref{eq:ch09:cpm} shows that MSK is
+\emph{identical} to offset QPSK in which each bit is shaped by a half-sinusoid of duration $2T_b$
+(Figure~\ref{fig:ch09_msk_halfsine}):
 \begin{equation}
 \tilde s(t)=\sum_n a_{I,n}\,p(t-2nT_b)+j\sum_n a_{Q,n}\,p(t-(2n+1)T_b),\qquad
 p(t)=\sin\frac{\pi t}{2T_b},\ 0\le t<2T_b ,
 \label{eq:ch09:msk}
 \end{equation}
 with the bits $a_{I,n},a_{Q,n}$ related to the FSK data by a simple differential precoding. The
-first view explains the constant envelope; the second explains the error rate. A linear matched-filter
-receiver sees two antipodal BPSK streams, so coherent MSK achieves
+first view explains the constant envelope; the second explains the error rate. A linear
+matched-filter receiver sees two antipodal BPSK streams, so coherent MSK achieves
 $P_b=\Q(\sqrt{2E_b/N_0})$---the power efficiency of BPSK with the constant envelope of FSK. (S.
 Pasupathy's 1979 tutorial, cited below, remains the clearest account of the equivalence.)
 
-\mdcfig{ch09_cpm_phase}{Left: the phase of MSK for the bits shown ramps by $\pm90^\circ$ per bit
-along the edges of the phase tree (grey); Gaussian filtering in GMSK rounds the corners and, at
-$BT=0.3$, no longer reaches the full $\pm90^\circ$ within one bit. Right: the frequency pulses
-$g(t)$: MSK's rectangle and GMSK's Gaussian-smoothed rectangles, which last two to three bit periods.}
+\mdcfig[0.86]{ch09_msk_halfsine}{MSK seen as offset QPSK. The I and Q rails each carry half-sine
+pulses two bits long, staggered by one bit; as one rail passes through zero the other is at its
+peak, so $\sqrt{I^2+Q^2}$ never changes. Same signal, two descriptions: FSK explains the constant
+envelope, OQPSK explains the BPSK error rate.}
 
-The MSK spectrum falls off as $f^{-4}$, against $f^{-2}$ for QPSK with rectangular pulses, because its
-phase (and hence its waveform) is continuous. Its main lobe is wider---its first null is at
+The MSK spectrum falls off as $f^{-4}$, against $f^{-2}$ for QPSK with rectangular pulses, because
+its phase (and hence its waveform) is continuous. Its main lobe is wider---its first null is at
 $0.75R_b$ from the carrier against $0.5R_b$ for QPSK---but its 99\% power bandwidth is about
 $1.2R_b$, against roughly $8R_b$ for rectangular QPSK (Figure~\ref{fig:ch09_msk_spectra}).
 
 \subsection{GMSK}
 
-For cellular radio even $f^{-4}$ is not enough: adjacent-channel emissions must be 60 to 70\,dB below
-the carrier. \textbf{Gaussian minimum-shift keying}\index{Gaussian minimum-shift keying} (GMSK), proposed by Kazuaki Murota and Kenkichi
-Hirade of NTT in 1981, passes the MSK frequency pulses through a Gaussian low-pass filter
-before the frequency modulator. The filter's impulse response is
+For cellular radio even $f^{-4}$ is not enough: adjacent-channel emissions must be 60 to 70\,dB
+below the carrier. \textbf{Gaussian minimum-shift keying}\index{Gaussian minimum-shift keying}
+(GMSK), proposed by Kazuaki Murota and Kenkichi Hirade of NTT in 1981, passes the MSK frequency
+pulses through a Gaussian low-pass filter before the frequency modulator---it softens every push
+on the steering wheel. The filter's impulse response is
 \begin{equation}
 h_G(t)=\sqrt{\frac{2\pi}{\ln2}}\,B\,\exp\!\left(-\frac{2\pi^2B^2t^2}{\ln2}\right),
 \end{equation}
@@ -1103,15 +1633,23 @@ g(t)=\frac{1}{2T_b}\left[\Q\!\left(\frac{2\pi B(t-T_b/2)}{\sqrt{\ln2}}\right)-
 The single design parameter is the normalised bandwidth $BT_b$. At $BT_b=\infty$ GMSK is MSK; as
 $BT_b$ falls, the pulse spreads over more bits, the phase trajectory is smoothed, and the spectrum
 narrows---at the price of controlled intersymbol interference, because each bit's phase change now
-overlaps its neighbours'. At $BT_b=0.3$ the 99\% bandwidth is about $0.91R_b$ and the out-of-band
-spectrum falls much faster than MSK's (Figure~\ref{fig:ch09_msk_spectra}); the ISI costs a fraction
-of a decibel in a receiver that accounts for it. GSM transmits 270.833\,kb/s of GMSK with
-$BT_b=0.3$ in 200\,kHz channels, about 1.35\,b/s/Hz. Because GMSK is so close to linear, its
-receivers usually treat it as a linear modulation using the first term of Laurent's 1986
-decomposition of CPM into a sum of amplitude-modulated pulses, and absorb the residual ISI into the
-Viterbi equaliser that multipath requires anyway (Chapter~\ref{ch:equalization}).
+overlaps its neighbours' (Figure~\ref{fig:ch09_gmsk_eye}). At $BT_b=0.3$ the 99\% bandwidth is
+about $0.91R_b$ and the out-of-band spectrum falls much faster than MSK's
+(Figure~\ref{fig:ch09_msk_spectra}); the ISI costs a fraction of a decibel in a receiver that
+accounts for it.
 
-\mdcfig[0.85]{ch09_msk_spectra}{Power spectral densities (normalised to unit total power) against
+\mdcfig[0.92]{ch09_gmsk_eye}{Eye diagrams of the instantaneous frequency, simulated for MSK and
+GMSK. MSK's frequency jumps cleanly between $\pm1$. As $BT$ falls the Gaussian filter rounds every
+transition and lets neighbouring bits leak into each other: at $BT=0.3$ (GSM) the eye is still wide
+open; at $BT=0.2$ it has visibly closed.}
+
+GSM transmits 270.833\,kb/s of GMSK with $BT_b=0.3$ in 200\,kHz channels, about 1.35\,b/s/Hz.
+Because GMSK is so close to linear, its receivers usually treat it as a linear modulation using the
+first term of Laurent's 1986 decomposition of CPM into a sum of amplitude-modulated pulses, and
+absorb the residual ISI into the Viterbi equaliser that multipath requires anyway
+(Chapter~\ref{ch:equalization}).
+
+\mdcfig[0.8]{ch09_msk_spectra}{Power spectral densities (normalised to unit total power) against
 frequency offset in units of the bit rate. Rectangular QPSK has nulls every $R_b/2$ and slowly
 decaying sidelobes; MSK's continuous phase gives $f^{-4}$ sidelobes; Gaussian filtering with
 $BT=0.5$ and $0.3$ suppresses them further. RRC-filtered QPSK is the most compact of all but has a
@@ -1131,6 +1669,20 @@ switching the same carriers to 8-PSK. By the time GSM was retired in many countr
 several billion GMSK handsets had been built.
 \end{history}
 
+\begin{figure}[htbp]\centering
+\begin{minipage}[b]{0.2\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch09_hagenuk}
+\end{minipage}\hspace{0.08\linewidth}
+\begin{minipage}[b]{0.3\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch09_nokia3310}
+\end{minipage}
+\caption{Two GMSK handsets. Left: an early GSM phone (a Cetelco-branded Hagenuk MT-2000 of the
+mid-1990s)\mdccredit{ch09_hagenuk}. Right: a Nokia 3310 (2000), one of the best-selling phones of
+its era\mdccredit{ch09_nokia3310}. Both transmit with saturated, efficient power
+amplifiers---affordable only because GMSK's envelope never changes.}
+\label{fig:ch09_gsm_phones}
+\end{figure}
+
 \begin{inpractice}[The GFSK family: Bluetooth, BLE and DECT]
 When the modulation index departs from $\tfrac12$ the scheme is Gaussian FSK (GFSK), which trades
 some power efficiency for tolerance of cheap, imprecise oscillators and for simple
@@ -1143,6 +1695,20 @@ away quickly, and a receiver that can be a limiter and a discriminator costing a
 millimetres of silicon.
 \end{inpractice}
 
+\begin{figure}[htbp]\centering
+\begin{minipage}[b]{0.44\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch09_bt_headset}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.52\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch09_dect}
+\end{minipage}
+\caption{GFSK at home. Left: a Bluetooth headset, whose 1\,Mb/s Basic Rate link is GFSK with a
+modulation index near 0.3\mdccredit{ch09_bt_headset}. Right: a DECT cordless handset taken apart;
+its whole radio---GFSK transmitter, limiter--discriminator receiver and all---sits on the small green
+board in the middle\mdccredit{ch09_dect}.}
+\label{fig:ch09_gfsk_devices}
+\end{figure}
+
 \begin{keyidea}[Constant envelope versus spectral efficiency]
 Constant-envelope modulations (MSK, GMSK, GFSK) let the power amplifier run in saturation at high
 efficiency but are limited to about 1 to 1.5\,b/s/Hz. Linear modulations (QAM with RRC pulses)
@@ -1152,26 +1718,55 @@ between. Modern handsets resolve the dilemma with digital predistortion and enve
 trade-off still decides the modulation of every battery-powered sensor and satellite.
 \end{keyidea}
 
+\begin{tryit}[Steer gently]
+Run \lab{python labs/lab21\_cpm\_evm.py}. In the CPM experiment drag the \emph{BT} slider from 1.0
+down to 0.2 and watch the phase trajectory lose its corners while the spectrum narrows; then move
+the \emph{modulation index $h$} away from 0.5 and see the IQ circle stop closing neatly on four
+points. In the spectra experiment, compare the 99\% bandwidth readouts for MSK and GMSK, and in the
+PAPR experiment confirm that GMSK's CCDF is a vertical line at 0\,dB.
+\end{tryit}
+
 \section{Soft decisions: bit log-likelihood ratios}
 \label{sec:ch09:soft}
 
 \subsection{From hard to soft}
 
+Two darts land in the same territory. One hits the bullseye dead centre; the other lands on the
+border, a hair's breadth from the neighbour's side. A hard-decision detector reports the same
+answer for both and shrugs. But anyone can see that the second answer is little better than a
+coin toss---and an error-correcting decoder downstream would dearly like to know which bits are
+the coin tosses (Figure~\ref{fig:ch09_soft_confidence}).
+
+\mdcfig[0.92]{ch09_soft_confidence}{Same decision, different confidence. Left: two received
+samples, A and B, both on the ``1'' side of the threshold. Right: their log-likelihood ratios.
+A is wrong with probability 0.2\%; B is wrong 37\% of the time. A soft detector passes this
+difference to the decoder; a hard one throws it away.}
+
 A detector that outputs only the nearest symbol throws away information: a sample that lands
 exactly on a constellation point and one that lands on a decision boundary yield the same hard
-decision, but the second is a coin toss. Modern error-correcting decoders
-(Chapters~\ref{ch:classiccodes} and~\ref{ch:moderncodes}) can use that reliability information,
-and it is worth about 2\,dB to them. The standard currency is the bit \term{log-likelihood ratio}
-(LLR). For the $k$th bit of the label of the received symbol,
+decision. Modern error-correcting decoders (Chapters~\ref{ch:classiccodes}
+and~\ref{ch:moderncodes}) can use that reliability information, and it is worth about 2\,dB to
+them. The standard currency is the bit \term{log-likelihood ratio} (LLR). For the $k$th bit of the
+label of the received symbol,
 \begin{equation}
 L(b_k)=\ln\frac{P(b_k=0\mid y)}{P(b_k=1\mid y)}
 =\ln\frac{\sum_{x\in\mathcal X_k^0}p(x)\,e^{-|y-x|^2/N_0}}{\sum_{x\in\mathcal X_k^1}p(x)\,e^{-|y-x|^2/N_0}},
 \label{eq:ch09:llr}
 \end{equation}
 where $\mathcal X_k^b$ is the set of constellation points whose $k$th bit equals $b$ and $p(x)$ is
-the prior of each point (uniform in most systems). The sign of $L$ is the hard decision and its
-magnitude the confidence: $|L|=0$ means no idea, $|L|=5$ means the decision is wrong with
-probability $1/(1+e^5)\approx0.7\%$.
+the prior of each point (uniform in most systems). In words: add up how plausible all the
+``bit is 0'' points are, do the same for the ``bit is 1'' points, and compare. The sign of $L$ is
+the hard decision and its magnitude the confidence: $|L|=0$ means no idea, $|L|=5$ means the
+decision is wrong with probability $1/(1+e^5)\approx0.7\%$.
+
+\begin{analogy}[A weather forecast, not a yes or no]
+A hard decision is a forecaster who only ever says ``rain'' or ``dry''. An LLR is one who says
+``90\% chance of rain'' or ``55\% chance of rain''. Over a week, you would plan your life far
+better with the second forecaster---and so does a decoder, which uses the confident bits to fix
+the doubtful ones. The analogy's limit: the forecaster's percentages are only useful if they are
+\emph{calibrated}; an LLR computed with the wrong noise level is a forecaster who exaggerates
+(see the pitfall below).
+\end{analogy}
 
 Evaluating~\eqref{eq:ch09:llr} for 1024-QAM needs 1024 exponentials per symbol. The
 \term{max-log approximation} keeps only the largest term in each sum:
@@ -1193,11 +1788,15 @@ L(b_2)\approx\frac{4(|y_I|-2)}{N_0},
 \end{equation}
 which a receiver evaluates with a few adds and shifts (Figure~\ref{fig:ch09_llr}).
 
-\mdcfig{ch09_llr}{Left: exact (solid) and max-log (dashed) LLRs of the two in-phase bits of
+\begin{figure}[H]\centering
+\includegraphics[width=0.92\linewidth]{figs/ch09_llr}
+\caption{Left: exact (solid) and max-log (dashed) LLRs of the two in-phase bits of
 Gray-labelled 16-QAM at $E_s/N_0=5$\,dB, against the in-phase sample; dotted lines mark the
 constellation levels. The approximation is visibly inexact only near the decision boundaries.
 Right: distribution of the LLR, signed so that positive means correct, at 12\,dB. The first
 (sign) bit makes half as many errors as the second: bit positions in a QAM symbol are not equal.}
+\label{fig:ch09_llr}
+\end{figure}
 
 \begin{worked}[Soft bits from one 16-QAM sample]
 A receiver with $N_0=0.5$ (on the unnormalised $\pm1,\pm3$ grid) observes $y=0.5-2.4j$.
@@ -1214,20 +1813,54 @@ would pass all four bits to the decoder as equally trustworthy; a soft one tells
 exactly where to look for errors.
 \end{worked}
 
+\begin{tryit}[Drag a sample, read its LLRs]
+Lab~2, \emph{Soft bits: LLRs}: choose 16-QAM at $E_s/N_0=5$\,dB and drag the \emph{In-phase I}
+slider slowly across a decision boundary while watching the LLR of \emph{Bit to inspect}~1 and~2.
+The sign flips exactly at the boundary, and the magnitude tells you how close you were. Raise
+$E_s/N_0$: the same geometry gives far more confident LLRs.
+\end{tryit}
+
 \subsection{Bit-interleaved coded modulation}
 
 Soft demapping makes possible the architecture used by essentially every modern standard---Wi-Fi,
-LTE and NR, DVB-S2/T2, DOCSIS 3.1: \term{bit-interleaved coded modulation} (BICM). A binary code
-(LDPC, turbo or polar) encodes the data; an interleaver scatters the coded bits; a Gray mapper
-groups them into symbols; the receiver computes LLRs with~\eqref{eq:ch09:llr}
-or~\eqref{eq:ch09:maxlog} and de-interleaves them into a binary decoder. The interleaver makes the
-bits of each symbol, which have different reliabilities (Figure~\ref{fig:ch09_llr}) and fade
-together, look to the decoder like independent binary channels. BICM was introduced by Ephraim
-Zehavi in 1992 for fading channels and analysed by Caire, Taricco and Biglieri in 1998, who showed
-that with Gray labelling it loses only a fraction of a decibel relative to the best joint
-coding-and-modulation schemes---while letting one binary code serve every constellation. It
-displaced Ungerboeck's trellis-coded modulation in wireless systems for exactly that reason. The
-theory of these capacities is developed in Chapter~\ref{ch:infotheory}.
+LTE and NR, DVB-S2/T2, DOCSIS 3.1: \term{bit-interleaved coded modulation} (BICM)
+(Figure~\ref{fig:ch09_bicm}). A binary code (LDPC, turbo or polar) encodes the data; an
+interleaver scatters the coded bits; a Gray mapper groups them into symbols; the receiver computes
+LLRs with~\eqref{eq:ch09:llr} or~\eqref{eq:ch09:maxlog} and de-interleaves them into a binary
+decoder. The interleaver makes the bits of each symbol, which have different reliabilities
+(Figure~\ref{fig:ch09_llr}) and fade together, look to the decoder like independent binary
+channels. BICM was introduced by Ephraim Zehavi in 1992 for fading channels and analysed by Caire,
+Taricco and Biglieri in 1998, who showed that with Gray labelling it loses only a fraction of a
+decibel relative to the best joint coding-and-modulation schemes---while letting one binary code
+serve every constellation. It displaced Ungerboeck's trellis-coded modulation in wireless systems
+for exactly that reason. The theory of these capacities is developed in
+Chapter~\ref{ch:infotheory}.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize, >=Latex, node distance=4mm,
+  blk/.style={draw=navy, fill=navy!6, thick, minimum height=8mm, minimum width=13mm, align=center},
+  ch/.style={draw=accent, fill=accent!8, thick, minimum height=8mm, minimum width=13mm, align=center},
+  lab/.style={color=navy!80}]
+\node (src) {bits};
+\node[blk, right=of src] (enc) {binary\\encoder};
+\node[blk, right=of enc] (pi) {interleaver\\$\Pi$};
+\node[blk, right=of pi] (map) {Gray\\mapper};
+\node[ch, right=of map] (chn) {channel\\+ noise};
+\node[blk, right=of chn] (dem) {soft\\demapper};
+\node[blk, right=of dem] (dpi) {$\Pi^{-1}$};
+\node[blk, right=of dpi] (dec) {binary\\decoder};
+\draw[->] (src) -- (enc); \draw[->] (enc) -- (pi); \draw[->] (pi) -- (map);
+\draw[->] (map) -- node[lab, above] {$x$} (chn); \draw[->] (chn) -- node[lab, above] {$y$} (dem);
+\draw[->] (dem) -- node[lab, above] {LLRs} (dpi); \draw[->] (dpi) -- (dec);
+\draw[->, dashed, navy!60] (dec.south) -- ++(0,-0.5) -| node[lab, below, pos=0.25] {priors (iterative receivers only)} (dem.south);
+\end{tikzpicture}
+\caption{Bit-interleaved coded modulation. One binary code serves every constellation; the
+interleaver hides the unequal reliability of a symbol's bits; the soft demapper
+evaluates~\eqref{eq:ch09:llr} and hands LLRs to the decoder. Iterative receivers may feed the
+decoder's beliefs back as priors $p(x)$.}
+\label{fig:ch09_bicm}
+\end{figure}
 
 \begin{pitfall}[LLRs need the right noise level]
 Equation~\eqref{eq:ch09:llr} contains $N_0$. A demapper fed a wrong noise estimate produces LLRs
@@ -1242,9 +1875,18 @@ Channel estimation (Chapter~\ref{ch:ofdm}) must supply both.
 \section{A first look at fading}
 \label{sec:ch09:fading}
 
-Everything so far has assumed a fixed channel gain. A mobile radio channel is not so kind:
-multipath components add with phases that change as the terminal moves a fraction of a
-wavelength, and the received amplitude fluctuates by tens of decibels (Chapter~\ref{ch:channels}).
+Everything so far has assumed a fixed channel gain. A mobile radio channel is not so kind. Walk
+down the street with your phone and the signal does not just fade gently with distance: it
+plunges, recovers, plunges again, every few centimetres, as reflections from walls and cars add
+up in phase and then cancel (Figure~\ref{fig:ch09_fading_trace}). Multipath components add with
+phases that change as the terminal moves a fraction of a wavelength, and the received amplitude
+fluctuates by tens of decibels (Chapter~\ref{ch:channels}).
+
+\mdcfig[0.92]{ch09_fading_trace}{Simulated Rayleigh fading over ten wavelengths of travel (about
+1.5\,m at 2\,GHz). One antenna (navy) suffers deep, narrow fades, some 25\,dB or more below the
+mean; combining two independently fading antennas (green) fills in most of them. The dashed lines
+mark fades deeper than 10 and 20\,dB.}
+
 The simplest model, \term{Rayleigh fading}, takes the channel gain $h$ in $y=ha+n$ to be a
 circularly symmetric complex Gaussian, so $|h|$ is Rayleigh distributed and the instantaneous SNR
 $\gamma=|h|^2\bar\gamma$ is exponentially distributed about its mean $\bar\gamma$. If the fading is
@@ -1256,20 +1898,29 @@ gives, for BPSK,
 =\frac12\left(1-\sqrt{\frac{\bar\gamma}{1+\bar\gamma}}\right)\approx\frac{1}{4\bar\gamma},
 \label{eq:ch09:rayleigh}
 \end{equation}
-and for DBPSK $1/(2(1+\bar\gamma))$ and noncoherent FSK $1/(2+\bar\gamma)$.
+and for DBPSK $1/(2(1+\bar\gamma))$ and noncoherent FSK $1/(2+\bar\gamma)$. Read the right-hand
+side: the error rate falls only as one over the SNR. Ten times the power buys ten times fewer
+errors, not the astronomical improvement the AWGN waterfall promised.
 
 \mdcfig{ch09_rayleigh}{Bit error probability in flat Rayleigh fading (solid) against AWGN (dashed).
 The waterfall becomes a straight line falling one decade per 10\,dB. Circles are simulations of
 BPSK with a perfectly known channel. Maximal-ratio combining of two or four independently fading
 branches (dash-dot, plotted against the SNR per branch) restores a steep slope.}
 
-The change is dramatic (Figure~\ref{fig:ch09_rayleigh}). The exponential waterfall of the AWGN
-channel becomes a straight line falling only one decade per 10\,dB. BPSK needs 6.8\,dB for
-$10^{-3}$ in AWGN but 24\,dB in Rayleigh fading; for $10^{-5}$ the figures are 9.6 and 44\,dB, a
-34\,dB penalty. The cause is not the average SNR but the occasional deep fade: the channel is
-more than 10\,dB below its mean about 10\% of the time and more than 20\,dB below about 1\% of the
-time, and during those fades errors are almost certain. Bigger constellations do not escape; they
-suffer the same inverse-SNR law with a larger constant.
+The change is dramatic (Figure~\ref{fig:ch09_rayleigh}). BPSK needs 6.8\,dB for $10^{-3}$ in AWGN
+but 24\,dB in Rayleigh fading; for $10^{-5}$ the figures are 9.6 and 44\,dB, a 34\,dB penalty. The
+cause is not the average SNR but the occasional deep fade: the channel is more than 10\,dB below
+its mean about 10\% of the time and more than 20\,dB below about 1\% of the time, and during those
+fades errors are almost certain. Bigger constellations do not escape; they suffer the same
+inverse-SNR law with a larger constant.
+
+\begin{analogy}[Don't put all your eggs in one basket]
+A deep fade is like one basket being dropped: if every egg (every copy of a bit) is in it, you
+lose them all. Spread the eggs over two baskets carried by people walking different paths, and
+you lose them only if \emph{both} are dropped at once---which, if the drops are independent, is
+the square of an already small probability. That is diversity, and it is why the green trace in
+Figure~\ref{fig:ch09_fading_trace} so rarely dips as deep as the navy one.
+\end{analogy}
 
 The cure is \term{diversity}: give the receiver several independently fading copies of each bit,
 so that all of them are unlikely to fade at once. With $L$ independent branches combined
@@ -1278,7 +1929,24 @@ $\bar\gamma^{-L}$: BPSK at $10^{-3}$ needs 24\,dB per branch with one branch, 11
 4.0\,dB with four. The branches can be antennas (spatial diversity), frequencies (OFDM with coding
 across subcarriers, Chapter~\ref{ch:ofdm}), times (coding with interleaving deeper than a fade) or
 paths (the rake receiver of Chapter~\ref{ch:spreadspectrum}). Almost every design decision in a
-mobile physical layer is, at bottom, a way of buying diversity.
+mobile physical layer is, at bottom, a way of buying diversity (Figure~\ref{fig:ch09_diversity_fades}).
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.46\linewidth]{figs/ch09_diversity_fades}
+\caption{Why diversity works, in numbers. The probability that the combined SNR falls more than 10 or 20\,dB below its mean, for one, two and four independently Rayleigh-fading branches with maximal-ratio combining. Each extra branch knocks orders of magnitude off the chance of a deep fade.}
+\label{fig:ch09_diversity_fades}
+\end{figure}
+
+\begin{inpractice}[Diversity is everywhere once you look]
+Count the antennas around you. The Wi-Fi router of Figure~\ref{fig:ch09_house} has four; a
+modern phone hides several more behind its case. LTE handsets were specified from the start with
+two receive antennas, and 5G NR requires four in many of its higher bands (3GPP TS~38.101-1),
+largely to buy receive diversity and spatial multiplexing. Base stations combine signals from
+two, four or dozens of antenna elements. OFDM systems spread each codeword across many
+subcarriers so that a fade on one is outvoted by the others, and interleavers spread it across
+time. None of these is primarily about more power; all of them are about not putting every egg in
+one basket.
+\end{inpractice}
 
 \begin{keyidea}[Fading changes what matters]
 In AWGN, performance is set by minimum Euclidean distance and a code's job is to increase it. In
@@ -1289,39 +1957,64 @@ interleaver maximises. Chapter~\ref{ch:channels} develops the models, Chapter~\r
 antenna techniques.
 \end{keyidea}
 
+\begin{tryit}[Feel a fade]
+Lab~2, \emph{Rayleigh fading and diversity}: choose BPSK at 15\,dB average $E_b/N_0$ with one
+branch and press play. Errors arrive in clumps, exactly when the fading trace dives. Switch
+\emph{Receive branches (MRC)} to 2 and then 4 and watch the clumps disappear; slide \emph{Fading
+rate} up to see faster, shorter fades.
+\end{tryit}
+
 \section{Measuring modulation quality: EVM and MER}
 \label{sec:ch09:evm}
 
 \subsection{Error vector magnitude}
+
+Every Wi-Fi chip, every cellular handset and every base station sold today has been tested
+against a single number before it left the factory. Not its bit error rate---far too slow to
+measure---but how far its transmitted symbols land from where they should.
 
 Error-rate curves describe an ideal transmitter and an ideal receiver separated by noise. Real
 transmitters are not ideal: their oscillators wander, their I and Q paths are mismatched, their
 amplifiers compress, their DACs quantize. The industry's universal yardstick for all of these at
 once is the \term{error vector magnitude} (EVM). A test receiver---a vector signal analyser---
 demodulates the signal, synchronises it, and compares each received symbol $y_n$ with the ideal
-constellation point $s_n$ that it represents. The difference $e_n=y_n-s_n$ is the error vector,
-and
+constellation point $s_n$ that it represents. The difference $e_n=y_n-s_n$ is the error vector
+(Figure~\ref{fig:ch09_evm_vector}), and
 \begin{equation}
 \mathrm{EVM}_{\text{rms}}=\sqrt{\frac{\sum_n|y_n-s_n|^2}{\sum_n|s_n|^2}},\qquad
 \mathrm{EVM}_{\text{dB}}=20\log_{10}\mathrm{EVM}_{\text{rms}} .
 \label{eq:ch09:evm}
 \end{equation}
-EVM is quoted in percent (cellular) or decibels (Wi-Fi); 3.5\% is $-29.1$\,dB. Broadcasting and cable
-engineers use the reciprocal, the \term{modulation error ratio}
-$\mathrm{MER}=10\log_{10}(\sum|s_n|^2/\sum|e_n|^2)$ (ETSI TR~101~290), which equals $-\mathrm{EVM}_{\text{dB}}$
-when both are normalised to the average constellation power.
 
-If the error vectors are noise-like, EVM is simply an SNR in disguise: $\mathrm{SNR}\approx1/\mathrm{EVM}^2$.
-This makes it additive with everything else in a link budget. A transmitter with EVM
-$\epsilon_{\text{tx}}$ delivers to even a noiseless receiver an effective SNR of
-$1/\epsilon_{\text{tx}}^2$, and a receiver with thermal SNR $\rho$ sees
+\begin{figure}[H]\centering
+\includegraphics[width=0.4\linewidth]{figs/ch09_evm_vector}
+\caption{The error vector: the arrow from where a symbol should be ($s_n$) to where it was
+measured ($y_n$). EVM is its rms length relative to the rms length of the ideal symbols.}
+\label{fig:ch09_evm_vector}
+\end{figure}
+
+EVM is quoted in percent (cellular) or decibels (Wi-Fi); 3.5\% is $-29.1$\,dB. Broadcasting and
+cable engineers use the reciprocal, the \term{modulation error ratio}
+$\mathrm{MER}=10\log_{10}(\sum|s_n|^2/\sum|e_n|^2)$ (ETSI TR~101~290), which equals
+$-\mathrm{EVM}_{\text{dB}}$ when both are normalised to the average constellation power.
+
+If the error vectors are noise-like, EVM is simply an SNR in disguise:
+$\mathrm{SNR}\approx1/\mathrm{EVM}^2$. This makes it additive with everything else in a link
+budget. A transmitter with EVM $\epsilon_{\text{tx}}$ delivers to even a noiseless receiver an
+effective SNR of $1/\epsilon_{\text{tx}}^2$, and a receiver with thermal SNR $\rho$ sees
 \begin{equation}
 \frac{1}{\mathrm{SNR}_{\text{eff}}}=\frac1\rho+\epsilon_{\text{tx}}^2+\epsilon_{\text{rx}}^2 .
 \label{eq:ch09:evmsnr}
 \end{equation}
-A 1024-QAM link needs an effective SNR in the thirties of decibels; a transmitter with 3\% EVM
-($-30.5$\,dB) caps it at 30.5\,dB however strong the signal. That is why EVM limits, not noise,
-decide how large a constellation a short-range system can use.
+In words: noise powers add, and the transmitter's distortion is just one more noise. A 1024-QAM
+link needs an effective SNR in the thirties of decibels; a transmitter with 3\% EVM ($-30.5$\,dB)
+caps it at 30.5\,dB however strong the signal (Figure~\ref{fig:ch09_evm_cap}). That is why EVM
+limits, not noise, decide how large a constellation a short-range system can use.
+
+\mdcfig[0.86]{ch09_evm_cap}{EVM is a ceiling. Effective SNR from~\eqref{eq:ch09:evmsnr} against the
+receiver's thermal SNR for four transmitter qualities. However strong the signal, the effective
+SNR can never exceed $-\mathrm{EVM}_{\text{dB}}$; standing next to a router with a sloppy
+transmitter will never give you 1024-QAM.}
 
 \subsection{What impairments look like}
 
@@ -1351,6 +2044,14 @@ of additive noise and with the raw EVM of~\eqref{eq:ch09:evm}. A measuring instr
 remove the average gain, phase and frequency offset---standards specify exactly which corrections
 are allowed---so the IQ-imbalance and frequency-offset cases would read lower on a real analyser.}
 
+\begin{tryit}[Be the test engineer]
+In Lab~21's EVM experiment, start with everything clean at a \emph{thermal SNR} of 32\,dB, then
+add one impairment at a time: \emph{phase noise} of 3$^\circ$, an \emph{IQ phase error} of
+5$^\circ$, a \emph{PA input back-off} of 3\,dB, a little \emph{residual CFO}. Learn each signature,
+then ask a friend to set the sliders secretly and diagnose the transmitter from its constellation
+alone.
+\end{tryit}
+
 \begin{pitfall}[Read the EVM definition before comparing numbers]
 EVM figures from different sources are often not comparable. Standards normalise to average power
 (3GPP, IEEE 802.11) or, in some older specifications, to peak constellation power, which makes the
@@ -1373,7 +2074,7 @@ Converted to decibels these are $-15.1$, $-18.1$, $-21.9$, $-29.1$ and $-32.0$\,
 which are tighter because Wi-Fi uses higher code rates with its large constellations, appear in
 Table~\ref{tab:ch09:wifimcs}.
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{The IEEE 802.11ax (Wi-Fi 6) modulation and coding schemes, with the two 4096-QAM schemes
 added by 802.11be (Wi-Fi 7). Data rates are for one spatial stream in a 20\,MHz channel (234 data
@@ -1420,6 +2121,14 @@ via~\eqref{eq:ch09:evmsnr}. In practice MCS~10--11 is reachable only within a fe
 access point, with a clear line of sight.
 \end{worked}
 
+\begin{figure}[H]\centering
+\includegraphics[width=0.88\linewidth]{figs/ch09_evm_budget}
+\caption{The EVM budget of the worked example. Left: the four error powers;
+the amplifier towers over the rest. Right: the total before and after backing the PA off by
+1\,dB---from a 0.6\,dB failure to a pass with nothing to spare.}
+\label{fig:ch09_evm_budget}
+\end{figure}
+
 \begin{worked}[An EVM budget for a 1024-QAM transmitter]
 A designer must meet $-35$\,dB (1.78\%) for 1024-QAM. The contributions, estimated or measured
 separately and treated as independent, are: synthesiser phase noise of $0.5^\circ$ rms
@@ -1430,21 +2139,27 @@ $-38$\,dB; DAC quantization, clock jitter and analog noise, $-40$\,dB. Error pow
 10^{-4.12}+10^{-4.5}+10^{-3.8}+10^{-4.0}=(0.76+0.32+1.58+1.00)\times10^{-4}=3.66\times10^{-4},
 \]
 which is $-34.4$\,dB, or 1.91\%. The design fails by 0.6\,dB, and the table of contributions shows
-where to act: the PA term dominates. Backing the PA off by 1\,dB typically improves its
-intermodulation-limited EVM by about 2\,dB (third-order products fall twice as fast as the
-signal), to $-40$\,dB; the total becomes $3.08\times10^{-4}$, or $-35.1$\,dB. It passes, with no
-margin, at the cost of about a decibel of output power. Real designs keep 2 to 3\,dB of margin for
-production spread and temperature.
+where to act: the PA term dominates (Figure~\ref{fig:ch09_evm_budget}). Backing the PA off by
+1\,dB typically improves its intermodulation-limited EVM by about 2\,dB (third-order products fall
+twice as fast as the signal), to $-40$\,dB; the total becomes $3.08\times10^{-4}$, or $-35.1$\,dB.
+It passes, with no margin, at the cost of about a decibel of output power. Real designs keep 2 to
+3\,dB of margin for production spread and temperature.
 \end{worked}
+
+
 
 \section{Constellation shaping}
 \label{sec:ch09:shaping}
 
 \subsection{The 1.53\,dB that uniform constellations leave behind}
 
+Here is a puzzle. Take a perfect error-correcting code---infinitely long, decoded flawlessly---and
+use it on square QAM. Even then, at high SNR, you would sit 1.53\,dB short of Shannon's capacity.
+The missing decibels are not lost in the code; they are lost in the \emph{shape} of the
+constellation.
+
 Error-correcting codes close most of the 7 to 8\,dB gap between uncoded QAM and the Shannon limit,
-but not all of it. Part of the gap has nothing to do with coding: it comes from the \emph{shape} of
-the constellation. Shannon's capacity is achieved by Gaussian-distributed channel inputs, whereas
+but not all of it. Shannon's capacity is achieved by Gaussian-distributed channel inputs, whereas
 a square QAM constellation with equiprobable points approximates a \emph{uniform} distribution over
 a square. At high SNR the cost can be computed exactly. A uniform distribution on an interval of
 width $a$ has differential entropy $\log_2a$ and variance $a^2/12$; a Gaussian with the same
@@ -1458,15 +2173,34 @@ of 1.53\,dB is the most that any rearrangement or reweighting of the constellati
 and it is independent of the code: a perfect code on a uniform square constellation stays 1.53\,dB
 from capacity at high SNR. The ideal is the familiar picture of Shannon's proof: points packed
 uniformly inside a \emph{sphere} of high dimension rather than a cube, whose projection onto any
-one dimension is Gaussian.
+one dimension is Gaussian (Figure~\ref{fig:ch09_sphere_cube}).
 
-There are two ways to get the gain. \textbf{Geometric shaping}\index{geometric shaping} moves the points: rings with more
-points on the inside (APSK), non-uniform grids, or, as in the V.34 modem's shell mapping, choosing
-multidimensional points from inside a sphere rather than a cube. ATSC~3.0 broadcasting and DVB-S2X
-use such non-uniform constellations, optimised numerically for each code rate. \textbf{Probabilistic
-shaping}\index{probabilistic shaping} keeps the regular grid but sends the points with unequal probabilities---inner points
-often, outer points rarely---so that the input distribution approximates a sampled Gaussian. The
-natural choice is the \term{Maxwell--Boltzmann distribution}
+\begin{figure}[H]\centering
+\includegraphics[width=0.92\linewidth]{figs/ch09_sphere_cube}
+\caption{Where shaping gain comes from. Left: a circle of the same area as
+a square keeps its points closer to the centre, saving about 0.2\,dB of average energy in two
+dimensions. Right: in 32 dimensions, points spread uniformly through a ball cast a nearly
+Gaussian shadow on any one axis (red), while a cube casts a flat one (grey). As the dimension
+grows the saving approaches $\pi e/6$, or 1.53\,dB.}
+\label{fig:ch09_sphere_cube}
+\end{figure}
+
+\begin{analogy}[Packing a suitcase]
+You have to pack a fixed number of items (bits) and you pay for the suitcase by how far its
+contents sit from the middle (energy). A square suitcase wastes its corners: things stuffed there
+are expensive and add nothing that couldn't sit closer in. A round suitcase is cheaper for the same
+load. Shaping is choosing a rounder suitcase---or, in the probabilistic version, putting the
+things you need often near the middle and the rarities in the corners.
+\end{analogy}
+
+There are two ways to get the gain. \textbf{Geometric shaping}\index{geometric shaping} moves the
+points: rings with more points on the inside (APSK), non-uniform grids, or, as in the V.34 modem's
+shell mapping, choosing multidimensional points from inside a sphere rather than a cube. ATSC~3.0
+broadcasting and DVB-S2X use such non-uniform constellations, optimised numerically for each code
+rate. \textbf{Probabilistic shaping}\index{probabilistic shaping} keeps the regular grid but sends
+the points with unequal probabilities---inner points often, outer points rarely---so that the input
+distribution approximates a sampled Gaussian. The natural choice is the
+\term{Maxwell--Boltzmann distribution}
 \begin{equation}
 P(x)=\frac{e^{-\lambda|x|^2}}{\sum_{x'}e^{-\lambda|x'|^2}},
 \label{eq:ch09:mb}
@@ -1494,13 +2228,36 @@ code and constellation, rather than in jumps between modulation formats.
 The practical obstacle was always the interface with coding: a binary encoder produces
 equiprobable bits, which a mapper turns into equiprobable points. The \term{probabilistic amplitude
 shaping} (PAS) architecture of B\"ocherer, Steiner and Schulte (2015) removed it with a neat
-observation. The Maxwell--Boltzmann distribution depends only on $|x|$, so the \emph{signs} of the
-I and Q coordinates can remain uniform. A \emph{distribution matcher} (for example, constant
-composition distribution matching) converts uniform data bits into a sequence of amplitudes with
-the desired distribution; the amplitudes' bit labels pass through a systematic binary LDPC encoder,
-whose systematic output is unchanged and whose parity bits---being uniform---are used as the
-signs. The receiver computes LLRs with the prior term of~\eqref{eq:ch09:llr}, decodes, and inverts
-the matcher. The existing binary FEC is untouched.
+observation (Figure~\ref{fig:ch09_pas}). The Maxwell--Boltzmann distribution depends only on $|x|$,
+so the \emph{signs} of the I and Q coordinates can remain uniform. A \emph{distribution matcher}
+(for example, constant composition distribution matching) converts uniform data bits into a
+sequence of amplitudes with the desired distribution; the amplitudes' bit labels pass through a
+systematic binary LDPC encoder, whose systematic output is unchanged and whose parity
+bits---being uniform---are used as the signs. The receiver computes LLRs with the prior term
+of~\eqref{eq:ch09:llr}, decodes, and inverts the matcher. The existing binary FEC is untouched.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize, >=Latex, node distance=5mm,
+  blk/.style={draw=navy, fill=navy!6, thick, minimum height=8mm, minimum width=14mm, align=center},
+  hl/.style={draw=accent, fill=accent!8, thick, minimum height=8mm, minimum width=14mm, align=center},
+  lab/.style={color=navy!80}]
+\node[align=center] (in) {uniform\\data bits};
+\node[hl, right=of in, align=center] (dm) {distribution\\matcher};
+\node[blk, right=12mm of dm] (enc) {systematic\\LDPC encoder};
+\node[blk, right=12mm of enc, minimum height=14mm] (map) {QAM\\mapper\\$x=s\cdot|x|$};
+\node[right=6mm of map, align=center] (out) {shaped\\symbols};
+\draw[->] (in) -- (dm);
+\draw[->] (dm) -- node[lab, above] {amplitudes} node[lab, below] {(non-uniform)} (enc);
+\draw[->] (enc.east) ++(0,0.2) -- node[lab, above] {$|x|$ labels} ++(12mm,0);
+\draw[->] (enc.east) ++(0,-0.2) -- node[lab, below] {parity $\to$ signs} ++(12mm,0);
+\draw[->] (map) -- (out);
+\end{tikzpicture}
+\caption{Probabilistic amplitude shaping. The distribution matcher makes small amplitudes
+common and large ones rare; a standard systematic binary code protects them, and its uniform
+parity bits become the signs, which the Maxwell--Boltzmann distribution leaves uniform anyway.}
+\label{fig:ch09_pas}
+\end{figure}
 
 \begin{inpractice}[Shaping in coherent optics]
 Probabilistic shaping made the leap from theory to product faster than almost any idea in this
@@ -1520,8 +2277,13 @@ Between uncoded QAM at $10^{-5}$ and the Shannon limit lie roughly 7 to 8\,dB. C
 of it: about 5 to 6\,dB for modern LDPC or polar codes with soft decisions. Shaping recovers up to
 another 1.53\,dB. What remains---a few tenths of a decibel for long codes---is the price of finite
 block length and practical decoders. Every one of those decibels is a factor of 1.26 in range in free
-space, or in battery life, or in satellite antenna area.
+space, or in battery life, or in satellite antenna area (Figure~\ref{fig:ch09_db_waterfall}).
 \end{keyidea}
+
+\mdcfig[0.82]{ch09_db_waterfall}{Where the decibels go, with representative values: uncoded QAM
+starts about 7.5\,dB from Shannon; a modern soft-decision code recovers most of that, shaping
+recovers up to another 1.5\,dB (here 1.2), and a few tenths remain for finite block length and
+practical decoders.}
 
 \section{Summary}
 \label{sec:ch09:summary}
@@ -1556,20 +2318,31 @@ recovers up to 1.53\,dB by making constellations look Gaussian.
 
 \begin{labbox}[Signal space, detection and constellations]
 \raggedright
-Lab~2, \lab{moderncomms-labs/labs/lab02\_modulation.py} (notebook
-\lab{lab02\_modulation.ipynb}), is the companion to this chapter. It builds the BPSK to 256-QAM
-constellations with \texttt{commlib.get\_constellation} and tabulates their $d_{\min}$ and PAPR;
-colours the ML decision regions of 8-PSK and 16-QAM; measures bit error rates by Monte Carlo for
-QPSK, 8-PSK, 16-QAM and 64-QAM and overlays the closed forms of this chapter; offers an interactive
-explorer (constellation and $E_b/N_0$ sliders) that reports BER, SER and EVM live; compares Gray and
-natural labelling on 16-QAM; and plots exact and max-log LLRs for the 16-QAM bits. Its exercises
-ask you to derive $d_{\min}$ for square QAM, check the 8-PSK union bound, find where 8-PSK and 16-QAM
-cross, and optimise the ring ratio of a DVB-S2 style 16-APSK. Every figure in this chapter is
-produced by \texttt{book/figscripts/ch09\_figs.py} using the same library; the GMSK generator, the
-impairment models and the mutual-information integrator there are good starting points for the
-simulation problems below. A second lab, \lab{moderncomms-labs/labs/lab21\_cpm\_evm.py},
-covers MSK/GMSK generation and detection (coherent, differential and discriminator receivers),
-occupied bandwidth, PAPR, and EVM measurement of simulated transmitter impairments.
+\textbf{Lab~2}, \lab{moderncomms-labs/labs/lab02\_modulation.py}, is the companion to this chapter;
+run it with \lab{python labs/lab02\_modulation.py}. Its experiments:
+\begin{itemize}
+\item \emph{Constellation gallery}: BPSK to 256-QAM, cross QAM and APSK with $d_{\min}$, PAPR, Gray
+or natural labels and a ring-ratio slider (Section~\ref{sec:ch09:constellations}).
+\item \emph{From waveforms to points}: correlators turning waveforms into signal-space points
+(Section~\ref{sec:ch09:signalspace}).
+\item \emph{Noise and decision regions} and \emph{Priors move the boundary}: a live noisy
+constellation with shaded Voronoi cells and error arrows; ML versus MAP thresholds
+(Section~\ref{sec:ch09:detection}).
+\item \emph{BER: Monte Carlo vs theory}: simulated error rates against this chapter's formulas,
+Gray versus natural labelling (Section~\ref{sec:ch09:errorprob}).
+\item \emph{Soft bits: LLRs}: exact and max-log LLRs for any received sample
+(Section~\ref{sec:ch09:soft}).
+\item \emph{Orthogonal FSK, noncoherently}, \emph{The bandwidth--power plane} and \emph{Rayleigh
+fading and diversity} (Sections~\ref{sec:ch09:orthogonal}, \ref{sec:ch09:tradeoff}
+and~\ref{sec:ch09:fading}).
+\end{itemize}
+\textbf{Lab~21}, \lab{moderncomms-labs/labs/lab21\_cpm\_evm.py}, covers the second half: MSK, GMSK and
+GFSK trajectories with $BT$ and $h$ sliders; spectra and 99\% bandwidth; PAPR CCDFs; coherent,
+differential and discriminator receivers; and EVM measurement under phase noise, IQ imbalance, PA
+compression, frequency offset and carrier leakage, with a live constellation and EVM budget.
+Every figure in this chapter is produced by \texttt{book/figscripts/ch09\_figs.py} using the same
+library; the GMSK generator, the impairment models and the mutual-information integrator there
+are good starting points for the simulation problems below.
 \end{labbox}
 
 \problems
