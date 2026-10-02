@@ -753,12 +753,947 @@ def fig_e1_frame():
     fig.tight_layout(); save(fig, "ch05_e1_frame")
 
 
+# ================================================================ second edition: concept figures
+from matplotlib.patches import Rectangle, Circle, FancyBboxPatch
+from commlib import pcm as cpcm
+
+NARROW = (3.0, 2.4)
+
+
+def _qmid(x, D, L):
+    return np.clip(D * (np.floor(x / D) + 0.5), -D * L / 2 + D / 2, D * L / 2 - D / 2)
+
+
+def fig_by_numbers():
+    tiles = [("8 000", "samples per second in\nevery telephone call"),
+             ("8 bits", "per sample, companded\n($\\mu$-law or A-law)"),
+             ("64 kb/s", "the DS0: the atom of\nthe telephone network"),
+             ("125 $\\mu$s", "one frame: the heartbeat\nof SONET, ISDN, T1, E1"),
+             ("1.544 Mb/s", "T1: 24 calls on two\ntwisted pairs (1962)"),
+             ("44 100 Hz", "the compact disc, chosen\nto fit on video tape"),
+             ("6.02 dB", "of SQNR bought by\neach extra bit"),
+             ("2.8224 MHz", "one-bit DSD: a sigma-delta\nbit stream as a format")]
+    fig, ax = plt.subplots(figsize=(W2, 1.85))
+    ax.set_xlim(0, 4); ax.set_ylim(0, 2); ax.axis("off")
+    cols = [NAVY, ACCENT, GREEN, ORANGE]
+    for i, (big, small) in enumerate(tiles):
+        r, c = divmod(i, 4)
+        x0, y0 = c + 0.04, 1.04 - r * 1.0
+        ax.add_patch(FancyBboxPatch((x0, y0), 0.92, 0.9, boxstyle="round,pad=0.0,rounding_size=0.06",
+                                    fc=cols[(i + r) % 4], alpha=0.10, ec=cols[(i + r) % 4], lw=0.8))
+        ax.text(x0 + 0.46, y0 + 0.62, big, ha="center", va="center", fontsize=12.5,
+                color=cols[(i + r) % 4], weight="bold")
+        ax.text(x0 + 0.46, y0 + 0.25, small, ha="center", va="center", fontsize=6.6, color="#333333",
+                linespacing=1.05)
+    fig.tight_layout(pad=0.1); save(fig, "ch05_by_numbers")
+
+
+def fig_two_approx():
+    t = np.linspace(0, 1, 800)
+    sig = lambda tt: 0.75 * np.sin(2 * np.pi * 1.3 * tt + 0.4) + 0.25 * np.sin(2 * np.pi * 3.1 * tt)
+    ts = np.arange(0, 1.0001, 1 / 16)
+    D = 0.25
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 1.85), sharey=True)
+    for a in ax:
+        a.plot(t, sig(t), color=GRAY, lw=1.0, alpha=0.7)
+        a.set_xticks([]); a.set_yticks([]); a.set_ylim(-1.15, 1.15)
+    ax[0].vlines(ts, 0, sig(ts), color=NAVY, lw=0.9); ax[0].plot(ts, sig(ts), "o", color=NAVY, ms=3)
+    ax[0].set_title("(a) sampling: time made discrete\n(lossless if band-limited)", fontsize=7.8)
+    q = D * np.round(sig(t) / D)
+    for lv in np.arange(-1, 1.01, D):
+        for a in ax[1:]:
+            a.axhline(lv, color=ORANGE, lw=0.4, alpha=0.6)
+    ax[1].plot(t, q, color=ORANGE, lw=1.2)
+    ax[1].set_title("(b) quantization: amplitude made\ndiscrete (always loses a little)", fontsize=7.8)
+    for tv in ts:
+        ax[2].axvline(tv, color=NAVY, lw=0.4, alpha=0.4)
+    ax[2].plot(ts, D * np.round(sig(ts) / D), "s", color=ACCENT, ms=3.5)
+    ax[2].set_title("(c) both: PCM, a list of\nnumbers on a grid", fontsize=7.8)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch05_two_approx")
+
+
+def fig_regeneration():
+    r = rng(11)
+    bits = np.array([1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1])
+    sps_ = 40
+    n = len(bits) * sps_
+    t = np.arange(n) / sps_
+    pulse = np.repeat(2 * bits - 1, sps_).astype(float)
+    k = np.hanning(17); k /= k.sum()
+    an = np.sin(2 * np.pi * 0.35 * t) * 0.8
+    fig, ax = plt.subplots(2, 3, figsize=(W2, 2.4), sharex=True, sharey=True)
+    a_noisy = an.copy(); d = pulse.copy()
+    for j, hops in enumerate([1, 10, 50]):
+        a_noisy = an + 0.05 * np.sqrt(hops) * np.convolve(r.standard_normal(n), np.ones(3) / 1.7, "same")
+        ax[0, j].plot(t, an, color=GRAY, lw=0.8, alpha=0.6)
+        ax[0, j].plot(t, a_noisy, color=ORANGE, lw=0.8)
+        ax[0, j].set_title(f"after {hops} hop{'s' if hops > 1 else ''}", fontsize=8)
+        rx = np.convolve(pulse + 0.35 * r.standard_normal(n), k, "same")
+        ax[1, j].plot(t, rx, color=GRAY, lw=0.6, alpha=0.7)
+        regen = np.repeat(np.sign(rx[sps_ // 2::sps_]), sps_)
+        ax[1, j].plot(t, regen * 0.95, color=NAVY, lw=1.1)
+    ax[0, 0].set_ylabel("analog", fontsize=8); ax[1, 0].set_ylabel("digital", fontsize=8)
+    for a in ax.ravel():
+        a.set_xticks([]); a.set_yticks([]); a.set_ylim(-1.9, 1.9)
+    ax[0, 2].text(11.8, -1.75, "noise accumulates", ha="right", fontsize=6.5, color=ORANGE)
+    ax[1, 2].text(11.8, -1.75, "regenerated: noise discarded", ha="right", fontsize=6.5, color=NAVY)
+    fig.tight_layout(h_pad=0.2, w_pad=0.2); save(fig, "ch05_regeneration")
+
+
+def fig_timeline():
+    ev = [(1915, "Whittaker:\ncardinal series"), (1928, "Nyquist:\n$2W$ pulses/s"),
+          (1933, "Kotelnikov:\nsampling theorem"), (1937, "Reeves\ninvents PCM"),
+          (1943, "SIGSALY\ndigital voice"), (1946, "delta\nmodulation"),
+          (1948, "Oliver, Pierce,\nShannon: PCM"), (1952, "Cutler:\nDPCM"),
+          (1962, "T1 carrier;\nInose: $\\Delta\\Sigma$"), (1970, "E10 digital\nexchange"),
+          (1972, "G.711\nstandardised"), (1976, "4ESS\ntoll switch"),
+          (1982, "compact\ndisc"), (1988, "SONET"), (1996, "RTP: G.711\nas PCMU/PCMA"),
+          (1999, "Super Audio\nCD (DSD)")]
+    fig, ax = plt.subplots(figsize=(W2, 2.3))
+    ax.axhline(0, color=NAVY, lw=2)
+    levels = [1.0, -1.0, 2.05, -2.05]
+    for i, (yr, txt) in enumerate(ev):
+        lv = levels[i % 4]
+        c = [NAVY, ACCENT, GREEN, ORANGE][i % 4]
+        ax.plot([yr, yr], [0, lv * 0.82], color=c, lw=0.8)
+        ax.plot(yr, 0, "o", color=c, ms=4)
+        ax.text(yr, lv, f"{int(yr)}\n{txt}" if lv > 0 else f"{txt}\n{int(yr)}", ha="center",
+                va="bottom" if lv > 0 else "top", fontsize=6.0, color=c, linespacing=0.95)
+    ax.set_xlim(1909, 2010); ax.set_ylim(-3.6, 3.6); ax.axis("off")
+    fig.tight_layout(pad=0.1); save(fig, "ch05_timeline")
+
+
+def fig_wagon_wheel():
+    fig, ax = plt.subplots(figsize=(W2, 1.75))
+    ax.set_aspect("equal"); ax.axis("off")
+    nfr = 7
+    for k in range(nfr):
+        cx = k * 2.3
+        ax.add_patch(Circle((cx, 0), 0.85, fc="white", ec=NAVY, lw=1.6))
+        ax.add_patch(Circle((cx, 0), 0.1, fc=NAVY, ec=NAVY))
+        base = np.deg2rad(90 - 324 * k)
+        for s in range(6):
+            th = base + s * np.pi / 3
+            ax.plot([cx, cx + 0.85 * np.cos(th)], [0, 0.85 * np.sin(th)], color=GRAY if s else ACCENT,
+                    lw=1.0 if s else 2.2)
+        ax.text(cx, -1.15, f"frame {k + 1}", ha="center", fontsize=7)
+    ax.annotate("", xy=(2.3 * (nfr - 1) + 0.6, 1.25), xytext=(-0.6, 1.25),
+                arrowprops=dict(arrowstyle="->", color=GREEN, lw=1.0))
+    ax.text(2.3 * (nfr - 1) / 2, 1.38, "true motion: the wheel turns $324^\\circ$ forward (clockwise) between frames",
+            ha="center", fontsize=7, color=GREEN)
+    ax.text(2.3 * (nfr - 1) / 2, -1.62, "what the camera records: the red spoke steps $36^\\circ$ backwards each frame",
+            ha="center", fontsize=7, color=ACCENT)
+    ax.set_xlim(-1.1, 2.3 * (nfr - 1) + 1.1); ax.set_ylim(-1.85, 1.65)
+    fig.tight_layout(pad=0.1); save(fig, "ch05_wagon_wheel")
+
+
+def fig_folding():
+    fs = 10.0
+    f = np.linspace(0, 25, 2000)
+    fa = np.abs(f - fs * np.round(f / fs))
+    fig, ax = plt.subplots(figsize=NARROW)
+    for z in range(5):
+        ax.axvspan(z * fs / 2, (z + 1) * fs / 2, color=GRAY if z % 2 else "white", alpha=0.12, lw=0)
+    ax.plot(f, fa, color=NAVY)
+    ax.plot([9, 9], [0, 1], color=ACCENT, ls=":", lw=0.9); ax.plot(9, 1, "o", color=ACCENT, ms=4)
+    ax.annotate("9 Hz looks\nlike 1 Hz", xy=(9, 1), xytext=(10.8, 3.4), fontsize=7, color=ACCENT,
+                arrowprops=dict(arrowstyle="->", lw=0.6, color=ACCENT))
+    ax.plot([21, 21], [0, 1], color=GREEN, ls=":", lw=0.9); ax.plot(21, 1, "o", color=GREEN, ms=4)
+    ax.annotate("so does 21 Hz", xy=(21, 1), xytext=(17.2, 3.9), fontsize=7, color=GREEN,
+                arrowprops=dict(arrowstyle="->", lw=0.6, color=GREEN))
+    ax.set_xlabel("input frequency (Hz), $f_s=10$ Hz"); ax.set_ylabel("apparent frequency (Hz)")
+    ax.set_xticks([0, 5, 10, 15, 20, 25]); ax.set_ylim(0, 5.6); ax.set_xlim(0, 25)
+    ax.set_title("Frequency folds like a paper fan", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_folding")
+
+
+def fig_sinc_sum():
+    fs = 1.0
+    n = np.arange(0, 9)
+    x = np.array([0.2, 0.9, 1.0, 0.4, -0.5, -0.9, -0.3, 0.5, 0.7])
+    t = np.linspace(-1.5, 9.5, 1500)
+    fig, ax = plt.subplots(figsize=(W2, 2.0))
+    tot = np.zeros_like(t)
+    for k, xk in zip(n, x):
+        s = xk * np.sinc(t - k)
+        tot += s
+        ax.plot(t, s, color=[GREEN, ORANGE, PURPLE][k % 3], lw=0.7, alpha=0.65)
+    ax.plot(t, tot, color=NAVY, lw=1.8, label="sum: the only band-limited curve through every sample")
+    ax.plot(n, x, "o", color=ACCENT, ms=4.5, zorder=5, label="samples $x(nT_s)$")
+    ax.set_xlim(-1.3, 9.3); ax.set_xlabel("time ($T_s$)"); ax.set_yticks([0])
+    ax.set_ylim(-1.75, 1.45); ax.legend(fontsize=6.6, loc="lower left", ncol=2)
+    ax.set_title("Each sample launches a sinc that is zero at every other sample instant", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_sinc_sum")
+
+
+def fig_jitter_slope():
+    t = np.linspace(0, 1, 800)
+    x = np.sin(2 * np.pi * t)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.plot(t, x, color=NAVY)
+    dt = 0.06
+    # steep point (zero crossing)
+    ax.plot([0.5, 0.5 + dt], [0, 0], color=ACCENT, lw=2)
+    ax.plot([0.5 + dt, 0.5 + dt], [0, np.sin(2 * np.pi * (0.5 + dt))], color=ORANGE, lw=2)
+    ax.plot(0.5 + dt, np.sin(2 * np.pi * (0.5 + dt)), "o", color=ORANGE, ms=4)
+    ax.plot(0.5, 0, "o", color=NAVY, ms=4)
+    ax.text(0.58, 0.12, "timing\nerror $\\tau$", fontsize=6.8, color=ACCENT)
+    ax.text(0.585, -0.48, "big error:\n$\\tau\\,x'(t)$", fontsize=6.8, color=ORANGE)
+    # flat point (peak)
+    ax.plot([0.25, 0.25 + dt], [1.0, 1.0], color=ACCENT, lw=2)
+    ax.plot(0.25 + dt, np.sin(2 * np.pi * (0.25 + dt)), "o", color=ORANGE, ms=4)
+    ax.text(0.03, -0.8, "same $\\tau$ at a crest:\nalmost no error", fontsize=6.8, color=GREEN)
+    ax.set_xlabel("time (one cycle)"); ax.set_ylabel("signal")
+    ax.set_ylim(-1.25, 1.35); ax.set_xticks([]); ax.set_yticks([-1, 0, 1])
+    ax.set_title("A shaky shutter hurts where the signal is steep", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_jitter_slope")
+
+
+def fig_track_hold():
+    fs = 8
+    t = np.linspace(0, 1, 3000)
+    x = 0.8 * np.sin(2 * np.pi * 1.2 * t + 0.3)
+    clk = ((t * fs) % 1) < 0.5          # track during first half of each period
+    y = np.empty_like(t); held = x[0]
+    for i in range(len(t)):
+        if clk[i]:
+            held = x[i]
+        y[i] = held
+    fig, ax = plt.subplots(2, 1, figsize=(3.2, 2.5), sharex=True, gridspec_kw=dict(height_ratios=[3, 1]))
+    ax[0].plot(t, x, color=GRAY, lw=1.0, ls="--", label="input")
+    ax[0].plot(t, y, color=NAVY, lw=1.3, label="capacitor voltage")
+    ax[0].legend(fontsize=6.3, loc="lower left"); ax[0].set_yticks([]); ax[0].set_ylim(-1.15, 1.1)
+    ax[0].set_title("Track-and-hold: follow, then freeze", fontsize=8.5)
+    ax[1].fill_between(t, 0, clk.astype(float), step="pre", color=ACCENT, alpha=0.35, lw=0)
+    ax[1].text(0.5, 1.2, "clock: shaded = track, white = hold", fontsize=6.5, color=ACCENT, ha="center")
+    ax[1].set_yticks([]); ax[1].set_xticks([]); ax[1].set_xlabel("time"); ax[1].set_ylim(0, 1.7)
+    fig.tight_layout(h_pad=0.2); save(fig, "ch05_track_hold")
+
+
+def fig_ktc():
+    kT = 4.14e-21
+    bits = np.arange(8, 21)
+    C = kT / ((2 / 2.0 ** bits) ** 2 / 12)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.bar(bits, C * 1e12, color=[ACCENT if b in (14, 16, 18) else NAVY for b in bits], alpha=0.85, width=0.7)
+    ax.set_yscale("log"); ax.set_xlabel("resolution (bits), 2 V p-p full scale"); ax.set_ylabel("capacitance (pF)")
+    for b in (14, 16, 18):
+        c = kT / ((2 / 2.0 ** b) ** 2 / 12) * 1e12
+        ax.text(b - 0.45, c * 1.2, f"{c:.3g} pF", ha="right", fontsize=6.6, color=ACCENT)
+    ax.set_title("$kT/C$: capacitor for which thermal\nnoise equals quantization noise", fontsize=8.2)
+    ax.set_ylim(1e-3, 3e4)
+    fig.tight_layout(); save(fig, "ch05_ktc")
+
+
+def fig_height_rounding():
+    r = rng(17)
+    h = r.normal(67.0, 4.0, 20000)            # heights in inches
+    e = np.round(h) - h
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.hist(e, bins=40, range=(-0.5, 0.5), color=NAVY, alpha=0.8, density=True)
+    ax.axhline(1.0, color=ACCENT, ls="--", lw=1)
+    ax.text(-0.48, 1.12, "uniform: density 1 per inch", fontsize=6.8, color=ACCENT)
+    ax.text(0.0, 0.42, f"RMS error {np.sqrt(np.mean(e ** 2)):.3f} in\n$= 1/\\sqrt{{12}}$ = 0.289 in", ha="center",
+            fontsize=7.2, color="white", bbox=dict(fc=NAVY, ec="none", alpha=0.85, boxstyle="round,pad=0.3"))
+    ax.set_xlabel("rounding error (inches)"); ax.set_ylabel("density")
+    ax.set_ylim(0, 1.35); ax.set_title("20 000 heights rounded to the nearest inch", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_height_rounding")
+
+
+def fig_bits_ladder():
+    rows = [(1, "1 bit: the comparator inside a sigma-delta loop"), (8, "8 bits: uniform (G.711 does better by companding)"),
+            (12, "12 bits: the B200's converters"), (16, "16 bits: compact disc"),
+            (20, "about 20 bits: the best audio ADCs actually deliver"), (24, "24 bits: studio file format")]
+    fig, ax = plt.subplots(figsize=(W2, 2.0))
+    for i, (b, lab) in enumerate(rows):
+        v = 6.02 * b + 1.76
+        ax.barh(i, v, color=[GRAY, ORANGE, NAVY, GREEN, PURPLE, ACCENT][i], alpha=0.85, height=0.62)
+        ax.text(v + 2, i, f"{v:.0f} dB   {lab}", va="center", fontsize=7)
+    ax.set_yticks([]); ax.set_xlim(0, 260); ax.invert_yaxis()
+    ax.set_xlabel("ideal full-scale-sine SQNR, $6.02b+1.76$ (dB)")
+    ax.set_title("Six decibels per bit", fontsize=8.5)
+    ax.spines["left"].set_visible(False)
+    fig.tight_layout(); save(fig, "ch05_bits_ladder")
+
+
+def fig_loading():
+    from scipy.stats import norm
+    G = np.linspace(1.5, 8, 400)
+    fig, ax = plt.subplots(figsize=NARROW)
+    out = {}
+    for b, c in [(4, ORANGE), (8, NAVY), (12, GREEN)]:
+        gran = (2 * G / 2 ** b) ** 2 / 12
+        over = 2 * ((1 + G ** 2) * norm.sf(G) - G * norm.pdf(G))
+        sq = -10 * np.log10(gran + over)
+        ax.plot(G, sq, color=c, label=f"{b} bits")
+        i = np.argmax(sq)
+        ax.plot(G[i], sq[i], "o", color=c, ms=3.5)
+        ax.text(G[i], sq[i] + 2.5, f"{G[i]:.1f}$\\sigma$: {sq[i]:.1f} dB", fontsize=6.5, color=c, ha="center")
+        out[b] = (round(G[i], 2), round(sq[i], 1))
+    ax.set_xlabel("loading factor $\\Gamma$ (full scale / rms)"); ax.set_ylabel("SQNR (dB), Gaussian input")
+    ax.text(1.6, 6, "clipping\ndominates", fontsize=6.5, color=GRAY)
+    ax.text(6.4, 6, "granular\nnoise\ndominates", fontsize=6.5, color=GRAY)
+    ax.set_ylim(0, 72); ax.legend(fontsize=6.5, loc="center right", bbox_to_anchor=(1.0, 0.6))
+    ax.set_title("Back-off: too little clips, too much wastes bits", fontsize=8.2)
+    fig.tight_layout(); save(fig, "ch05_loading")
+    return out
+
+
+def fig_dither_image():
+    r = rng(23)
+    H, Wd = 120, 220
+    yy, xx = np.mgrid[0:H, 0:Wd]
+    img = 0.5 + 0.42 * np.sin(np.pi * (xx / Wd - 0.5)) * np.cos(0.8 * np.pi * (yy / H - 0.5)) \
+        + 0.06 * np.cos(2 * np.pi * yy / H)
+    img = np.clip(img, 0, 1)
+    L = 6
+    q = lambda v: np.clip(np.round(v * (L - 1)), 0, L - 1) / (L - 1)
+    d = (r.random(img.shape) - r.random(img.shape)) / (L - 1)
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 1.55))
+    for a, im, ttl in [(ax[0], img, "original (smooth shading)"), (ax[1], q(img), f"{L} levels: contour bands"),
+                       (ax[2], q(img + d), f"{L} levels + TPDF dither: grain")]:
+        a.imshow(im, cmap="gray", vmin=0, vmax=1, interpolation="nearest")
+        a.set_title(ttl, fontsize=7.8); a.set_xticks([]); a.set_yticks([]); a.grid(False)
+    fig.tight_layout(w_pad=0.4); save(fig, "ch05_dither_image")
+
+
+def fig_speech_levels():
+    r = rng(29)
+    s = r.laplace(0, 1, 200000); s = s / np.max(np.abs(s)) * 4.0
+    s = np.clip(s / 4.0, -1, 1) * 1.0
+    fig, ax = plt.subplots(figsize=(3.2, 2.5))
+    ax.hist(s, bins=161, range=(-1, 1), density=True, color=GRAY, alpha=0.55)
+    ax.set_yscale("log"); ax.set_ylim(3e-3, 60)
+    b = 5
+    D = 2 / 2 ** b
+    yl = np.arange(-1 + D / 2, 1, D)
+    uni = yl
+    mu = cpcm.imulaw(yl) if hasattr(cpcm, "imulaw") else imulaw(yl)
+    ax.vlines(uni, 12, 25, color=ORANGE, lw=0.8); ax.text(-0.98, 30, "uniform levels (5 bits)", fontsize=6.6, color=ORANGE)
+    ax.vlines(mu, 0.006, 0.012, color=NAVY, lw=0.8); ax.text(-0.98, 0.0165, "$\\mu$-law levels (5 bits)", fontsize=6.6, color=NAVY)
+    ax.set_xlabel("sample amplitude (full scale = 1)"); ax.set_ylabel("how often (log)")
+    ax.set_title("Speech lives near zero: put the\nfine steps there", fontsize=8.3)
+    fig.tight_layout(); save(fig, "ch05_speech_levels")
+
+
+def fig_g711_byte():
+    fig, ax = plt.subplots(figsize=(W2, 2.15))
+    ax.set_xlim(0, 20); ax.set_ylim(-0.3, 4.4); ax.axis("off")
+    bitsv = "00110100"
+    labs = ["P", "S", "S", "S", "Q", "Q", "Q", "Q"]
+    cols = [ACCENT] + [NAVY] * 3 + [GREEN] * 4
+    for i, (bv, lb, c) in enumerate(zip(bitsv, labs, cols)):
+        ax.add_patch(Rectangle((0.3 + i * 0.9, 2.6), 0.82, 0.82, fc=c, alpha=0.85, ec="white"))
+        ax.text(0.71 + i * 0.9, 3.01, bv, ha="center", va="center", color="white", fontsize=10, weight="bold")
+        ax.text(0.71 + i * 0.9, 3.65, lb, ha="center", fontsize=8, color=c)
+    ax.text(0.3, 4.15, "sample +300 (14-bit scale): polarity, chord 3, step 4", fontsize=7.5)
+    ax.text(0.3, 2.25, "add 33: 333 = 1 0100 1101$_2$; leading 1 at bit 8 $\\Rightarrow$ chord 8$-$5 = 3;\n"
+            "next four bits 0100 $\\Rightarrow$ step 4", fontsize=6.8, va="top")
+    ax.annotate("", xy=(9.6, 3.0), xytext=(7.7, 3.0), arrowprops=dict(arrowstyle="->", lw=1.0))
+    ax.text(8.65, 3.25, "invert", ha="center", fontsize=7)
+    for i, bv in enumerate("11001011"):
+        ax.add_patch(Rectangle((9.8 + i * 0.9, 2.6), 0.82, 0.82, fc=GRAY, alpha=0.85, ec="white"))
+        ax.text(10.21 + i * 0.9, 3.01, bv, ha="center", va="center", color="white", fontsize=10, weight="bold")
+    ax.text(9.8, 3.65, "on the line: 0xCB (bits inverted for ones density)", fontsize=7)
+    # number line for chord 3
+    x0, x1 = 1.0, 19.0
+    lo, hi = 223, 479
+    sc = lambda v: x0 + (v - lo) / (hi - lo) * (x1 - x0)
+    ax.plot([x0, x1], [0.6, 0.6], color=NAVY, lw=1)
+    for k in range(17):
+        v = lo + 16 * k
+        ax.plot([sc(v)] * 2, [0.5, 0.7], color=NAVY, lw=0.7)
+    ax.add_patch(Rectangle((sc(287), 0.48), sc(303) - sc(287), 0.24, fc=GREEN, alpha=0.5, lw=0))
+    ax.plot(sc(300), 0.6, "v", color=ACCENT, ms=6); ax.text(sc(300), 0.85, "300", ha="center", fontsize=7, color=ACCENT)
+    ax.plot(sc(295), 0.6, "o", color=GREEN, ms=4); ax.text(sc(295), 0.1, "decoded 295", ha="center", fontsize=6.8, color=GREEN)
+    ax.text(x0, 0.95, "223", fontsize=6.8, ha="center"); ax.text(x1, 0.95, "479", fontsize=6.8, ha="center")
+    ax.text(10, 1.25, "chord 3: 16 steps of 16 units (the step doubles in every chord)", ha="center", fontsize=7, color=NAVY)
+    fig.tight_layout(pad=0.1); save(fig, "ch05_g711_byte")
+
+
+def fig_lloyd_max():
+    from scipy.stats import norm
+    L = 8
+    y = np.linspace(-2, 2, L)
+    xs = np.linspace(-6, 6, 24001); p = norm.pdf(xs); dx = xs[1] - xs[0]
+    for _ in range(400):
+        t = np.r_[-np.inf, (y[1:] + y[:-1]) / 2, np.inf]
+        for i in range(L):
+            m = (xs >= t[i]) & (xs < t[i + 1])
+            y[i] = np.sum(xs[m] * p[m]) / np.sum(p[m])
+    t = (y[1:] + y[:-1]) / 2
+    idx = np.searchsorted(t, xs)
+    mse_lm = np.sum((xs - y[idx]) ** 2 * p) * dx
+    best = (1e9, None)
+    for D in np.linspace(0.3, 0.8, 501):
+        yu = D * (np.floor(xs / D) + 0.5); yu = np.clip(yu, -D * L / 2 + D / 2, D * L / 2 - D / 2)
+        m_ = np.sum((xs - yu) ** 2 * p) * dx
+        if m_ < best[0]:
+            best = (m_, D)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.fill_between(xs, p, color=GRAY, alpha=0.25, lw=0)
+    ax.plot(xs, p, color=GRAY, lw=0.8)
+    ax.vlines(t, 0, 0.42, color=NAVY, ls=":", lw=0.8)
+    ax.plot(y, np.full(L, 0.02), "o", color=NAVY, ms=4.5, label="Lloyd--Max levels")
+    D = best[1]
+    yu = np.arange(-L / 2 + 0.5, L / 2) * D
+    ax.plot(yu, np.full(L, 0.07), "s", color=ORANGE, ms=3.5, label="best uniform levels")
+    ax.set_xlim(-3.3, 3.3); ax.set_ylim(0, 0.5); ax.set_xlabel("input ($\\sigma$ = 1)"); ax.set_yticks([])
+    ax.legend(fontsize=6.4, loc="upper left")
+    ax.text(3.2, 0.44, f"3 bits, Gaussian:\nLloyd--Max {-10*np.log10(mse_lm):.2f} dB\nuniform {-10*np.log10(best[0]):.2f} dB",
+            fontsize=6.5, ha="right", va="top")
+    ax.set_title("Optimal levels crowd where the data are", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_lloyd_max")
+    return {"LM": -10 * np.log10(mse_lm), "uni": -10 * np.log10(best[0]), "D": D}
+
+
+def fig_dpcm_residual():
+    from commlib import sourcecoding as sc
+    from scipy.signal import lfilter
+    x = sc.synth_vowel(dur=0.5, f0=118.0, fs=8000, seed=4)
+    x = x + 0.01 * rng(9).standard_normal(len(x))
+    N = len(x)
+    rr = np.array([np.dot(x[:N - k], x[k:]) / N for k in range(11)])
+    a, _, _ = sc.levinson(rr, 10)
+    d = lfilter(a, [1.0], x)
+    seg = slice(1200, 1200 + 240)
+    t = np.arange(240) / 8.0
+    s = np.max(np.abs(x[seg]))
+    fig, ax = plt.subplots(2, 1, figsize=(W2, 2.3), sharex=True, sharey=True)
+    ax[0].plot(t, x[seg] / s, color=NAVY, lw=1.0)
+    ax[0].set_title(f"vowel at 8 kHz (rms {np.std(x)/s:.2f}, crest factor {np.max(np.abs(x))/np.std(x):.1f})", fontsize=8)
+    ax[1].plot(t, d[seg] / s, color=ACCENT, lw=1.0)
+    ax[1].set_title(f"order-10 prediction error: variance {10*np.log10(np.var(x)/np.var(d)):.1f} dB smaller, "
+                    f"crest factor {np.max(np.abs(d))/np.std(d):.1f}", fontsize=8)
+    ax[1].set_xlabel("time (ms)")
+    for a_ in ax:
+        a_.set_yticks([-1, 0, 1])
+    fig.tight_layout(h_pad=0.3); save(fig, "ch05_dpcm_residual")
+    return {"Gp": 10 * np.log10(np.var(x) / np.var(d)), "crest_x": np.max(np.abs(x)) / np.std(x),
+            "crest_d": np.max(np.abs(d)) / np.std(d)}
+
+
+def fig_cvsd():
+    fs = 32000
+    t = np.arange(0, 0.03, 1 / fs)
+    env = np.where(t < 0.01, 0.12, np.where(t < 0.02, 0.9, 0.25))
+    x = env * np.sin(2 * np.pi * 600 * t) + 0.3 * env * np.sin(2 * np.pi * 1300 * t + 1)
+    _, dm = cpcm.delta_mod(x, 0.05)
+    _, cv, st = cpcm.cvsd(x, 0.01, 0.25, run=3, beta=0.96, gain=0.03)
+    fig, ax = plt.subplots(2, 1, figsize=(W2, 2.5), sharex=True, sharey=True)
+    for a_, y, c, ttl in [(ax[0], dm, ORANGE, "fixed step: too coarse when quiet, too slow when loud"),
+                          (ax[1], cv, GREEN, "CVSD: the step grows after three identical bits, then decays")]:
+        a_.plot(t * 1e3, x, color=GRAY, lw=1.6, alpha=0.6)
+        a_.step(t * 1e3, y, where="post", color=c, lw=0.8)
+        a_.set_title(ttl, fontsize=8); a_.set_yticks([])
+        snr = 10 * np.log10(np.mean(x ** 2) / np.mean((y - x) ** 2))
+        a_.text(29.8, -1.1, f"SNR {snr:.1f} dB (unfiltered)", fontsize=6.6, ha="right", color=c)
+    ax[1].set_xlabel("time (ms), 32 kb/s"); ax[0].set_ylim(-1.3, 1.3)
+    fig.tight_layout(h_pad=0.3); save(fig, "ch05_cvsd")
+
+
+def fig_sd_painter():
+    N = 400
+    n = np.arange(N)
+    x = 0.7 * np.sin(2 * np.pi * n / 200.0)
+    v = sigma_delta(x, 1)
+    from scipy.signal import lfilter
+    h = np.hanning(25); h /= h.sum()
+    avg = np.convolve(v, h, "same")
+    fig, ax = plt.subplots(figsize=(W2, 2.0))
+    ax.vlines(n, 0, v * 0.25, color=GRAY, lw=0.6)
+    ax.plot(n, x, color=ACCENT, lw=2.2, alpha=0.7, label="input")
+    ax.plot(n, avg, color=NAVY, lw=1.3, label="local average of the bits")
+    ax.text(5, -1.12, "output bits ($\\pm1$, drawn at quarter height): dense $+1$ where the input is high", fontsize=6.6, color=GRAY)
+    ax.set_xlim(0, N); ax.set_ylim(-1.25, 1.25); ax.set_xlabel("sample"); ax.set_yticks([-1, 0, 1])
+    ax.legend(fontsize=6.6, loc="upper right", ncol=2)
+    ax.set_title("A first-order sigma-delta modulator: each stroke corrects the last", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_sd_painter")
+
+
+def fig_noise_moving():
+    f = np.linspace(0, 0.5, 1000)
+    white = np.ones_like(f)
+    shaped = (2 * np.sin(np.pi * f)) ** 4
+    shaped *= white.sum() / shaped.sum()       # same total power
+    fig, ax = plt.subplots(figsize=NARROW)
+    B = 0.5 / 8
+    ax.axvspan(0, B, color=GREEN, alpha=0.15, lw=0)
+    ax.text(B + 0.008, 0.25, "$\\leftarrow$ signal band", fontsize=6.6, color=GREEN)
+    ax.plot(f, white, color=GRAY, lw=1.2, label="white (plain quantizer)")
+    ax.plot(f, shaped, color=NAVY, lw=1.4, label="shaped, $L=2$, same total")
+    ax.fill_between(f[f <= B], 0, shaped[f <= B], color=NAVY, alpha=0.5, lw=0)
+    ax.fill_between(f[f <= B], 0, 1, color=GRAY, alpha=0.18, lw=0)
+    ib_w = np.mean(white[f <= B]) * B; ib_s = np.mean(shaped[f <= B]) * B
+    ax.text(0.2, 1.4, f"in-band noise\n{10*np.log10(ib_w/ib_s):.0f} dB lower", fontsize=6.8, color=NAVY)
+    ax.set_xlabel("frequency / $f_s$"); ax.set_ylabel("noise power density")
+    ax.set_ylim(0, 3.6); ax.legend(fontsize=6.2, loc="upper left", bbox_to_anchor=(0.12, 1.0))
+    ax.set_title("Noise shaping moves noise; it\ndoes not remove it", fontsize=8.3)
+    fig.tight_layout(); save(fig, "ch05_noise_moving")
+
+
+def fig_sar_search():
+    vin = 0.637
+    b = 6
+    lo, hi = 0.0, 1.0
+    trials, dec = [], []
+    code = 0
+    for i in range(b):
+        trial = code + 2 ** (b - 1 - i)
+        v = trial / 2 ** b
+        trials.append(v)
+        if vin >= v:
+            code = trial; dec.append(1)
+        else:
+            dec.append(0)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.axhline(vin, color=ACCENT, lw=1.2, label=f"input {vin}")
+    ax.step(np.arange(b + 1), trials + [code / 2 ** b], where="post", color=NAVY, lw=1.3, label="DAC trial level")
+    for i, (v, d) in enumerate(zip(trials, dec)):
+        ax.text(i + 0.5, v + (0.035 if d else -0.075), "keep 1" if d else "0", ha="center", fontsize=6.5,
+                color=GREEN if d else GRAY)
+    ax.set_xlabel("clock cycle (one bit per cycle)"); ax.set_ylabel("fraction of full scale")
+    ax.set_ylim(0.3, 0.85); ax.legend(fontsize=6.5, loc="lower right")
+    ax.text(0.1, 0.33, "code " + "".join(map(str, dec)) + f" = {code}/64", fontsize=7, color=NAVY)
+    ax.set_title("SAR: twenty questions, one bit each", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_sar_search")
+
+
+def fig_dnl_inl():
+    r = rng(41)
+    b = 4
+    L = 2 ** b
+    w = np.ones(L - 2) + r.normal(0, 0.18, L - 2)
+    w[6] = 0.0          # a missing code
+    w[7] = 1.55
+    w *= (L - 2) / w.sum()
+    thr = np.r_[0.5, 0.5 + np.cumsum(w)]   # transitions, ideal at 0.5,1.5,...
+    vin = np.linspace(0, L - 1, 3000)
+    code = np.searchsorted(thr, vin)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3), gridspec_kw=dict(width_ratios=[1.2, 1]))
+    ax[0].plot(vin, np.clip(np.round(vin), 0, L - 1), color=GRAY, lw=0.9, ls="--", label="ideal")
+    ax[0].plot(vin, code, color=NAVY, lw=1.2, label="real")
+    ax[0].annotate("missing code", xy=(thr[6], 6.4), xytext=(1.0, 11), fontsize=6.6, color=ACCENT,
+                   arrowprops=dict(arrowstyle="->", lw=0.6, color=ACCENT))
+    ax[0].set_xlabel("input (LSB)"); ax[0].set_ylabel("output code"); ax[0].legend(fontsize=6.5, loc="lower right")
+    ax[0].set_title("A 4-bit staircase with errors", fontsize=8.5)
+    dnl = w - 1
+    inl = thr[1:] - (np.arange(1, L - 1) + 0.5)
+    k = np.arange(1, L - 1)
+    ax[1].bar(k - 0.18, dnl, width=0.36, color=ORANGE, label="DNL (step width error)")
+    ax[1].plot(k, inl, "o-", color=NAVY, ms=3, label="INL (running sum)")
+    ax[1].axhline(-1, color=ACCENT, ls=":", lw=0.8); ax[1].text(1, -0.93, "DNL $=-1$: missing code", fontsize=6.3, color=ACCENT)
+    ax[1].set_xlabel("code"); ax[1].set_ylabel("LSB"); ax[1].legend(fontsize=6.2, loc="upper left")
+    ax[1].set_ylim(-1.3, 1.5)
+    ax[1].set_title("DNL and INL", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_dnl_inl")
+
+
+def fig_adc_fft():
+    r = rng(43)
+    N = 1 << 14
+    k0 = 1013
+    n = np.arange(N)
+    x = 0.89 * np.sin(2 * np.pi * k0 / N * n)        # -1 dBFS
+    y = x + 2.2e-4 * x ** 2 + 1.0e-3 * x ** 3 + 1.2e-4 * r.standard_normal(N)
+    D = 2 / 2 ** 12
+    yq = np.clip(D * (np.floor(y / D) + 0.5), -1, 1)
+    w = np.blackman(N)
+    Y = np.abs(np.fft.rfft(yq * w)) ** 2
+    ref = np.max(Y)
+    YdB = 10 * np.log10(Y / ref + 1e-20) - 1.0          # dBFS (tone at -1 dBFS)
+    f = np.fft.rfftfreq(N)
+    sig = np.zeros(len(Y), bool); sig[k0 - 4:k0 + 5] = True
+    harm = np.zeros(len(Y), bool)
+    for h in range(2, 8):
+        kh = (h * k0) % N
+        kh = kh if kh <= N // 2 else N - kh
+        harm[max(kh - 4, 0):kh + 5] = True
+    dc = np.zeros(len(Y), bool); dc[:6] = True
+    noise = ~(sig | harm | dc)
+    Ps, Pn, Ph = Y[sig].sum(), Y[noise].sum(), Y[harm].sum()
+    snr = 10 * np.log10(Ps / Pn) + 1.0
+    sinad = 10 * np.log10(Ps / (Pn + Ph)) + 1.0
+    spur = np.max(Y[~(sig | dc)])
+    sfdr = 10 * np.log10(Ps / spur * 1.0)
+    fig, ax = plt.subplots(figsize=(W2, 2.4))
+    ax.plot(f, YdB, color=NAVY, lw=0.5)
+    for h, lab in [(2, "HD2"), (3, "HD3")]:
+        kh = h * k0
+        ax.text(f[kh], YdB[kh - 3:kh + 4].max() + 4, lab, ha="center", fontsize=6.6, color=ACCENT)
+    k3 = 3 * k0
+    sp = YdB[k3 - 3:k3 + 4].max()
+    ax.annotate("", xy=(0.29, -1), xytext=(0.29, sp), arrowprops=dict(arrowstyle="<->", lw=0.8, color=GREEN))
+    ax.text(0.295, (sp - 1) / 2, f"SFDR\n{-sp - 1:.0f} dBc", fontsize=6.8, color=GREEN, va="center")
+    ax.text(0.33, -18, f"simulated 12-bit ADC, tone at $-1$ dBFS:\nSNR {snr:.1f} dBFS, SINAD {sinad:.1f} dBFS, "
+            f"ENOB {(sinad - 1.76) / 6.02:.2f} bits", fontsize=6.8, color=NAVY)
+    ax.set_xlim(0, 0.5); ax.set_ylim(-140, 5); ax.set_xlabel("frequency / $f_s$"); ax.set_ylabel("dBFS")
+    ax.set_title("Reading an ADC data-sheet FFT", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_adc_fft")
+    return {"snr": snr, "sinad": sinad, "enob": (sinad - 1.76) / 6.02, "sfdr_dbc": -sp - 1}
+
+
+def fig_tdm_interleave():
+    fs = 8.0
+    t = np.linspace(0, 1, 600)
+    ts = np.arange(0, 1, 1 / fs)
+    chans = [(lambda tt: 0.8 * np.sin(2 * np.pi * 1.1 * tt), NAVY, "call 1"),
+             (lambda tt: 0.7 * np.sin(2 * np.pi * 2.3 * tt + 1) * np.cos(2 * np.pi * 0.4 * tt), ACCENT, "call 2"),
+             (lambda tt: 0.5 * np.sin(2 * np.pi * 0.7 * tt + 2) + 0.3 * np.sin(2 * np.pi * 3.0 * tt), GREEN, "call 3")]
+    fig = plt.figure(figsize=(W2, 2.3))
+    gs = fig.add_gridspec(3, 2, width_ratios=[1, 1.6], wspace=0.08, hspace=0.15)
+    for i, (fn, c, lab) in enumerate(chans):
+        a = fig.add_subplot(gs[i, 0])
+        a.plot(t, fn(t), color=c, lw=1.0, alpha=0.7)
+        a.plot(ts + i / (3 * fs), fn(ts + i / (3 * fs)), "o", color=c, ms=3)
+        a.set_xticks([]); a.set_yticks([]); a.set_ylim(-1.1, 1.1)
+        a.set_ylabel(lab, fontsize=7, color=c)
+    b = fig.add_subplot(gs[:, 1])
+    b.set_xlim(0, 12.6); b.set_ylim(-0.6, 3.2); b.axis("off")
+    for fr in range(4):
+        x0 = fr * 3.15
+        b.add_patch(Rectangle((x0, 1.0), 0.25, 1.0, fc=GRAY, alpha=0.6, lw=0))
+        for i, (fn, c, lab) in enumerate(chans):
+            b.add_patch(Rectangle((x0 + 0.3 + i * 0.93, 1.0), 0.88, 1.0, fc=c, alpha=0.8, lw=0))
+            b.text(x0 + 0.3 + i * 0.93 + 0.44, 1.5, f"{i + 1}", ha="center", va="center", color="white", fontsize=7)
+        b.text(x0 + 1.55, 2.2, f"frame {fr + 1}", ha="center", fontsize=6.6)
+    b.text(6.3, 0.45, "each call gets one 8-bit slot per 125 $\\mu$s frame;\nT1 does this with 24 calls, E1 with 30",
+           ha="center", fontsize=6.8, va="center")
+    b.text(0.12, 2.75, "F = framing bit (grey)", fontsize=6.3, color=GRAY)
+    fig.subplots_adjust(left=0.05, right=0.99, top=0.97, bottom=0.04)
+    save(fig, "ch05_tdm_interleave")
+
+
+def fig_robbed_bit():
+    fbits = "100011011100"
+    fig, ax = plt.subplots(figsize=(W2, 2.35))
+    ax.set_xlim(-2.4, 25.2); ax.set_ylim(-0.3, 13.6); ax.axis("off"); ax.invert_yaxis()
+    for fr in range(12):
+        y = fr + 1
+        ax.add_patch(Rectangle((0, y - 0.42), 0.85, 0.84, fc=ACCENT, alpha=0.85, lw=0))
+        ax.text(0.42, y, fbits[fr], ha="center", va="center", color="white", fontsize=6.5)
+        ax.text(-0.3, y, f"{fr + 1}", ha="right", va="center", fontsize=6.3)
+        rob = fr + 1 in (6, 12)
+        for ch in range(24):
+            x = 1.0 + ch * 1.0
+            ax.add_patch(Rectangle((x, y - 0.42), 0.92, 0.84, fc=ORANGE if rob else NAVY, alpha=0.85 if rob else 0.22, lw=0))
+        if rob:
+            ax.text(25.1, y, "A" if fr == 5 else "B", ha="left", va="center", fontsize=7, color=ORANGE, weight="bold")
+    ax.text(-2.3, 0.0, "frame", fontsize=6.5); ax.text(0.42, 0.0, "F", ha="center", fontsize=6.5, color=ACCENT)
+    for ch in (0, 11, 23):
+        ax.text(1.46 + ch, 0.0, f"{ch + 1}", ha="center", fontsize=6.3)
+    ax.text(12.5, 13.3, "frames 6 and 12: the LSB of every channel carries signalling bits A and B (orange)",
+            ha="center", fontsize=6.8, color=ORANGE)
+    fig.tight_layout(pad=0.1); save(fig, "ch05_robbed_bit")
+
+
+def fig_delay_budget():
+    items = [("one TSI stage", 0.125, 0.125, NAVY), ("codec and jitter buffer", 1, 10, GREEN),
+             ("packet voice (one way)", 20, 100, ORANGE), ("geostationary hop (one way)", 270, 270, ACCENT)]
+    fig, ax = plt.subplots(figsize=(W2, 1.75))
+    for i, (lab, lo, hi, c) in enumerate(items):
+        if lo == hi:
+            ax.plot(lo, i, "o", color=c, ms=6)
+        else:
+            ax.plot([lo, hi], [i, i], color=c, lw=6, solid_capstyle="round", alpha=0.85)
+        ax.text(hi * 1.35, i, lab, va="center", fontsize=7, color=c)
+    ax.axvline(25, color=GRAY, ls="--", lw=1)
+    ax.text(28, -0.35, "echo needs control beyond about 25 ms", fontsize=6.6, color=GRAY)
+    ax.set_xscale("log"); ax.set_xlim(0.05, 5000); ax.set_ylim(-0.6, 3.9); ax.set_yticks([])
+    ax.invert_yaxis(); ax.set_xlabel("delay (ms, log scale)")
+    ax.spines["left"].set_visible(False)
+    fig.tight_layout(); save(fig, "ch05_delay_budget")
+
+
+def fig_voip_packet():
+    rows = [("20 ms packet", 160), ("10 ms packet", 80)]
+    parts = [("preamble+IFG", 20, GRAY), ("Ethernet", 18, PURPLE), ("IPv4", 20, ORANGE), ("UDP", 8, GREEN), ("RTP", 12, ACCENT)]
+    fig, ax = plt.subplots(figsize=(W2, 1.6))
+    for i, (lab, pay) in enumerate(rows):
+        x = 0
+        for nm, nb, c in parts:
+            ax.barh(i, nb, left=x, color=c, alpha=0.85, height=0.6, edgecolor="white",
+                    label=f"{nm} ({nb} B)" if i == 0 else None)
+            x += nb
+        ax.barh(i, pay, left=x, color=NAVY, alpha=0.85, height=0.6, edgecolor="white")
+        ax.text(x + pay / 2, i, f"G.711 payload {pay} B", ha="center", va="center", color="white", fontsize=6.8)
+        tot = x + pay
+        ax.text(tot + 3, i, f"{tot} B $\\times$ {1000 // (pay // 8)}/s = {tot * 8 * (1000 // (pay // 8)) / 1000:.1f} kb/s on the wire",
+                va="center", fontsize=6.8)
+    ax.set_yticks([0, 1]); ax.set_yticklabels([r[0] for r in rows], fontsize=7)
+    ax.set_xlim(0, 360); ax.set_ylim(1.5, -1.25); ax.set_xlabel("bytes per packet")
+    ax.legend(fontsize=6, ncol=5, loc="upper left", frameon=False, handlelength=1.0, columnspacing=1.0)
+    ax.grid(False)
+    fig.tight_layout(); save(fig, "ch05_voip_packet")
+
+
+def fig_audio_formats():
+    pts = [("telephone (G.711)", 8e3, 8, ORANGE, (8e3, 4.2), "center"),
+           ("wideband voice", 16e3, 14, ORANGE, (14e3, 18.5), "center"),
+           ("CD", 44.1e3, 16, NAVY, (40e3, 11.8), "right"), ("DAT", 48e3, 16, NAVY, (60e3, 12.5), "left"),
+           ("studio", 96e3, 24, GREEN, (85e3, 28.0), "right"), ("hi-res", 192e3, 24, GREEN, (230e3, 28.0), "left"),
+           ("DSD64", 2.8224e6, 1, ACCENT, (2.8e6, 5.5), "center")]
+    fig, ax = plt.subplots(figsize=(3.2, 2.5))
+    for lab, fs, b, c, (tx, ty), ha in pts:
+        br = fs * b * (2 if lab != "telephone (G.711)" else 1)
+        ax.scatter(fs, b, s=12 + 22 * np.log10(br / 6.4e4 * 10), color=c, alpha=0.6, edgecolor=c)
+        ax.text(tx, ty, lab, ha=ha, fontsize=6.3, color=c, va="center")
+    ax.set_xscale("log"); ax.set_xlim(5e3, 8e6); ax.set_ylim(-2, 31)
+    ax.set_xlabel("sample rate (Hz)"); ax.set_ylabel("bits per sample")
+    ax.set_title("Audio formats: rate against resolution", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_audio_formats")
+
+
+def fig_decim_chain():
+    from scipy.signal import freqz
+    osr = 64
+    f = np.logspace(-4, np.log10(0.5), 3000)
+    ntf = 20 * 2 * np.log10(2 * np.sin(np.pi * f))
+    R, K = 16, 3
+    cic = 20 * K * np.log10(np.abs(np.sin(np.pi * f * R) / (R * np.sin(np.pi * f))) + 1e-12)
+    fig, ax = plt.subplots(figsize=(W2, 2.3))
+    ax.semilogx(f, ntf - 40, color=GRAY, lw=1.0, label="shaped quantization noise ($L=2$)")
+    ax.semilogx(f, cic, color=NAVY, lw=1.0, label=f"CIC, $R={R}$, $K={K}$ stages")
+    ax.semilogx(f, ntf - 40 + cic, color=ACCENT, lw=1.0, label="noise after the CIC")
+    for k in range(1, 9):
+        ax.axvline(k / R, color=GREEN, lw=0.4, ls=":")
+    ax.axvspan(1e-4, 0.5 / osr, color=GREEN, alpha=0.12, lw=0)
+    ax.text(1.2e-4, -140, "signal band", fontsize=6.6, color=GREEN)
+    ax.text(1 / R * 1.05, 0, "CIC nulls at multiples\nof the new rate $f_s/16$", fontsize=6.6, color=GREEN, va="top")
+    ax.set_ylim(-170, 10); ax.set_xlim(1e-4, 0.5)
+    ax.set_xlabel("frequency / $f_s$"); ax.set_ylabel("dB")
+    ax.legend(fontsize=6.3, loc="lower right")
+    ax.set_title("The first decimation stage: a CIC kills the noise exactly where it would alias", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_decim_chain")
+
+
+def fig_complex_sampling():
+    f = np.linspace(-1.6, 1.6, 2000)
+    def bump(f0, w, h=1.0):
+        return h * np.clip(1 - np.abs(f - f0) / w, 0, None)
+    fig, ax = plt.subplots(2, 1, figsize=(3.2, 2.5), sharex=True)
+    fs = 1.0
+    for k in range(-2, 3):
+        ax[0].fill_between(f, bump(0.3 + k * fs, 0.12) + bump(-0.3 + k * fs, 0.12), color=NAVY if k == 0 else GRAY,
+                           alpha=0.8 if k == 0 else 0.3, lw=0)
+        ax[1].fill_between(f, bump(0.3 + k * fs, 0.12) + bump(-0.25 + k * fs, 0.08, 0.5), color=NAVY if k == 0 else GRAY,
+                           alpha=0.8 if k == 0 else 0.3, lw=0)
+    for a, t in zip(ax, ["real samples: the spectrum is a mirror image,\nonly $0$ to $f_s/2$ is new information",
+                         "complex (I/Q) samples: the whole of\n$-f_s/2$ to $f_s/2$ carries independent information"]):
+        a.axvspan(-0.5, 0.5, color=GREEN, alpha=0.08, lw=0)
+        a.set_yticks([]); a.set_ylim(0, 1.45)
+        a.set_title(t, fontsize=7.3)
+    ax[1].set_xlabel("frequency / $f_s$")
+    fig.tight_layout(h_pad=0.3); save(fig, "ch05_complex_sampling")
+
+
+def fig_pn_jitter():
+    f = np.logspace(1, 8, 600)
+    L = np.maximum(-160, -90 - 20 * np.log10(f / 1e2) * 0.9)
+    L = 10 * np.log10(10 ** (L / 10) + 10 ** (-160 / 10))
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogx(f, L, color=NAVY)
+    m = (f >= 1e4) & (f <= 5e7)
+    ax.fill_between(f[m], -175, L[m], color=ACCENT, alpha=0.2, lw=0)
+    ph = np.sqrt(2 * np.trapezoid(10 ** (L[m] / 10), f[m]))
+    sj = ph / (2 * np.pi * 1e8)
+    ax.text(2e5, -128, f"integrate 10 kHz--50 MHz:\n{ph*1e6:.0f} $\\mu$rad rms\n= {sj*1e15:.0f} fs at 100 MHz", fontsize=6.6, color=ACCENT)
+    ax.set_xlabel("offset from carrier (Hz)"); ax.set_ylabel("$\\mathcal{L}(f)$ (dBc/Hz)")
+    ax.set_ylim(-175, -80)
+    ax.set_title("From phase noise to jitter (100 MHz clock)", fontsize=8.3)
+    fig.tight_layout(); save(fig, "ch05_pn_jitter")
+    return sj
+
+
+def fig_model_fails():
+    r = rng(31)
+    N = 200000
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.0), sharey=True)
+    x1 = 12 * r.standard_normal(N)
+    e1 = np.round(x1) - x1
+    n = np.arange(N)
+    x2 = 0.7 * np.sin(2 * np.pi * n / 64.0)
+    e2 = np.round(x2) - x2
+    for a, e, t, c in [(ax[0], e1, "busy signal ($\\sigma=12$ LSB): flat, model holds", NAVY),
+                       (ax[1], e2, "0.7-LSB sine locked to $f_s/64$: model fails", ACCENT)]:
+        a.hist(e, bins=50, range=(-0.5, 0.5), density=True, color=c, alpha=0.8)
+        a.set_title(t, fontsize=7.8); a.set_xlabel("error (LSB)")
+    ax[0].set_ylabel("density"); ax[0].set_ylim(0, 4)
+    fig.tight_layout(); save(fig, "ch05_model_fails")
+
+
+def fig_clipping():
+    r = rng(37)
+    N, K = 1024, 600
+    sym = (r.choice([-1, 1], (200, K)) + 1j * r.choice([-1, 1], (200, K))) / np.sqrt(2)
+    X = np.zeros((200, N), complex); X[:, 1:K // 2 + 1] = sym[:, :K // 2]; X[:, -K // 2:] = sym[:, K // 2:]
+    x = np.fft.ifft(X, axis=1).ravel()
+    x /= np.sqrt(np.mean(np.abs(x) ** 2))
+    fig, ax = plt.subplots(figsize=(W2, 2.1))
+    for clip_db, c, lab in [(None, GRAY, "no clipping"), (12, NAVY, "clipped 12 dB above rms"),
+                            (6, ORANGE, "clipped 6 dB above rms"), (3, ACCENT, "clipped 3 dB above rms")]:
+        y = x.copy()
+        if clip_db is not None:
+            A = 10 ** (clip_db / 20)
+            m = np.abs(y) > A
+            y[m] = A * y[m] / np.abs(y[m])
+        Y = np.mean(np.abs(np.fft.fft(y.reshape(200, N) * np.hanning(N), axis=1)) ** 2, axis=0)
+        Y = np.fft.fftshift(Y); Y /= Y.max()
+        ax.plot(np.fft.fftshift(np.fft.fftfreq(N)), 10 * np.log10(Y + 1e-12), color=c, lw=0.9, label=lab)
+    ax.set_xlim(-0.5, 0.5); ax.set_ylim(-70, 3)
+    ax.set_xlabel("frequency / $f_s$"); ax.set_ylabel("dB")
+    ax.legend(fontsize=6.3, loc="lower center", ncol=2)
+    ax.set_title("Clipping an OFDM signal: the spectrum splatters into the neighbours", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_clipping")
+
+
+def fig_quiet_talker():
+    from commlib import sourcecoding as sc
+    x = sc.synth_vowel(dur=0.1, f0=150.0, fs=8000, seed=5)
+    x = x / np.max(np.abs(x)) * 10 ** (-36 / 20)          # a quiet talker, peaks at -36 dBFS
+    t = np.arange(len(x)) / 8.0
+    D = 2 / 256
+    yu = _qmid(x, D, 256)
+    ym = imulaw(_qmid(mulaw(x), D, 256))
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.0), sharey=True)
+    for a, y, ttl, c in [(ax[0], yu, "8-bit uniform", ORANGE), (ax[1], ym, "8-bit $\\mu$-law", NAVY)]:
+        a.plot(t, x * 1e3, color=GRAY, lw=2.0, alpha=0.6)
+        a.step(t, y * 1e3, where="mid", color=c, lw=0.9)
+        snr = 10 * np.log10(np.mean(x ** 2) / np.mean((y - x) ** 2))
+        a.set_title(f"{ttl}: SQNR {snr:.0f} dB", fontsize=8)
+        a.set_xlim(20, 45); a.set_xlabel("time (ms)")
+    ax[0].set_ylabel("amplitude ($\\times10^{-3}$ FS)")
+    fig.tight_layout(); save(fig, "ch05_quiet_talker")
+
+
+def fig_adpcm_step():
+    r = rng(39)
+    fs = 8000
+    t = np.arange(0, 0.25, 1 / fs)
+    env = 0.05 + 0.9 * np.exp(-((t - 0.07) / 0.02) ** 2) + 0.4 * np.exp(-((t - 0.17) / 0.03) ** 2)
+    x = env * np.sin(2 * np.pi * 300 * t) * (1 + 0.3 * r.standard_normal(len(t)))
+    D = 0.05; steps = []; xr = 0.0
+    M = {0: 0.85, 1: 1.6}
+    for v in x:
+        d = v - xr
+        q = np.clip(np.round(d / D - 0.5) + 0.5, -1.5, 1.5)
+        xr = xr + q * D
+        steps.append(D)
+        D = min(max(D * M[int(abs(q) > 1)], 0.005), 1.0)
+    fig, ax = plt.subplots(figsize=(W2, 1.9))
+    ax.plot(t * 1e3, x, color=GRAY, lw=0.6, alpha=0.7, label="signal")
+    ax.plot(t * 1e3, np.array(steps) * 3, color=ACCENT, lw=1.3, label="adaptive step $\\times3$ (Jayant, 2 bits)")
+    ax.plot(t * 1e3, env, color=NAVY, lw=1, ls="--", label="signal envelope")
+    ax.set_xlabel("time (ms)"); ax.set_yticks([]); ax.legend(fontsize=6.4, loc="upper right")
+    ax.set_title("Backward adaptation: the step follows the loudness, with no side information", fontsize=8.3)
+    fig.tight_layout(); save(fig, "ch05_adpcm_step")
+
+
+def fig_idle_tones():
+    N = 1 << 14
+    fig, ax = plt.subplots(figsize=(W2, 2.0))
+    for dc, c, lab, extra in [(0.01, NAVY, "same input + TPDF dither", 0.05), (0.01, ACCENT, "DC input 0.01, no dither", 0.0)]:
+        r = rng(3)
+        x = dc + extra * (r.random(N) - r.random(N))
+        v = sigma_delta(x, 1)
+        V = np.abs(np.fft.rfft((v - v.mean()) * np.hanning(N))) ** 2
+        V /= N
+        ax.semilogx(np.fft.rfftfreq(N)[1:], 10 * np.log10(V[1:] + 1e-12), color=c, lw=0.7, label=lab)
+    ax.axvline(1 / 128, color=GREEN, ls="--", lw=0.8); ax.text(1 / 128 * 1.1, 25, "audio band\n(OSR 64)", fontsize=6.5, color=GREEN)
+    ax.set_xlabel("frequency / $f_s$"); ax.set_ylabel("dB"); ax.set_ylim(-80, 45)
+    ax.legend(fontsize=6.5, loc="lower right")
+    ax.set_title("Idle tones: a first-order loop with a constant input sings a periodic pattern", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_idle_tones")
+
+
+def fig_bp_sd():
+    N = 1 << 14
+    n = np.arange(N)
+    k0 = N // 4 + 37
+    x = 0.4 * np.sin(2 * np.pi * k0 / N * n)
+    v = sd_errfb(x, np.array([1, 0, 1.0]), np.array([1, 0, 0.0]))
+    V = np.abs(np.fft.rfft(v * np.hanning(N))) ** 2; V /= V.max()
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.plot(np.fft.rfftfreq(N), 10 * np.log10(V + 1e-16), color=NAVY, lw=0.5)
+    ax.axvspan(0.25 - 0.5 / 64, 0.25 + 0.5 / 64, color=GREEN, alpha=0.2, lw=0)
+    ax.text(0.27, -15, "signal band\nat $f_s/4$", fontsize=6.6, color=GREEN)
+    ax.set_xlim(0, 0.5); ax.set_ylim(-140, 5)
+    ax.set_xlabel("frequency / $f_s$"); ax.set_ylabel("dB")
+    ax.set_title("Bandpass $\\Sigma\\Delta$: NTF $=1+z^{-2}$\nputs the noise notch at $f_s/4$", fontsize=8.3)
+    fig.tight_layout(); save(fig, "ch05_bp_sd")
+
+
+def fig_why_8k():
+    f = np.linspace(0, 8.5, 1000)
+    fig, ax = plt.subplots(figsize=(W2, 1.9))
+    sp = np.where((f > 0.3) & (f < 3.4), 1.0, 0.0)
+    ax.fill_between(f, sp, color=NAVY, alpha=0.75, lw=0, label="speech channel 300--3400 Hz")
+    ax.fill_between(f, np.where((f > 8 - 3.4) & (f < 7.7), 0.6, 0), color=GRAY, alpha=0.5, lw=0, label="its image about 8 kHz")
+    filt = 1 / np.sqrt(1 + (f / 3.6) ** 16)
+    ax.plot(f, filt * 1.15, color=GREEN, lw=1.2, ls="--", label="channel-bank anti-alias filter")
+    ax.axvline(4, color=ACCENT, lw=1); ax.text(4.05, 1.2, "$f_s/2$ = 4 kHz", fontsize=7, color=ACCENT)
+    ax.annotate("", xy=(3.4, 0.25), xytext=(4.6, 0.25), arrowprops=dict(arrowstyle="<->", lw=0.8, color=ORANGE))
+    ax.text(4.0, 0.42, "1.2 kHz\ntransition", fontsize=6.4, color=ORANGE, ha="center")
+    ax.axvline(8, color=GRAY, lw=0.6, ls=":"); ax.text(8.05, 1.2, "$f_s$", fontsize=7)
+    ax.set_xlim(0, 8.5); ax.set_ylim(0, 1.45); ax.set_yticks([]); ax.set_xlabel("frequency (kHz)")
+    ax.legend(fontsize=6.3, loc="upper right", bbox_to_anchor=(1.0, 0.93))
+    ax.set_title("Why 8000 samples per second", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch05_why_8k")
+
+
+def fig_iq_fs4():
+    n = np.arange(12)
+    fig, ax = plt.subplots(figsize=(3.2, 2.2))
+    c = np.round(np.cos(np.pi * n / 2)); s = np.round(np.sin(np.pi * n / 2))
+    t = np.linspace(0, 11, 500)
+    ax.plot(t, np.cos(np.pi * t / 2) + 1.4, color=NAVY, lw=0.6, alpha=0.5)
+    ax.plot(t, np.sin(np.pi * t / 2) - 1.4, color=ACCENT, lw=0.6, alpha=0.5)
+    for st in (ax.stem(n, c + 1.4, linefmt=NAVY, markerfmt="o", basefmt=" ", bottom=1.4),
+               ax.stem(n, s - 1.4, linefmt=ACCENT, markerfmt="o", basefmt=" ", bottom=-1.4)):
+        st.markerline.set_markersize(3.5)
+    for k in n:
+        ax.text(k, 2.7, f"{int(c[k]):d}", ha="center", fontsize=6.5, color=NAVY)
+        ax.text(k, -3.05, f"{int(s[k]):d}", ha="center", fontsize=6.5, color=ACCENT)
+    ax.text(11.6, 1.4, "cos", fontsize=7, color=NAVY, va="center"); ax.text(11.6, -1.4, "sin", fontsize=7, color=ACCENT, va="center")
+    ax.set_ylim(-3.4, 3.2); ax.set_xlim(-0.5, 12.6); ax.set_yticks([]); ax.set_xlabel("sample $n$")
+    ax.set_title("A carrier at $f_s/4$: multiplying by 1, 0, $-1$, 0", fontsize=8.3)
+    fig.tight_layout(); save(fig, "ch05_iq_fs4")
+
+
+def fig_ti_concept():
+    t = np.linspace(0, 1, 800)
+    x = np.sin(2 * np.pi * 1.3 * t + 0.3)
+    fs = 24
+    ts = np.arange(0, 1, 1 / fs)
+    fig, ax = plt.subplots(figsize=(W2, 1.7))
+    ax.plot(t, x, color=GRAY, lw=1.0)
+    cols = [NAVY, ACCENT, GREEN, ORANGE]
+    for m in range(4):
+        tm = ts[m::4]
+        ax.plot(tm, np.sin(2 * np.pi * 1.3 * tm + 0.3), "o", color=cols[m], ms=4.5, label=f"ADC {m + 1}")
+    ax.set_yticks([]); ax.set_xlabel("time")
+    ax.legend(fontsize=6.5, ncol=2, loc="lower right")
+    ax.set_title("Time interleaving: four slow converters take turns, each sampling every fourth instant", fontsize=8.3)
+    fig.tight_layout(); save(fig, "ch05_ti_concept")
+
+
+NEW_FIGS2 = [fig_iq_fs4, fig_ti_concept,fig_complex_sampling, fig_pn_jitter, fig_model_fails, fig_clipping, fig_quiet_talker,
+             fig_adpcm_step, fig_idle_tones, fig_bp_sd, fig_why_8k]
+
+NEW_FIGS = NEW_FIGS2 + [fig_by_numbers, fig_two_approx, fig_regeneration, fig_timeline, fig_wagon_wheel, fig_folding,
+            fig_sinc_sum, fig_jitter_slope, fig_track_hold, fig_ktc, fig_height_rounding, fig_bits_ladder,
+            fig_loading, fig_dither_image, fig_speech_levels, fig_g711_byte, fig_lloyd_max, fig_dpcm_residual,
+            fig_cvsd, fig_sd_painter, fig_noise_moving, fig_sar_search, fig_dnl_inl, fig_adc_fft,
+            fig_tdm_interleave, fig_robbed_bit, fig_delay_budget, fig_voip_packet, fig_audio_formats,
+            fig_decim_chain]
+
+
 if __name__ == "__main__":
     only = sys.argv[1:]
     allf = [fig_sampling_spectra, fig_aliasing_time, fig_reconstruction, fig_quantizer, fig_companding,
             fig_delta_mod, fig_sigma_delta, fig_jitter, fig_t1_frame, fig_nyquist_zones, fig_aa_filter,
             fig_zoh_comp, fig_dither, fig_g711, fig_prediction, fig_ntf, fig_sd_stability, fig_adc_landscape,
-            fig_ti_spurs, fig_e1_frame]
+            fig_ti_spurs, fig_e1_frame] + NEW_FIGS
     for fn in allf:
         if not only or fn.__name__[4:] in only:
             out = fn()
