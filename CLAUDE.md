@@ -218,3 +218,9 @@ labkit, plotting, iq. `python book/tools/check_labs.py` verifies every lab named
   rewrites; lab conversions 01/35/33, 34/15/16, 17/36/13, 02/21/04, 05/22/06, 07/28/18. Not yet started:
   Ch 2,3,5,6,7,10,12-22,24,25, App A/B rewrites; labs 08/20/09/23, 19/24/25, 10/29/26, 11/27/31, 12/32/30;
   delete lab00 notebook + build_notebooks once all labs converted; final build + visual check + push.
+- 2026-10-02 (2nd ed progress): chapters rewritten: 1,2,4,5,8,9,10,11,12,13,23. Labs converted: 01-09,12-18,20-23,28,
+  30,32-36 (remaining: 10,11,19,24,25,26,27,29,31 in flight). In flight at limit: Ch 3,6,7,14,15,16,17 rewrites.
+  Not started: Ch 18-22,24,25, App A/B. Pending lists in coordinator scratchpad were: studio framework fixes
+  (catalog one-liners, Text control, cmap list bug, on_click, Canvas, label elision...), book labbox/tryit
+  reconciliation with final lab experiment names, fact-check list of new claims, delete lab00 notebook +
+  build_notebooks, full build + check_visuals + push.

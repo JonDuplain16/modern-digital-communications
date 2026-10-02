@@ -1,0 +1,20 @@
+# studio framework follow-ups (collect from lab authors)
+- catalog.py one-liners: lab02 "Constellation zoo, signal space, decision regions and MAP, BER Monte Carlo, LLRs, noncoherent FSK, Shannon plane, Rayleigh fading"; lab21 "CPM phase and spectra, MSK = OQPSK (Laurent), three receivers, PAPR, PA regrowth, EVM signatures and budget"; lab04 "Impairment diagnosis, PLL steps and slips, S-curves, live Costas and timing loops, frequency estimators vs CRB, Farrow, frame sync, Schmidl–Cox and PSS cell search"
+- hook for window Reset (on_reset) so experiments can leave special modes
+- option to disable auto-downsampling (>4000 pts) for parametric curves
+- commlib cpm.LaurentReceiver.calibrate ref phase depends on first precoded bit
+- catalog: lab15 "Tune the band, images, IF selectivity, AGC, double conversion, IM3/SFDR, zero-IF vs low-IF"; lab16 "Aliasing, ZOH, SQNR, dither, G.711, DM/CVSD, sigma-delta, jitter, T1/E1"; lab34 "Morse keying, Morse vs Huffman, Kelvin's cable, semaphore pipeline, regenerators, loading coils, capacity"
+- add studio Text control (lab34 has local TextBox(Control))
+- Plot._cmap: list colormap -> dict.get unhashable; check list before name lookup
+- document: tick() hides plots not redrawn
+- BOOK: final pass on all labboxes/tryit to match new lab experiment names (ch05 labbox "companion notebook... 75 minutes"; ch04 "Section 6" of lab15 -> experiment 7 "Zero-IF vs low-IF")
+- catalog: lab07/lab28/lab18 descriptions stale (see report: OFDM basics 8 exps; OFDM system 7 exps; satellite 7 exps)
+- Readout "below X" floor format option; Plot hide-axes option; bar legend swatches grey; multi-line tick labels clipped
+- commlib.ofdm.dft_s_ofdm_modulate maps non-contiguously around DC -> inflated PAPR (check vs book ch17 figure)
+- bars() ignores log axes; NaN readouts fail selftest (allow NaN -> "—"); width cap/elision for long Choice/Toggle labels in controls column
+- Plot.fill_between segfaults Qt on long zero-area regions (labs use line(fill=baseline)); controls stacked widget: long label widens all pages (elide/wrap); text(y=None) pins y at call time (doc); challenges not re-checked on Play pause; Plot(axes=False)
+- catalog: lab17 "Pole–zero, FIR/IIR and fixed point, aliasing, PFB channelizer, CIC, NCO spurs, CORDIC, a live DDC"; lab36 "Two-tone IIP3, line-up and SFDR, reciprocal mixing, I/Q image, PA ACLR/EVM, Doherty, CFR, DPD"; lab13 "Typed line codes and PSDs, baseline wander, scramblers, 8b/10b, jitter bathtub, PAM-4 with CTLE/FFE/DFE, duobinary"
+- controls stack sizes to largest page -> size to current page; book.py strip $...$ from section titles
+- BOOK: ch08 MLT-3 "DC null" claim (lab measures only ~4.5 dB below peak) -> soften
+- catalog: lab08 "Shannon's gap, shift-register encoder, trellis and d_free, Viterbi step by step, soft vs hard, puncturing, traceback, bursts and interleaving"; lab20 "Hamming Venn diagram, SECDED, CRC calculator and detection, GF(2^m), Reed–Solomon errors/erasures, interleaving, coding gain"; lab09 "Tanner graphs and girth, live belief propagation, min-sum variants, early stopping, polarization, SC vs CA-SCL, finite-length limits"; lab23 "LTE turbo encoder and QPP, BCJR vs max-log, iterations, EXIT tunnel, BEC density evolution, coupling wave, error floors"
+- public on_click hook; Canvas (no-axes) plot type; xlim not honoured in narrow plots; tick() set slider without flicker; aspect=True overrides limits; _slug transliterate non-ASCII; Button can start Play; reserved method names (frame) should error

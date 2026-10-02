@@ -1,0 +1,11 @@
+# 2nd-edition fact-check list (new claims added by rewrite authors)
+- ch01: fibre-loss milestones (1000 dB/km 1966, 17 dB/km Corning 1970, 0.2 dB/km 1979, ~0.15 today); "old ideas" dates (LDPC in DVB-S2 2005, Chang 1966 -> 802.11a 1999); submarine cables ~hundreds of systems ~1 million km; heliograph Ottoman at Huj caption
+- ch02: Newton prism 1666; Richter 1935; "mile of standard cable" -> TU -> dB in 1920s; Musikverein 1870, ~2 s RT; GPS L1 C/A min power -128.5 dBm
+- ch05: T1 first commercial Chicago 1962, repeaters ~6000 ft at loading-coil points, 24 calls on 2 pairs; CDP-101 1 Oct 1982 Japan; Philips CD100 date (text "early 1983" vs Commons caption Aug 1982); CD100 14-bit DAC 4x oversampling; Beethoven 9th 74-min folklore hedged
+- ch08: MLT-3 DC-null claim (lab measures ~4.5 dB) -> soften
+- ch09: LTE 2 Rx antennas from start; NR 4 Rx in many higher bands (TS 38.101-1); timeline years
+- ch10: IS-95 GPS time; Time Card OCP; Apollo USB 1968
+- ch11: Holmdel 1959/CMB 1964-65/Nobel 1978; DSN 74 dBi @8.4 GHz; Shinkansen ~300 km/h >500 Hz
+- ch12: timeline: coherent 100G ~2010, 400ZR 2020, 224G SerDes 2024
+- ch13: Bell Labs drafting room 1940s caption; Shannon statue by Eugene Daub
+- ch15: CA-SCL vs plain list (lab: plain list beats CA-SCL at FER 1e-1..1e-2 for N=128/256; CA-SCL wins only at floor) -> check ch15 text; EXIT tunnel opens ~0.0 dB in lab vs book -0.1 dB
