@@ -29,8 +29,10 @@ def page_visual(page):
     rules = sum(1 for p in strokes for it in p["items"]
                 if it[0] == "l" and abs(it[1].y - it[2].y) < 0.5 and abs(it[2].x - it[1].x) > 100
                 and p.get("color") is not None and max(p["color"]) < 0.3)
+    # stroked rectangles (square-cornered TikZ block diagrams)
+    rects = sum(1 for p in strokes for it in p["items"] if it[0] == "re")
     # TikZ/diagram: curves or many stroked lines.
-    return curvy >= 4 or lines >= 12 or rules >= 3
+    return curvy >= 4 or lines >= 12 or rules >= 3 or rects >= 3
 
 
 def main():
@@ -40,10 +42,18 @@ def main():
     d = pymupdf.open(pdf)
     a, b = (rng[0], rng[1]) if len(rng) == 2 else (1, d.page_count)
     bad = []
-    section = ""
+    in_backmatter = False          # after a chapter's "Problems" heading, until the next chapter opens
     for i in range(a - 1, min(b, d.page_count)):
         p = d[i]
         text = p.get_text()
+        lines = [l.strip() for l in text.splitlines()]
+        if "CHAPTER" in lines[:6] or "APPENDIX" in lines[:6]:
+            in_backmatter = False
+        if "Problems" in lines:
+            in_backmatter = True
+            continue
+        if in_backmatter:
+            continue
         head = text.strip().splitlines()[:3]
         if any(h.strip() in EXEMPT for h in head) or any(e in " ".join(head) for e in EXEMPT):
             continue

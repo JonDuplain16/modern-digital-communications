@@ -103,3 +103,11 @@ describe it in your final report so the lab author can add it.
 5. Reach coverage by moving existing floats just before text-only stretches; re-run the checker after each move.
 6. Locate floats by their \label when scripting moves, never by a shared prefix.
 7. Narrow single-panel concept figures (~3.0 x 2.4 in) that carry a real simulated number give the best value per page.
+8. Float parameters are now global in mdcstyle.sty (topfraction .8, bottomfraction .55, textfraction .12,
+   floatpagefraction .75, 3 top / 2 bottom / 4 total). Do NOT set them per chapter.
+9. Freeze content, then fix layout front to back: each fix only shifts later pages. Rebuild after each fix.
+10. Prefer moving a figure a paragraph earlier over [H]; [H] leaves holes at page bottoms.
+11. Long boxes cause text-only pages: put the figure BEFORE a full-page history/worked box, not after.
+12. Wikimedia rate-limits parallel agents: fetch all photos in one early batch with long backoff, then view each.
+13. A small page-map script (captions, headings, boxes and bottom gap per page) makes the coverage sweep fast.
+14. Cheap, valuable visuals: simulation-driven analogy pictures; photos of front panels whose labelled knobs illustrate the text.
