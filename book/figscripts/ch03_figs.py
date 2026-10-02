@@ -537,9 +537,687 @@ def fig_linkbudget():
     fig.tight_layout(); save(fig, "ch03_linkbudget")
 
 
-ALL = [fig_clt, fig_clt_tails, fig_chisq, fig_q, fig_qapprox, fig_envelopes, fig_filtered_noise, fig_neb,
+# ================================================================ second edition: concept figures
+NARROW = (3.0, 2.4)
+
+
+def fig_party():
+    """SNR as a crowded party: one whisper, a crowd of voices, and what reaches the ear."""
+    r = rng(21); fs = 4000; t = np.arange(0, 0.5, 1 / fs)
+    env = np.exp(-((t - 0.25) / 0.09) ** 2)
+    sig = env * np.sin(2 * np.pi * 180 * t) * (1 + 0.4 * np.sin(2 * np.pi * 7 * t))
+    crowd = np.zeros_like(t); voices = []
+    for k in range(40):
+        f = r.uniform(90, 400); ph = r.uniform(0, 2 * np.pi); am = r.uniform(2, 9)
+        v = (0.6 + 0.4 * np.sin(2 * np.pi * am * t + r.uniform(0, 6))) * np.sin(2 * np.pi * f * t + ph)
+        voices.append(v); crowd += v
+    for snr_db, name in [(0, "c")]:
+        pass
+    crowd *= np.sqrt(np.mean(sig[env > 0.3] ** 2) / np.mean(crowd ** 2)) * 10 ** (3 / 20)
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 1.9), sharey=True)
+    ax[0].plot(t * 1e3, sig, color=NAVY, lw=0.8); ax[0].set_title("the whisper (signal)", fontsize=9)
+    ax[1].plot(t * 1e3, crowd, color=GRAY, lw=0.5); ax[1].set_title("the crowd: 40 voices added", fontsize=9)
+    ax[2].plot(t * 1e3, sig + crowd, color=GRAY, lw=0.5, label="what the ear gets")
+    ax[2].plot(t * 1e3, sig, color=NAVY, lw=0.9, label="the whisper inside")
+    ax[2].set_title("what reaches the ear (SNR $\\approx -3$ dB)", fontsize=9); ax[2].legend(fontsize=6, loc="lower right")
+    for a in ax:
+        a.set_xlabel("time (ms)"); a.set_yticks([])
+    ax[0].set_ylim(-3.4, 3.2)
+    fig.tight_layout(); save(fig, "ch03_party")
+
+
+def fig_floor_ladder():
+    """How weak is weak: received powers of real systems against the thermal floor."""
+    items = [(0.1, "Wi-Fi access point transmits (20 dBm)", GREEN),
+             (1e-6, "strong Wi-Fi signal across a room ($-30$ dBm)", GREEN),
+             (1e-13, "phone at the edge of a cell ($\\approx -100$ dBm)", NAVY),
+             (1e-16, "GPS signal at the ground ($\\approx -130$ dBm)", ACCENT),
+             (8e-15, "thermal noise in GPS's 2 MHz", GRAY),
+             (1e-19, "Voyager 1 at a 70 m dish (order of magnitude)", PURPLE),
+             (4e-21, "thermal noise in 1 Hz: $kT_0$", GRAY)]
+    fig, ax = plt.subplots(figsize=(W1 * 0.95, 2.5))
+    for i, (p, lab, c) in enumerate(sorted(items, key=lambda z: -z[0])):
+        y = np.log10(p)
+        ax.plot([0, 1], [y, y], color=c, lw=2.2 if c != GRAY else 1.2, ls="-" if c != GRAY else "--")
+        ax.text(1.05, y, lab, va="center", fontsize=7.2, color=c)
+    ax.set_xlim(0, 4.2); ax.set_ylim(-21.5, 0); ax.set_xticks([])
+    ax.set_ylabel("power (watts, $\\log_{10}$)")
+    ax.set_yticks(range(-21, 1, 3)); ax.set_yticklabels([f"$10^{{{k}}}$" for k in range(-21, 1, 3)])
+    sec = ax.secondary_yaxis("right", functions=(lambda y: 10 * y + 30, lambda d: (d - 30) / 10))
+    sec.set_ylabel("dBm"); ax.spines["right"].set_visible(True)
+    ax.grid(False)
+    ax.set_title("A ladder of weakness: signals and the thermal floor (dashed)", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_floor_ladder")
+
+
+def fig_moments():
+    r = rng(4); t = np.linspace(0, 10, 2000)
+    x = 0.8 + 0.35 * sps.lfilter([0.08], [1, -0.92], r.standard_normal(len(t))) / 0.2
+    mu, sd = x.mean(), x.std()
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.plot(t, x, color=NAVY, lw=0.6)
+    ax.axhline(mu, color=ACCENT, lw=1.3); ax.text(10.1, mu, "mean\n(DC)", fontsize=6.8, color=ACCENT, va="center")
+    ax.axhspan(mu - sd, mu + sd, color=GREEN, alpha=0.15)
+    ax.text(10.1, mu + sd, "$+\\sigma$\n(RMS of\nAC part)", fontsize=6.3, color=GREEN, va="bottom")
+    k = np.argmax(x); ax.plot(t[k], x[k], "v", color=ORANGE, ms=5)
+    ax.annotate(f"peak: crest factor {(x[k] - mu) / sd:.1f}", (t[k], x[k]), (-40, 6), textcoords="offset points", fontsize=6.8, color=ORANGE)
+    ax.axhline(0, color=GRAY, lw=0.6)
+    ax.set_ylim(x.min() - 0.15, x.max() + 0.45)
+    ax.set_xlim(0, 10); ax.set_xlabel("time (ms)"); ax.set_ylabel("voltage (V)")
+    ax.set_title("Moments you can see on a scope", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_moments")
+
+
+def fig_transforms():
+    r = rng(8); n = 400_000
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 2.2))
+    x = r.standard_normal(n)
+    ax[0].hist(x ** 2, bins=np.linspace(0, 6, 120), density=True, color=NAVY, alpha=0.6)
+    y = np.linspace(0.02, 6, 300); ax[0].plot(y, stats.chi2.pdf(y, 1), color=ACCENT)
+    ax[0].set_ylim(0, 1.6); ax[0].set_title("square-law: $Y=X^2$", fontsize=9); ax[0].set_xlabel("$y$")
+    th = r.uniform(0, 2 * np.pi, n)
+    ax[1].hist(np.cos(th), bins=80, density=True, color=NAVY, alpha=0.6)
+    yy = np.linspace(-0.995, 0.995, 400); ax[1].plot(yy, 1 / (np.pi * np.sqrt(1 - yy ** 2)), color=ACCENT)
+    ax[1].set_ylim(0, 2.2); ax[1].set_title("sine at random instants", fontsize=9); ax[1].set_xlabel("$y=\\cos\\Theta$")
+    p = r.exponential(1.0, n); pdb = 10 * np.log10(p)
+    ax[2].hist(pdb, bins=np.linspace(-35, 10, 120), density=True, color=NAVY, alpha=0.6)
+    ax[2].axvline(pdb.mean(), color=ACCENT, lw=1.2); ax[2].axvline(0, color=GREEN, lw=1.0, ls="--")
+    ax[2].text(pdb.mean() - 1, 0.105, f"mean of dB\n= {pdb.mean():.1f} dB", fontsize=6.5, color=ACCENT, ha="right")
+    ax[2].text(1, 0.1, "true mean\n= 0 dB", fontsize=6.5, color=GREEN)
+    ax[2].set_ylim(0, 0.13)
+    ax[2].set_title("noise power in decibels", fontsize=9); ax[2].set_xlabel("$10\\log_{10}P$ (dB)")
+    fig.tight_layout(); save(fig, "ch03_transforms")
+
+
+def fig_uncorrelated():
+    r = rng(9); n = 3000
+    fig, ax = plt.subplots(1, 2, figsize=(W2 * 0.78, 2.5))
+    th = r.uniform(0, 2 * np.pi, n)
+    ax[0].plot(np.cos(th), np.sin(th), ".", ms=1.5, color=NAVY)
+    ax[0].set_title(f"$(\\cos\\Theta,\\sin\\Theta)$: corr = {abs(np.corrcoef(np.cos(th), np.sin(th))[0, 1]):.2f}\nuncorrelated, totally dependent", fontsize=8)
+    g = r.standard_normal((2, n)) * 0.5
+    ax[1].plot(g[0], g[1], ".", ms=1.5, color=GREEN)
+    ax[1].set_title(f"Gaussian pair: corr = {abs(np.corrcoef(g)[0, 1]):.2f}\nuncorrelated, so independent", fontsize=8)
+    for a in ax:
+        a.set_aspect("equal"); a.set_xlim(-1.6, 1.6); a.set_ylim(-1.6, 1.6); a.set_xlabel("$I$")
+    ax[0].set_ylabel("$Q$")
+    fig.tight_layout(); save(fig, "ch03_uncorrelated")
+
+
+def fig_bayes_alarm():
+    r = rng(12)
+    fig, ax = plt.subplots(figsize=(W1 * 0.9, 2.6))
+    xx, yy = np.meshgrid(np.arange(200), np.arange(50))
+    ax.plot(xx.ravel(), yy.ravel(), ",", color="#B8C2CC")
+    fa = r.choice(10_000, 10, replace=False)
+    ax.plot(fa % 200, fa // 200, "o", color=ACCENT, ms=5, label="false alarm (noise only): about 10")
+    tp = 5123
+    ax.plot([tp % 200], [tp // 200], "o", color=GREEN, ms=7, mec="black", label="the one real preamble")
+    ax.set_xlim(-2, 201); ax.set_ylim(-2, 51); ax.axis("off")
+    ax.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.02), ncol=2, frameon=False)
+    ax.set_title("10 000 tests of a detector with $P_{FA}=10^{-3}$, $P_D=0.99$: 10 alarms in 11 are false", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch03_bayes_alarm")
+
+
+def fig_llr():
+    A, s = 1.0, 0.6; r_ = np.linspace(-3, 3, 400)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.plot(r_, stats.norm.pdf(r_, -A, s), color=NAVY, label="$p(r\\mid -1)$")
+    ax.plot(r_, stats.norm.pdf(r_, A, s), color=ACCENT, label="$p(r\\mid +1)$")
+    ax.set_xlabel("received sample $r$"); ax.set_ylabel("likelihood"); ax.set_ylim(0, 0.75)
+    a2 = ax.twinx(); a2.plot(r_, 2 * A * r_ / s ** 2, color=GREEN, lw=1.6, ls="--", label="LLR $=2Ar/\\sigma^2$")
+    a2.axhline(0, color=GRAY, lw=0.6); a2.set_ylabel("LLR", color=GREEN); a2.set_ylim(-18, 18); a2.grid(False)
+    a2.spines["right"].set_visible(True)
+    h1, l1 = ax.get_legend_handles_labels(); h2, l2 = a2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, fontsize=6.5, loc="upper left")
+    ax.set_title("Soft information: sign = decision, size = confidence", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch03_llr")
+
+
+def fig_galton_sim():
+    r = rng(13); rows = 12; nb = 4000
+    fig, ax = plt.subplots(figsize=(3.0, 3.6))
+    for i in range(rows):
+        for j in range(i + 1):
+            ax.plot(j - i / 2, -i, "o", color=NAVY, ms=2.3)
+    cols = [ACCENT, GREEN, ORANGE, PURPLE]
+    for c in cols:
+        steps = r.choice([-0.5, 0.5], rows); x = np.concatenate([[0], np.cumsum(steps)])
+        ax.plot(x, -np.arange(rows + 1) + 0.3, color=c, lw=1.0, alpha=0.9)
+    final = r.choice([-0.5, 0.5], (nb, rows)).sum(1)
+    vals, cnt = np.unique(final, return_counts=True)
+    scale = 7.0 / cnt.max()
+    ax.bar(vals, cnt * scale, bottom=-rows - 8.5, width=0.85, color=NAVY, alpha=0.55)
+    xs = np.linspace(-6.5, 6.5, 300)
+    ax.plot(xs, nb * stats.norm.pdf(xs, 0, np.sqrt(rows) / 2) * scale - rows - 8.5, color=ACCENT, lw=1.5)
+    ax.text(4.0, -rows - 2.2, "Gaussian\nprediction", fontsize=6.8, color=ACCENT)
+    ax.text(-6.6, -1.5, f"{rows} rows of pegs:\neach bounce is\na coin flip", fontsize=6.8, color=NAVY)
+    ax.text(-6.6, -rows - 3.2, f"{nb} balls", fontsize=6.8, color=NAVY)
+    ax.set_xlim(-7, 7); ax.set_ylim(-rows - 9, 1); ax.axis("off")
+    ax.set_title("A Galton board in software", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_galton_sim")
+
+
+def fig_maxent():
+    x = np.linspace(-4, 4, 800)
+    dens = [("uniform", np.where(abs(x) < np.sqrt(3), 1 / (2 * np.sqrt(3)), 0), 0.5 * np.log2(12), GRAY),
+            ("Laplacian", np.exp(-np.sqrt(2) * abs(x)) / np.sqrt(2), np.log2(2 * np.e / np.sqrt(2)), ORANGE),
+            ("Gaussian", stats.norm.pdf(x), 0.5 * np.log2(2 * np.pi * np.e), ACCENT)]
+    fig, ax = plt.subplots(figsize=NARROW)
+    for name, d, h, c in dens:
+        ax.plot(x, d, color=c, lw=1.5 if name == "Gaussian" else 1.1, label=f"{name}: $h$ = {h:.3f} bits")
+    ax.set_xlabel("$x$ (unit variance)"); ax.set_ylim(0, 0.75); ax.legend(fontsize=6.5, loc="upper right")
+    ax.set_title("Same power, different surprise", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_maxent")
+
+
+def fig_q_tail():
+    A, s = 1.0, 0.42; y = np.linspace(-2.6, 2.6, 600)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.plot(y, stats.norm.pdf(y, -A, s), color=NAVY, label="sent $-A$")
+    ax.plot(y, stats.norm.pdf(y, A, s), color=ACCENT, label="sent $+A$")
+    m = y < 0
+    ax.fill_between(y[m], stats.norm.pdf(y[m], A, s), color=ACCENT, alpha=0.35)
+    ax.axvline(0, color=GRAY, ls="--", lw=0.9); ax.text(0.05, 0.98, "threshold", fontsize=6.8, color=GRAY)
+    ax.annotate("", (0, 0.55), (A, 0.55), arrowprops=dict(arrowstyle="<->", color=GREEN))
+    ax.text(A / 2, 0.58, "$A=%.1f\\sigma$" % (A / s), fontsize=7.5, color=GREEN, ha="center")
+    ax.annotate("error area $=Q(A/\\sigma)$", (-0.12, 0.05), (-2.55, 1.13),
+                fontsize=6.6, color=ACCENT, arrowprops=dict(arrowstyle="->", color=ACCENT))
+    ax.set_xlabel("received sample"); ax.set_ylim(0, 1.25); ax.legend(fontsize=6.5, loc="upper right")
+    ax.set_title("The tail that fools the receiver", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_q_tail")
+
+
+def fig_cliff():
+    eb = np.linspace(0, 14, 400); ber = Q(np.sqrt(2 * 10 ** (eb / 10)))
+    fig, ax = plt.subplots(figsize=NARROW)
+    for nbits, c, lab in [(100, GREEN, "100-bit message"), (12000, NAVY, "1500-byte packet"), (8e6, ACCENT, "1 MB file")]:
+        ax.plot(eb, (1 - ber) ** nbits, color=c, label=lab)
+    ax.set_xlabel("$E_b/N_0$ (dB), uncoded BPSK"); ax.set_ylabel("probability of no error")
+    ax.legend(fontsize=6.5, loc="lower right"); ax.set_xlim(4, 14)
+    ax.set_title("The digital cliff", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_cliff")
+
+
+def fig_cn_cloud():
+    r = rng(14); n = 4000
+    z = (r.standard_normal(n) + 1j * r.standard_normal(n)) / np.sqrt(2)
+    fig, ax = plt.subplots(figsize=(2.8, 2.6))
+    ax.plot(z.real, z.imag, ".", ms=1.2, color=NAVY, alpha=0.5, label="noise $n$")
+    zr = z[:1500] * np.exp(1j * 1.0)
+    ax.plot(zr.real, zr.imag, ".", ms=1.2, color=ACCENT, alpha=0.4, label="$e^{j57^\\circ}n$")
+    for rad in [0.5, 1, 1.5, 2]:
+        tt = np.linspace(0, 2 * np.pi, 200); ax.plot(rad * np.cos(tt), rad * np.sin(tt), color=GRAY, lw=0.5)
+    ax.set_aspect("equal"); ax.set_xlim(-2.6, 2.6); ax.set_ylim(-2.6, 2.6)
+    ax.set_xlabel("$n_I$"); ax.set_ylabel("$n_Q$"); ax.legend(fontsize=6.3, loc="upper right", markerscale=5)
+    ax.set_title("Circular: rotate it, nothing changes", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch03_cn_cloud")
+
+
+def fig_fade_time():
+    r = rng(15); fs = 5000; t = np.arange(0, 1.0, 1 / fs); fd = 40; M = 64
+    h = np.zeros(len(t), complex)
+    for k in range(M):
+        a = r.uniform(0, 2 * np.pi); h += np.exp(1j * (2 * np.pi * fd * np.cos(a) * t + r.uniform(0, 2 * np.pi)))
+    p = np.abs(h) ** 2 / np.mean(np.abs(h) ** 2); pdb = 10 * np.log10(p)
+    fig, ax = plt.subplots(figsize=(W2, 1.9))
+    ax.plot(t * 1e3, pdb, color=NAVY, lw=0.8)
+    for lv, c in [(-10, ORANGE), (-20, ACCENT)]:
+        ax.axhline(lv, color=c, lw=0.9, ls="--")
+        ax.text(1002, lv, f"{lv} dB: below {100 * np.mean(pdb < lv):.1f}% of the time\n(theory {100 * (1 - np.exp(-10 ** (lv / 10))):.1f}%)", fontsize=6.5, color=c, va="center")
+    ax.set_xlim(0, 1000); ax.set_ylim(-35, 8); ax.set_xlabel("time (ms)"); ax.set_ylabel("power (dB re mean)")
+    ax.set_title("Rayleigh fading: the exponential power law in action (40 Hz Doppler)", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_fade_time")
+
+
+def fig_ensemble():
+    r = rng(16); t = np.linspace(0, 10, 600)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.4))
+    for k in range(5):
+        x = sps.lfilter([0.15], [1, -0.85], r.standard_normal(len(t))) * 2.0
+        ax[0].plot(t, x + 3 * k, color=CYCLE[k % 5], lw=0.7)
+        ax[0].plot([4.0], [x[240] + 3 * k], "o", color="black", ms=3)
+    ax[0].axvline(4.0, color=GRAY, ls="--", lw=0.8); ax[0].text(4.1, 13.6, "ensemble average:\ndown the column", fontsize=6.5)
+    ax[0].annotate("", (9.8, -1.6), (0.2, -1.6), arrowprops=dict(arrowstyle="->", color=ACCENT))
+    ax[0].text(5, -2.8, "time average: along one path", fontsize=6.5, color=ACCENT, ha="center")
+    ax[0].set_ylim(-3.5, 15); ax[0].set_yticks([]); ax[0].set_xlabel("time"); ax[0].set_title("ergodic: both agree", fontsize=9)
+    for k in range(5):
+        A = r.standard_normal()
+        ax[1].plot(t, A + 0.08 * r.standard_normal(len(t)) + 3 * k, color=CYCLE[k % 5], lw=0.7)
+    ax[1].set_ylim(-3.5, 15); ax[1].set_yticks([]); ax[1].set_xlabel("time")
+    ax[1].set_title("not ergodic: random DC offset per unit", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_ensemble")
+
+
+def fig_wk_pair():
+    r = rng(17); N = 1 << 16
+    fig, ax = plt.subplots(3, 3, figsize=(W2, 3.6))
+    for i, (tc, c) in enumerate([(1.0, GRAY), (5.0, NAVY), (25.0, ACCENT)]):
+        a = np.exp(-1 / tc)
+        x = sps.lfilter([np.sqrt(1 - a ** 2)], [1, -a], r.standard_normal(N))
+        ax[i, 0].plot(x[:300], color=c, lw=0.6); ax[i, 0].set_ylim(-4, 6); ax[i, 0].set_yticks([])
+        lags = np.arange(0, 80); ax[i, 1].plot(lags, a ** lags, color=c); ax[i, 1].set_ylim(-0.05, 1.05)
+        f, P = sps.welch(x, 1.0, nperseg=1024); ax[i, 2].semilogy(f, P, color=c); ax[i, 2].set_ylim(1e-2, 1e2)
+        ax[i, 0].text(5, 4.3, f"$\\tau_c$ = {tc:g} samples", fontsize=7, color=c)
+    ax[0, 0].set_title("sample path", fontsize=9); ax[0, 1].set_title("autocorrelation $R(\\tau)$", fontsize=9)
+    ax[0, 2].set_title("PSD $S(f)$", fontsize=9)
+    ax[2, 0].set_xlabel("time (samples)"); ax[2, 1].set_xlabel("lag $\\tau$"); ax[2, 2].set_xlabel("frequency ($f/f_s$)")
+    fig.tight_layout(); save(fig, "ch03_wk_pair")
+
+
+def fig_periodogram():
+    r = rng(18); N = 8192; x = r.standard_normal(N)
+    f1 = np.fft.rfftfreq(N); P1 = np.abs(np.fft.rfft(x)) ** 2 / N * 2
+    f2, P2 = sps.welch(x, 1.0, nperseg=256)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.plot(f1, 10 * np.log10(P1 + 1e-9), color=GRAY, lw=0.3, alpha=0.6, label="one periodogram")
+    ax.plot(f2, 10 * np.log10(P2), color=NAVY, lw=2.0, label="Welch: 63 averaged")
+    ax.axhline(10 * np.log10(2), color=ACCENT, ls="--", lw=1.0, label="true PSD")
+    ax.set_ylim(-30, 15); ax.set_xlabel("frequency ($f/f_s$)"); ax.set_ylabel("dB")
+    ax.legend(fontsize=6.3, loc="lower center"); ax.set_title("A single record never settles", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_periodogram")
+
+
+def fig_ktc():
+    C = np.logspace(-1, 2, 200) * 1e-12
+    fig, ax = plt.subplots(figsize=NARROW)
+    for T, c in [(300, ACCENT), (77, NAVY)]:
+        ax.loglog(C * 1e12, np.sqrt(K_B * T / C) * 1e6, color=c, label=f"$\\sqrt{{kT/C}}$, {T} K")
+    for bits, c in [(10, GRAY), (12, GREEN), (14, ORANGE), (16, PURPLE)]:
+        q = 2.0 / 2 ** bits / np.sqrt(12) * 1e6
+        ax.axhline(q, color=c, lw=0.8, ls=":"); ax.text(0.11, q * 1.08, f"{bits}-bit, 2 V: $\\Delta/\\sqrt{{12}}$", fontsize=6.2, color=c)
+    ax.set_xlabel("sampling capacitance (pF)"); ax.set_ylabel("RMS noise ($\\mu$V)")
+    ax.legend(fontsize=6.3, loc="lower left"); ax.set_title("$kT/C$: noise frozen on a capacitor", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_ktc")
+
+
+def fig_noise_colors():
+    r = rng(19); N = 1 << 15
+    w = r.standard_normal(N)
+    W = np.fft.rfft(w); f = np.fft.rfftfreq(N); f[0] = f[1]
+    pink = np.fft.irfft(W / np.sqrt(f), N); brown = np.fft.irfft(W / f, N)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3))
+    for k, (x, c, lab) in enumerate([(w, GRAY, "white"), (pink, ACCENT, "pink ($1/f$, flicker)"), (brown, ORANGE, "brown ($1/f^2$, random walk)")]):
+        x = x / x.std(); seg = x[:1500] - x[:1500].mean()
+        ax[0].plot(seg / seg.std() * 0.8 - 4 * k, color=c, lw=0.5)
+        ax[0].text(1520, -4 * k, lab.split(" ")[0], fontsize=7, color=c, va="center")
+        ff, P = sps.welch(x, 1.0, nperseg=4096)
+        ax[1].loglog(ff[1:], P[1:], color=c, label=lab)
+    ax[0].set_yticks([]); ax[0].set_xlim(0, 1800); ax[0].set_xlabel("time (samples)"); ax[0].set_title("three colours of noise", fontsize=9)
+    ax[1].set_xlabel("frequency ($f/f_s$)"); ax[1].set_ylabel("PSD"); ax[1].legend(fontsize=6.5, loc="lower left")
+    ax[1].set_title("their spectra (log-log)", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_noise_colors")
+
+
+def fig_shot():
+    r = rng(20)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.2))
+    for k, (lam, c) in enumerate([(5, ACCENT), (50, NAVY), (500, GREEN)]):
+        tt = np.sort(r.uniform(0, 1, r.poisson(lam)))
+        t = np.linspace(0, 1, 2000); i = np.zeros_like(t)
+        for t0 in tt:
+            i += np.exp(-((t - t0) / 0.01) ** 2)
+        i /= i.max()
+        ax[0].plot(t, i + 1.25 * k, color=c, lw=0.8)
+        ax[0].text(1.02, 1.25 * k + 0.5, f"{lam}/s", fontsize=6.8, color=c, va="center")
+    ax[0].set_yticks([]); ax[0].set_xlabel("time (s)"); ax[0].set_title("current as a hail of charges\n(each trace scaled to its peak)", fontsize=8.5)
+    N = 20; k = np.arange(0, 45)
+    ax[1].bar(k, stats.poisson.pmf(k, N), color=NAVY, alpha=0.7)
+    ax[1].bar([0], [0.02], color=ACCENT)
+    ax[1].annotate(f"$P(0)=e^{{-20}}\\approx{np.exp(-20):.0e}$:\na 'one' seen as 'zero'", (0, 0.02), (25, 0.07), fontsize=6.6, color=ACCENT,
+                   arrowprops=dict(arrowstyle="->", color=ACCENT))
+    ax[1].set_xlabel("photoelectrons counted in a bit"); ax[1].set_title("Poisson counts, mean 20", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_shot")
+
+
+def fig_impulsive():
+    r = rng(22); n = 200_000; A = 0.1; G = 0.01
+    m = r.poisson(A, n)
+    var = (m / A + G) / (1 + G)
+    z = np.sqrt(var / 2) * (r.standard_normal(n) + 1j * r.standard_normal(n))
+    g = (r.standard_normal(n) + 1j * r.standard_normal(n)) / np.sqrt(2)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3))
+    ax[0].plot(np.abs(g[:3000]), color=GRAY, lw=0.5, label="Gaussian")
+    ax[0].plot(np.abs(z[:3000]) + 8, color=ACCENT, lw=0.5, label="class A ($A=0.1$)")
+    ax[0].set_yticks([]); ax[0].set_xlabel("sample"); ax[0].set_title("same average power, very different life", fontsize=9)
+    ax[0].legend(fontsize=6.5, loc="upper right")
+    lv = np.linspace(-20, 25, 200)
+    for x, c, lab in [(g, GRAY, "Gaussian (Rayleigh envelope)"), (z, ACCENT, "Middleton class A")]:
+        e = 20 * np.log10(np.abs(x))
+        ax[1].semilogy(lv, [np.mean(e > l) for l in lv], color=c, label=lab)
+    ax[1].set_ylim(1e-5, 1.1); ax[1].set_xlabel("envelope level (dB re RMS)"); ax[1].set_ylabel("P(envelope > level)")
+    ax[1].set_title("amplitude probability distribution", fontsize=9); ax[1].legend(fontsize=6.5, loc="lower left")
+    fig.tight_layout(); save(fig, "ch03_impulsive")
+
+
+def fig_resistor_density():
+    R = np.logspace(0, 6, 200)
+    fig, ax = plt.subplots(figsize=NARROW)
+    for T, c in [(290, ACCENT), (77, NAVY), (4, PURPLE)]:
+        ax.loglog(R, np.sqrt(4 * K_B * T * R) * 1e9, color=c, label=f"{T} K")
+    for Rm, lab in [(50, "50 $\\Omega$: 0.9 nV"), (1e3, "1 k$\\Omega$: 4 nV")]:
+        v = np.sqrt(4 * K_B * 290 * Rm) * 1e9; ax.plot(Rm, v, "o", color=ACCENT, ms=4)
+        ax.annotate(lab, (Rm, v), (5, -12), textcoords="offset points", fontsize=6.5)
+    ax.axhline(1, color=GREEN, ls=":", lw=1.0); ax.text(1.3, 0.55, "good audio op-amp, 1 nV/$\\sqrt{\\mathrm{Hz}}$", fontsize=6.3, color=GREEN)
+    ax.set_xlabel("resistance ($\\Omega$)"); ax.set_ylabel("noise density (nV/$\\sqrt{\\mathrm{Hz}}$)")
+    ax.legend(fontsize=6.5, loc="lower right", title="temperature", title_fontsize=6.5)
+    ax.set_title("Every resistor whispers $\\sqrt{4kTR}$", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_resistor_density")
+
+
+def fig_whisper_chain():
+    A = [("cable", -2, 2), ("filter", -1.5, 1.5), ("LNA", 20, 1.0), ("mixer", -7, 9), ("IF amp", 25, 5)]
+    B = [("LNA", 20, 1.0), ("cable", -2, 2), ("filter", -1.5, 1.5), ("mixer", -7, 9), ("IF amp", 25, 5)]
+    fig, ax = plt.subplots(figsize=NARROW)
+    for S, c, lab in [(A, ACCENT, "LNA third"), (B, GREEN, "LNA first")]:
+        F, G = 1.0, 1.0; nf = [0.0]
+        for _, g, n in S:
+            F += (10 ** (n / 10) - 1) / G; G *= 10 ** (g / 10); nf.append(10 * np.log10(F))
+        ax.step(range(len(nf)), nf, where="post", color=c, lw=1.8, label=f"{lab}: {nf[-1]:.1f} dB")
+        for i, (nm, _, _) in enumerate(S):
+            ax.text(i + 0.5, nf[i + 1] + 0.18, nm, fontsize=5.8, color=c, ha="center")
+    ax.set_xlabel("stages passed"); ax.set_ylabel("SNR lost so far (dB)"); ax.set_ylim(0, 6.2)
+    ax.legend(fontsize=6.5, loc="upper left"); ax.set_title("The whisper chain: SNR lost stage by stage", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch03_whisper_chain")
+
+
+def fig_nf_te():
+    nf = np.linspace(0, 10, 300); Te = (10 ** (nf / 10) - 1) * 290
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogy(nf, Te, color=NAVY, lw=1.6)
+    for n, lab in [(0.5, "(satellite LNB)"), (1, "(GPS LNA)"), (3, "(as noisy as the room)"), (6, "(phone receiver)"), (10, "")]:
+        T = (10 ** (n / 10) - 1) * 290; ax.plot(n, T, "o", color=ACCENT, ms=4)
+        ax.annotate(f"{n:g} dB = {T:.0f} K {lab}", (n, T), (6, -3) if n < 10 else (-62, -3), textcoords="offset points", fontsize=6.0)
+    ax.set_xlabel("noise figure (dB)"); ax.set_ylabel("noise temperature $T_e$ (K)"); ax.set_ylim(5, 5000)
+    ax.set_title("Noise figure and noise temperature", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_nf_te")
+
+
+def fig_sens_stack():
+    steps = [("$kT_0$\n1 Hz", -174), ("$+10\\log_{10}B$\n20 MHz", 73), ("+ NF\n10 dB", 10), ("+ SNR\nreq. 4 dB", 4), ("+ margin\n5 dB", 5)]
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    lvl = 0
+    for i, (lab, v) in enumerate(steps):
+        if i == 0:
+            ax.bar(i, -174 + 180, bottom=-180, color=GRAY, width=0.6); lvl = -174
+        else:
+            ax.bar(i, v, bottom=lvl, color=[NAVY, ORANGE, GREEN, PURPLE][i - 1], width=0.6); lvl += v
+        ax.text(i, lvl + 2, f"{lvl:.0f}", ha="center", fontsize=6.8)
+    ax.axhline(-82, color=ACCENT, ls="--", lw=1.0); ax.text(-0.4, -79, "802.11a 6 Mb/s spec: $-82$ dBm", fontsize=6.6, color=ACCENT)
+    ax.set_xticks(range(len(steps))); ax.set_xticklabels([s[0] for s in steps], fontsize=6.2)
+    ax.set_ylim(-180, -70); ax.set_ylabel("dBm"); ax.set_title("Building a sensitivity", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_sens_stack")
+
+
+def fig_smoke_roc():
+    y = np.linspace(-3, 7, 500); d = 2.2
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3))
+    ax[0].fill_between(y, stats.norm.pdf(y), color=NAVY, alpha=0.25)
+    ax[0].fill_between(y, stats.norm.pdf(y, d), color=ACCENT, alpha=0.25)
+    ax[0].text(-2.9, 0.3, "toast,\nsteam,\ndust", fontsize=6.5, color=NAVY)
+    ax[0].text(4.1, 0.3, "real\nfire", fontsize=6.5, color=ACCENT)
+    th = [(0.3, GREEN, "hair-trigger"), (1.6, ORANGE, "balanced"), (3.2, PURPLE, "dull")]
+    for (t, c, lab), yy, ha in zip(th, [0.5, 0.455, 0.5], ["right", "center", "left"]):
+        ax[0].plot([t, t], [0, yy - 0.01], color=c, lw=1.2, ls="--")
+        ax[0].text(t, yy, lab, fontsize=6.3, color=c, ha=ha, va="bottom")
+    ax[0].set_xlabel("smoke-sensor reading"); ax[0].set_ylim(0, 0.56); ax[0].set_xlim(-3, 6)
+    ax[0].set_title("same sensor, three thresholds", fontsize=9)
+    pfa = np.logspace(-4, 0, 300); ax[1].semilogx(pfa, Q(Qinv(pfa) - d), color=NAVY)
+    offs = [(-16, -16, "right"), (10, -22, "left"), (8, -4, "left")]
+    for (t, c, lab), (ox, oy, ha) in zip(th, offs):
+        ax[1].plot(Q(t), Q(t - d), "o", color=c, ms=6)
+        ax[1].annotate(lab + f"\nmiss {100 * (1 - Q(t - d)):.0f}%, false {100 * Q(t):.1f}%", (Q(t), Q(t - d)), (ox, oy), textcoords="offset points", fontsize=5.8, color=c, ha=ha, va="top")
+    ax[1].set_xlabel("false-alarm probability"); ax[1].set_ylabel("detection probability")
+    ax[1].set_ylim(0, 1.05); ax[1].set_title("the ROC: one curve, every threshold", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_smoke_roc")
+
+
+def fig_cfar():
+    r = rng(23); n = 400
+    lvl = np.where(np.arange(n) < 200, 1.0, 6.0)
+    x = lvl * r.exponential(1.0, n)
+    tg = [80, 300]; x[tg[0]] += 18; x[tg[1]] += 60
+    fixed = 1.0 * np.log(1 / 1e-4)
+    win, guard = 16, 2
+    cf = np.zeros(n)
+    for i in range(n):
+        idx = [j for j in range(i - win - guard, i + win + guard + 1) if 0 <= j < n and abs(j - i) > guard]
+        cf[i] = np.mean(x[idx]) * (len(idx) * ((1e-4) ** (-1 / len(idx)) - 1))
+    fig, ax = plt.subplots(figsize=(W2, 2.1))
+    ax.semilogy(x, color=GRAY, lw=0.7, label="received power per range cell")
+    ax.semilogy(np.full(n, fixed), color=ORANGE, ls="--", lw=1.2, label="fixed threshold")
+    ax.semilogy(cf, color=GREEN, lw=1.3, label="CFAR threshold")
+    fa = np.where((x > fixed) & ~np.isin(np.arange(n), tg))[0]
+    ax.plot(fa, x[fa], "x", color=ORANGE, ms=4, label=f"fixed-threshold false alarms ({len(fa)})")
+    ax.plot(tg, x[tg], "o", color=ACCENT, ms=5, label="targets")
+    ax.text(100, 2e2, "quiet sea", fontsize=7, color=NAVY, ha="center"); ax.text(300, 2e2, "rain clutter: noise level 6x higher", fontsize=7, color=NAVY, ha="center")
+    ax.set_ylim(1e-5, 1e3); ax.set_xlabel("range cell"); ax.legend(fontsize=6, loc="lower left", ncol=3)
+    ax.set_title("Constant false-alarm rate: let the threshold follow the noise", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_cfar")
+
+
+def fig_crb_curvature():
+    A = np.linspace(-1, 3, 400); r = rng(24)
+    fig, ax = plt.subplots(figsize=NARROW)
+    for N, c in [(4, ORANGE), (40, NAVY)]:
+        x = 1.0 + r.standard_normal(N)
+        ll = np.array([-np.sum((x - a) ** 2) / 2 for a in A])
+        ax.plot(A, ll - ll.max(), color=c, label=f"$N={N}$: Fisher info $={N}$")
+        ax.plot(A[np.argmax(ll)], 0, "v", color=c, ms=5)
+    ax.axvline(1.0, color=GRAY, ls=":", lw=0.9); ax.text(1.03, -11.5, "true level", fontsize=6.5, color=GRAY)
+    ax.set_ylim(-12, 0.8); ax.set_xlabel("candidate level $A$"); ax.set_ylabel("log-likelihood (rel. to peak)")
+    ax.legend(fontsize=6.5, loc="lower right"); ax.set_title("Sharp peak = precise estimate", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_crb_curvature")
+
+
+def fig_wiener():
+    f = np.linspace(0, 5, 400); Ss = 10 / (1 + f ** 4); Sn = np.full_like(f, 1.0)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogy(f, Ss, color=NAVY, label="signal PSD $S_s$")
+    ax.semilogy(f, Sn, color=GRAY, ls="--", label="noise PSD $S_n$")
+    a2 = ax.twinx(); a2.plot(f, Ss / (Ss + Sn), color=ACCENT, lw=1.6, label="Wiener $H=S_s/(S_s+S_n)$")
+    a2.set_ylim(0, 1.05); a2.set_ylabel("$H(f)$", color=ACCENT); a2.grid(False); a2.spines["right"].set_visible(True)
+    ax.set_xlabel("frequency"); ax.set_ylim(1e-2, 30)
+    h1, l1 = ax.get_legend_handles_labels(); h2, l2 = a2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, fontsize=6.2, loc="lower left"); ax.set_title("Pass where signal wins", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_wiener")
+
+
+def fig_fspl():
+    f = np.logspace(0, 2, 100) * 1e9; lam = 3e8 / f; d = 1e3
+    fixedG = 20 * np.log10(lam / (4 * np.pi * d))
+    Ae = 0.6 * np.pi * 0.15 ** 2; G = 4 * np.pi * Ae / lam ** 2
+    fixedA = fixedG + 2 * 10 * np.log10(G)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogx(f / 1e9, fixedG, color=ACCENT, label="0 dBi antennas (fixed gain)")
+    ax.semilogx(f / 1e9, fixedA, color=GREEN, label="30 cm dishes (fixed area)")
+    ax.set_xlabel("frequency (GHz)"); ax.set_ylabel("$P_r/P_t$ over 1 km (dB)")
+    ax.legend(fontsize=6.5, loc="center left"); ax.set_title("Is high frequency lossier? It depends", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_fspl")
+
+
+def fig_timeline():
+    ev = [(1918, "Schottky:\nshot noise"), (1928, "Johnson &\nNyquist: $4kTR$"), (1930, "Wiener:\nspectra of\nnoise"),
+          (1933, "Jansky: noise\nfrom the galaxy;\nNeyman-Pearson"), (1942, "North: noise\nfactor"), (1944, "Friis cascade;\nRice: noise\nstatistics"),
+          (1948, "Marcum: radar\ndetection;\nShannon"), (1965, "Penzias &\nWilson: CMB"), (1966, "Leeson:\nphase noise"), (1982, "Caves: quantum\nlimit of amplifiers")]
+    fig, ax = plt.subplots(figsize=(W2, 2.3))
+    ax.plot([1914, 1988], [0, 0], color=NAVY, lw=1.5)
+    tiers = [0.3, -0.3, 1.25, -1.25, 0.3, -0.3, 1.25, -0.3, 0.3, -0.3]
+    for (y, txt), h in zip(ev, tiers):
+        up = h > 0
+        ax.plot([y, y], [0, h], color=GRAY, lw=0.7); ax.plot(y, 0, "o", color=ACCENT, ms=4)
+        ax.text(y, h + (0.05 if up else -0.05), f"{y}\n{txt}" if up else f"{txt}\n{y}", ha="center", va="bottom" if up else "top", fontsize=5.9)
+    ax.set_xlim(1912, 1990); ax.set_ylim(-2.25, 2.3); ax.axis("off")
+    fig.tight_layout(); save(fig, "ch03_timeline")
+
+
+def fig_cyclo_concept():
+    r = rng(25); sps_ = 16; taps = cl.rrc_taps(0.5, sps_, 8)
+    sym = r.choice([-1.0, 1.0], (3000,))
+    x = cl.shape(sym, taps, sps_)
+    x = x[len(taps):len(taps) + 2800 * sps_]
+    v = np.var(x.reshape(-1, sps_), axis=0); v = np.tile(v / v.mean(), 2)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ph = np.arange(2 * sps_) / sps_
+    ax.plot(ph, v, color=NAVY, marker="o", ms=2.5, label="BPSK (RRC, $\\beta=0.5$)")
+    ax.axhline(1.0, color=GRAY, ls="--", label="noise: flat")
+    ax.set_xlabel("time within the symbol (symbols)"); ax.set_ylabel("variance (normalised)")
+    ax.set_ylim(0, 1.6); ax.legend(fontsize=6.5, loc="lower right"); ax.set_title("A signal's hidden heartbeat", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_cyclo_concept")
+
+
+def fig_tsys_budget():
+    parts = [("CMB", 2.7, PURPLE), ("atmosphere", 2.5, NAVY), ("spillover\n& ground", 5.0, GREEN),
+             ("feed & waveguide", 3.0, ORANGE), ("cryogenic LNA", 5.0, ACCENT), ("follow-on", 1.0, GRAY)]
+    fig, ax = plt.subplots(figsize=(W2 * 0.85, 1.25))
+    left = 0
+    for name, T, c in parts:
+        ax.barh(0, T, left=left, color=c, height=0.5)
+        ax.text(left + T / 2, 0.38, f"{name}\n{T:g} K", ha="center", va="bottom", fontsize=6.0, color=c)
+        left += T
+    ax.text(left + 0.3, 0, f"$T_{{sys}}\\approx{left:.0f}$ K", va="center", fontsize=8, color=NAVY)
+    ax.set_xlim(0, left + 4); ax.set_ylim(-0.4, 1.3); ax.axis("off")
+    fig.tight_layout(); save(fig, "ch03_tsys_budget")
+
+
+def fig_adc_floor():
+    G = np.linspace(0, 70, 300); Frx = 10 ** (3 / 10)
+    fig, ax = plt.subplots(figsize=NARROW)
+    for nfadc, c in [(27, NAVY), (11, GREEN)]:
+        F = Frx + (10 ** (nfadc / 10) - 1) / 10 ** (G / 10)
+        ax.plot(G, 10 * np.log10(F), color=c, label=f"ADC NF = {nfadc} dB")
+    ax.axhline(3, color=GRAY, ls=":"); ax.text(25, 1.2, "analog chain alone: 3 dB", fontsize=6.5, color=GRAY)
+    ax.axvspan(54, 70, color=ACCENT, alpha=0.08); ax.text(55, 20, "clipping\nrisk", fontsize=6.5, color=ACCENT)
+    ax.set_xlabel("analog gain ahead of the ADC (dB)"); ax.set_ylabel("total noise figure (dB)"); ax.set_ylim(0, 30)
+    ax.legend(fontsize=6.5, loc="upper right"); ax.set_title("Lift the noise above the ADC floor", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_adc_floor")
+
+
+def fig_rice_phasor():
+    r = rng(26); n = 1500
+    fig, ax = plt.subplots(1, 2, figsize=(W2 * 0.8, 2.4))
+    for a, (A, title) in zip(ax, [(3.0, "strong carrier: Rice, nearly Gaussian"), (0.6, "weak carrier: noise takes over")]):
+        z = A + (r.standard_normal(n) + 1j * r.standard_normal(n)) * 0.5
+        a.plot(z.real, z.imag, ".", ms=1.3, color=NAVY, alpha=0.5)
+        a.annotate("", (A, 0), (0, 0), arrowprops=dict(arrowstyle="-|>", color=ACCENT, lw=1.6))
+        a.text(A / 2, 0.15, "$A$", color=ACCENT, fontsize=8, ha="center")
+        tt = np.linspace(0, 2 * np.pi, 200)
+        a.plot(A * np.cos(tt), A * np.sin(tt), color=GRAY, lw=0.6, ls=":")
+        a.set_aspect("equal"); a.set_xlim(-2.2, 4.8); a.set_ylim(-2.4, 2.4); a.axhline(0, color=GRAY, lw=0.5); a.axvline(0, color=GRAY, lw=0.5)
+        a.set_title(title, fontsize=8.5); a.set_xlabel("I")
+    ax[0].set_ylabel("Q")
+    fig.tight_layout(); save(fig, "ch03_rice_phasor")
+
+
+def fig_leeson():
+    df = np.logspace(1, 7, 400); f0 = 10e6 / (2 * 20); fc = 3e3
+    L = -165 + 10 * np.log10(1 + (f0 / df) ** 2) + 10 * np.log10(1 + fc / df)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogx(df, L, color=NAVY, lw=1.6)
+    ax.text(30, -60, "$1/\\Delta f^3$\n(flicker)", fontsize=6.8, color=ACCENT)
+    ax.text(1.5e4, -118, "$1/\\Delta f^2$", fontsize=6.8, color=ACCENT)
+    ax.text(1.2e6, -158, "white floor", fontsize=6.8, color=ACCENT)
+    ax.set_xlabel("offset from carrier $\\Delta f$ (Hz)"); ax.set_ylabel("$\\mathcal{L}(\\Delta f)$ (dBc/Hz)")
+    ax.set_title("Leeson's phase-noise shape (illustrative)", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_leeson")
+
+
+def fig_fec_gain():
+    ber = np.logspace(-13, -1, 300); snr = 20 * np.log10(Qinv(ber))
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogx(ber, snr, color=NAVY, lw=1.6)
+    for b, c, lab in [(1e-12, ACCENT, "no FEC: $10^{-12}$"), (1e-6, ORANGE, "$10^{-6}$"), (2e-4, GREEN, "KP4 FEC input: $2\\times10^{-4}$")]:
+        s = 20 * np.log10(Qinv(b)); ax.plot(b, s, "o", color=c, ms=5)
+        ax.annotate(f"{lab}\n{s:.1f} dB", (b, s), (8, -6) if b > 1e-5 else (8, 2), textcoords="offset points", fontsize=6.5, color=c)
+    ax.set_ylim(0, 20); ax.invert_xaxis(); ax.set_xlabel("target bit-error rate"); ax.set_ylabel("required SNR $20\\log_{10}(A/\\sigma)$ (dB)")
+    ax.set_title("Each decade of BER costs less and less", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_fec_gain")
+
+
+def fig_fmin_circles():
+    Fmin, Rn, Z0 = 10 ** (0.5 / 10), 10.0, 50.0
+    Gopt = 0.45 * np.exp(1j * np.radians(60))
+    g = np.linspace(-1, 1, 500); X, Y = np.meshgrid(g, g); G = X + 1j * Y
+    F = Fmin + 4 * Rn / Z0 * np.abs(G - Gopt) ** 2 / ((1 - np.abs(G) ** 2) * np.abs(1 + Gopt) ** 2)
+    NF = np.where(np.abs(G) < 0.999, 10 * np.log10(np.maximum(F, 1)), np.nan)
+    fig, ax = plt.subplots(figsize=(2.9, 2.8))
+    tt = np.linspace(0, 2 * np.pi, 300); ax.plot(np.cos(tt), np.sin(tt), color=GRAY, lw=1.0)
+    for rr in [1 / 3, 1, 3]:
+        c = rr / (1 + rr); rad = 1 / (1 + rr); ax.plot(c + rad * np.cos(tt), rad * np.sin(tt), color=GRAY, lw=0.4)
+    ax.axhline(0, color=GRAY, lw=0.4)
+    cs = ax.contour(X, Y, NF, levels=[0.75, 1.0, 1.5, 2.0, 3.0], colors=[NAVY, GREEN, ORANGE, PURPLE, ACCENT], linewidths=1.1)
+    ax.clabel(cs, fmt="%.2g dB", fontsize=6)
+    ax.plot(Gopt.real, Gopt.imag, "*", color=ACCENT, ms=8); ax.text(Gopt.real - 0.62, Gopt.imag + 0.12, "$\\Gamma_{opt}$: 0.5 dB", fontsize=6.5, color=ACCENT)
+    ax.plot(0, 0, "o", color=NAVY, ms=4); ax.text(0.04, -0.12, "50 $\\Omega$", fontsize=6.5, color=NAVY)
+    ax.set_aspect("equal"); ax.set_xlim(-1.05, 1.05); ax.set_ylim(-1.05, 1.05); ax.axis("off")
+    ax.set_title("Noise circles on the Smith chart (illustrative)", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch03_fmin_circles")
+
+
+def fig_sps_noise():
+    r = rng(27); sps_ = 8; taps = cl.rrc_taps(0.35, sps_, 8)
+    sym = r.choice([-1.0, 1.0], 60)
+    taps = np.real(np.asarray(taps))
+    x = np.real(np.asarray(cl.shape(sym, taps, sps_)))
+    x = x / np.sqrt(np.mean(x ** 2))
+    EsN0 = 10 ** (8 / 10); sig2 = sps_ / EsN0
+    n = np.sqrt(sig2) * r.standard_normal(len(x))
+    y = np.convolve(x + n, taps)
+    best = max(range(0, 3 * len(taps)), key=lambda dd: abs(np.dot(y[dd:dd + 40 * sps_:sps_][:40], sym[:40])))
+    ys = y[best::sps_][:len(sym)]
+    ys = ys / np.mean(np.abs(ys))
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.1))
+    k = np.arange(20 * sps_, 40 * sps_)
+    ax[0].plot(k / sps_, (x + n)[k], color=GRAY, lw=0.6, label=r"samples: SNR per sample $\approx$ %.0f dB" % (10 * np.log10(1 / sig2)))
+    ax[0].plot(k / sps_, x[k], color=NAVY, lw=1.2, label="clean signal")
+    ax[0].set_xlabel("time (symbols)"); ax[0].legend(fontsize=6.3, loc="lower right"); ax[0].set_title("8 samples per symbol, before the matched filter", fontsize=8.5)
+    ax[0].set_ylim(-5.5, 4.5)
+    ax[1].plot(np.arange(len(ys)), ys, "o", color=NAVY, ms=3.5)
+    ax[1].axhline(0, color=GRAY, lw=0.6); ax[1].set_ylim(-2.2, 2.2)
+    ax[1].set_xlabel("symbol index"); ax[1].set_title("after the matched filter: $E_s/N_0=8$ dB", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch03_sps_noise")
+
+
+def fig_sat_budget():
+    items = [("EIRP", 52.0), ("path\nloss", -205.6), ("air", -0.5), ("$G/T$", 14.9), ("$-k$", 228.6)]
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    lvl = 0
+    for i, (lab, v) in enumerate(items):
+        lo, hi = sorted([lvl, lvl + v])
+        ax.bar(i, hi - lo, bottom=lo, color=GREEN if v > 0 else ACCENT, width=0.6)
+        lvl += v
+        ax.text(i, hi + 6, f"{v:+.1f}", ha="center", fontsize=6.5)
+    ax.bar(len(items), lvl, bottom=0, color=NAVY, width=0.6); ax.text(len(items), lvl + 6, f"{lvl:.1f}", ha="center", fontsize=6.5, color=NAVY)
+    ax.set_xticks(range(len(items) + 1)); ax.set_xticklabels([l for l, _ in items] + ["$C/N_0$\n(dB-Hz)"], fontsize=6.3)
+    ax.axhline(0, color=GRAY, lw=0.6); ax.set_ylabel("dB"); ax.set_ylim(-175, 120)
+    ax.set_title("A Ku-band TV downlink in five terms", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_sat_budget")
+
+
+def fig_craig():
+    th = np.linspace(1e-3, np.pi / 2, 400)
+    fig, ax = plt.subplots(figsize=NARROW)
+    for x, c in [(1, NAVY), (2, GREEN), (3, ACCENT)]:
+        f = np.exp(-x ** 2 / (2 * np.sin(th) ** 2)) / np.pi
+        ax.plot(th, f, color=c, label=f"$x={x}$: area $=Q({x})={float(Q(x)):.2g}$")
+        ax.fill_between(th, f, color=c, alpha=0.15)
+        ax.plot(np.pi / 2, f[-1], "o", color=c, ms=3.5)
+    ax.text(0.08, 0.12, "peak value $\\frac{1}{\\pi}e^{-x^2/2}$ at $\\theta=\\pi/2$\n$\\Rightarrow Q(x)\\leq\\frac{1}{2}e^{-x^2/2}$", fontsize=6.5, color=GRAY, ha="left")
+    ax.set_xlim(0, np.pi / 2 + 0.05); ax.set_ylim(0, 0.36)
+    ax.set_xticks([0, np.pi / 4, np.pi / 2]); ax.set_xticklabels(["0", "$\\pi/4$", "$\\pi/2$"])
+    ax.set_xlabel("$\\theta$"); ax.set_ylabel("integrand of Craig's formula")
+    ax.legend(fontsize=6.3, loc="upper left"); ax.set_title("Q as a finite integral", fontsize=9)
+    fig.tight_layout(); save(fig, "ch03_craig")
+
+
+ALL = [fig_craig, fig_fec_gain, fig_fmin_circles, fig_sps_noise, fig_sat_budget, fig_rice_phasor, fig_leeson, fig_clt, fig_clt_tails, fig_chisq, fig_q, fig_qapprox, fig_envelopes, fig_filtered_noise, fig_neb,
        fig_bandpass, fig_cyclo, fig_planck, fig_skynoise, fig_friis, fig_lossyline, fig_yfactor,
-       fig_sensitivity, fig_roc, fig_crb, fig_linkbudget]
+       fig_sensitivity, fig_roc, fig_crb, fig_linkbudget,
+       fig_party, fig_floor_ladder, fig_moments, fig_transforms, fig_uncorrelated, fig_bayes_alarm, fig_llr,
+       fig_galton_sim, fig_maxent, fig_q_tail, fig_cliff, fig_cn_cloud, fig_fade_time, fig_ensemble, fig_wk_pair,
+       fig_periodogram, fig_ktc, fig_noise_colors, fig_shot, fig_impulsive, fig_resistor_density,
+       fig_whisper_chain, fig_nf_te, fig_sens_stack, fig_smoke_roc, fig_cfar, fig_crb_curvature, fig_wiener,
+       fig_fspl, fig_timeline, fig_cyclo_concept, fig_tsys_budget, fig_adc_floor]
 
 if __name__ == "__main__":
     sel = sys.argv[1:]
