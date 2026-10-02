@@ -20,3 +20,4 @@
 - public on_click hook; Canvas (no-axes) plot type; xlim not honoured in narrow plots; tick() set slider without flicker; aspect=True overrides limits; _slug transliterate non-ASCII; Button can start Play; reserved method names (frame) should error
 - catalog: lab10 "Fading and combining live, SC/EGC/MRC slopes, Alamouti, water-filling, ergodic/outage capacity, ZF/MMSE/SIC/ML, DMT, massive MIMO, MU precoding"; lab29 "Steering and grating lobes, planar panel EIRP, beam squint vs TTD, Bartlett/MVDR/MUSIC, SSB sweep and Type I codebook, OMP hybrid precoding, LOS MIMO"; lab26 "Reuse and SIR maps, live Erlang switchboard, ALOHA/CSMA live, ALOHA instability, Bianchi DCF, RACH and barring, PPP coverage, PF scheduling, handover"
 - fixed-width controls panel; Plot.sim(); legend-only entries; selftest warm-import vs real launch timing
+- BOOK: re-capture lab screenshots embedded in chapters (e.g. figs/ch06_lab17_*.png via lab --exp N --shot) after studio framework cleanup
