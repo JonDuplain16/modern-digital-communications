@@ -703,8 +703,699 @@ def holdover():
     fig.tight_layout(); save(fig, "ch10_holdover")
 
 
-ALL = [impairments, pll_response, pd_scurves, acquisition, jitter, mpower, freq_est, ted_scurves,
-       timing_loops, interp, timing_ber, sequences, frame_detect, ofdm_timing, pss_cfo, cdr, holdover]
+# =====================================================================================
+# Second-edition concept figures and infographics
+# =====================================================================================
+from matplotlib.patches import Rectangle
+from scipy.special import i0e
+
+NARROW = (3.1, 2.4)
+
+
+def timeline():
+    ev = [(1932, "de Bellescize:\nsynchronous\nreception"), (1953, "NTSC colour\nburst"),
+          (1953.01, "Barker\nsequences"), (1956, "Costas loop"), (1958, "Explorer 1:\nMicrolock PLL"),
+          (1963, "Viterbi: PLL\nin noise, slips"), (1968, "Apollo Unified\nS-Band"),
+          (1972, "Massey: optimum\nframe sync"), (1976, "Mueller--\nMüller TED"),
+          (1986, "Gardner\nTED"), (1988, "Oerder--\nMeyr"), (1995, "GPS fully\noperational"),
+          (1997, "Schmidl--\nCox"), (2002, "IEEE 1588\nPTP"), (2008, "LTE\nPSS/SSS"),
+          (2018, "5G NR\nSSB")]
+    fig, ax = plt.subplots(figsize=(W2, 2.35))
+    ax.axhline(0, color=NAVY, lw=2)
+    levels = [1.0, -1.0, 2.05, -2.05]
+    for i, (yr, txt) in enumerate(ev):
+        lv = levels[i % 4]
+        c = [NAVY, ACCENT, GREEN, ORANGE][i % 4]
+        ax.plot([yr, yr], [0, lv * 0.82], color=c, lw=0.8)
+        ax.plot(yr, 0, "o", color=c, ms=4)
+        ax.text(yr, lv, f"{int(yr)}\n{txt}" if lv > 0 else f"{txt}\n{int(yr)}", ha="center",
+                va="bottom" if lv > 0 else "top", fontsize=6.1, color=c, linespacing=0.95)
+    ax.set_xlim(1926, 2024); ax.set_ylim(-3.6, 3.6)
+    ax.axis("off")
+    fig.tight_layout(pad=0.1); save(fig, "ch10_timeline")
+
+
+def four_unknowns():
+    fig, ax = plt.subplots(1, 4, figsize=(W2, 1.75))
+    t = np.linspace(0, 3, 600)
+    ax[0].plot(t, np.cos(2 * np.pi * t), color=NAVY, label="received")
+    ax[0].plot(t, np.cos(2 * np.pi * t - 1.0), "--", color=ACCENT, label="local")
+    ax[0].set_title("(a) phase: where is\nthe crest?", fontsize=8)
+    t = np.linspace(0, 5, 1200)
+    ax[1].plot(t, np.cos(2 * np.pi * t), color=NAVY)
+    ax[1].plot(t, np.cos(2 * np.pi * 1.1 * t), "--", color=ACCENT)
+    ax[1].set_title("(b) frequency: whose\nclock runs fast?", fontsize=8)
+    # timing
+    tt = np.linspace(-1, 7, 800)
+    syms = [1, -1, -1, 1, 1, -1, 1, 1]
+    y = sum(s * _rc(tt - k, 0.5) for k, s in enumerate(syms))
+    ax[2].plot(tt, y, color=NAVY)
+    k = np.arange(0, 7)
+    ax[2].plot(k, [syms[i] for i in k], "o", color=GREEN, ms=3.5)
+    ax[2].plot(k + 0.35, np.interp(k + 0.35, tt, y), "x", color=ACCENT, ms=4.5)
+    ax[2].set_title("(c) timing: when to\nsample? (o right, x late)", fontsize=8)
+    ax[2].set_xlim(-0.5, 6.8)
+    # frame
+    r = rng(44)
+    bits = "".join(str(b) for b in r.integers(0, 2, 26))
+    ax[3].set_xlim(0, 13); ax[3].set_ylim(0, 3)
+    for row in range(2):
+        for i in range(13):
+            ch = bits[row * 13 + i]
+            hl = row == 1 and 3 <= i < 10
+            ax[3].add_patch(Rectangle((i, 1.6 - row * 1.2), 0.92, 0.9, color=ACCENT if hl else NAVY,
+                                      alpha=0.85 if hl else 0.15, lw=0))
+            ax[3].text(i + 0.46, 2.05 - row * 1.2, ch, ha="center", va="center", fontsize=6.5,
+                       color="white" if hl else NAVY)
+    ax[3].text(6.5, 0.05, "sync word hidden in the data", ha="center", fontsize=6, color=ACCENT)
+    ax[3].set_title("(d) frame: where does\nthe message begin?", fontsize=8)
+    ax[3].axis("off")
+    for a_ in ax[:3]:
+        a_.set_xticks([]); a_.set_yticks([])
+    fig.tight_layout(w_pad=0.4); save(fig, "ch10_four_unknowns")
+
+
+def offset_scale():
+    rs = np.logspace(3, 8, 200)
+    fig, ax = plt.subplots(figsize=NARROW)
+    for fc, c in [(0.9e9, GREEN), (3.5e9, NAVY), (28e9, ACCENT)]:
+        ax.loglog(rs, 2e-6 * fc / rs, color=c, label=f"2 ppm at {fc / 1e9:g} GHz")
+    ax.legend(fontsize=6, loc="lower left")
+    ax.axhline(1 / 8, color=ORANGE, ls="--", lw=1)
+    ax.text(1.5e6, 0.17, "4th-power range $1/8$", fontsize=6.5, color=ORANGE)
+    ax.plot(1e4, 7e3 / 1e4, "o", color=NAVY, ms=4)
+    ax.annotate("10 ksym/s IoT link:\n$250^\\circ$ per symbol", xy=(1e4, 0.7), xytext=(1e5, 4),
+                fontsize=6.3, arrowprops=dict(arrowstyle="->", lw=0.6), color=NAVY)
+    ax.plot(3e7, 7e3 / 3e7, "o", color=NAVY, ms=4)
+    ax.annotate("30 Msym/s carrier:\nharmless", xy=(3e7, 2.3e-4), xytext=(1.5e6, 3e-6),
+                fontsize=6.3, arrowprops=dict(arrowstyle="->", lw=0.6), color=NAVY)
+    ax.set_xlabel("symbol rate (sym/s)"); ax.set_ylabel("CFO / symbol rate")
+    ax.set_ylim(1e-6, 1e2)
+    fig.tight_layout(); save(fig, "ch10_offset_scale")
+
+
+def likelihood_surface():
+    r = rng(21)
+    sps_, N = 8, 32
+    a = QPSK.modulate(cl.random_bits(2 * N, r))
+    h = cl.rrc_taps(0.35, sps_, 10)
+    tau0, nu0 = 0.3, 0.012
+    tx = cl.shape(np.r_[np.zeros(6), a, np.zeros(6)], h, sps_)
+    rx = cl.fractional_delay(np.r_[tx, np.zeros(20)], tau0 * sps_)
+    rx = cl.apply_cfo(rx, nu0 / sps_, 0.8)
+    rx, _ = cl.awgn_esn0(rx, 5, sps=sps_, rng=r)
+    y = cl.matched_filter(rx, h)
+    d0 = len(h) - 1 + 6 * sps_
+    taus = np.linspace(-1, 1, 121); nus = np.linspace(-0.05, 0.05, 121)
+    k = np.arange(N)
+    Z = np.array([cl.interp_cubic(y, d0 + (k + t) * sps_) * np.conj(a) for t in taus])
+    E = np.exp(-2j * np.pi * np.outer(k, nus))
+    L = np.abs(Z @ E); L /= L.max()
+    fig, ax = plt.subplots(figsize=(3.5, 2.6))
+    m = ax.pcolormesh(nus, taus, L, cmap="Blues", shading="auto")
+    ax.contour(nus, taus, L, levels=[0.5, 0.8], colors=[GRAY, NAVY], linewidths=0.6)
+    ax.plot(nu0, tau0, "+", color=ACCENT, ms=10, mew=1.6)
+    ax.set_xlabel("trial frequency $\\nu$ (cycles/symbol)"); ax.set_ylabel("trial timing $\\tau/T$")
+    fig.colorbar(m, ax=ax, label="$|\\sum a_k^* z_k|$ (norm.)", pad=0.02)
+    fig.tight_layout(); save(fig, "ch10_likelihood")
+
+
+def lever_arm():
+    r = rng(22)
+    nu, esn0 = 0.004, 10 ** (10 / 10)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.2), sharey=True)
+    for a_, N in zip(ax, [16, 64]):
+        k = np.arange(N)
+        slopes = []
+        for trial in range(300):
+            z = np.exp(2j * np.pi * nu * k) + (r.standard_normal(N) + 1j * r.standard_normal(N)) / np.sqrt(2 * esn0)
+            ph = np.unwrap(np.angle(z))
+            p = np.polyfit(k, ph, 1)
+            slopes.append(p[0] / (2 * np.pi))
+            if trial < 25:
+                a_.plot(k, np.polyval(p, k), color=GRAY, lw=0.5, alpha=0.6)
+            if trial == 0:
+                a_.plot(k, ph, "o", color=NAVY, ms=2.2, zorder=3)
+        a_.plot(k, 2 * np.pi * nu * k, color=ACCENT, lw=1.4)
+        crb = np.sqrt(3 / (2 * np.pi ** 2 * N * (N ** 2 - 1) * esn0))
+        a_.set_title(f"$N={N}$: rms slope error {np.std(slopes):.1e}\n(CRB {crb:.1e} cycles/symbol)", fontsize=8)
+        a_.set_xlabel("symbol $k$"); a_.set_xlim(-1, 65)
+    ax[0].set_ylabel("measured phase (rad)"); ax[0].set_ylim(-2.5, 4.5)
+    fig.tight_layout(); save(fig, "ch10_lever_arm")
+
+
+def outliers():
+    r = rng(23)
+    N, nu = 64, 0.05
+    fig, ax = plt.subplots(figsize=NARROW)
+    for snr, c, m in [(4, NAVY, "o"), (-9, ACCENT, "x")]:
+        est = []
+        for _ in range(300):
+            z = np.exp(1j * (2 * np.pi * nu * np.arange(N) + r.uniform(0, 6.3)))
+            z, _ = cl.awgn_esn0(z, snr, rng=r)
+            est.append(est_periodogram(z))
+        est = np.array(est)
+        frac = np.mean(np.abs(est - nu) > 0.02)
+        ax.plot(est, m, color=c, ms=2.6, label=f"{snr} dB: {100 * frac:.0f}% outliers")
+    ax.axhline(nu, color=GREEN, lw=0.8, ls=":")
+    ax.set_xlabel("trial"); ax.set_ylabel("estimate $\\hat\\nu$ (cycles/symbol)")
+    ax.set_ylim(-0.55, 0.55); ax.legend(fontsize=6.5, loc="lower right")
+    ax.set_title("Periodogram, $N=64$, true $\\nu=0.05$", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch10_outliers")
+
+
+def washboard():
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3))
+    ph = np.linspace(-np.pi, 3 * np.pi, 600)
+    U = -np.cos(ph)
+    ax[0].plot(ph / np.pi, U, color=NAVY, lw=2)
+    ax[0].plot(0, -1 + 0.13, "o", color=GREEN, ms=11)
+    ax[0].plot(1, 1 + 0.13, "o", color=ORANGE, ms=11)
+    ax[0].annotate("lock: bottom of\nthe valley", xy=(0, -0.8), xytext=(-0.95, 0.35), fontsize=7, color=GREEN,
+                   arrowprops=dict(arrowstyle="->", color=GREEN, lw=0.7))
+    ax[0].annotate("hang-up: balanced\non the hilltop", xy=(1.05, 1.15), xytext=(1.35, 1.55), fontsize=7,
+                   color=ORANGE, arrowprops=dict(arrowstyle="->", color=ORANGE, lw=0.7))
+    ax[0].set_title("(a) no frequency offset: $U=-\\cos\\phi$", fontsize=8.5)
+    ax[0].set_ylim(-1.5, 2.2)
+    a = 0.45
+    ph = np.linspace(-np.pi, 5 * np.pi, 900)
+    U = -np.cos(ph) - a * ph
+    ax[1].plot(ph / np.pi, U, color=NAVY, lw=2)
+    p0 = np.arcsin(a)
+    ax[1].plot(p0 / np.pi, -np.cos(p0) - a * p0 + 0.28, "o", color=GREEN, ms=11)
+    p1 = p0 + 2 * np.pi
+    ax[1].plot(p1 / np.pi, -np.cos(p1) - a * p1 + 0.28, "o", color=GREEN, ms=11, alpha=0.35)
+    ax[1].annotate("", xy=(p1 / np.pi - 0.1, -np.cos(p1) - a * p1 + 0.6), xytext=(p0 / np.pi + 0.1, 0.5),
+                   arrowprops=dict(arrowstyle="->", color=ACCENT, lw=1.2, connectionstyle="arc3,rad=-0.45"))
+    ax[1].text(1.15, 1.25, "noise kick over the hill\n= cycle slip ($2\\pi$)", fontsize=7, color=ACCENT)
+    ax[1].text(-0.95, -3.7, "rests off-centre: static\nphase error", fontsize=7, color=GREEN)
+    ax[1].set_title("(b) frequency offset tilts the washboard", fontsize=8.5)
+    for a_ in ax:
+        a_.set_xlabel("phase error $\\phi/\\pi$"); a_.set_yticks([])
+    ax[0].set_ylabel("potential energy")
+    fig.tight_layout(); save(fig, "ch10_washboard")
+
+
+def pll_lock_scope():
+    fs = 100
+    n = np.arange(40 * fs)
+    th = 2 * np.pi * 1.0 * n / fs
+    kp, ki = cl.loop_gains(0.003)
+    thh = np.empty(len(n)); p, integ = 1.8, 0.0
+    for i in range(len(n)):
+        thh[i] = p
+        e = np.sin(th[i] - p)
+        integ += ki * e
+        p += 2 * np.pi * 0.9 / fs + kp * e + integ
+    t = n / fs
+    fig, ax = plt.subplots(2, 1, figsize=(3.1, 2.6))
+    for a_, (t0, t1), ttl in zip(ax, [(0, 6), (32, 38)], ["start: VCO free-running 10% slow",
+                                                          "30 cycles later: locked"]):
+        m = (t >= t0) & (t <= t1)
+        a_.plot(t[m], np.cos(th[m]), color=NAVY, lw=1.1, label="input")
+        a_.plot(t[m], np.cos(thh[m]), "--", color=ACCENT, lw=1.1, label="VCO")
+        a_.set_title(ttl, fontsize=8); a_.set_yticks([]); a_.set_xlim(t0, t1)
+    ax[0].legend(fontsize=6.3, loc="upper right", ncol=2, framealpha=0.9)
+    ax[1].set_xlabel("time (input cycles)")
+    fig.tight_layout(h_pad=0.3); save(fig, "ch10_pll_lock_scope")
+
+
+def bw_tradeoff():
+    r = rng(24)
+    N = 30000
+    esn0 = 10 ** (15 / 10)
+    sd = 0.02
+    pn = np.cumsum(sd * r.standard_normal(N))
+    a = QPSK.modulate(cl.random_bits(2 * N, r))
+    w = (r.standard_normal(N) + 1j * r.standard_normal(N)) / np.sqrt(2 * esn0)
+    bns = np.logspace(-3.3, -0.7, 12)
+    tot, pno = [], []
+    for bn in bns:
+        for noisy, lst in [(True, tot), (False, pno)]:
+            y = a * np.exp(1j * pn) + (w if noisy else 0)
+            ph = _pll_da(y, a, bn)
+            lst.append(np.var(wrap(pn[3000:] - ph[3000:])))
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.loglog(bns, bns / esn0, "--", color=NAVY, lw=1, label="noise: $B_LT/(E_s/N_0)$")
+    ax.loglog(bns, pno, "s-", color=ORANGE, ms=3, lw=1, label="phase-noise tracking error")
+    ax.loglog(bns, tot, "o-", color=ACCENT, ms=3.2, lw=1.3, label="total (simulated)")
+    i = int(np.argmin(tot))
+    ax.annotate("sweet spot", xy=(bns[i], tot[i]), xytext=(bns[i] * 0.25, tot[i] * 6), fontsize=7,
+                arrowprops=dict(arrowstyle="->", lw=0.6))
+    ax.set_xlabel("loop bandwidth $B_LT$"); ax.set_ylabel("phase-error variance (rad$^2$)")
+    ax.legend(fontsize=6, loc="lower right")
+    ax.set_ylim(1e-6, 1)
+    ax.set_title("$E_s/N_0=15$ dB, random-walk phase noise", fontsize=8)
+    fig.tight_layout(); save(fig, "ch10_bw_tradeoff")
+
+
+def slip_rate():
+    rho_db = np.linspace(3, 12, 200)
+    rho = 10 ** (rho_db / 10)
+    BL = 100.0
+    logT = np.log10(np.pi ** 2 * rho / (2 * BL)) + 2 * (np.log10(i0e(rho)) + rho / np.log(10))
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogy(rho_db, 10 ** logT, color=NAVY, lw=1.6)
+    for s, lab in [(60, "1 minute"), (3600, "1 hour"), (86400, "1 day"), (3.15e7, "1 year")]:
+        ax.axhline(s, color=GRAY, lw=0.5, ls=":")
+        ax.text(3.1, s * 1.3, lab, fontsize=6.3, color=GRAY)
+    for rd, c in [(7.0, ACCENT), (10.0, GREEN)]:
+        rr = 10 ** (rd / 10)
+        T = 10 ** (np.log10(np.pi ** 2 * rr / (2 * BL)) + 2 * (np.log10(i0e(rr)) + rr / np.log(10)))
+        ax.plot(rd, T, "o", color=c, ms=5)
+        ax.text(rd + 0.25, T / 4, f"{T:.0f} s" if T < 1e4 else f"{T / 86400:.0f} days", fontsize=7, color=c)
+    ax.set_xlabel("loop SNR $\\rho$ (dB)"); ax.set_ylabel("mean time between slips (s)")
+    ax.set_title("First-order loop, $B_L=100$ Hz (Viterbi)", fontsize=8.5)
+    ax.set_ylim(1e-2, 1e10)
+    fig.tight_layout(); save(fig, "ch10_slip_rate")
+
+
+def phase_plane():
+    z, wn, dt = 0.707, 1.0, 0.005
+    fig, ax = plt.subplots(figsize=NARROW)
+    for dw, c in zip([1.0, 3.0, 4.5, 6.0], [GREEN, NAVY, ORANGE, ACCENT]):
+        phi, integ = 0.0, 0.0
+        P, F = [], []
+        for _ in range(int(80 / dt)):
+            s = np.sin(phi)
+            what = 2 * z * wn * s + integ
+            integ += wn ** 2 * s * dt
+            phi += (dw - what) * dt
+            P.append(phi); F.append(dw - what)
+        ax.plot(np.array(P) / (2 * np.pi), np.array(F) / wn, color=c, lw=1,
+                label=f"$\\Delta\\omega={dw:g}\\,\\omega_n$")
+    ax.axhline(0, color="k", lw=0.5)
+    ax.set_xlabel("phase error $\\phi/2\\pi$ (cycles)"); ax.set_ylabel("frequency error $/\\omega_n$")
+    ax.legend(fontsize=6.3, loc="upper center", ncol=2)
+    ax.set_ylim(-2, 10.5)
+    ax.set_title("Pull-in: each lap to the right is a slipped cycle", fontsize=7.8)
+    fig.tight_layout(); save(fig, "ch10_phase_plane")
+
+
+def synth_noise():
+    f = np.logspace(2, 7, 400)
+    Nmul = 100
+    Lref = -150 + 20 * np.log10(Nmul) + 10 * np.log10(1 + 1e3 / f)
+    Lvco = -110 - 20 * np.log10(f / 1e5)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogx(f, Lref, ":", color=GREEN, lw=1, label="reference $\\times N$")
+    ax.semilogx(f, Lvco, ":", color=ORANGE, lw=1, label="free-running VCO")
+    for bw, c, ls in [(1e4, PURPLE, "--"), (1e5, NAVY, "-"), (1e6, ACCENT, "--")]:
+        wn = 2 * np.pi * bw / 2.06
+        s = 1j * 2 * np.pi * f
+        H = (2 * 0.707 * wn * s + wn ** 2) / (s ** 2 + 2 * 0.707 * wn * s + wn ** 2)
+        tot = 10 * np.log10(np.abs(H) ** 2 * 10 ** (Lref / 10) + np.abs(1 - H) ** 2 * 10 ** (Lvco / 10))
+        ax.semilogx(f, tot, ls, color=c, lw=1.2, label=f"loop BW {bw / 1e3:g} kHz")
+    ax.set_ylim(-160, -60); ax.set_xlabel("offset frequency (Hz)"); ax.set_ylabel("$L(f)$ (dBc/Hz)")
+    ax.legend(fontsize=5.8, loc="upper right"); ax.set_title("Synthesizer phase noise (illustrative)", fontsize=8)
+    fig.tight_layout(); save(fig, "ch10_synth_noise")
+
+
+def costas_lock():
+    r = rng(25)
+    N = 3000
+    a = QPSK.modulate(cl.random_bits(2 * N, r))
+    nu = 0.002
+    y, _ = cl.awgn_esn0(cl.apply_cfo(a, nu, 0.4), 15, rng=r)
+    out, fr = cl.costas_qpsk(y, bn=0.02)
+    fig, ax = plt.subplots(1, 4, figsize=(W2, 1.85))
+    scatter(ax[0], y, "(a) input: spinning")
+    ax[1].scatter(out[:400].real, out[:400].imag, c=np.arange(400), cmap="viridis", s=1.5)
+    ax[1].set_xlim(-1.6, 1.6); ax[1].set_ylim(-1.6, 1.6); ax[1].set_aspect("equal")
+    ax[1].set_title("(b) first 400 (colour = time)", fontsize=8); ax[1].set_xticks([-1, 0, 1]); ax[1].set_yticks([-1, 0, 1])
+    scatter(ax[2], out[1000:], "(c) after lock")
+    ax[3].plot(fr / (2 * np.pi), color=NAVY, lw=0.8)
+    ax[3].axhline(nu, color=ACCENT, ls=":", lw=1)
+    ax[3].set_title("(d) loop frequency", fontsize=8); ax[3].set_xlabel("symbol", fontsize=7)
+    ax[3].set_xlim(0, 1500); ax[3].tick_params(labelsize=6.5)
+    for a_ in ax[:3]: a_.title.set_fontsize(8)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch10_costas_lock")
+
+
+def diff_penalty():
+    r = rng(26)
+    eb = np.linspace(0, 12, 25)
+    p = stats.norm.sf(np.sqrt(2 * 10 ** (eb / 10)))
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.semilogy(eb, p, color=NAVY, label="coherent QPSK")
+    ax.semilogy(eb, 2 * p * (1 - p), "--", color=GREEN, label="coherent, differentially encoded")
+    # DQPSK with differential detection, Monte Carlo (Gray map of phase changes)
+    ebm = np.arange(0, 13, 1.0); ber = []
+    nsym = 200000
+    for e in ebm:
+        b = r.integers(0, 2, (nsym, 2))
+        dphi = np.array([0, 1, 3, 2])[b[:, 0] * 2 + b[:, 1]] * np.pi / 2
+        s = np.exp(1j * (np.cumsum(dphi) + np.pi / 4))
+        n0 = 1 / (2 * 10 ** (e / 10))
+        x = s + np.sqrt(n0 / 2) * (r.standard_normal(nsym) + 1j * r.standard_normal(nsym))
+        d = np.angle(x[1:] * np.conj(x[:-1]))
+        q = np.mod(np.round(d / (np.pi / 2)), 4).astype(int)
+        inv = {0: (0, 0), 1: (0, 1), 3: (1, 0), 2: (1, 1)}
+        bh = np.array([inv[v] for v in q])
+        ber.append(max(np.mean(bh != b[1:]), 1e-7))
+    ax.semilogy(ebm, ber, "o", color=ACCENT, ms=3.2, label="DQPSK, differential detection")
+    ax.set_ylim(1e-6, 0.2); ax.set_xlabel("$E_b/N_0$ (dB)"); ax.set_ylabel("BER")
+    ax.legend(fontsize=6.2, loc="lower left")
+    fig.tight_layout(); save(fig, "ch10_diff_penalty")
+
+
+def pilots():
+    r = rng(27)
+    N, P = 600, 20
+    pn = 2 * np.pi * 0.0006 * np.arange(N) + np.cumsum(0.03 * r.standard_normal(N)) + 0.3
+    a = QPSK.modulate(cl.random_bits(2 * N, r))
+    y, _ = cl.awgn_esn0(a * np.exp(1j * pn), 12, rng=r)
+    pk = np.arange(0, N, P)
+    est = np.unwrap(np.angle(y[pk] * np.conj(a[pk])))
+    interp_ph = np.interp(np.arange(N), pk, est)
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 2.0), gridspec_kw=dict(width_ratios=[2.2, 1, 1]))
+    ax[0].plot(pn, color=NAVY, lw=1, label="true phase")
+    ax[0].plot(pk, est, "o", color=ACCENT, ms=3, label="pilot estimates")
+    ax[0].plot(interp_ph, color=GREEN, lw=0.8, ls="--", label="interpolated")
+    ax[0].set_xlabel("symbol"); ax[0].set_ylabel("phase (rad)"); ax[0].legend(fontsize=6.3)
+    ax[0].set_title("(a) one pilot every 20 symbols", fontsize=8)
+    scatter(ax[1], y, "(b) uncorrected")
+    scatter(ax[2], y * np.exp(-1j * interp_ph), "(c) pilot-corrected")
+    for a_ in ax[1:]: a_.title.set_fontsize(8)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch10_pilots")
+
+
+def range_accuracy():
+    r = rng(28)
+    N, esn0 = 256, 5
+    Ds = np.array([1, 2, 4, 8, 16, 32, 64])
+    rms = []
+    for D in Ds:
+        e = []
+        for _ in range(300):
+            nu = r.uniform(-0.4, 0.4) / (2 * D)
+            z, _ = cl.awgn_esn0(np.exp(2j * np.pi * nu * np.arange(N)), esn0, rng=r)
+            e.append(np.angle(np.sum(z[D:] * np.conj(z[:-D]))) / (2 * np.pi * D) - nu)
+        rms.append(np.sqrt(np.mean(np.array(e) ** 2)))
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.loglog(Ds, rms, "o-", color=NAVY, ms=3.5, label="rms error (simulated)")
+    ax.loglog(Ds, 1 / (2 * Ds), "s--", color=ACCENT, ms=3.5, label="unambiguous range $1/(2D)$")
+    ax.set_xlabel("lag $D$ (symbols)"); ax.set_ylabel("cycles/symbol")
+    ax.legend(fontsize=6.5, loc="upper right")
+    ax.set_title("Delay-and-multiply, $N=256$, $E_s/N_0=5$ dB", fontsize=8)
+    fig.tight_layout(); save(fig, "ch10_range_accuracy")
+
+
+def ofdm_ici():
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3))
+    f = np.linspace(-4, 4, 1600)
+    eps = 0.2
+    for k in range(-3, 4):
+        c = ACCENT if k == 0 else NAVY
+        ax[0].plot(f, np.sinc(f - k - eps), color=c, lw=1.2 if k == 0 else 0.6, alpha=1 if k == 0 else 0.6)
+        ax[0].plot(k, np.sinc(-eps), "o", color=GREEN, ms=3) if False else None
+    for k in range(-3, 4):
+        ax[0].axvline(k, color=GRAY, lw=0.4, ls=":")
+    contrib = [np.sinc(0 - k - eps) for k in range(-3, 4)]
+    ax[0].plot([0], [np.sinc(-eps)], "o", color=ACCENT, ms=4)
+    ax[0].plot([0] * 6, [c for i, c in enumerate(contrib) if i != 3], "x", color=NAVY, ms=4)
+    ax[0].set_xlabel("frequency (subcarrier spacings)")
+    ax[0].set_title("(a) CFO $\\varepsilon=0.2$: FFT bins miss the peaks", fontsize=8.5)
+    ax[0].set_xlim(-3.5, 3.5)
+    e = np.linspace(0, 0.1, 200)
+    for s, c in [(10, GREEN), (20, NAVY), (30, ACCENT)]:
+        D = 10 / (3 * np.log(10)) * (np.pi * e) ** 2 * 10 ** (s / 10)
+        ax[1].plot(e, D, color=c, label=f"$E_s/N_0={s}$ dB")
+    ax[1].set_ylim(0, 3); ax[1].set_xlabel("CFO $\\varepsilon$ (fraction of spacing)")
+    ax[1].set_ylabel("SNR degradation (dB)"); ax[1].legend(fontsize=7)
+    ax[1].set_title("(b) the Pollet approximation", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch10_ofdm_ici")
+
+
+def timing_eye():
+    r = rng(29)
+    sps_ = 32
+    syms = 2.0 * r.integers(0, 2, 300) - 1
+    tt = np.arange(-6 * sps_, 6 * sps_ + 1) / sps_
+    g = _rc(tt, 0.35)
+    x = np.convolve(np.repeat(syms, 1)[:, None].ravel(), [1], "same")
+    up = np.zeros(len(syms) * sps_); up[::sps_] = syms
+    y = np.convolve(up, g)[6 * sps_:]
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.4))
+    for k in range(10, 250):
+        seg = y[k * sps_ - sps_: k * sps_ + sps_ + 1]
+        ax[0].plot(np.linspace(-1, 1, len(seg)), seg, color=NAVY, lw=0.3, alpha=0.35)
+    for t0, c, lab, ha, yy in [(0, GREEN, "on the beat", "center", -1.52), (-0.35, ORANGE, "early", "right", 1.5),
+                               (0.35, ACCENT, "late", "left", 1.5)]:
+        ax[0].axvline(t0, color=c, lw=1.2, ls="-" if t0 == 0 else "--")
+        ax[0].text(t0, yy, lab, color=c, fontsize=7, ha=ha, va="center",
+                   bbox=dict(fc="white", ec="none", pad=0.5))
+    ax[0].set_ylim(-1.6, 1.75); ax[0].set_xlabel("time ($T$)")
+    ax[0].set_title("(a) eye: sample where it is widest", fontsize=8.5)
+    pat = np.array([-1, -1, -1, 1, 1, 1.0])
+    upp = np.zeros(len(pat) * sps_); upp[::sps_] = pat
+    w = np.convolve(upp, g)[6 * sps_:6 * sps_ + len(upp)]
+    tw = np.arange(len(w)) / sps_
+    ax[1].plot(tw, w, color=NAVY, lw=1.3)
+    for d, c, lab in [(0, GREEN, "on time: midpoint = 0"), (0.25, ACCENT, "late: midpoint > 0")]:
+        pts = np.array([2, 2.5, 3]) + d
+        vals = np.interp(pts, tw, w)
+        ax[1].plot(pts, vals, "o", color=c, ms=5, label=lab)
+    ax[1].axhline(0, color="k", lw=0.5)
+    ax[1].set_xlim(0.5, 4.5); ax[1].set_xlabel("time ($T$)")
+    ax[1].legend(fontsize=6.5, loc="upper left")
+    ax[1].set_title("(b) Gardner: watch the midpoint", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch10_timing_eye")
+
+
+def timing_tighten():
+    r = rng(30)
+    sps_ = 4
+    h = cl.rrc_taps(0.35, sps_, 12)
+    a = QPSK.modulate(cl.random_bits(2 * 3000, r))
+    tx = cl.shape(a, h, sps_)
+    rx = cl.fractional_delay(np.r_[tx, np.zeros(10)], 2.0)
+    rx, _ = cl.awgn_esn0(rx, 22, sps=sps_, rng=r)
+    y = cl.matched_filter(rx, h)
+    syms, e, tau = cl.gardner_sync(y, sps_, bn=0.01)
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 1.95), gridspec_kw=dict(width_ratios=[1, 1, 1.5]))
+    s0 = syms[6:80] / np.sqrt(np.mean(np.abs(syms[1000:2900]) ** 2))
+    s1 = syms[1000:2900] / np.sqrt(np.mean(np.abs(syms[1000:2900]) ** 2))
+    scatter(ax[0], s0, "(a) first 80 symbols")
+    scatter(ax[1], s1, "(b) after convergence")
+    ax[2].plot(np.unwrap(tau, period=sps_) / sps_, color=NAVY, lw=0.8)
+    ax[2].set_xlim(0, 600); ax[2].set_xlabel("symbol"); ax[2].set_ylabel("strobe phase ($T$)")
+    ax[2].set_title("(c) the loop finds the beat", fontsize=8)
+    for a_ in ax[:2]: a_.title.set_fontsize(8)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch10_timing_tighten")
+
+
+def frame_sentence():
+    r = rng(31)
+    word = "ATTENTION"
+    letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    L = 46
+    s = [letters[i] for i in r.integers(0, 26, L)]
+    pos = 23
+    s[pos:pos + len(word)] = list(word)
+    score = [sum(s[i + j] == word[j] for j in range(len(word))) for i in range(L - len(word) + 1)]
+    fig, ax = plt.subplots(2, 1, figsize=(W2, 2.2), gridspec_kw=dict(height_ratios=[0.8, 1.5]), sharex=True)
+    for i, ch in enumerate(s):
+        hl = pos <= i < pos + len(word)
+        ax[0].add_patch(Rectangle((i - 0.45, 0.1), 0.9, 0.8, color=ACCENT if hl else NAVY, alpha=0.8 if hl else 0.1, lw=0))
+        ax[0].text(i, 0.5, ch, ha="center", va="center", fontsize=7, color="white" if hl else NAVY, family="monospace")
+    ax[0].set_ylim(0, 1); ax[0].axis("off")
+    ax[0].set_title("A stream of letters with the sync word ATTENTION hidden in it", fontsize=8.5)
+    ax[1].bar(np.arange(len(score)), score, color=[ACCENT if i == pos else NAVY for i in range(len(score))], width=0.7)
+    ax[1].axhline(7, color=GREEN, ls="--", lw=1)
+    ax[1].text(0, 7.3, "threshold", fontsize=7, color=GREEN)
+    ax[1].set_ylabel("letters matching"); ax[1].set_xlabel("trial start position")
+    ax[1].set_ylim(0, 9.8)
+    ax[1].set_xlim(-1, L)
+    fig.tight_layout(h_pad=0.2); save(fig, "ch10_frame_sentence")
+
+
+def ssb_grid():
+    fig, ax = plt.subplots(figsize=(3.1, 2.6))
+    def box(x, y0, y1, c, lab=None):
+        ax.add_patch(Rectangle((x, y0), 0.94, y1 - y0 + 1, color=c, lw=0))
+        if lab: ax.text(x + 0.47, (y0 + y1) / 2, lab, ha="center", va="center", fontsize=7, color="white", rotation=90)
+    box(0, 56, 182, NAVY, "PSS (127)")
+    box(1, 0, 239, GREEN, "PBCH + DMRS")
+    box(2, 56, 182, ACCENT, "SSS (127)")
+    box(2, 0, 47, GREEN); box(2, 192, 239, GREEN)
+    box(3, 0, 239, GREEN, "PBCH + DMRS")
+    ax.set_xlim(-0.1, 4.0); ax.set_ylim(-5, 245)
+    ax.set_xticks([0.47, 1.47, 2.47, 3.47]); ax.set_xticklabels(["0", "1", "2", "3"])
+    ax.set_yticks([0, 56, 182, 239]); ax.grid(False)
+    ax.set_xlabel("OFDM symbol in the SSB"); ax.set_ylabel("subcarrier")
+    ax.set_title("5G NR SS/PBCH block (TS 38.211)", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch10_ssb_grid")
+
+
+def burst_vs_cont():
+    fig, ax = plt.subplots(figsize=(W2, 1.9))
+    y1, y0 = 1.3, 0.0
+    ax.add_patch(Rectangle((0, y1), 100, 0.6, color=NAVY, alpha=0.2, lw=0))
+    for x in np.arange(0, 100, 20):
+        ax.add_patch(Rectangle((x, y1), 1.6, 0.6, color=ACCENT, lw=0))
+        for p in [7, 13.5]:
+            ax.add_patch(Rectangle((x + p, y1), 0.7, 0.6, color=GREEN, lw=0))
+    ax.text(0, y1 + 0.75, "continuous: one transmitter, acquire once, track for hours (headers red, pilots green)",
+            fontsize=7, color=NAVY)
+    bursts = [(3, 22, "A", "+3 kHz, 0.4T, $-2$ dB"), (30, 18, "B", "$-1$ kHz, 0.9T, +4 dB"),
+              (54, 20, "C", "+6 kHz, 0.1T, $-6$ dB"), (79, 18, "A", "")]
+    for x, wdt, lab, txt in bursts:
+        ax.add_patch(Rectangle((x, y0), wdt, 0.6, color=ORANGE, alpha=0.3, lw=0))
+        ax.add_patch(Rectangle((x, y0), 3, 0.6, color=ACCENT, lw=0))
+        ax.text(x + wdt / 2 + 1.5, y0 + 0.3, lab, ha="center", va="center", fontsize=8, color=ORANGE, weight="bold")
+        if txt:
+            ax.text(x + 1, y0 - 0.3, txt, fontsize=6.3, color=GRAY, va="top")
+    ax.text(0, y0 + 0.75, "burst (TDMA): each terminal has its own offsets; acquire from every preamble (red)",
+            fontsize=7, color=NAVY)
+    ax.set_xlim(-1, 101); ax.set_ylim(-0.9, 2.3); ax.axis("off")
+    fig.tight_layout(pad=0.1); save(fig, "ch10_burst_vs_cont")
+
+
+def bangbang():
+    r = rng(32)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3))
+    bits = np.array([0, 1, 1, 0, 1, 0, 0, 1])
+    lv = 2.0 * bits - 1
+    t = np.linspace(0, len(bits), 2000)
+    wave = np.interp(t, np.arange(len(bits) + 1) - 0.0, np.r_[lv, lv[-1]])
+    sm = np.ones(60) / 60
+    wave = np.convolve(np.repeat(lv, 250), sm, "same")
+    tw = np.arange(len(wave)) / 250
+    ax[0].plot(tw, wave, color=NAVY, lw=1.2)
+    off = 0.15
+    dc = np.arange(len(bits)) + 0.5 + off
+    ec = np.arange(1, len(bits)) + off
+    ax[0].plot(dc, np.interp(dc, tw, wave), "o", color=GREEN, ms=4, label="data samples")
+    ax[0].plot(ec, np.interp(ec, tw, wave), "s", color=ACCENT, ms=4, label="edge samples")
+    ax[0].set_ylim(-1.5, 2.3); ax[0].set_xlabel("time (UI)"); ax[0].set_yticks([])
+    ax[0].legend(fontsize=6.3, loc="upper center", ncol=2)
+    ax[0].set_title("(a) clock late by 0.15 UI: edge = next bit", fontsize=8.5)
+    n = np.arange(4000)
+    jin = 0.25 * np.sin(2 * np.pi * n / 2000)
+    est = np.zeros(len(n)); p = 0.0; delta = 0.004
+    for i in n:
+        if r.random() < 0.5:
+            p += delta * np.sign(jin[i] - p + 0.02 * r.standard_normal())
+        est[i] = p
+    ax[1].plot(n, jin, color=NAVY, lw=1.2, label="input jitter")
+    ax[1].plot(n, est, color=ACCENT, lw=0.6, label="recovered clock phase")
+    ax[1].set_xlabel("bit"); ax[1].set_ylabel("phase (UI)"); ax[1].legend(fontsize=6.3, loc="lower left")
+    ax[1].set_title("(b) bang-bang loop: slew-limited steps", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch10_bangbang")
+
+
+def tdd_interference():
+    fig, ax = plt.subplots(figsize=(W2, 1.8))
+    pat = "DDDSUDDDSUD"
+    cols = {"D": NAVY, "U": GREEN, "S": GRAY}
+    for row, (y, shift, name) in enumerate([(1.2, 0.0, "base station A"), (0.0, 0.35, "base station B")]):
+        for i, c in enumerate(pat):
+            ax.add_patch(Rectangle((i + shift, y), 0.96, 0.7, color=cols[c], alpha=0.85, lw=0))
+            ax.text(i + shift + 0.48, y + 0.35, c, ha="center", va="center", color="white", fontsize=7.5)
+        ax.text(-0.15, y + 0.35, name, ha="right", va="center", fontsize=7.5)
+    for u in [5, 10]:
+        ax.add_patch(Rectangle((u, -0.05), 0.31, 2.0, fill=False, hatch="////", color=ACCENT, lw=0.8))
+    ax.text(5.5, -0.42, "hatched: A has started transmitting while B still listens for faint uplink signals",
+            fontsize=7, color=ACCENT, ha="center")
+    ax.set_xlim(-2.4, 11.5); ax.set_ylim(-0.65, 2.0); ax.axis("off")
+    fig.tight_layout(pad=0.1); save(fig, "ch10_tdd_interference")
+
+
+def gpsdo():
+    tau = np.logspace(0, 6, 300)
+    gps = 2e-8 / tau
+    ocxo = np.sqrt((3e-12) ** 2 + (1e-12) ** 2 * tau / 100 + (1e-12 / tau) ** 2)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.loglog(tau, gps, color=GREEN, label="GNSS time transfer")
+    ax.loglog(tau, ocxo, color=ORANGE, label="free-running OCXO")
+    ax.loglog(tau, np.minimum(gps, ocxo), color=NAVY, lw=2.4, alpha=0.35, label="GPSDO: best of both")
+    i = int(np.argmin(np.abs(np.log(gps) - np.log(ocxo))))
+    ax.axvline(tau[i], color=GRAY, ls=":", lw=0.8)
+    ax.text(tau[i] * 1.2, 2e-9, "loop time\nconstant", fontsize=6.5, color=GRAY)
+    ax.set_xlabel("averaging time $\\tau$ (s)"); ax.set_ylabel("Allan deviation $\\sigma_y(\\tau)$")
+    ax.set_ylim(1e-13, 1e-7); ax.legend(fontsize=6.2, loc="lower left")
+    ax.set_title("Why a GPSDO works (illustrative)", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch10_gpsdo")
+
+
+def squaring_loss():
+    x = np.linspace(-6, 16, 200)
+    SL = 10 * np.log10(1 + 1 / (2 * 10 ** (x / 10)))
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.plot(x, SL, color=NAVY, lw=1.6)
+    for xd in [0, 10]:
+        v = 10 * np.log10(1 + 1 / (2 * 10 ** (xd / 10)))
+        ax.plot(xd, v, "o", color=ACCENT, ms=4.5)
+        ax.text(xd + 0.6, v + 0.25, f"{v:.1f} dB", fontsize=7, color=ACCENT)
+    ax.axvspan(-6, 1, color=ORANGE, alpha=0.08)
+    ax.text(-5.7, 0.4, "where modern\ncodes operate", fontsize=6.5, color=ORANGE)
+    ax.set_xlabel("$E_s/N_0$ (dB)"); ax.set_ylabel("squaring loss (dB)")
+    ax.set_title("BPSK Costas / squaring loop", fontsize=8.5)
+    fig.tight_layout(); save(fig, "ch10_squaring_loss")
+
+
+def corr_cfo_loss():
+    x = np.linspace(1e-4, 3, 400)
+    fig, ax = plt.subplots(figsize=NARROW)
+    ax.plot(x, 20 * np.log10(np.abs(np.sinc(x)) + 1e-6), color=NAVY, label="fully coherent")
+    ax.plot(x, 20 * np.log10(np.abs(np.sinc(x / 4)) + 1e-6), color=GREEN, label="4 segments, non-coherent sum")
+    ax.axhline(0, color=ACCENT, ls="--", lw=1, label="differential (no CFO loss)")
+    ax.plot(0.5, 20 * np.log10(np.sinc(0.5)), "o", color=NAVY, ms=4)
+    ax.text(0.58, -4.5, "$-3.9$ dB at $\\nu N=0.5$", fontsize=6.5, color=NAVY)
+    ax.set_ylim(-30, 2); ax.set_xlabel("CFO $\\times$ sequence length, $\\nu N$")
+    ax.set_ylabel("peak loss (dB)"); ax.legend(fontsize=6, loc="lower left")
+    fig.tight_layout(); save(fig, "ch10_corr_cfo_loss")
+
+
+def receiver_stages():
+    """The complete burst receiver of Section 10.11, stage by stage (colour = transmitted symbol)."""
+    r = rng(40)
+    sps_ = 4
+    h = cl.rrc_taps(0.35, sps_, 12)
+    pre = QPSK.modulate(cl.random_bits(2 * 64, r))
+    data = QPSK.modulate(cl.random_bits(2 * 3000, r))
+    tx_syms = np.r_[QPSK.modulate(cl.random_bits(2 * 200, r)), pre, data]
+    tx = cl.shape(tx_syms, h, sps_)
+    rx = cl.fractional_delay(np.r_[tx, np.zeros(16)], 1.3)
+    rx = cl.apply_cfo(rx, 0.004 / sps_, 2.0)
+    rx, _ = cl.awgn_esn0(rx, 16, sps=sps_, rng=r)
+    y = cl.matched_filter(rx, h)
+    naive = y[len(h) - 1::sps_][:len(tx_syms)]
+    syms, _, _ = cl.gardner_sync(y, sps_, bn=0.01)
+    syms = syms / np.sqrt(np.mean(np.abs(syms[500:]) ** 2))
+    nu = cl.cfo_power_estimate(syms[100:1124], 4)
+    s2 = syms * np.exp(-2j * np.pi * nu * np.arange(len(syms)))
+    s3, _ = cl.pll_dd(s2, QPSK, bn=0.01)
+    k, gain, _ = cl.frame_sync(s3, pre)
+    s4 = s3 * np.conj(gain) / np.abs(gain)
+    off = k - 200        # stage index n <-> transmitted symbol n - off
+    idx = np.arange(len(s4))
+    valid = (idx - off >= 0) & (idx - off < len(tx_syms))
+    lab = np.zeros(len(s4), int)
+    lab[valid] = np.argmin(np.abs(tx_syms[idx[valid] - off][:, None] - QPSK.points[None, :]), axis=1)
+    cols = np.array([NAVY, ACCENT, GREEN, ORANGE])
+    fig, ax = plt.subplots(1, 5, figsize=(W2, 1.6))
+    sel = slice(1500, 2600)
+    panels = [(naive[sel], None, "(a) raw samples"), (syms[sel], lab[sel], "(b) after timing"),
+              (s2[sel], lab[sel], "(c) after coarse CFO"), (s3[sel], lab[sel], "(d) after PLL"),
+              (s4[sel], lab[sel], "(e) after frame sync")]
+    for a_, (z, lb, t) in zip(ax, panels):
+        z = z / np.sqrt(np.mean(np.abs(z) ** 2))
+        c = GRAY if lb is None else cols[lb]
+        a_.scatter(z.real, z.imag, s=0.8, c=c, alpha=0.6, lw=0)
+        a_.set_xlim(-1.7, 1.7); a_.set_ylim(-1.7, 1.7); a_.set_aspect("equal")
+        a_.set_xticks([]); a_.set_yticks([]); a_.set_title(t, fontsize=7.5)
+    print("receiver_stages: nu_hat =", nu, "frame k =", k)
+    fig.tight_layout(w_pad=0.2); save(fig, "ch10_receiver_stages")
+
+
+ALL = [receiver_stages, impairments, pll_response, pd_scurves, acquisition, jitter, mpower, freq_est, ted_scurves,
+       timing_loops, interp, timing_ber, sequences, frame_detect, ofdm_timing, pss_cfo, cdr, holdover,
+       timeline, four_unknowns, offset_scale, likelihood_surface, lever_arm, outliers, washboard,
+       pll_lock_scope, bw_tradeoff, slip_rate, phase_plane, synth_noise, costas_lock, diff_penalty,
+       pilots, range_accuracy, ofdm_ici, timing_eye, timing_tighten, frame_sentence, ssb_grid,
+       burst_vs_cont, bangbang, tdd_interference, gpsdo, squaring_loss, corr_cfo_loss]
 
 if __name__ == "__main__":
     which = sys.argv[1:]
