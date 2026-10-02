@@ -696,10 +696,816 @@ def fig_cd():
     fig.tight_layout(); save(fig, "ch12_cd")
 
 
+# ====================================================================
+# Second-edition concept illustrations and extra data figures
+# ====================================================================
+def _box(ax):
+    for s in ["top", "right"]:
+        ax.spines[s].set_visible(False)
+
+
+def fig_cathedral_isi():
+    """Talking in a cathedral: each symbol's pulse smeared by a reverberant tail."""
+    t = np.linspace(-2, 16, 1800)
+    syms = np.array([1, -1, 1, 1, -1, -1, 1, -1, 1, 1])
+    dry = lambda tt: rc_pulse(tt, 0.5)
+    g = np.array([0.7 ** m for m in range(9)]); g /= np.linalg.norm(g)
+    wet = lambda tt: sum(gm * rc_pulse(tt - 0.9 * m, 0.5) for m, gm in enumerate(g)) / g[0]
+    fig, ax = plt.subplots(2, 1, figsize=(W2, 3.3), sharex=True)
+    cols = [NAVY, ACCENT, GREEN, ORANGE, PURPLE, "#2E86C1", GRAY, NAVY, ACCENT, GREEN]
+    for a, p, title in [(ax[0], dry, "a dry studio: each pulse is gone before the next sample"),
+                        (ax[1], wet, "a cathedral: every pulse rings on under the next ones")]:
+        tot = np.zeros_like(t)
+        for k, s in enumerate(syms):
+            c = s * p(t - k)
+            tot += c
+            a.plot(t, c, color=cols[k], lw=0.7, alpha=0.55)
+        a.plot(t, tot, color="k", lw=1.6)
+        kk = np.arange(len(syms))
+        samp = np.interp(kk, t, tot)
+        a.plot(kk, syms, "s", mfc="none", color=GREEN, ms=5, mew=1.0)
+        a.plot(kk, samp, "o", color=ACCENT, ms=3.5)
+        a.axhline(0, color=GRAY, lw=0.5)
+        a.set_title(title, fontsize=8.5); a.set_ylim(-3.3, 3.6); a.set_ylabel("amplitude")
+        wrong = np.sign(samp) != syms
+        for k in kk[wrong]:
+            a.annotate("error", (k, samp[k]), xytext=(k + 0.25, samp[k] + 1.1), fontsize=6.5,
+                       color=ACCENT, arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.6))
+    ax[1].set_xlabel("time (symbol periods)"); ax[1].set_xlim(-1.5, 13.5)
+    ax[0].plot([], [], "s", mfc="none", color=GREEN, label="symbol sent")
+    ax[0].plot([], [], "o", color=ACCENT, label="sample the receiver sees")
+    ax[0].plot([], [], color="k", lw=1.6, label="received waveform (sum)")
+    ax[0].legend(fontsize=6.5, ncol=3, loc="upper right", frameon=False)
+    fig.tight_layout(h_pad=0.4); save(fig, "ch12_cathedral_isi")
+
+
+def fig_proakis_eyes():
+    """Unequalized eye diagrams of the three Proakis channels (BPSK, RC pulses)."""
+    r = rng(2)
+    sps_ = 16
+    tp = np.arange(-6 * sps_, 6 * sps_ + 1) / sps_
+    p = rc_pulse(tp, 0.35)
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 1.9), sharey=True)
+    for j, (k, h) in enumerate(PROAKIS.items()):
+        h = h / np.linalg.norm(h)
+        N = 600
+        a = r.choice([-1.0, 1.0], N)
+        up = np.zeros(N * sps_); up[::sps_] = a
+        x = np.convolve(np.convolve(up, p), _upsample(h, sps_))
+        c0 = 6 * sps_ + np.argmax(np.abs(h)) * sps_
+        for n in range(30, N - 30):
+            seg = x[c0 + n * sps_ - sps_: c0 + n * sps_ + sps_ + 1]
+            ax[j].plot(np.linspace(-1, 1, len(seg)), seg / np.max(np.abs(h)), color=NAVY, lw=0.3, alpha=0.25)
+        ax[j].set_title(f"channel {k}", fontsize=8.5); ax[j].set_xlabel("time (symbols)")
+        ax[j].set_ylim(-3, 3); ax[j].axvline(0, color=ACCENT, lw=0.6, ls=":")
+    ax[0].set_ylabel("received / main tap")
+    fig.tight_layout(w_pad=0.4); save(fig, "ch12_proakis_eyes")
+
+
+def _upsample(h, sps_):
+    u = np.zeros((len(h) - 1) * sps_ + 1); u[::sps_] = h
+    return u
+
+
+def fig_graphic_eq_bars():
+    """The equalizer as a graphic equalizer: channel bands, slider settings, flat result."""
+    h = np.array([1.0, 0.75, 0.3]); h /= np.linalg.norm(h)
+    bands = np.linspace(0.025, 0.475, 10)
+    H = np.abs(np.array([np.sum(h * np.exp(-2j * np.pi * f * np.arange(len(h)))) for f in bands]))
+    cdb = 20 * np.log10(H); edb = -cdb
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    x = np.arange(len(bands))
+    ax.bar(x - 0.2, cdb, 0.4, color=ACCENT, label="channel gain")
+    ax.bar(x + 0.2, edb, 0.4, color=NAVY, label="equalizer slider")
+    ax.plot(x, cdb + edb, "o-", color=GREEN, ms=3, lw=1.5, label="channel $\\times$ equalizer (flat)")
+    ax.axhline(0, color="k", lw=0.4)
+    ax.set_xticks(x); ax.set_xticklabels([f"{b:.2f}" for b in bands], fontsize=6, rotation=45)
+    ax.set_xlabel("frequency band ($f\\,T$)"); ax.set_ylabel("gain (dB)")
+    ax.legend(fontsize=6.3, loc="upper left", frameon=False); ax.set_ylim(-11, 15)
+    fig.tight_layout(); save(fig, "ch12_graphic_eq_bars")
+
+
+def fig_noise_enhance():
+    h = np.array([1.0, 0.9]) / np.sqrt(1.81)
+    f, H = freqresp(h, 1024)
+    n0 = 10 ** (-20 / 10)
+    S = np.abs(H) ** 2
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3), sharey=True)
+    ax[0].fill_between(f, -40, db(S), color=NAVY, alpha=0.35, label="signal $|H|^2$")
+    ax[0].plot(f, db(np.full_like(f, n0)), color=ACCENT, lw=1.5, label="noise $N_0$")
+    ax[0].set_title("before the equalizer", fontsize=8.5)
+    ax[1].fill_between(f, -40, db(np.ones_like(f)), color=NAVY, alpha=0.35, label="signal (flat again)")
+    ax[1].plot(f, db(n0 / S), color=ACCENT, lw=1.5, label="noise $N_0/|H|^2$")
+    ax[1].set_title("after zero forcing", fontsize=8.5)
+    for a in ax:
+        a.set_xlabel("$f\\,T$"); a.set_xlim(-0.5, 0.5); a.set_ylim(-35, 12); a.legend(fontsize=6.5, loc="lower left")
+    ax[0].set_ylabel("power (dB)")
+    ax[1].annotate(f"noise boosted\nby {-db(S.min()):.0f} dB at the\nchannel's notch", (0.47, -1.5), xytext=(0.05, 4), fontsize=6.5,
+                   color=ACCENT, arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.7))
+    fig.tight_layout(); save(fig, "ch12_noise_enhance")
+
+
+def fig_mmse_tradeoff():
+    """Residual ISI vs noise as the regularisation lambda goes from ZF to matched filter."""
+    h = np.array([1, 0.95 * np.exp(1j * 0.3), 0.2]); h /= np.linalg.norm(h)
+    L, snr = 31, 15
+    n0 = 10 ** (-snr / 10)
+    G = cl.conv_matrix(h, L)                        # (L+2, L): G @ w = h*w
+    d = (L + 2) // 2
+    lams = np.geomspace(1e-5, 10, 120)
+    isi, noi = [], []
+    for lam in lams:
+        w = np.linalg.solve(G.conj().T @ G + lam * np.eye(L), G.conj().T[:, d])
+        q = G @ w
+        beta = q[d]
+        isi.append(np.sum(np.abs(q) ** 2) - abs(beta) ** 2 + abs(1 - beta) ** 2)
+        noi.append(n0 * np.sum(np.abs(w) ** 2))
+    isi, noi = np.array(isi), np.array(noi)
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    ax.loglog(lams, isi, color=ORANGE, label="ISI + bias")
+    ax.loglog(lams, noi, color=ACCENT, label="noise")
+    ax.loglog(lams, isi + noi, color=NAVY, lw=2, label="total MSE")
+    i = np.argmin(isi + noi)
+    ax.plot(lams[i], (isi + noi)[i], "o", color=NAVY)
+    ax.axvline(n0, color=GRAY, ls=":", lw=0.8)
+    ax.text(n0 * 1.3, 2.0, "$\\lambda=N_0/E_s$\n(MMSE)", fontsize=6.5, color=GRAY)
+    ax.text(1.3e-5, 2.0, "ZF\nend", fontsize=6.5, color=GRAY)
+    ax.text(1.0, 2.0, "matched-\nfilter end", fontsize=6.5, color=GRAY)
+    ax.set_xlabel("regularisation $\\lambda$"); ax.set_ylabel("mean-square error")
+    ax.set_ylim(3e-3, 10); ax.legend(fontsize=6.5, loc="lower left", frameon=False)
+    fig.tight_layout(); save(fig, "ch12_mmse_tradeoff")
+
+
+def fig_bias():
+    """16-QAM through a notch channel: ZF, biased MMSE, unbiased MMSE outputs."""
+    r = rng(21)
+    c = cl.get_constellation("16qam"); pts = c.points
+    h = np.array([1, 0.95 * np.exp(1j * 0.3), 0.2]); h /= np.linalg.norm(h)
+    snr = 20; n0 = 10 ** (-snr / 10)
+    N = 20000
+    s = c.modulate(cl.random_bits(4 * N, r))
+    y = np.convolve(s, h)[:N] + np.sqrt(n0 / 2) * (r.standard_normal(N) + 1j * r.standard_normal(N))
+    L = 31
+    wz, dz = cl.zf_fir(h, L); wm, dm = cl.mmse_fir(h, L, n0)
+    zz = cl.apply_fir(y, wz, dz)
+    zm = cl.apply_fir(y, wm, dm)
+    beta = np.real(np.vdot(s[100:-100], zm[100:-100]) / np.vdot(s[100:-100], s[100:-100]))
+    zu = zm / beta
+    def ser(z):
+        dec = pts[np.argmin(np.abs(z[100:-100, None] - pts[None, :]), axis=1)]
+        return np.mean(np.abs(dec - s[100:-100]) > 1e-6)
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 2.25))
+    for a, z, t in [(ax[0], zz, "ZF"), (ax[1], zm, f"MMSE (biased, $\\beta$={beta:.2f})"), (ax[2], zu, "MMSE scaled by $1/\\beta$")]:
+        a.scatter(z[200:3200].real, z[200:3200].imag, s=0.8, color=NAVY, alpha=0.35, lw=0, rasterized=True)
+        a.plot(pts.real, pts.imag, "+", color=ACCENT, ms=6, mew=1.2)
+        sv = s[100:-100]; zv = z[100:-100]
+        cen = np.array([np.mean(zv[np.abs(sv - p_) < 1e-6]) for p_ in pts])
+        a.plot(cen.real, cen.imag, "o", mfc="none", color=GREEN, ms=5, mew=1.1)
+        a.set_xlim(-1.6, 1.6); a.set_ylim(-1.6, 1.6); a.set_aspect("equal")
+        a.set_title(f"{t}\nSER = {ser(z):.1e}", fontsize=7.5); a.tick_params(labelsize=6.5)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch12_bias")
+
+
+def _lms_run(h, mu, N, L, delay, n0, r):
+    a = r.choice([-1.0, 1.0], N + L)
+    y = np.convolve(a, h)[:N + L] + np.sqrt(n0) * r.standard_normal(N + L)
+    w = np.zeros(L); w[delay] = 0.0
+    e2 = np.empty(N); W = np.empty((N, L))
+    for n in range(N):
+        u = y[n + L - 1::-1][:L] if n + L - 1 >= 0 else None
+        u = y[n:n + L][::-1]
+        d = a[n + L - 1 - delay]
+        e = d - w @ u
+        w = w + mu * e * u
+        e2[n] = e * e; W[n] = w
+    return e2, W
+
+
+def fig_lms_mu():
+    h = np.array([0.35, 1.0, 0.45]); h /= np.linalg.norm(h)
+    L, delay, n0 = 11, 6, 10 ** (-2.0)
+    G = cl.conv_matrix(h, L).real
+    R = G.T @ G + n0 * np.eye(L)
+    # desired a[n-delay] with regressor y[n..n-L+1]: p = G^T e_delay
+    p = G.T[:, delay]
+    jmin = 1 - p @ np.linalg.solve(R, p)
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    N, runs = 2000, 150
+    for mu, c in [(0.003, GREEN), (0.015, NAVY), (0.06, ACCENT)]:
+        acc = np.zeros(N)
+        for k in range(runs):
+            e2, _ = _lms_run(h, mu, N, L, delay, n0, rng(100 + k))
+            acc += e2
+        sm = np.convolve(acc / runs, np.ones(15) / 15, mode="valid")
+        ax.semilogy(sm, color=c, lw=1.1, label=f"$\\mu={mu}$")
+    ax.axhline(jmin, color="k", ls=":", lw=0.9)
+    ax.text(N * 0.55, jmin * 0.6, "Wiener (MMSE) floor", fontsize=6.5)
+    ax.set_xlabel("symbols"); ax.set_ylabel("mean-square error"); ax.set_ylim(jmin * 0.4, 2)
+    ax.legend(fontsize=6.5, frameon=False, loc="upper right")
+    fig.tight_layout(); save(fig, "ch12_lms_mu")
+    return jmin
+
+
+def fig_lms_taps():
+    h = np.array([0.35, 1.0, 0.45]); h /= np.linalg.norm(h)
+    L, delay, n0 = 7, 4, 10 ** (-2.0)
+    G = cl.conv_matrix(h, L).real
+    R = G.T @ G + n0 * np.eye(L); p = G.T[:, delay]
+    wopt = np.linalg.solve(R, p)
+    _, W = _lms_run(h, 0.03, 2500, L, delay, n0, rng(7))
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    for i in range(L):
+        c = CYCLE[i % len(CYCLE)]
+        ax.plot(W[:, i], color=c, lw=0.8)
+        ax.axhline(wopt[i], color=c, ls=":", lw=0.7)
+    ax.set_xlabel("symbols"); ax.set_ylabel("tap value $w_i$")
+    ax.set_title("7 taps learning from zero (dotted: Wiener)", fontsize=8)
+    fig.tight_layout(); save(fig, "ch12_lms_taps")
+
+
+def fig_cma_snapshots():
+    r = rng(31)
+    c = cl.get_constellation("qpsk"); pts = c.points
+    h = np.array([1, 0.5 * np.exp(1j * 0.9), -0.3j, 0.12]); h /= np.linalg.norm(h)
+    N = 12000
+    s = c.modulate(cl.random_bits(2 * N, r))
+    y, _ = cl.awgn_esn0(np.convolve(s, h)[:N] * np.exp(1j * 0.6), 25, rng=r, es=1.0)
+    z, cost, w = cl.cma_equalizer(y, L=11, mu=2e-3, R2=1.0)
+    fig, ax = plt.subplots(1, 4, figsize=(W2, 1.85), gridspec_kw={"width_ratios": [1, 1, 1, 1.5]})
+    for a, (lo, hi), t in [(ax[0], (0, 400), "symbols 0--400"), (ax[1], (1500, 1900), "1500--1900"),
+                           (ax[2], (11000, 11400), "11000--11400")]:
+        v = z[lo:hi]
+        a.scatter(v.real, v.imag, s=1.5, color=NAVY, alpha=0.6, lw=0)
+        th = np.linspace(0, 2 * np.pi, 200); a.plot(np.cos(th), np.sin(th), color=ACCENT, lw=0.6, ls="--")
+        a.set_xlim(-1.7, 1.7); a.set_ylim(-1.7, 1.7); a.set_aspect("equal"); a.set_title(t, fontsize=7.5)
+        a.tick_params(labelsize=6)
+    disp = np.convolve((np.abs(z) ** 2 - 1) ** 2, np.ones(200) / 200, mode="valid")
+    ax[3].plot(10 * np.log10(disp), color=NAVY, lw=0.9); ax[3].set_ylabel("dB", fontsize=7)
+    ax[3].set_xlabel("symbols", fontsize=7); ax[3].set_title("modulus error $(|z|^2-1)^2$", fontsize=7.5)
+    ax[3].tick_params(labelsize=6)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch12_cma_snap")
+
+
+def fig_dfe_cursors():
+    h = np.array([0.08, 0.25, 1.0, 0.62, 0.38, 0.22, 0.12, 0.06])
+    k = np.arange(len(h)) - 2
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    cols = [ORANGE if kk < 0 else (NAVY if kk == 0 else GREEN) for kk in k]
+    ax.bar(k, h, 0.45, color=cols)
+    ax.axhline(0, color="k", lw=0.6)
+    ax.text(-2.4, 0.55, "precursors:\nfuture symbols\n(FFE removes)", fontsize=6.5, color=ORANGE)
+    ax.text(0.25, 1.0, "cursor", fontsize=6.5, color=NAVY)
+    ax.text(1.6, 0.55, "postcursors: echoes of\nsymbols already decided\n(DFE subtracts them)", fontsize=6.5, color=GREEN)
+    ax.set_xlabel("symbol offset from the one being decided"); ax.set_ylabel("sampled pulse response")
+    ax.set_xticks(k); ax.set_ylim(0, 1.15)
+    fig.tight_layout(); save(fig, "ch12_dfe_cursors")
+
+
+def fig_bursts():
+    h = PROAKIS["B"] / np.linalg.norm(PROAKIS["B"])
+    r = rng(44)
+    e = 9.0; n0 = 10 ** (-e / 10)
+    N = 200000
+    a = r.choice([-1.0, 1.0], N)
+    y = np.convolve(a, h)[:N] + np.sqrt(n0 / 2) * r.standard_normal(N)
+    wf, wb, dl, _ = eqadv.mmse_dfe_fir(h, 11, 2, n0 / 2)
+    zg, decg = eqadv.dfe_run(y, wf, wb, dl, BPSK, genie=a)
+    zz, dec = eqadv.dfe_run(y, wf, wb, dl, BPSK)
+    eg = (np.sign(zg.real) != a[:len(zg)])
+    ed = (dec.real != a[:len(dec)])
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.1), gridspec_kw={"width_ratios": [1.6, 1]})
+    # centre a 120-symbol window on a burst of the real DFE
+    cs = np.convolve(ed[20000:120000].astype(float), np.ones(15), mode="same")
+    ctr = 20000 + int(np.argmax(cs))
+    lo, hi = ctr - 60, ctr + 60
+    for i, (ev, lab, c) in enumerate([(eg, "correct decisions fed back", GREEN), (ed, "own decisions fed back", ACCENT)]):
+        idx = np.nonzero(ev[lo:hi])[0]
+        ax[0].plot(np.arange(hi - lo), np.full(hi - lo, i), "|", color=GRAY, ms=4, alpha=0.4)
+        ax[0].plot(idx, np.full(len(idx), i), "s", color=c, ms=4.5)
+    ax[0].set_yticks([0, 1]); ax[0].set_yticklabels(["genie", "real DFE"], fontsize=7)
+    ax[0].set_xlabel("symbol index (squares = errors)"); ax[0].set_title(f"a 120-symbol stretch at $E_b/N_0$ = {e:.0f} dB", fontsize=8)
+    ax[0].set_ylim(-0.7, 1.7); ax[0].grid(False)
+    def bursts(ev, gap=3):
+        idx = np.nonzero(ev)[0]
+        if len(idx) == 0: return np.array([])
+        L = []; start = idx[0]; last = idx[0]
+        for i in idx[1:]:
+            if i - last > gap:
+                L.append(last - start + 1); start = i
+            last = i
+        L.append(last - start + 1)
+        return np.array(L)
+    for ev, c, lab in [(eg, GREEN, "genie"), (ed, ACCENT, "real DFE")]:
+        b = bursts(ev)
+        hist = np.bincount(np.minimum(b, 12), minlength=13)[1:]
+        ax[1].semilogy(np.arange(1, 13), np.maximum(hist / hist.sum(), 1e-5), "o-", color=c, ms=3, label=lab)
+    ax[1].set_xlabel("burst span (symbols)"); ax[1].set_ylabel("fraction"); ax[1].legend(fontsize=6.5)
+    ax[1].set_title(f"BER {np.mean(eg):.1e} vs {np.mean(ed):.1e}", fontsize=8); ax[1].set_ylim(1e-4, 1.5)
+    fig.tight_layout(); save(fig, "ch12_bursts")
+    print("burst BER genie, dfe", np.mean(eg), np.mean(ed))
+
+
+def fig_three_means():
+    chans = [("$[1,\\,0.5]$", np.array([1, 0.5])), ("$[1,\\,0.9]$", np.array([1, 0.9])),
+             ("Proakis A", PROAKIS["A"]), ("Proakis C", PROAKIS["C"])]
+    labs = ["linear ZF", "linear MMSE", "ZF-DFE", "MMSE-DFE"]
+    cols = [ACCENT, ORANGE, GREEN, NAVY]
+    fig, ax = plt.subplots(figsize=(W1 * 0.78, 2.4))
+    x = np.arange(len(chans)); wbar = 0.19
+    for j, (nm, h) in enumerate(chans):
+        h = h / np.linalg.norm(h)
+        v = 10 * np.log10(np.array(snr_limits(h, 20)))
+        for i in range(4):
+            ax.bar(x[j] + (i - 1.5) * wbar, max(v[i], 0), wbar, color=cols[i], label=labs[i] if j == 0 else None)
+    ax.axhline(20, color="k", ls=":", lw=0.9, label="matched-filter bound")
+    ax.set_xticks(x); ax.set_xticklabels([c[0] for c in chans], fontsize=7.5)
+    ax.set_ylabel("unbiased output SNR (dB)"); ax.set_ylim(0, 24)
+    ax.legend(fontsize=6.3, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 1.22), frameon=False)
+    fig.tight_layout(); save(fig, "ch12_three_means")
+
+
+def fig_states():
+    nu = np.arange(1, 9)
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    for M, c, lab in [(2, NAVY, "binary (GSM GMSK, PAM-2)"), (4, GREEN, "PAM-4 / QPSK"), (8, ORANGE, "8-PSK (EDGE)"),
+                      (16, ACCENT, "16-QAM"), (64, PURPLE, "64-QAM")]:
+        ax.semilogy(nu, float(M) ** nu, "o-", ms=3, color=c, label=lab)
+    ax.axhspan(1, 64, color=GREEN, alpha=0.08)
+    ax.text(5.4, 6, "comfortable\nin hardware", fontsize=6.5, color=GREEN)
+    ax.plot([4], [16], "*", color="k", ms=9)
+    ax.annotate("GSM: 16 states", (4, 16), xytext=(4.6, 1.5), fontsize=6.5, arrowprops=dict(arrowstyle="->", lw=0.6))
+    ax.set_xlabel("channel memory $\\nu$ (symbols)"); ax.set_ylabel("trellis states $M^{\\nu}$")
+    ax.set_ylim(1, 1e13); ax.legend(fontsize=5.8, frameon=False, loc="upper left")
+    fig.tight_layout(); save(fig, "ch12_states")
+
+
+def fig_gsm_burst():
+    fields = [("T", 3, GRAY), ("data", 57, NAVY), ("F", 1, ORANGE), ("training\n(midamble)", 26, ACCENT),
+              ("F", 1, ORANGE), ("data", 57, NAVY), ("T", 3, GRAY), ("guard\n8.25", 8.25, "#DDDDDD")]
+    fig, ax = plt.subplots(figsize=(W2, 0.95))
+    x0 = 0
+    for nm, w, c in fields:
+        ax.add_patch(plt.Rectangle((x0, 0), w, 1, color=c, alpha=0.85 if c != "#DDDDDD" else 1, ec="white", lw=1))
+        if w > 5:
+            txt = nm if any(ch.isdigit() for ch in nm) else nm + (f"\n{w:g} bits" if "\n" not in nm else f" {w:g}")
+            ax.text(x0 + w / 2, 0.5, txt, ha="center", va="center",
+                    fontsize=7, color="white" if c not in ("#DDDDDD",) else "k")
+        x0 += w
+    ax.set_xlim(0, x0); ax.set_ylim(0, 1); ax.axis("off")
+    ax.text(0, -0.25, "0", fontsize=6.5, ha="center"); ax.text(x0, -0.25, "156.25 bit periods = 577 $\\mu$s", fontsize=6.5, ha="right")
+    fig.tight_layout(); save(fig, "ch12_gsm_burst")
+
+
+def fig_fde_cost():
+    span = np.geomspace(2, 5000, 200)
+    td = 3 * span                                              # FFE of three channel spans
+    N = 2 ** np.ceil(np.log2(8 * span)); N = np.maximum(N, 64)
+    fde = (2 * (N / 2) * np.log2(N) + N) / (N - span) * 1.0     # two FFTs + N mults per (N - prefix) symbols
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    ax.loglog(span, td, color=ACCENT, label="time-domain FFE (3 spans)")
+    ax.loglog(span, fde, color=NAVY, label="FFT-based (SC-FDE / OFDM)")
+    for s, nm in [(5, "GSM"), (60, "400ZR CD"), (200, "20 MHz\nwireless"), (2000, "long-haul\nCD")]:
+        ax.axvline(s, color=GRAY, ls=":", lw=0.7); ax.text(s * 1.08, 3, nm, fontsize=6, color=GRAY, rotation=90, va="bottom")
+    ax.set_xlabel("channel memory (symbols)"); ax.set_ylabel("complex multiplies / symbol")
+    ax.legend(fontsize=6.3, frameon=False, loc="upper left"); ax.set_ylim(1, 3e4)
+    fig.tight_layout(); save(fig, "ch12_fde_cost")
+
+
+def fig_cyclic_prefix():
+    fig, ax = plt.subplots(figsize=(W2, 1.75))
+    y0 = 1.2
+    def block(x, lab, cp=True, y=y0, alpha=1.0):
+        if cp:
+            ax.add_patch(plt.Rectangle((x, y), 1.0, 0.6, color=ORANGE, alpha=0.8 * alpha, ec="white"))
+            ax.text(x + 0.5, y + 0.3, "CP", ha="center", va="center", fontsize=7, color="white")
+        ax.add_patch(plt.Rectangle((x + 1.0, y), 5.0, 0.6, color=NAVY, alpha=0.85 * alpha, ec="white"))
+        ax.text(x + 3.5, y + 0.3, lab, ha="center", va="center", fontsize=7.5, color="white")
+        ax.add_patch(plt.Rectangle((x + 5.0, y), 1.0, 0.6, fill=False, ec=ORANGE, lw=1.2, ls="--"))
+    block(0, "block $k$ ($N$ symbols)"); block(6, "block $k+1$")
+    ax.annotate("", xy=(0.5, y0 + 0.65), xytext=(5.5, y0 + 0.65),
+                arrowprops=dict(arrowstyle="->", color=ORANGE, lw=1.0, connectionstyle="arc3,rad=0.25"))
+    ax.text(3.0, y0 + 1.25, "copy the last $N_{cp}$ symbols to the front", fontsize=7, ha="center", color=ORANGE)
+    # channel smear
+    t = np.linspace(6, 7.6, 100)
+    ax.fill_between(t, 0.2, 0.2 + 0.5 * np.exp(-(t - 6) * 2.2), color=ACCENT, alpha=0.5)
+    ax.add_patch(plt.Rectangle((0, 0.2), 6, 0.5, color=NAVY, alpha=0.25, ec="none"))
+    ax.add_patch(plt.Rectangle((6, 0.2), 6, 0.5, color=NAVY, alpha=0.12, ec="none"))
+    ax.text(6.9, 0.85, "smear of block $k$ (channel memory $\\nu\\leq N_{cp}$)", fontsize=6.5, color=ACCENT)
+    ax.add_patch(plt.Rectangle((6, 0.13), 1.0, 0.64, fill=False, ec=GREEN, lw=1.3))
+    ax.text(6.5, -0.12, "discarded with the CP", fontsize=6.5, color=GREEN, ha="center")
+    ax.text(-0.15, 0.45, "received", fontsize=7, ha="right", va="center")
+    ax.text(-0.15, y0 + 0.3, "sent", fontsize=7, ha="right", va="center")
+    ax.set_xlim(-1.3, 12.2); ax.set_ylim(-0.3, 2.6); ax.axis("off")
+    fig.tight_layout(); save(fig, "ch12_cyclic_prefix")
+
+
+def fig_echo_erle():
+    r = rng(9)
+    Lh = 64
+    hecho = r.standard_normal(Lh) * np.exp(-np.arange(Lh) / 12) * 0.5
+    N = 30000
+    x = r.choice([-1.0, 1.0], N)                         # local transmit symbols (data echo canceller)
+    far = 0.03 * r.choice([-1.0, 1.0], N)               # attenuated far-end signal (-30 dB)
+    echo = np.convolve(x, hecho)[:N]
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    for mu, c in [(0.002, GREEN), (0.008, NAVY)]:
+        w = np.zeros(Lh); res = np.empty(N)
+        xp = np.concatenate([np.zeros(Lh - 1), x])
+        for n in range(N):
+            u = xp[n:n + Lh][::-1]
+            e = echo[n] + far[n] - w @ u
+            w += mu * e * u
+            res[n] = (echo[n] - w @ u) ** 2
+        Pe = np.mean(echo ** 2)
+        sm = np.convolve(res, np.ones(300) / 300, mode="valid")
+        ax.plot(10 * np.log10(Pe / sm), color=c, lw=1.0, label=f"LMS, $\\mu={mu}$")
+    ax.set_xlabel("symbols"); ax.set_ylabel("echo suppression (dB)")
+    ax.legend(fontsize=6.5, frameon=False, loc="lower right")
+    ax.set_title("64-tap data echo canceller", fontsize=8)
+    fig.tight_layout(); save(fig, "ch12_echo_erle")
+
+
+def fig_nonlinear():
+    """Linear FFE vs a small Volterra equalizer on a PAM-4 channel with memory + compression."""
+    r = rng(17)
+    N = 40000
+    a = r.choice([-3.0, -1.0, 1.0, 3.0], N) / 3
+    h = np.array([0.2, 1.0, 0.45, 0.15])
+    lin = np.convolve(a, h)[:N]
+    y = np.tanh(1.3 * lin) / 1.3 + 0.025 * r.standard_normal(N)
+    D = 1
+    def feats(y, mem, order):
+        cols = []
+        Y = np.stack([np.roll(y, k) for k in range(-mem, mem + 1)], axis=1)
+        cols.append(Y)
+        if order >= 3:
+            cols.append(Y ** 3)
+            cols.append(np.stack([Y[:, i] * Y[:, j] ** 2 for i in range(Y.shape[1]) for j in range(Y.shape[1]) if i != j], axis=1))
+        return np.hstack(cols + [np.ones((len(y), 1))])
+    tr, te = slice(100, 20000), slice(20000, N - 100)
+    tgt = a
+    out = {}
+    for nm, order in [("linear FFE (9 taps)", 1), ("Volterra (9 linear + cubic terms)", 3)]:
+        F = feats(y, 4, order)
+        w = np.linalg.lstsq(F[tr], tgt[tr], rcond=None)[0]
+        out[nm] = (F[te] @ w, F.shape[1])
+    lev = np.array([-1, -1 / 3, 1 / 3, 1])
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.0), sharey=True)
+    for k, (nm, (z, nf)) in enumerate(out.items()):
+        dec = lev[np.argmin(np.abs(z[:, None] - lev[None, :]), axis=1)]
+        ser = np.mean(np.abs(dec - a[te]) > 1e-6)
+        ax[k].hist(z, bins=200, range=(-1.5, 1.5), color=NAVY if k else ACCENT, alpha=0.8)
+        for l_ in lev: ax[k].axvline(l_, color=GRAY, lw=0.6, ls=":")
+        ax[k].set_title(f"{nm}\n{nf} coefficients, SER = {ser:.1e}", fontsize=7.5)
+        ax[k].set_xlabel("equalizer output"); ax[k].set_yticks([])
+    fig.tight_layout(); save(fig, "ch12_nonlinear")
+
+
+def fig_polarization():
+    """2x2 butterfly CMA unscrambling two polarizations of DP-QPSK."""
+    r = rng(23)
+    c = cl.get_constellation("qpsk")
+    N = 20000
+    sx = c.modulate(cl.random_bits(2 * N, r)); sy = c.modulate(cl.random_bits(2 * N, r))
+    th, ph = 0.6, 1.1
+    J = np.array([[np.cos(th), -np.sin(th) * np.exp(-1j * ph)], [np.sin(th) * np.exp(1j * ph), np.cos(th)]])
+    # small differential delay (PMD-like) via 2-tap filters on one principal state
+    X = np.stack([sx, sy])
+    Y = J @ X
+    Y[1] = 0.85 * Y[1] + 0.15 * np.roll(Y[1], 1)
+    Y += np.sqrt(10 ** (-22 / 10) / 2) * (r.standard_normal(Y.shape) + 1j * r.standard_normal(Y.shape))
+    L = 5; dl = L // 2; mu = 1.5e-3
+    W = np.zeros((2, 2, L), dtype=complex); W[0, 0, dl] = 1; W[1, 1, dl] = 1
+    Z = np.zeros((2, N), dtype=complex)
+    Yp = np.concatenate([np.zeros((2, L - 1 - dl)), Y, np.zeros((2, dl))], axis=1)
+    for n in range(N):
+        U = Yp[:, n:n + L][:, ::-1]
+        for i in range(2):
+            z = np.sum(W[i].conj() * U)
+            Z[i, n] = z
+            e = z * (np.abs(z) ** 2 - 1)
+            W[i] -= mu * U * np.conj(e)
+    fig, ax = plt.subplots(1, 4, figsize=(W2, 1.75))
+    for a, v, t in [(ax[0], Y[0, -2000:], "received X"), (ax[1], Y[1, -2000:], "received Y"),
+                    (ax[2], Z[0, -2000:], "butterfly out X"), (ax[3], Z[1, -2000:], "butterfly out Y")]:
+        a.scatter(v.real, v.imag, s=0.7, color=NAVY, alpha=0.4, lw=0, rasterized=True)
+        a.set_xlim(-1.8, 1.8); a.set_ylim(-1.8, 1.8); a.set_aspect("equal"); a.set_title(t, fontsize=7.5)
+        a.tick_params(labelsize=6)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch12_polarization")
+
+
+def fig_fse_alias():
+    """Folded spectrum seen by a T-spaced equalizer at two sampling phases."""
+    beta = 0.35
+    f = np.linspace(-0.5, 0.5, 801)
+    def P(ff):
+        a = np.abs(ff); out = np.zeros_like(ff)
+        out[a <= (1 - beta) / 2] = 1
+        m = (a > (1 - beta) / 2) & (a <= (1 + beta) / 2)
+        out[m] = 0.5 * (1 + np.cos(np.pi / beta * (a[m] - (1 - beta) / 2)))
+        return out
+    paths = [(0, 1.0), (1.3, 0.55)]
+    def folded(tau):
+        S = np.zeros_like(f, dtype=complex)
+        for k in (-1, 0, 1):
+            fk = f - k
+            Hc = sum(g * np.exp(-2j * np.pi * fk * d) for d, g in paths)
+            S += P(fk) * Hc * np.exp(2j * np.pi * fk * tau)
+        return np.abs(S) ** 2
+    taus = np.linspace(0, 1, 51)
+    worst = taus[np.argmin([folded(t).min() for t in taus])]
+    best = taus[np.argmax([folded(t).min() for t in taus])]
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    ax.plot(f, db(folded(best)), color=NAVY, label=f"lucky phase $\\tau={best:.2f}T$")
+    ax.plot(f, db(folded(worst)), color=ACCENT, label=f"unlucky phase $\\tau={worst:.2f}T$")
+    ax.set_xlabel("$f\\,T$"); ax.set_ylabel("folded spectrum (dB)"); ax.set_ylim(-35, 8)
+    ax.legend(fontsize=6.5, frameon=False, loc="lower center")
+    fig.tight_layout(); save(fig, "ch12_fse_alias")
+
+
+def fig_timeline():
+    ev = [(1960, "Widrow & Hoff:\nLMS, ADALINE"), (1965, "Lucky: automatic\nequalizer"), (1971, "Tomlinson\nprecoding"),
+          (1972, "Forney: WMF\n+ Viterbi MLSE"), (1975, "Sato: blind\nequalization"), (1980, "Godard:\nCMA"),
+          (1984, "V.32: echo-\ncancelling modem"), (1990, "PRML disk\nread channel"), (1994, "V.34:\n33.6 kbit/s"),
+          (1995, "turbo\nequalization"), (2006, "10GBASE-T\n(THP)"), (2008, "LTE uplink\nSC-FDMA"),
+          (2010, "coherent 100G:\nCMA butterfly"), (2020, "400ZR\npluggables"), (2024, "224G SerDes:\nFFE+DFE/MLSE")]
+    fig, ax = plt.subplots(figsize=(W2, 2.1))
+    ax.axhline(0, color=NAVY, lw=1.5)
+    for i, (yr, t) in enumerate(ev):
+        up = 1 if i % 2 == 0 else -1
+        hgt = up * (0.55 + 0.45 * ((i // 2) % 2))
+        ax.plot([yr, yr], [0, hgt * 0.8], color=GRAY, lw=0.6)
+        ax.plot(yr, 0, "o", color=ACCENT if yr < 2000 else NAVY, ms=4)
+        ax.text(yr, hgt, f"{yr}\n{t}", ha="center", va="bottom" if up > 0 else "top", fontsize=5.6)
+    ax.set_xlim(1955, 2029); ax.set_ylim(-1.9, 1.9); ax.axis("off")
+    fig.tight_layout(); save(fig, "ch12_timeline")
+
+
+def fig_bowl():
+    """The MSE of a two-tap equalizer as a quadratic bowl."""
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    R = np.array([[1.0, 0.6], [0.6, 1.0]]); wo = np.array([0.8, -0.4]); jmin = 0.08
+    g0 = np.linspace(-0.8, 2.4, 60); g1 = np.linspace(-2.0, 1.2, 60)
+    A, B = np.meshgrid(g0, g1)
+    dW = np.stack([A - wo[0], B - wo[1]])
+    J = jmin + np.einsum("iab,ij,jab->ab", dW, R, dW)
+    fig = plt.figure(figsize=(3.4, 2.7))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot_surface(A, B, J, cmap="Blues_r", alpha=0.85, lw=0, rstride=2, cstride=2)
+    ax.contour(A, B, J, levels=10, zdir="z", offset=0, colors=GRAY, linewidths=0.5)
+    ax.scatter([wo[0]], [wo[1]], [jmin], color=ACCENT, s=25, depthshade=False)
+    ax.scatter([wo[0]], [wo[1]], [0], color=ACCENT, s=15, marker="*")
+    ax.set_xlabel("$w_0$", labelpad=-4); ax.set_ylabel("$w_1$", labelpad=-4); ax.set_zlabel("MSE $J$", labelpad=-4)
+    ax.tick_params(labelsize=6, pad=-2); ax.view_init(elev=28, azim=-55)
+    ax.set_zlim(0, J.max())
+    fig.subplots_adjust(left=0, right=0.95, bottom=0.02, top=1.0)
+    save(fig, "ch12_bowl")
+
+
+def fig_rls_newton():
+    """Steepest descent zig-zags in a ravine; a Newton (RLS-like) step goes straight to the bottom."""
+    rho = 0.9
+    R = np.array([[1, rho], [rho, 1]]); wo = np.array([0.8, -0.5])
+    g = np.linspace(-1.7, 2.3, 200)
+    W0, W1_ = np.meshgrid(g, g - 0.5)
+    dW = np.stack([W0 - wo[0], W1_ - wo[1]])
+    J = 0.01 + np.einsum("iab,ij,jab->ab", dW, R, dW)
+    fig, ax = plt.subplots(figsize=(3.3, 2.7))
+    ax.contour(W0, W1_, J, levels=np.geomspace(0.02, 6, 12), colors=GRAY, linewidths=0.6)
+    w = np.array([-1.3, 1.1]); path = [w.copy()]
+    for _ in range(25):
+        w = w + 0.95 * (R @ wo - R @ w); path.append(w.copy())
+    path = np.array(path)
+    ax.plot(path[:, 0], path[:, 1], "o-", color=ACCENT, ms=2.2, lw=0.9, label="steepest descent (LMS on average)")
+    w0 = np.array([-1.3, 1.1]); w1 = w0 + np.linalg.solve(R, R @ wo - R @ w0)
+    ax.annotate("", xy=w1, xytext=w0, arrowprops=dict(arrowstyle="->", color=NAVY, lw=1.6))
+    ax.plot([], [], color=NAVY, lw=1.6, label="Newton step (what RLS approximates)")
+    ax.plot(*wo, "*", color="k", ms=9)
+    ax.set_aspect("equal"); ax.set_xlim(-1.7, 2.3); ax.set_ylim(-2.2, 1.8)
+    ax.set_xlabel("$w_0$"); ax.set_ylabel("$w_1$")
+    ax.legend(fontsize=6, loc="lower left", frameon=True)
+    ax.set_title(f"eigenvalue spread {(1 + rho) / (1 - rho):.0f}", fontsize=8)
+    fig.tight_layout(); save(fig, "ch12_rls_newton")
+
+
+def fig_gaussianity():
+    """ISI makes the received signal look Gaussian; equalization restores the constellation's shape."""
+    r = rng(51)
+    N = 60000
+    a = r.choice([-1.0, 1.0], N)
+    h = np.array([0.5, 0.7, 0.45, -0.3, 0.25, 0.15]); h /= np.linalg.norm(h)
+    y = np.convolve(a, h)[:N] + 0.08 * r.standard_normal(N)
+    w, d = cl.mmse_fir(h, 31, 0.0064)
+    z = cl.apply_fir(y, w, d).real[100:-100]
+    y = y[100:-100]
+    kurt = lambda x: np.mean((x - x.mean()) ** 4) / np.var(x) ** 2 - 3
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 1.9), sharey=False)
+    xg = np.linspace(-2.5, 2.5, 300)
+    ax[0].hist(y / y.std(), bins=120, range=(-2.5, 2.5), density=True, color=ACCENT, alpha=0.75)
+    ax[0].plot(xg, np.exp(-xg ** 2 / 2) / np.sqrt(2 * np.pi), color="k", lw=0.9, ls="--", label="Gaussian")
+    ax[0].set_title(f"before the equalizer: excess kurtosis {kurt(y):+.2f}", fontsize=8)
+    ax[1].hist(z / z.std(), bins=120, range=(-2.5, 2.5), density=True, color=NAVY, alpha=0.8)
+    ax[1].set_title(f"after equalization: excess kurtosis {kurt(z):+.2f}", fontsize=8)
+    ax[0].legend(fontsize=6.5, frameon=False)
+    for a_ in ax:
+        a_.set_yticks([]); a_.set_xlabel("normalised sample value")
+    fig.tight_layout(); save(fig, "ch12_gaussianity")
+
+
+def fig_papr():
+    """CCDF of instantaneous power: OFDM against single-carrier (SC-FDE) QPSK."""
+    r = rng(61)
+    N, blocks, os_ = 256, 400, 4
+    c = cl.get_constellation("qpsk")
+    def ccdf(x):
+        p = np.abs(x) ** 2; p /= p.mean()
+        th = np.linspace(0, 12, 121)
+        return th, np.array([np.mean(10 * np.log10(p + 1e-12) > t) for t in th])
+    ofdm, sc = [], []
+    for _ in range(blocks):
+        s = c.modulate(cl.random_bits(2 * N, r))
+        X = np.zeros(N * os_, dtype=complex); X[:N // 2] = s[:N // 2]; X[-N // 2:] = s[N // 2:]
+        ofdm.append(np.fft.ifft(X) * np.sqrt(N * os_))
+        # single carrier: RRC-shaped QPSK (beta 0.25)
+        up = np.zeros(N * os_, dtype=complex); up[::os_] = s
+        t = np.arange(-8 * os_, 8 * os_ + 1) / os_
+        p = rc_pulse(t, 0.25)
+        sc.append(np.convolve(up, p, mode="same"))
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    for x, lab, col in [(np.concatenate(ofdm), "OFDM, 256 subcarriers", ACCENT),
+                        (np.concatenate(sc), "single carrier (SC-FDE), RC $\\beta$=0.25", NAVY)]:
+        th, cc = ccdf(x)
+        ok = cc > 0
+        ax.semilogy(th[ok], cc[ok], color=col, label=lab)
+    ax.set_xlabel("instantaneous power above average (dB)"); ax.set_ylabel("probability exceeded")
+    ax.set_ylim(1e-4, 1.2); ax.set_xlim(0, 12); ax.legend(fontsize=6.3, frameon=False, loc="lower left")
+    fig.tight_layout(); save(fig, "ch12_papr")
+
+
+def fig_ffe_taps():
+    """Cursors of the SerDes pulse response before and after the 12-tap FFE."""
+    hs, wffe, b1 = fig_serdes_cursors()
+    pre = 3
+    comb = np.convolve(hs, wffe)
+    k1 = np.arange(len(hs)) - pre
+    i0 = np.argmax(np.abs(comb)); k2 = np.arange(len(comb)) - i0
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.0), sharey=True)
+    ax[0].bar(k1, hs / hs[pre], 0.5, color=[ORANGE if k < 0 else (NAVY if k == 0 else GREEN) for k in k1])
+    ax[0].set_title("after channel + CTLE", fontsize=8)
+    cm = comb / comb[i0]
+    sel = (k2 >= -4) & (k2 <= 10)
+    ax[1].bar(k2[sel], cm[sel], 0.5, color=[ORANGE if k < 0 else (NAVY if k == 0 else (ACCENT if k == 1 else GREEN)) for k in k2[sel]])
+    ax[1].annotate(f"left for the DFE: {cm[i0 + 1]:.2f}", (1, cm[i0 + 1]), xytext=(3, 0.6), fontsize=6.5, color=ACCENT,
+                   arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.7))
+    ax[1].set_title("after the 12-tap FFE", fontsize=8)
+    for a_ in ax:
+        a_.axhline(0, color="k", lw=0.5); a_.set_xlabel("UI relative to main cursor"); a_.set_xlim(-4.5, 10.5)
+    ax[0].set_ylabel("cursor (relative)")
+    fig.tight_layout(); save(fig, "ch12_ffe_taps")
+
+
+def fig_serdes_cursors():
+    """Recompute the symbol-spaced cursors and FFE of fig_serdes without drawing."""
+    Rs = 106.25e9; sps_ = 32; fs = Rs * sps_; Nf = 2 ** 16
+    f = np.fft.rfftfreq(Nf, 1 / fs); jf = 1j * f / 1e9
+    Hch = np.exp(-0.62 * np.sqrt(jf) - 0.28 * jf ** 0.95)
+    fz, fp1, fp2 = 13e9, 55e9, 110e9; s = 2j * np.pi * f
+    Hctle = 10 ** (-3 / 20) * (1 + s / (2 * np.pi * fz)) / ((1 + s / (2 * np.pi * fp1)) * (1 + s / (2 * np.pi * fp2)))
+    rect = np.zeros(Nf); rect[:sps_] = 1
+    p_ctle = np.fft.irfft(np.fft.rfft(rect) * Hch * Hctle, Nf)
+    ipk = np.argmax(p_ctle); pre, post = 3, 10
+    hs = p_ctle[ipk - pre * sps_: ipk + (post + 1) * sps_: sps_]
+    Lffe, dffe = 12, 3
+    Hm = cl.conv_matrix(hs, Lffe).real
+    tgt_idx = pre + dffe
+    rows = [i for i in range(Hm.shape[0]) if i != tgt_idx + 1]
+    tgt = np.zeros(Hm.shape[0]); tgt[tgt_idx] = 1
+    wffe = np.linalg.lstsq(Hm[rows], tgt[rows], rcond=None)[0]
+    comb = Hm @ wffe
+    return hs, wffe, comb[tgt_idx + 1]
+
+
+def fig_family_map():
+    """Schematic map: relative complexity vs. typical loss from the matched-filter bound."""
+    items = [("linear ZF", 1, 9.8, ACCENT), ("linear MMSE", 1.05, 7.8, ORANGE), ("DFE", 1.4, 2.5, GREEN),
+             ("THP", 1.5, 2.3, "#2E86C1"), ("SC-FDE / OFDM\n(long channels)", 0.6, 6.0, GRAY),
+             ("reduced-state\nMLSE", 6, 1.5, PURPLE), ("full MLSE", 40, 0.6, NAVY), ("turbo\nequalization", 300, 0.2, "k")]
+    fig, ax = plt.subplots(figsize=(3.4, 2.6))
+    for nm, cx, loss, col in items:
+        ax.plot(cx, loss, "o", color=col, ms=6)
+        if nm == "THP":
+            ax.text(cx * 1.2, loss - 0.35, nm, fontsize=6.3, color=col, va="top")
+        else:
+            ax.text(cx * 1.15, loss + 0.25, nm, fontsize=6.3, color=col, va="bottom")
+    ax.set_xscale("log"); ax.set_xlim(0.4, 3000); ax.set_ylim(-0.3, 11.5)
+    ax.set_xlabel("relative complexity per symbol (log scale)"); ax.set_ylabel("loss from MF bound (dB)")
+    ax.annotate("", xy=(2000, 0.2), xytext=(0.6, 10.5), arrowprops=dict(arrowstyle="->", color=GRAY, lw=0.6, ls="--"))
+    ax.text(30, 8.6, "schematic, for a channel\nwith a deep notch", fontsize=6.3, color=GRAY)
+    fig.tight_layout(); save(fig, "ch12_family_map")
+
+
+def fig_zf_taps():
+    """Impulse response of the ZF inverse of 1 + a z^-1 and its noise gain."""
+    k = np.arange(0, 50)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.0))
+    for a, c in [(0.5, GREEN), (0.9, ACCENT)]:
+        g = (-a) ** k * np.sqrt(1 + a * a)
+        ml, sl, bl = ax[0].stem(k + (0.25 if a == 0.9 else 0), g, basefmt=" ", linefmt=c, markerfmt="o", label=f"$a={a}$")
+        plt.setp(ml, markersize=2.2, color=c); plt.setp(sl, linewidth=0.7)
+        ax[1].plot(k, 10 * np.log10(np.cumsum(g ** 2)), color=c, label=f"$a={a}$")
+        ax[1].axhline(10 * np.log10((1 + a * a) / (1 - a * a)), color=c, ls=":", lw=0.8)
+    ax[0].set_xlabel("tap $k$"); ax[0].set_ylabel("ZF tap $w_k$"); ax[0].set_xlim(-1, 45)
+    ax[0].set_title("ZF inverse of $h\\propto[1,\\,a]$", fontsize=8); ax[0].legend(fontsize=6.5)
+    ax[1].set_xlabel("number of taps kept"); ax[1].set_ylabel("noise gain (dB)")
+    ax[1].set_title("noise gain $\\sum w_k^2$ (dotted: infinite length)", fontsize=8); ax[1].legend(fontsize=6.5)
+    fig.tight_layout(); save(fig, "ch12_zf_taps")
+
+
+def fig_genie():
+    """Matched-filter bound: samples with ISI vs. the genie case with neighbours removed (Proakis B)."""
+    r = rng(71)
+    h = PROAKIS["B"] / np.linalg.norm(PROAKIS["B"])
+    N = 40000; n0 = 10 ** (-12 / 10)
+    a = r.choice([-1.0, 1.0], N)
+    y = np.convolve(a, h)[:N] + np.sqrt(n0 / 2) * r.standard_normal(N)
+    yi = y[1:]                                    # sample at the main tap
+    # genie: whole pulse energy collected by the matched filter, no neighbours
+    g = a * 1.0 + np.sqrt(n0 / 2) * r.standard_normal(N)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 1.8), sharey=True)
+    ax[0].hist(yi / h[1], bins=150, range=(-3, 3), color=ACCENT, alpha=0.8)
+    ax[0].set_title("real receiver: each sample carries its neighbours' echoes", fontsize=7.8)
+    ax[1].hist(g, bins=150, range=(-3, 3), color=GREEN, alpha=0.8)
+    ax[1].set_title("genie: neighbours removed, all pulse energy collected", fontsize=7.8)
+    for a_ in ax:
+        a_.set_yticks([]); a_.set_xlabel("sample value"); a_.axvline(0, color="k", lw=0.6, ls=":")
+    fig.tight_layout(); save(fig, "ch12_genie")
+
+
+def fig_bcjr_llr():
+    """Soft output of a BCJR equalizer: LLR histograms for correct and wrong hard decisions."""
+    r = rng(81)
+    h = PROAKIS["B"] / np.linalg.norm(PROAKIS["B"])
+    N = 20000; ebn0 = 6.0; s2 = 10 ** (-ebn0 / 10) / 2
+    a = r.choice([-1.0, 1.0], N)
+    y = np.convolve(a, h)[:N] + np.sqrt(s2) * r.standard_normal(N)
+    L = eqadv.bcjr_isi_bpsk(y.reshape(20, -1), h, s2).ravel()
+    Lsig = L * a                                            # positive = correct sign
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    bins = np.linspace(-15, 40, 151)
+    ax.hist(Lsig[Lsig > 0], bins=bins, color=GREEN, alpha=0.8, label="decision correct")
+    ax.hist(Lsig[Lsig <= 0], bins=bins, color=ACCENT, alpha=0.9, label="decision wrong")
+    ax.set_yscale("log"); ax.set_xlabel("LLR $\\times$ true sign"); ax.set_ylabel("count")
+    ax.legend(fontsize=6.5, frameon=False)
+    ax.set_title(f"BCJR on Proakis B, $E_b/N_0$ = {ebn0:.0f} dB", fontsize=8)
+    fig.tight_layout(); save(fig, "ch12_bcjr_llr")
+
+
+def fig_tracking():
+    """LMS vs RLS tracking a slowly rotating channel tap."""
+    r = rng(91)
+    N = 4000; L = 7; d = 3
+    t = np.arange(N + L)
+    a = (r.choice([-1.0, 1.0], N + L) + 1j * r.choice([-1.0, 1.0], N + L)) / np.sqrt(2)
+    h1 = 0.6 * np.exp(1j * 2 * np.pi * t / 1500)            # echo whose phase rotates
+    y = a.copy(); y[1:] += h1[1:] * a[:-1]
+    y += np.sqrt(0.003) * (r.standard_normal(N + L) + 1j * r.standard_normal(N + L))
+    def run(algo, par):
+        w = np.zeros(L, complex); P = np.eye(L) * 100; e2 = np.empty(N)
+        for n in range(N):
+            u = y[n:n + L][::-1]; dn = a[n + L - 1 - d]
+            e = dn - np.vdot(w, u)
+            if algo == "lms":
+                w += par * u * np.conj(e)
+            else:
+                Pu = P @ u; k = Pu / (par + np.vdot(u, Pu).real)
+                w += k * np.conj(e); P = (P - np.outer(k, u.conj() @ P)) / par
+            e2[n] = abs(e) ** 2
+        return np.convolve(e2, np.ones(50) / 50, mode="valid")
+    fig, ax = plt.subplots(figsize=(3.3, 2.5))
+    ax.semilogy(run("lms", 0.02), color=NAVY, lw=0.9, label="LMS, $\\mu=0.02$")
+    ax.semilogy(run("rls", 0.98), color=ACCENT, lw=0.9, label="RLS, $\\lambda=0.98$")
+    ax.semilogy(run("rls", 0.999), color=GREEN, lw=0.9, label="RLS, $\\lambda=0.999$ (long memory)")
+    ax.set_xlabel("symbols"); ax.set_ylabel("MSE (50-symbol average)"); ax.set_ylim(2e-3, 2)
+    ax.legend(fontsize=6.3, frameon=False, loc="upper right")
+    ax.set_title("tracking an echo whose phase rotates", fontsize=8)
+    fig.tight_layout(); save(fig, "ch12_tracking")
+
+
+NEW = {"cathedral": fig_cathedral_isi, "peyes": fig_proakis_eyes, "geq": fig_graphic_eq_bars,
+       "noise": fig_noise_enhance, "tradeoff": fig_mmse_tradeoff, "bias": fig_bias, "lmsmu": fig_lms_mu,
+       "lmstaps": fig_lms_taps, "cmasnap": fig_cma_snapshots, "cursors": fig_dfe_cursors, "bursts": fig_bursts,
+       "means": fig_three_means, "states": fig_states, "gsm": fig_gsm_burst, "fdecost": fig_fde_cost,
+       "cp": fig_cyclic_prefix, "echo": fig_echo_erle, "nonlin": fig_nonlinear, "pol": fig_polarization,
+       "fsealias": fig_fse_alias, "timeline": fig_timeline}
+
 ALL = {"proakis": fig_proakis_channels, "minmax": fig_min_max_phase, "zfmmse": fig_zf_mmse_freq,
        "snrloss": fig_snr_loss, "delay": fig_delay_length, "fse": fig_fse, "surface": fig_error_surface,
        "lmsrls": fig_lms_rls, "cma": fig_cma, "dfe": fig_dfe_ber, "thp": fig_thp, "trellis": fig_trellis,
        "turbo": fig_turbo_eq, "serdes": fig_serdes, "cd": fig_cd}
+ALL.update(NEW)
+
+ALL.update({"bowl": fig_bowl, "newton": fig_rls_newton, "gauss": fig_gaussianity, "papr": fig_papr,
+            "ffetaps": fig_ffe_taps, "familymap": fig_family_map, "zftaps": fig_zf_taps, "genie": fig_genie, "llr": fig_bcjr_llr, "tracking": fig_tracking})
 
 if __name__ == "__main__":
     which = [a for a in sys.argv[1:] if not a.startswith("--")] or list(ALL)

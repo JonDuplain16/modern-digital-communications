@@ -2,70 +2,116 @@
 \label{ch:equalization}
 
 \begin{chapterintro}
-Every channel that is not a perfect wire smears the symbols we send into one another. When the
-smear is short compared with a symbol, careful pulse shaping and a matched filter
-(Chapter~\ref{ch:baseband}) are enough. When it is not---a telephone line carrying 33.6\,kbit/s,
-a GSM burst bouncing off the buildings of a city, a copper backplane carrying 200\,Gb/s, eighty
-kilometres of optical fibre---the receiver must actively undo the channel. That job is
-\emph{equalization}, and it is one of the richest stories in communications engineering. It gave
-us the first adaptive filters, the LMS algorithm that now runs in billions of devices, the Viterbi
-detector applied to channels rather than codes, and the blind algorithms that lock on to a signal
-knowing nothing but its constellation. This chapter develops the whole family: the discrete-time
-channel model, zero-forcing and minimum-mean-square-error equalizers, adaptive algorithms (LMS,
-NLMS, RLS) and blind ones (CMA), decision feedback and its transmitter-side twin Tomlinson--Harashima
-precoding, maximum-likelihood sequence estimation, frequency-domain and turbo equalization, and
-the modern incarnations in 224\,Gb/s SerDes and coherent optical receivers. Along the way you will
-see why the wideband wireless world eventually abandoned the time-domain equalizer for OFDM---and
-why the wired world did not.
+Stand at the back of a great cathedral and try to talk to someone at the altar. Every word leaves
+your mouth crisp but arrives smeared: the stone walls send it back again and again, and the echo of
+``good'' is still ringing when ``morning'' arrives. Every channel that is not a perfect wire does
+the same to the symbols we send---a telephone line at 33.6\,kbit/s, a GSM burst bouncing around a
+city, a copper backplane at 200\,Gb/s, eighty kilometres of fibre. Undoing that smear is
+\emph{equalization}, one of the richest stories in our field: it gave us the first adaptive
+filters, the LMS algorithm that now runs in billions of devices, and blind algorithms that lock on
+to a signal knowing nothing but the shape of its constellation.
+
+This chapter develops the whole family---zero-forcing and MMSE equalizers, LMS, RLS and CMA,
+decision feedback and Tomlinson--Harashima precoding, sequence detection, frequency-domain and
+turbo equalization---and follows it into 224\,Gb/s SerDes and coherent optical modules. Along the way
+you will see why wideband wireless abandoned the time-domain equalizer for OFDM, and why the wired
+world never did.
 \end{chapterintro}
 
+\mdcphoto[0.5]{ch12_cathedral}{The nave of St Mary's Cathedral, Edinburgh. Hard stone surfaces and a
+huge enclosed volume give a room like this a reverberation time of several seconds: a spoken
+syllable is still audible while the next several arrive. A dispersive channel does the same to a
+stream of data symbols.}
+
+%======================================================================
 \section{The problem: when symbols collide}
 \label{sec:ch12:intro}
+%======================================================================
+
+\subsection{Talking in a cathedral}
 
 Chapter~\ref{ch:baseband} ended with a clean picture: choose a pulse that satisfies the Nyquist
-criterion, match-filter it, sample once per symbol at the eye's widest opening, and the samples
-contain exactly one symbol each plus white Gaussian noise. That picture assumes the channel
-between transmitter and receiver is flat over the signal bandwidth. Chapter~\ref{ch:channels}
-showed how rarely that is true. A multipath radio channel with an RMS delay spread of a few
-microseconds, a twisted pair whose loss rises by tens of decibels across the band, and a fibre
-whose group delay depends on wavelength all do the same thing: they convolve the transmitted pulse
-with an impulse response that is \emph{not} a delta, so the pulse arriving at the receiver no
-longer has zero crossings at the other symbol instants. The result is \term{intersymbol
-interference} (ISI), and if we do nothing about it, it sets an error floor that no amount of
-transmit power can remove---the interference scales with the signal.
+criterion, match-filter it, sample once per symbol at the eye's widest opening, and each sample
+contains exactly one symbol plus white Gaussian noise. That picture has a hidden assumption:
+the channel between transmitter and receiver is \emph{flat} over the signal's bandwidth.
+Chapter~\ref{ch:channels} showed how rarely that is true.
 
-How much ISI matters depends on the ratio of the channel's memory to the symbol period. Three
-examples set the scale:
+A multipath radio channel with a delay spread of a few microseconds, a twisted pair whose loss
+climbs by tens of decibels across the band, and a fibre whose group delay depends on wavelength
+all do the same thing. They convolve the transmitted pulse with an impulse response that is
+\emph{not} a single spike, so the pulse that reaches the receiver no longer passes through zero at
+the other symbol instants. Figure~\ref{fig:ch12_cathedral_isi} shows the result. In a ``dry''
+channel each pulse has died away before the next sample is taken. In a ``reverberant'' one, every
+sample is a mixture of the symbol we want and the ringing tails of the symbols before it, and
+some samples land on the wrong side of zero.
 
+\mdcfig{ch12_cathedral_isi}{Ten binary symbols (green squares) sent through two channels. Thin
+coloured lines are the individual pulses; the black line is what arrives. Top: in a dry channel the
+sample at each symbol instant (red dot) equals the symbol sent. Bottom: a channel with a decaying
+echo tail adds the ringing of earlier symbols to every sample; one sample is pushed across the
+decision threshold, and several others come dangerously close.}
+
+That mixing is \term{intersymbol interference} (ISI). It is a peculiarly nasty impairment, because
+it is made of the signal itself. Turn up the transmit power and the interference grows in step:
+ISI sets an \emph{error floor} that no amount of power can remove. Something in the receiver has
+to understand the smearing and undo it.
+
+\begin{analogy}[Talking in a cathedral]
+In a cathedral every word you speak is followed by a train of echoes from the walls and vault,
+decaying over a second or more, so each new word arrives on top of the fading remains of the
+last few. Listeners cope in two ways: speakers slow down (the communications equivalent is
+lowering the symbol rate until the echo dies between symbols), or the listener's brain learns the
+room and mentally ``subtracts'' the echo. An equalizer is that second strategy, done with
+arithmetic. Where the analogy stops: a cathedral's echoes are acoustic and arrive from many
+directions, while our channels are usually a single linear filter---which is exactly what makes
+them possible to invert.
+\end{analogy}
+
+\subsection{How long is the smear?}
+
+How much ISI matters depends on one ratio: the channel's memory divided by the symbol period.
+Three examples set the scale.
 \begin{itemize}
 \item A GSM burst at 270.833\,kbaud has a symbol period of 3.69\,\textmu s. A typical urban
 channel with a delay spread of several microseconds spans two to five symbols.
-\item A 20\,MHz LTE or Wi-Fi signal sampled at about 30\,MS/s in an urban macrocell with a 5\,\textmu s
-excess delay spans about 150 samples---far too many for a conventional equalizer, which is why
-those systems use OFDM (Chapter~\ref{ch:ofdm}).
+\item A 20\,MHz LTE or Wi-Fi signal sampled at about 30\,MS/s in an urban macrocell with a
+5\,\textmu s excess delay spans about 150 samples---far too many for a conventional equalizer, which
+is why those systems use OFDM (Chapter~\ref{ch:ofdm}).
 \item A 212.5\,Gb/s PAM-4 electrical lane runs at 106.25\,GBd, a unit interval of 9.4\,ps. The
 reflections and dispersion of a few tens of centimetres of printed-circuit trace extend over tens
 of unit intervals.
 \end{itemize}
-
-The \term{equalizer} is the receiver (or transmitter) processing that removes or accounts for ISI.
-Equalizers are among the oldest adaptive signal-processing systems ever built, and the problem
-they solve---estimating an input from the output of an unknown linear system in noise---is so
-general that the same algorithms reappear as echo cancellers, beamformers, noise cancellers and
-the polarization demultiplexers of coherent optical links. Learn equalization properly and you
-have learned the core of adaptive signal processing.
-
-Figure~\ref{fig:ch12_proakis_channels} shows three discrete-time channels that have been used in
-textbooks for decades to benchmark equalizers, after Proakis. Channel A resembles a
-voice-band telephone channel: long but mild, with no deep spectral nulls. Channel B is
-short but has a spectral null at the band edge. Channel C has two deep nulls inside the band and
-is genuinely hard. We shall use all three.
-
 \mdcfig{ch12_proakis_channels}{Three benchmark ISI channels (after Proakis), normalised to unit
 energy. Top: tap weights. Bottom: power response over the symbol-rate bandwidth. Channel A is long
 but spectrally benign; channel B has a null at $fT=\pm0.5$; channel C has two deep in-band nulls.}
 
-\begin{history}[title=Robert Lucky and the automatic equalizer (1965)]
+The numbers differ by eight orders of magnitude in time, but the problem, measured in
+symbols, is the same: a few to a few hundred symbols of memory.
+
+The \term{equalizer} is the receiver (or transmitter) processing that removes or accounts for ISI.
+Equalizers were among the first adaptive signal-processing systems ever built, and the problem
+they solve---estimating the input of an unknown linear system from its noisy output---is so
+general that the same algorithms reappear as echo cancellers, beamformers, noise cancellers and the
+polarization demultiplexers of coherent optical links. Learn equalization properly and you have
+learned the core of adaptive signal processing.
+
+\subsection{Three benchmark channels}
+
+To compare equalizers fairly we need test channels. Figure~\ref{fig:ch12_proakis_channels} shows
+three discrete-time channels that have been used in textbooks for decades, after Proakis.
+Channel~A resembles a voice-band telephone channel: long but mild, with no deep spectral nulls.
+Channel~B is short but has a spectral null at the band edge. Channel~C has two deep nulls inside
+the band and is genuinely hard. Their unequalized eye diagrams
+(Figure~\ref{fig:ch12_proakis_eyes}) tell the story at a glance: A's eye is badly blurred, B's
+collapses into three levels with no clean gap between $+1$ and $-1$ symbols at the centre, and C's
+is a hopeless tangle. We shall use all three throughout the chapter.
+
+\mdcfig{ch12_proakis_eyes}{Unequalized eye diagrams of binary symbols with raised-cosine pulses
+($\beta=0.35$) through the three Proakis channels, normalised to the strongest tap and sampled at
+its delay (dotted line). None of the three eyes is safely open: A is blurred by many small echoes,
+B's two equal side taps create a three-level pattern, and C is closed.}
+
+\begin{history}[Robert Lucky and the automatic equalizer (1965)]
 In the early 1960s, Bell System data sets ran at 1200 to 2400\,bit/s over switched telephone lines,
 and every connection had a different, unknown amplitude and delay distortion. Equalizers
 existed---banks of adjustable delay-line sections tuned by a technician, or fixed ``compromise''
@@ -74,7 +120,7 @@ that limited speed. In 1965 Robert W.~Lucky of Bell Laboratories published ``Aut
 equalization for digital communication'' in the \emph{Bell System Technical Journal}. His
 equalizer was a tapped delay line whose taps were adjusted automatically, using test pulses, to
 minimise the \emph{peak distortion}---the sum of the magnitudes of the residual ISI samples. He
-proved that when the eye is initially open, this criterion is convex and a simple iterative
+proved that when the eye is initially open this criterion is convex, and a simple iterative
 adjustment converges to the zero-forcing solution. A year later he extended it to
 \emph{adaptive} (decision-directed) operation during data transmission. Lucky's equalizer was the
 enabling invention behind the 9600\,bit/s modems of the late 1960s and 1970s, and his 1968 book
@@ -83,11 +129,39 @@ designers. He later wrote a much-loved column for \emph{IEEE Spectrum} and a pop
 \emph{Silicon Dreams}.
 \end{history}
 
+\mdcsidephoto[0.3]{ch12_robert_lucky}{Robert W.~Lucky, inventor of the adaptive equalizer, in later
+life.}
+
+Lucky's achievement is easy to underestimate today. Before him, a modem's equalizer was a box
+of knobs, set by a technician with an oscilloscope for one particular leased line and left
+alone. A switched telephone call, routed through a different path every time you dialled, could
+not be equalized that way: by the time a technician had tuned it, you had hung up. Lucky's
+insight was that the receiver itself could measure the residual interference and nudge its own
+taps, in seconds, with no human in the loop. Every adaptive equalizer since---in your phone, your
+Wi-Fi router, the switch in a data centre---descends from that idea. The timeline of
+Figure~\ref{fig:ch12_timeline} shows how the family grew from there: a burst of theory in the
+decade after Lucky (Forney, Tomlinson, Sato, Godard), the modem golden age of the 1980s and early
+1990s, and then a second life in disk drives, cellular radio, Ethernet and optical
+fibre. Each milestone on it has a section in this chapter. Keep it in mind as a map; we will walk
+it roughly in order, starting with the model that underlies them all.
+
+%======================================================================
 \section{The discrete-time channel model}
 \label{sec:ch12:model}
+%======================================================================
 
-Every equalizer in this chapter operates on a discrete-time model of the channel, so we derive it
-carefully once. Consider a linearly modulated signal (PAM, PSK or QAM) in complex baseband,
+Before we can undo a channel we need a clean way to describe it. The good news, and the big idea
+of this section, is that \emph{every} linear channel with additive Gaussian noise, however messy
+in continuous time, can be boiled down to a short list of numbers---a discrete-time FIR filter
+followed by white noise. Every equalizer in this chapter works on that list.
+
+\mdcfig{ch12_timeline}{Milestones of equalization, from the LMS algorithm and Lucky's automatic
+equalizer to 224\,Gb/s SerDes. Red: the modem and theory era; blue: the modern era of cellular,
+Ethernet and coherent optics. Product dates are approximate.}
+
+\subsection{From waveforms to samples}
+
+Consider a linearly modulated signal (PAM, PSK or QAM) in complex baseband,
 \begin{equation}
 s(t)=\sum_k a_k\,g_T(t-kT),
 \end{equation}
@@ -98,13 +172,13 @@ $N_0$. The received signal is
 r(t)=\sum_k a_k\,p(t-kT)+w(t),\qquad p(t)=g_T(t)*c(t),
 \label{eq:ch12:rx}
 \end{equation}
-where $p(t)$ is the \term{composite pulse} or \emph{pulse response}. The receiver does not know
-$c(t)$ in advance, which is the entire difficulty.
-
-\subsection{The sampled matched filter and Ungerboeck's model}
+where $p(t)$ is the \term{composite pulse} or \emph{pulse response}. Read it in words: what arrives
+is a parade of copies of one smeared pulse, one per symbol, each scaled by its symbol, plus
+noise. The receiver does not know $p(t)$ in advance, which is the entire difficulty.
 
 For a known $p(t)$ in white noise, the matched filter $p^*(-t)$ followed by symbol-rate sampling
-is a \emph{sufficient statistic}: no information about the symbols is lost. Its output is
+is a \emph{sufficient statistic}: it throws away nothing that matters for deciding the symbols.
+Its output is
 \begin{equation}
 x_n=\sum_k a_k\,\rho_{n-k}+\nu_n,\qquad \rho_m=\int p(t)\,p^*(t-mT)\,dt ,
 \label{eq:ch12:ungerboeck}
@@ -118,31 +192,11 @@ S(z)=\sum_m \rho_m z^{-m},\qquad
 S(e^{j2\pi fT})=\frac1T\sum_k\left|P\!\left(f-\tfrac kT\right)\right|^2\ \ge 0,
 \label{eq:ch12:folded}
 \end{equation}
-the power spectrum of the pulse aliased to the symbol rate. The folded spectrum will turn up in
-every performance formula in this chapter. If the channel is ideal and $p(t)$ is a root-Nyquist
-pulse, $S(e^{j\omega})$ is flat and there is no ISI; any departure from flatness is ISI.
-
-\subsection{The whitened matched filter and Forney's model}
-
-Coloured noise is awkward for sequence detection and for adaptive filtering, so Forney (1972)
-added a \term{whitening filter}. Because $S(z)$ is a non-negative spectrum of finite (or
-decaying) extent, it admits a \term{spectral factorization}
-\begin{equation}
-S(z)=\gamma^2\,F(z)\,F^*(1/z^*),
-\label{eq:ch12:specfact}
-\end{equation}
-where $F(z)=\sum_{k\ge0}f_kz^{-k}$ is causal, monic ($f_0=1$) and \emph{minimum phase} (all zeros
-inside or on the unit circle), and $\gamma^2=\exp\!\big(\int_{-1/2}^{1/2}\ln S(e^{j2\pi\theta})\,d\theta\big)$
-is the geometric mean of the folded spectrum. Filtering $x_n$ by $1/(\gamma^2F^*(1/z^*))$---an
-anticausal filter, realisable with a delay---whitens the noise and leaves
-\begin{equation}
-y_n=\sum_{k=0}^{\nu}h_k\,a_{n-k}+w_n,\qquad w_n\sim\mathcal{CN}(0,N_0'),
-\label{eq:ch12:forney}
-\end{equation}
-with $h_k$ proportional to $f_k$. The cascade of matched filter, symbol-rate sampler and whitening
-filter is the \term{whitened matched filter} (WMF), and~\eqref{eq:ch12:forney} is the
-\term{Forney model}: a causal, minimum-phase FIR channel of memory $\nu$ in \emph{white} Gaussian
-noise (Figure~\ref{fig:ch12_model}). Because the WMF is invertible, nothing has been lost.
+the power spectrum of the pulse aliased (``folded'') into one symbol-rate bandwidth. The folded
+spectrum turns up in every performance formula in this chapter, so it is worth a sentence of
+intuition: it is the channel's frequency response \emph{as seen by a receiver that samples once per
+symbol}. If the channel is ideal and $p(t)$ is a root-Nyquist pulse, $S(e^{j\omega})$ is flat and
+there is no ISI; any departure from flatness is ISI.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[>=Stealth, node distance=0.55cm,
@@ -176,13 +230,54 @@ causal minimum-phase FIR model with white noise. Most equalizers are designed on
 \label{fig:ch12_model}
 \end{figure}
 
+\subsection{The whitened matched filter and Forney's model}
+
+Coloured noise is awkward for sequence detection and for adaptive filtering, so in 1972 G.~David
+Forney added one more filter, a \term{whitening filter}, which turns the coloured noise white
+again without losing information. The result is the cleanest possible description of an ISI
+channel:
+\begin{equation}
+y_n=\sum_{k=0}^{\nu}h_k\,a_{n-k}+w_n,\qquad w_n\sim\mathcal{CN}(0,N_0'),
+\label{eq:ch12:forney}
+\end{equation}
+a \emph{causal}, \emph{minimum-phase} FIR channel of memory $\nu$ followed by \emph{white} Gaussian
+noise. The cascade of matched filter, symbol-rate sampler and whitening filter is the
+\term{whitened matched filter} (WMF), and~\eqref{eq:ch12:forney} is the \term{Forney model}
+(Figure~\ref{fig:ch12_model}). Because the WMF is invertible, nothing has been lost.
+
+\begin{deeper}[Spectral factorization and the whitening filter]
+Because $S(z)$ is a non-negative spectrum of finite (or decaying) extent, it admits a
+\term{spectral factorization}
+\begin{equation}
+S(z)=\gamma^2\,F(z)\,F^*(1/z^*),
+\label{eq:ch12:specfact}
+\end{equation}
+where $F(z)=\sum_{k\ge0}f_kz^{-k}$ is causal, monic ($f_0=1$) and \emph{minimum phase} (all zeros
+inside or on the unit circle), and
+$\gamma^2=\exp\!\big(\int_{-1/2}^{1/2}\ln S(e^{j2\pi\theta})\,d\theta\big)$ is the geometric mean of
+the folded spectrum. Filtering $x_n$ by $1/(\gamma^2F^*(1/z^*))$---an anticausal filter, realisable
+with a delay---cancels the factor $F^*(1/z^*)$ of the signal part, leaving $F(z)$, and turns the
+noise spectrum $N_0S(z)$ into the constant $N_0/\gamma^2$. The result is~\eqref{eq:ch12:forney}
+with $h_k$ proportional to $f_k$. The zeros of $S(z)$ come in pairs $(z_i,1/z_i^*)$; the
+factorization simply assigns the member inside the unit circle to $F(z)$.
+\end{deeper}
+
 In practice nobody builds the WMF as three separate boxes. Real receivers use a fixed
 anti-alias or root-raised-cosine filter, sample at one or two samples per symbol, and let an
 adaptive filter learn whatever combination of matched filtering, whitening and equalization is
-optimal. The model is nevertheless indispensable, because it tells us what the best achievable
-performance is and how different equalizer structures compare.
+best. The model is nevertheless indispensable: it tells us the best achievable performance and
+lets us compare equalizer structures on equal terms.
+
+\mdcfig{ch12_min_max_phase}{Three third-order channels with identical magnitude responses. Left:
+impulse responses (offset for clarity). Centre: cumulative energy; the minimum-phase channel
+front-loads its energy, the maximum-phase channel back-loads it. Right: the zeros of the minimum-phase
+channel (circles) and their reflections outside the unit circle (squares).}
 
 \subsection{Minimum, maximum and mixed phase}
+
+Here is a puzzle. Two channels can have \emph{exactly} the same magnitude response---the same
+amount of bass and treble loss---and yet one is easy to equalize and the other hard. The
+difference is in the phase, and specifically in \emph{when} each channel delivers its energy.
 
 A channel $H(z)$ with all zeros inside the unit circle is \term{minimum phase}; with all zeros
 outside it is \term{maximum phase}; otherwise it is \emph{mixed phase}. Reflecting a zero $z_i$ to
@@ -194,29 +289,28 @@ magnitude response, it concentrates its energy \emph{earliest},
 \begin{equation}
 \sum_{i=0}^{k}|h_i^{\min}|^2\ \ge\ \sum_{i=0}^{k}|h_i|^2\qquad\text{for every }k,
 \end{equation}
-and in particular has the largest first tap $|h_0|$. A detector that makes decisions sequentially
-in time---a decision-feedback equalizer, or a reduced-state sequence detector---wants as much
-energy as possible in the current symbol and as little as possible in the ``future'' taps it
-cannot yet use. The whitened matched filter delivers exactly that, which is why the WMF is also
-called the optimal \emph{precursor-cancelling} front end of a DFE.
+and in particular has the largest first tap $|h_0|$.
 
-\mdcfig{ch12_min_max_phase}{Three third-order channels with identical magnitude responses. Left:
-impulse responses (offset for clarity). Centre: cumulative energy; the minimum-phase channel
-front-loads its energy, the maximum-phase channel back-loads it. Right: the zeros of the minimum-phase
-channel (circles) and their reflections outside the unit circle (squares).}
+Why should we care? A detector that makes decisions one symbol at a time---a decision-feedback
+equalizer, or a reduced-state sequence detector---wants as much energy as possible in the
+\emph{current} symbol and as little as possible in ``future'' taps it cannot yet use. Think of a
+newsreader: the minimum-phase channel is one who says the headline first and the details after;
+the maximum-phase channel saves the headline for the end. The whitened matched filter delivers
+the headline-first version, which is why it is also called the optimal \emph{precursor-cancelling}
+front end of a DFE.
 
-A radio channel is essentially never minimum phase: the strongest path is frequently not the
-first to arrive (in non-line-of-sight propagation the direct path may be the weakest), and the
-sampling instant chosen by the timing loop is arbitrary. Two consequences follow. First, the
-equalizer must have taps on \emph{both} sides of its reference tap to cancel \term{precursor} ISI
-(from symbols not yet received) as well as \term{postcursor} ISI (from past symbols). Second, the
-choice of decision delay matters, a point we return to in Section~\ref{sec:ch12:fir}.
+A radio channel is essentially never minimum phase: the strongest path is often not the first to
+arrive (in non-line-of-sight propagation the direct path may be the weakest), and the sampling
+instant chosen by the timing loop is arbitrary. Two consequences follow. First, the equalizer
+needs taps on \emph{both} sides of its reference tap, to cancel \term{precursor} ISI (from symbols
+not yet received) as well as \term{postcursor} ISI (from past symbols). Second, the choice of
+decision delay matters, a point we return to in Section~\ref{sec:ch12:fir}.
 
 \subsection{The matched-filter bound}
 
-The best any detector could possibly do on an ISI channel is to detect an isolated symbol with
-all of its energy collected by the matched filter---as if the neighbours had been removed by a
-genie. The resulting SNR,
+What is the best any receiver could do on an ISI channel? Imagine a helpful genie who removes
+every neighbouring symbol, leaving one isolated pulse whose whole energy the matched filter
+collects. The resulting SNR,
 \begin{equation}
 \mathrm{SNR}_{\mathrm{MFB}}=\frac{E_s}{N_0}\sum_k|h_k|^2=\frac{E_s\,\rho_0}{N_0},
 \label{eq:ch12:mfb}
@@ -224,9 +318,17 @@ genie. The resulting SNR,
 is the \term{matched-filter bound} (MFB). No equalizer can beat it, and the loss of a practical
 equalizer relative to the MFB is the standard figure of merit. (Surprisingly, sequence detection
 can come within a fraction of a decibel of the MFB on many channels, as we shall see.) Throughout
-this chapter we normalise channels so that $\sum|h_k|^2=1$, so the MFB is simply $E_s/N_0$.
+this chapter we normalise channels so that $\sum|h_k|^2=1$, so the MFB is simply $E_s/N_0$
+(Figure~\ref{fig:ch12_genie}).
 
-\begin{keyidea}[title=The equivalent channel]
+\begin{figure}[H]\centering\includegraphics[width=0.92\linewidth]{figs/ch12_genie}%
+\caption{What the matched-filter bound means, simulated for binary symbols over Proakis
+channel B at 12\,dB. Left: samples taken at the main tap carry the echoes of their two neighbours, so
+they scatter over five levels and a slicer at zero is often wrong. Right: the genie removes the
+neighbours and collects the whole pulse energy, leaving two clean clusters. No receiver can do better
+than the right-hand picture; good ones get surprisingly close.}\label{fig:ch12_genie}\end{figure}
+
+\begin{keyidea}[The equivalent channel]
 After the (whitened) matched filter and symbol-rate sampling, \emph{any} linear ISI channel with
 additive Gaussian noise is equivalent to a discrete-time FIR filter $h_k$ followed by white
 noise. Every equalizer in this chapter is a way of detecting $a_n$ from
@@ -235,24 +337,16 @@ the performance of linear and decision-feedback equalizers; the distance structu
 channel's output sequences determines that of sequence detectors.
 \end{keyidea}
 
-\section{A map of the equalizer family}
-\label{sec:ch12:landscape}
+\begin{tryit}[Build your own ISI channel]
+Open Lab~6 (\lab{lab06\_equalization.py}) at the \emph{Symbols that collide} experiment. Pick
+the \emph{3-tap} channel and drag the \emph{Echo amplitude a} and \emph{Echo phase $\theta$} sliders:
+the taps, the frequency response and the unequalized QPSK samples update together, and the readouts
+report the peak distortion and the deepest spectral notch. Switch the channel menu to Proakis~B and
+Proakis~C and watch the received samples fall into the wrong quadrants however high you set $E_s/N_0$.
+\end{tryit}
 
-Before diving into details it helps to see the whole landscape. Equalizers differ along four
-axes:
-\begin{enumerate}
-\item \textbf{Structure.} \emph{Linear} equalizers pass the received samples through a filter and
-slice. \emph{Decision-feedback} equalizers (DFE) add a second filter driven by past decisions.
-\emph{Sequence detectors} (MLSE) choose the whole symbol sequence that best explains the
-observations. \emph{Symbol-by-symbol MAP} detectors (BCJR) and \emph{turbo} equalizers compute soft
-probabilities and iterate with a decoder.
-\item \textbf{Criterion.} Zero-forcing (ZF) removes ISI regardless of noise; minimum mean-square
-error (MMSE) balances ISI and noise; maximum likelihood minimises sequence error probability.
-\item \textbf{Adaptation.} The coefficients may be computed from a channel estimate, adapted with a
-training sequence (LMS, RLS), adapted from decisions, or adapted blindly (CMA).
-\item \textbf{Domain and sampling.} Time domain or frequency domain; symbol-spaced ($T$) or
-fractionally spaced ($T/2$, $T/4$).
-\end{enumerate}
+%======================================================================
+\section{A map of the equalizer family}
 
 \begin{table}[htbp]\centering\small
 \caption{The equalizer family at a glance. $L$ is the equalizer length, $\nu$ the channel memory,
@@ -273,37 +367,107 @@ Frequency domain & $\mathcal O(\log N)$ & As linear/DFE & SC-FDE, LTE uplink, 80
 \bottomrule
 \end{tabular}
 \end{table}
+\label{sec:ch12:landscape}
+%======================================================================
+
+Before diving into details it helps to see the whole landscape from a hilltop. Equalizers differ
+along four axes:
+\begin{enumerate}
+\item \textbf{Structure.} \emph{Linear} equalizers pass the received samples through a filter and
+slice. \emph{Decision-feedback} equalizers (DFE) add a second filter driven by past decisions.
+\emph{Sequence detectors} (MLSE) choose the whole symbol sequence that best explains the
+observations. \emph{Symbol-by-symbol MAP} detectors (BCJR) and \emph{turbo} equalizers compute soft
+probabilities and iterate with a decoder.
+\item \textbf{Criterion.} Zero-forcing (ZF) removes ISI regardless of noise; minimum mean-square
+error (MMSE) balances ISI and noise; maximum likelihood minimises the sequence error probability.
+\item \textbf{Adaptation.} The coefficients may be computed from a channel estimate, adapted with a
+training sequence (LMS, RLS), adapted from decisions, or adapted blindly (CMA).
+\item \textbf{Domain and sampling.} Time domain or frequency domain; symbol-spaced ($T$) or
+fractionally spaced ($T/2$, $T/4$).
+\end{enumerate}
 
 Table~\ref{tab:ch12:family} previews the chapter. A useful mental map: \emph{linear equalizers are
 cheap and robust but pay a noise penalty; decision feedback removes most of the penalty for a
 small extra cost but gambles on its decisions; sequence detection is optimal but exponential in
-the channel memory.} Everything else is a compromise between these three.
+the channel memory.} Everything else is a compromise between these three. Keep the map handy; we
+now walk it from the cheapest corner.
 
+%======================================================================
 \section{Zero-forcing equalization}
 \label{sec:ch12:zf}
+%======================================================================
 
-\subsection{The infinite-length zero-forcing equalizer}
+\subsection{Just invert the channel?}
 
-The most obvious idea is to invert the channel. If $y_n$ is the output of $H(z)$ in noise, pass
-it through $W(z)=1/H(z)$; the cascade is the identity, ISI is gone, and a simple slicer finishes
-the job. Because it forces the ISI to exactly zero, this is the \term{zero-forcing} (ZF)
-equalizer. Its output is $z_n=a_n+\tilde w_n$, where the filtered noise $\tilde w_n$ has spectrum
-$N_0/|H(e^{j\omega})|^2$. The output noise variance and SNR are
+\begin{figure}[H]\centering\includegraphics[width=0.95\linewidth]{figs/photos/ch12_graphic_eq}%
+\caption{A professional 31-band stereo graphic equalizer (dbx 2231). Each
+slider sets the gain of one third-octave band; the slider positions literally draw the filter's
+frequency response. A linear equalizer is the same idea applied automatically, with the ``sliders''
+chosen to undo the channel.\mdccredit{ch12_graphic_eq}}\label{fig:ch12_graphic_eq}\end{figure}
+
+If you have ever played with the graphic equalizer on a hi-fi (Figure~\ref{fig:ch12_graphic_eq}),
+you already know the most obvious idea in this chapter. A muffled recording has lost its treble,
+so you push the high-frequency sliders up until it sounds right. A channel that has attenuated
+some frequencies can be undone the same way: boost exactly what was cut, and cut exactly what was
+boosted (Figure~\ref{fig:ch12_graphic_eq_bars}). In filter language, if $y_n$ is the output of
+$H(z)$ plus noise, pass it through $W(z)=1/H(z)$; the cascade is the identity, the ISI is gone, and
+a simple slicer finishes the job.
+
+\mdcfig[0.5]{ch12_graphic_eq_bars}{A linear equalizer as a graphic equalizer. Red: the gain of a
+channel $h\propto[1,\,0.75,\,0.3]$ in ten frequency bands. Blue: the slider settings that invert it.
+Green: their product is flat.}
+
+Because it forces the ISI to exactly zero, this is the \term{zero-forcing} (ZF) equalizer. It is the
+first thing every engineer tries, and on a gentle channel it works well. Its output is
+$z_n=a_n+\tilde w_n$, a clean symbol plus filtered noise. And there lies the catch. The equalizer
+does not know which part of its input is signal and which is noise; it boosts both. At the
+frequencies where the channel was weak, the signal has to be amplified a great deal to be restored,
+and the noise at those frequencies, which the channel did \emph{not} attenuate, is amplified by the
+same amount. Where the channel has a deep notch, the equalizer has a huge peak, and the noise
+there is blown up accordingly. Engineers call this \term{noise enhancement}, and it is the central
+weakness of every linear equalizer. It is also why the hi-fi trick has limits: turn the treble up
+far enough on an old cassette and you get more hiss than music.
+
+\begin{analogy}[Turning the treble knob to maximum]
+A muffled old cassette has lost its high frequencies. Turn the treble knob up and the voices
+become crisp again---but the tape hiss, which lives mostly in the treble, is boosted along with
+them. Turn it all the way up and you hear mostly hiss. The zero-forcing equalizer always turns
+every knob exactly as far as needed to restore the signal, no matter how much hiss comes with it.
+The analogy is faithful except for one detail: in a real channel the ``hiss'' (thermal noise) is
+added \emph{after} the muffling, which is exactly why it is not muffled with the signal and gets
+amplified when the signal is restored.
+\end{analogy}
+
+Figure~\ref{fig:ch12_noise_enhance} makes this quantitative for a two-path channel at 20\,dB SNR.
+Before the equalizer, the signal spectrum sags to a notch at the band edge while the noise is
+flat. After zero forcing the signal is flat, but the noise spectrum is the mirror image of the
+channel, with a peak right where the channel had its notch.
+
+\mdcfig{ch12_noise_enhance}{Noise enhancement on the two-path channel $h\propto[1,\,0.9]$ at 20\,dB
+SNR. Left: the received signal spectrum (shaded) has a deep notch at $fT=\pm0.5$; the noise (red) is
+flat. Right: after the zero-forcing equalizer the signal is flat again, but the noise has been
+shaped into the inverse of the channel, rising above the signal at the band edge.}
+
+\subsection{How bad is it? The noise-enhancement formula}
+
+The output noise $\tilde w_n$ has spectrum $N_0/|H(e^{j\omega})|^2$. Its variance, and the
+resulting SNR, are
 \begin{equation}
 \sigma^2_{\mathrm{ZF}}=N_0\int_{-1/2}^{1/2}\frac{d\theta}{|H(e^{j2\pi\theta})|^2},\qquad
 \mathrm{SNR}_{\mathrm{ZF}}=\frac{E_s}{\sigma^2_{\mathrm{ZF}}}=
 \frac{E_s/N_0}{\big\langle |H|^{-2}\big\rangle_{\mathrm{AM}}},
 \label{eq:ch12:zfsnr}
 \end{equation}
-where $\langle\cdot\rangle_{\mathrm{AM}}$ is the arithmetic mean over frequency. Compare this
-with the MFB, $E_s/N_0\cdot\langle|H|^2\rangle_{\mathrm{AM}}$. For a unit-energy channel the ZF
-loss is the ratio of the arithmetic mean of $|H|^{-2}$ to the reciprocal of the arithmetic mean of
-$|H|^2$---which is always at least one, by Jensen's inequality, and is \emph{unbounded} when the
-channel has a spectral null. This is \term{noise enhancement}: to restore the frequencies the
-channel attenuated, the equalizer must amplify them, and it amplifies the noise at those
-frequencies just as faithfully as the signal.
+where $\langle\cdot\rangle_{\mathrm{AM}}$ is the arithmetic mean over frequency. Read it in words:
+the ZF output SNR is the input SNR divided by the \emph{average of one over the channel's power
+gain}. A channel that is mostly strong but has one deep notch has a large average of $1/|H|^2$,
+because the notch contributes a huge reciprocal. Compare this with the MFB,
+$E_s/N_0\cdot\langle|H|^2\rangle_{\mathrm{AM}}$. For a unit-energy channel the ZF loss is the ratio
+of the arithmetic mean of $|H|^{-2}$ to the reciprocal of the arithmetic mean of $|H|^2$---which is
+always at least one, by Jensen's inequality, and \emph{unbounded} when the channel has a spectral
+null.
 
-\begin{worked}[title=Noise enhancement on a two-path channel]
+\begin{worked}[Noise enhancement on a two-path channel]
 Take $h=[1,\ a]/\sqrt{1+a^2}$, a direct path and one echo one symbol later. Then
 $|H(e^{j\omega})|^2=(1+a^2+2a\cos\omega)/(1+a^2)$, and a standard integral gives, for $a<1$,
 \[
@@ -322,24 +486,35 @@ The left panel of Figure~\ref{fig:ch12_snr_loss} (the dashed red curve) shows th
 this two-path channel collapsing as $a\to1$. The same figure previews every other equalizer in
 this chapter; we shall fill in the other curves as we go.
 
+\mdcfig{ch12_zf_taps}{The worked example in pictures. Left: the impulse response of the ZF inverse of
+$h\propto[1,\,a]$ is $(-a)^k$: it dies out within a few taps for $a=0.5$ but rings for dozens of taps
+for $a=0.9$. Right: the noise gain $\sum w_k^2$ as taps are added, approaching the infinite-length values
+$(1+a^2)/(1-a^2)$ of 2.2\,dB and 9.8\,dB (dotted).}
+
 \subsection{Finite-length zero forcing and Lucky's peak distortion}
 
-A practical equalizer is an FIR filter $\vect w=[w_0,\dots,w_{L-1}]^T$. The combined response
-$q=h*w$ has $L+\nu$ taps and cannot in general be made a perfect delta. Two finite-length
-criteria are common. Lucky's \term{peak distortion} criterion minimises $\sum_{k\ne\Delta}|q_k|/|q_\Delta|$,
-the worst-case ISI relative to the reference tap at delay $\Delta$; when the unequalized eye is
-open (peak distortion less than one) it is achieved by forcing $q_k=0$ for the $L-1$ taps nearest
-to $\Delta$. The least-squares variant forces $q$ as close as possible to the unit vector
-$\vect e_\Delta$ in Euclidean norm:
+A practical equalizer is an FIR filter $\vect w=[w_0,\dots,w_{L-1}]^T$---a tapped delay line like
+the one in Figure~\ref{fig:ch12_structures}(a). The combined response $q=h*w$ has $L+\nu$ taps and
+cannot in general be made a perfect spike. Two finite-length criteria are common. Lucky's
+\term{peak distortion} criterion minimises $\sum_{k\ne\Delta}|q_k|/|q_\Delta|$, the worst-case ISI
+relative to the reference tap at delay $\Delta$; when the unequalized eye is open (peak distortion
+less than one) it is achieved by forcing $q_k=0$ for the $L-1$ taps nearest to $\Delta$. The
+least-squares variant forces $q$ as close as possible to the unit vector $\vect e_\Delta$ in
+Euclidean norm:
 \begin{equation}
 \vect w_{\mathrm{ZF}}=\arg\min_{\vect w}\|\vect H\vect w-\vect e_\Delta\|^2=
 (\vect H^H\vect H)^{-1}\vect H^H\vect e_\Delta,
 \label{eq:ch12:zffir}
 \end{equation}
 where $\vect H$ is the $(L+\nu)\times L$ Toeplitz convolution matrix of $h$. This is what
-\texttt{commlib.zf\_fir} computes. Note what is missing from both criteria: the noise.
+\texttt{commlib.zf\_fir} computes. Notice what is missing from both criteria: the noise.
 
-\begin{pitfall}[title=Zero forcing a spectral null]
+\mdcfig[0.55]{ch12_mmse_tradeoff}{The MMSE compromise. A 31-tap equalizer with regularisation
+$\lambda$: at $\lambda\to0$ it is ZF (no ISI, much noise); at large $\lambda$ it is a matched filter
+(little noise, much ISI). Total MSE is smallest at $\lambda=N_0/E_s$ (dot), the MMSE solution. Channel
+$h\propto[1,\,0.95e^{j0.3},\,0.2]$, SNR 15\,dB.}
+
+\begin{pitfall}[Zero forcing a spectral null]
 A ZF equalizer on a channel with a spectral null (or a deep notch) has enormous gain at the notch
 frequency. Symptoms: taps that grow as you lengthen the equalizer, output noise far higher than the
 input noise, and fixed-point overflow in hardware. Adaptive ZF algorithms also converge slowly on such
@@ -347,15 +522,38 @@ channels. Never zero-force a channel you have not looked at; if the channel can 
 MMSE criterion, a DFE, or sequence detection.
 \end{pitfall}
 
+%======================================================================
 \section{The MMSE linear equalizer}
 \label{sec:ch12:mmse}
+%======================================================================
+
+\subsection{The sensible compromise}
+
+Zero forcing is a perfectionist: it insists on removing every last trace of ISI, whatever the
+cost in noise. A more sensible engineer would ask a different question: \emph{what setting of the
+taps makes the slicer's input as close as possible to the right answer, counting both kinds of
+error?} Leave a little ISI at the frequencies where removing it would cost a lot of noise; remove
+it fully where the channel is strong and the noise cheap. That is the \term{minimum mean-square
+error} (MMSE) equalizer, and Figure~\ref{fig:ch12_mmse_tradeoff} shows the trade-off it strikes.
+
+Here is the idea in words before the algebra. Collect the last $L$ received samples in a vector.
+The equalizer output is a weighted sum of them. The error is the difference between that sum and
+the symbol we want. Average the squared error over all possible symbol and noise values, and you
+get a bowl-shaped function of the weights---quadratic, with exactly one bottom. Find the bottom
+and you have the MMSE equalizer. Because the bowl is quadratic, the bottom is the solution of a
+set of \emph{linear} equations, which Norbert Wiener first wrote down for continuous-time
+filters in the 1940s. That one fact---that the best linear filter solves a linear system---is
+the engine of everything from this section to the LMS algorithm.
 
 \subsection{The Wiener--Hopf equations}
 
-The remedy for noise enhancement is to minimise the total error---ISI plus noise---instead of the
-ISI alone. Let $\vect y_n=[y_n,y_{n-1},\dots,y_{n-L+1}]^T$ be the vector of samples in the
-equalizer's delay line and $z_n=\vect w^H\vect y_n$ its output. The \term{minimum mean-square
-error} (MMSE) equalizer chooses $\vect w$ to minimise
+\mdcfig[0.5]{ch12_bowl}{The error-performance surface of a two-tap equalizer: the mean-square error
+$J$ is a quadratic bowl over the plane of tap settings $(w_0,w_1)$, with a single lowest point (dot)
+at the Wiener solution. Its elliptical contours, drawn on the floor, reappear in
+Figure~\ref{fig:ch12_error_surface}.}
+
+Let $\vect y_n=[y_n,y_{n-1},\dots,y_{n-L+1}]^T$ be the vector of samples in the equalizer's delay
+line and $z_n=\vect w^H\vect y_n$ its output. The MMSE equalizer chooses $\vect w$ to minimise
 \begin{equation}
 J(\vect w)=\E\big|a_{n-\Delta}-\vect w^H\vect y_n\big|^2
 =\sigma_a^2-\vect w^H\vect p-\vect p^H\vect w+\vect w^H\vect R\vect w,
@@ -373,7 +571,8 @@ An equivalent derivation uses the \term{orthogonality principle}: at the optimum
 $e_n=a_{n-\Delta}-z_n$ is uncorrelated with every sample in the delay line,
 $\E[\vect y_n e_n^*]=\vect 0$, which is~\eqref{eq:ch12:wiener} in disguise. The principle is worth
 remembering because it generalises instantly to DFEs, fractionally spaced equalizers and MIMO
-equalizers: \emph{the optimal linear estimator leaves an error orthogonal to its data}.
+equalizers: \emph{the optimal linear estimator leaves an error orthogonal to its data}. If any
+pattern in the data still predicted the error, you could use it to shrink the error further.
 
 To make this concrete, stack the $L+\nu$ symbols that influence the delay line into a vector
 $\vect a_n=[a_n,\dots,a_{n-L-\nu+1}]^T$, so that $\vect y_n=\vect G\vect a_n+\vect w_n$, where
@@ -389,7 +588,15 @@ of energy $E_s$ and white noise the statistics are explicit:
 Compare with ZF: the only change is the term $(N_0/E_s)\vect I$, a \emph{regularisation} that
 stops the equalizer from inverting weak eigenmodes of the channel. At high SNR the MMSE solution
 approaches the ZF one; at low SNR it approaches a scaled matched filter $\vect G\vect e_\Delta$.
-This is the computation in \texttt{commlib.mmse\_fir}.
+This is the computation in \texttt{commlib.mmse\_fir}, and it is exactly the knob swept in
+Figure~\ref{fig:ch12_mmse_tradeoff}: replace $N_0/E_s$ by a free parameter $\lambda$ and you slide
+continuously from ZF ($\lambda=0$) to the matched filter ($\lambda\to\infty$), with the true MMSE
+solution at the bottom of the valley in between.
+
+\mdcfig{ch12_zf_mmse_freq}{Channel $h\propto[1,\ 0.95e^{j0.3},\ 0.2]$, which has a notch of about 18\,dB,
+with 41-tap ZF and MMSE equalizers. Left: the ZF equalizer mirrors the notch; the MMSE equalizer
+limits its gain according to the SNR. Right: the equalized response is flat for ZF but notched for
+MMSE at low SNR---the MMSE equalizer trades residual ISI for lower noise.}
 
 \subsection{The infinite-length solution}
 
@@ -401,6 +608,7 @@ W_{\mathrm{MMSE}}(e^{j\omega})=\frac{H^*(e^{j\omega})}{|H(e^{j\omega})|^2+N_0/E_
 J_{\min}=E_s\int_{-1/2}^{1/2}\frac{N_0/E_s}{|H|^2+N_0/E_s}\,d\theta .
 \label{eq:ch12:mmseinf}
 \end{equation}
+
 This expression rewards study. Where the channel is strong ($|H|^2\gg N_0/E_s$),
 $W\approx1/H$ and the equalizer zero-forces. Where the channel is weak ($|H|^2\ll N_0/E_s$),
 $W\approx H^*E_s/N_0$, a small matched filter that gives up on those frequencies instead of
@@ -408,12 +616,16 @@ amplifying their noise. The balance point moves with SNR, which is why
 Figure~\ref{fig:ch12_zf_mmse_freq} shows the MMSE equalizer flattening its peak at 10\,dB but
 closely tracking the ZF equalizer at 25\,dB. The overall response $|HW|^2$ is no longer flat: the
 MMSE equalizer deliberately leaves residual ISI at the notch frequency because removing it would
-cost more in noise than it gains.
+cost more in noise than it gains. In hi-fi terms, it turns the treble up only until the hiss starts
+to hurt more than the muffling.
 
-\mdcfig{ch12_zf_mmse_freq}{Channel $h\propto[1,\ 0.95e^{j0.3},\ 0.2]$, which has a notch of about 18\,dB,
-with 41-tap ZF and MMSE equalizers. Left: the ZF equalizer mirrors the notch; the MMSE equalizer
-limits its gain according to the SNR. Right: the equalized response is flat for ZF but notched for
-MMSE at low SNR---the MMSE equalizer trades residual ISI for lower noise.}
+\begin{tryit}[ZF against MMSE]
+In Lab~6's \emph{Zero forcing vs MMSE} experiment, choose the \emph{Two-path [1, a]} channel and
+drag \emph{Echo amplitude a} towards 1. Watch the ``After zero forcing'' constellation explode while
+``After MMSE'' stays compact, and read the \emph{ZF noise enhancement} readout. Switch the modulation
+to 16-QAM and lower $E_s/N_0$: the MMSE clusters shrink towards the origin---the bias of the next
+subsection. The bar chart compares all five receivers of Figure~\ref{fig:ch12_snr_loss}.
+\end{tryit}
 
 \subsection{Bias and the unbiased MMSE SNR}
 \label{sec:ch12:bias}
@@ -421,10 +633,18 @@ MMSE at low SNR---the MMSE equalizer trades residual ISI for lower noise.}
 A subtle point trips up many engineers: the MMSE equalizer is \emph{biased}. Write its output as
 $z_n=\beta\,a_{n-\Delta}+(\text{ISI}+\text{noise})$. Minimising the MSE shrinks the output towards
 zero so that $\beta=\vect w^H\vect p/E_s<1$; for the infinite-length equalizer
-$\beta=1-J_{\min}/E_s$. The shrinkage reduces MSE because the noise shrinks too, but it moves
-every constellation point towards the origin, and a slicer designed for the nominal constellation
-then makes more errors on multilevel signals (16-QAM, 64-QAM, PAM-4) whose decision thresholds
-depend on amplitude.
+$\beta=1-J_{\min}/E_s$. Why would an optimal filter deliberately shrink its output? Because
+shrinking reduces the noise too, and when you are unsure, guessing a little closer to the average
+lowers the average squared error---the same reason a weather forecaster who is unsure hedges
+towards the seasonal average. But it moves every constellation point towards the origin
+(Figure~\ref{fig:ch12_bias}), and a slicer designed for the nominal constellation then makes more
+errors on multilevel signals (16-QAM, 64-QAM, PAM-4) whose decision thresholds depend on amplitude.
+
+\mdcfig{ch12_bias}{Simulated 16-QAM through the notch channel $h\propto[1,\,0.95e^{j0.3},\,0.2]$ at
+20\,dB SNR with 31-tap equalizers. Red crosses: nominal constellation; green circles: the average
+received point for each symbol. ZF is unbiased but noisy. The MMSE output is less noisy but every
+cluster sits about 5\% too close to the centre. Rescaling by $1/\beta$ puts the clusters back on their
+targets and gives the lowest symbol error rate.}
 
 The fix is simple: scale the output by $1/\beta$. The scaled estimator is unbiased, has a slightly
 higher MSE, and---the key fact---a higher \emph{decision-relevant} SNR. The two SNRs are related
@@ -440,7 +660,7 @@ use in bit-loading and link budgets. The relation holds for linear equalizers, f
 MIMO MMSE receivers alike, and it has a deep information-theoretic interpretation we meet in
 Section~\ref{sec:ch12:dfe}.
 
-\begin{pitfall}[title=Forgetting the bias]
+\begin{pitfall}[Forgetting the bias]
 If an MMSE equalizer feeds a 64-QAM slicer without bias removal, the outer points fall inside their
 nominal decision regions and the symbol error rate can be several times higher than expected. Many
 adaptive implementations remove the bias implicitly because the LMS error is computed against the
@@ -464,7 +684,7 @@ of this chapter. Left: two-path channel $h\propto[1,a]$ at $E_s/N_0=20$\,dB. Rig
 matched-filter bound on Proakis channels B and C. The linear equalizers' loss grows with SNR
 because the regularisation that protects them at low SNR fades away at high SNR, exposing the nulls.}
 
-\begin{worked}[title=Four equalizers on one channel]
+\begin{worked}[Four equalizers on one channel]
 For the two-path channel with $a=0.9$ at $E_s/N_0=20$\,dB, the formulas of this chapter
 (evaluated numerically in \texttt{ch12\_figs.py}) give the following unbiased output SNRs:
 \begin{center}\small
@@ -484,18 +704,31 @@ For 16-QAM, whose symbol error rate is about $10^{-3}$ at 17.7\,dB and about $10
 choice of structure is the difference between a working link and a useless one.
 \end{worked}
 
+%======================================================================
 \section{Finite-length equalizers in practice}
 \label{sec:ch12:fir}
+%======================================================================
 
 \subsection{Length and decision delay}
 
-A finite equalizer has two design parameters besides its criterion: the number of taps $L$ and
-the decision delay $\Delta$ (which output symbol the equalizer is trying to reproduce). Both
-matter more than beginners expect. The MMSE of an FIR equalizer is
+A real equalizer has a finite number of taps, and that raises two questions the infinite-length
+theory hides. How many taps? And which symbol is the equalizer trying to reproduce---the one that
+just arrived, or one from a few symbols ago? The second question surprises beginners, but it is
+natural once you remember precursors: to cancel the interference a symbol suffers from symbols
+that come \emph{after} it, the equalizer must wait until those later symbols have arrived. So it
+estimates $a_{n-\Delta}$, a symbol $\Delta$ periods in the past, and $\Delta$ is the
+\emph{decision delay}.
+
+Both choices matter more than beginners expect. The MMSE of an FIR equalizer is
 $J_{\min}(\Delta)=E_s\big(1-\vect e_\Delta^T\vect G^H(\vect G\vect G^H+\tfrac{N_0}{E_s}\vect I)^{-1}\vect G\vect e_\Delta\big)$,
 a different number for each $\Delta$, and it can be computed for every delay at once from the
 diagonal of a single matrix. Figure~\ref{fig:ch12_delay_length} shows the result for a
-five-tap mixed-phase channel. Three lessons emerge:
+five-tap mixed-phase channel. Three lessons emerge.
+
+\mdcfig{ch12_delay_length}{MMSE FIR equalizers for the mixed-phase channel
+$h\propto[0.3,\,-0.5,\,1,\,0.65,\,0.35]$. Left: MSE against decision delay for four lengths at
+25\,dB---a flat-bottomed valley that widens with $L$. Right: the best achievable MSE against length;
+dotted lines are the infinite-length limits.}
 
 \begin{itemize}
 \item \textbf{Delay matters.} With a short equalizer the MSE varies by more than 15\,dB across
@@ -512,17 +745,16 @@ inverse, whose impulse response decays slowly if the channel has zeros near the 
 curves in the right panel reach their asymptote later as SNR rises.
 \end{itemize}
 
-\mdcfig{ch12_delay_length}{MMSE FIR equalizers for the mixed-phase channel
-$h\propto[0.3,\,-0.5,\,1,\,0.65,\,0.35]$. Left: MSE against decision delay for four lengths at
-25\,dB---a flat-bottomed valley that widens with $L$. Right: the best achievable MSE against length;
-dotted lines are the infinite-length limits.}
-
 In adaptive equalizers the delay is set implicitly by the initial \term{centre-tap} (or
 \emph{cursor}) position: the taps are initialised to zero except for a one at the reference
 position, and the algorithm converges to the solution with that delay. Put the reference tap in
 the middle for an unknown mixed-phase channel, near the front for a channel known to be mostly
 postcursor (a DFE feedforward section on a minimum-phase channel), or wherever the channel
 estimate says the energy is.
+
+\mdcfig[0.55]{ch12_fse_alias}{The folded spectrum a $T$-spaced equalizer sees, for an RRC pulse
+($\beta=0.35$) through a two-path channel, at two sampling phases. At the lucky phase the aliased
+band edges add up; at the unlucky one they cancel, carving a null no $T$-spaced equalizer can fix.}
 
 \subsection{Fractionally spaced equalizers}
 
@@ -531,18 +763,22 @@ once per symbol---but it hides a trap. Sampling at rate $1/T$ a signal whose ban
 $1/(2T)$ (every signal with excess bandwidth $\beta>0$ does) \emph{aliases} the band edges onto
 one another. The folded spectrum~\eqref{eq:ch12:folded} is the aliased sum, and how the aliased
 components add depends on the \emph{sampling phase} $\tau$: they add constructively at some phases
-and destructively at others, creating a spectral null that no symbol-spaced equalizer can undo.
-A $T$-spaced equalizer's performance therefore depends on the timing loop's choice of phase,
-sometimes dramatically.
+and destructively at others, creating a spectral null that no symbol-spaced equalizer can undo
+(Figure~\ref{fig:ch12_fse_alias}).
 
-The \term{fractionally spaced equalizer} (FSE) samples faster than the symbol rate, usually at
-$2/T$ ($T/2$ spacing), processes the samples with taps spaced by $T/2$, and produces an output
-once per symbol. Because a $T/2$-spaced filter sees the whole signal band without aliasing, it can
-synthesise the matched filter \emph{and} the equalizer for any sampling phase, and it compensates a
-timing offset automatically by adjusting its taps. Figure~\ref{fig:ch12_fse} makes the point: for a
-two-path channel with root-raised-cosine pulses ($\beta=0.35$), the $T$-spaced equalizer's MMSE
-varies by about 8\,dB with sampling phase, while the $T/2$-spaced equalizer of the same time span is
-completely insensitive.
+It is like photographing a spinning wheel with a strobe: at some strobe phases the spokes line up
+nicely, at others they blur into each other, and nothing you do to the photograph afterwards can
+separate spokes that the camera has already merged. A $T$-spaced equalizer's performance therefore
+depends on the timing loop's choice of phase, sometimes dramatically.
+
+The \term{fractionally spaced equalizer} (FSE) sidesteps the trap by sampling faster than the
+symbol rate, usually at $2/T$ ($T/2$ spacing). It processes the samples with taps spaced by $T/2$
+and produces an output once per symbol. Because a $T/2$-spaced filter sees the whole signal band
+without aliasing, it can synthesise the matched filter \emph{and} the equalizer for any sampling
+phase, and it compensates a timing offset automatically by adjusting its taps.
+Figure~\ref{fig:ch12_fse} makes the point: for a two-path channel with root-raised-cosine pulses
+($\beta=0.35$), the $T$-spaced equalizer's MMSE varies by about 8\,dB with sampling phase, while the
+$T/2$-spaced equalizer of the same time span is completely insensitive.
 
 \mdcfig[0.7]{ch12_fse}{MMSE of $T$-spaced and $T/2$-spaced equalizers spanning 12 symbols against
 sampling phase. The channel is an RRC pulse ($\beta=0.35$) with a second path of relative amplitude
@@ -559,7 +795,7 @@ pulls unused degrees of freedom gently towards zero, at the cost of a small bias
 twice the multiplies per symbol of a $T$-spaced equalizer of the same span---though, with the
 matched filter absorbed into it, often not twice the total.
 
-\begin{inpractice}[title=Where fractionally spaced equalizers live]
+\begin{inpractice}[Where fractionally spaced equalizers live]
 Voice-band modems from the 1980s onwards commonly used $T/2$ or $T/3$ fractionally spaced
 equalizers, and microwave digital radios adopted them for the same reasons: robustness to timing
 phase and the ability to absorb the receive filter. Cable-modem and digital-TV QAM receivers
@@ -570,8 +806,10 @@ the ADC or slicer runs at one sample per UI to save power; they compensate by ad
 loop that searches for the best sampling phase.
 \end{inpractice}
 
+%======================================================================
 \section{Adaptive equalization I: steepest descent and LMS}
 \label{sec:ch12:lms}
+%======================================================================
 
 Everything so far assumed that the receiver knows the channel. In practice it must learn it---and
 keep learning, because the channel changes. There are two routes. The \emph{indirect} route
@@ -581,17 +819,41 @@ equalizer taps themselves, iteratively, to reduce the error at the slicer. Direc
 the original approach and remains dominant wherever the data rate is high and the channel changes
 slowly: SerDes, optical, cable and microwave links. Its workhorse is the LMS algorithm.
 
-\subsection{Steepest descent on the error surface}
+\mdcfig{ch12_error_surface}{Contours of the MSE surface of a two-tap Wiener filter with input
+correlation $\rho$ between adjacent samples; the star marks the optimum. Left: nearly circular
+contours, fast convergence. Right: eigenvalue spread 12.3; steepest descent (dots, one per
+iteration) drops into the valley and then crawls along it. LMS (red, 1500 iterations) follows the
+same path on average but jitters around it.}
 
-The MSE~\eqref{eq:ch12:mse} is a quadratic bowl whose gradient (with respect to $\vect w^*$) is
-$\vect R\vect w-\vect p$. The method of \term{steepest descent} walks downhill:
+\subsection{Walking downhill on the error surface}
+
+Recall that the mean-square error~\eqref{eq:ch12:mse} is a quadratic bowl over the space of tap
+settings. If you could see the whole bowl you would simply jump to the bottom
+(that is solving the Wiener--Hopf equations). If you can only feel the slope under your feet, you
+take a step downhill, feel again, and step again. That is the method of \term{steepest descent}.
+The gradient of the bowl (with respect to $\vect w^*$) is $\vect R\vect w-\vect p$, so each step is
 \begin{equation}
-\vect w_{k+1}=\vect w_k+\mu\,(\vect p-\vect R\vect w_k).
+\vect w_{k+1}=\vect w_k+\mu\,(\vect p-\vect R\vect w_k),
 \label{eq:ch12:sd}
 \end{equation}
-Write $\vect c_k=\vect w_k-\vect w_{\mathrm{opt}}$ for the tap-error vector and diagonalise
-$\vect R=\vect Q\vect\Lambda\vect Q^H$. In the rotated coordinates $\vect v_k=\vect Q^H\vect c_k$ the
-recursion decouples into independent scalar recursions,
+where the \emph{step size} $\mu$ sets how far you stride. Too small and you take forever; too large
+and you overshoot the valley floor and bounce up the far side, possibly further each time.
+
+\begin{analogy}[A hiker walking downhill in fog]
+Picture a hiker on a hillside in thick fog, trying to reach the lowest point of the valley. She
+cannot see the valley; she can only feel which way the ground slopes under her boots. So she takes a
+step in the steepest downhill direction, feels again, and repeats. In a round bowl this brings her
+straight to the bottom. In a long, narrow ravine it is maddening: the steepest direction points
+mostly across the ravine, so she zig-zags from wall to wall and creeps only slowly along its length
+towards the lowest point. LMS is this hiker with one more handicap: the fog also makes her estimate
+of the slope a little wrong at every step, so even at the bottom she shuffles about instead of
+standing still.
+\end{analogy}
+
+That ravine is not just a picture; it is the single most important fact about gradient
+adaptation. Write $\vect c_k=\vect w_k-\vect w_{\mathrm{opt}}$ for the tap-error vector and
+diagonalise $\vect R=\vect Q\vect\Lambda\vect Q^H$. In the rotated coordinates $\vect v_k=\vect
+Q^H\vect c_k$ the recursion decouples into independent scalar recursions,
 \begin{equation}
 v_{k+1}^{(i)}=(1-\mu\lambda_i)\,v_k^{(i)}\quad\Longrightarrow\quad v_k^{(i)}=(1-\mu\lambda_i)^k v_0^{(i)} ,
 \end{equation}
@@ -602,14 +864,15 @@ least $\lambda_{\max}/(2\lambda_{\min})$ iterations. The ratio
 \begin{equation}
 \chi(\vect R)=\frac{\lambda_{\max}}{\lambda_{\min}}
 \end{equation}
-is the \term{eigenvalue spread} (condition number) of the input correlation matrix, and it is the
-single most important number governing gradient-based adaptation.
+is the \term{eigenvalue spread} (condition number) of the input correlation matrix. In the hiker's
+terms, it is how much longer the ravine is than it is wide.
 
-Figure~\ref{fig:ch12_error_surface} shows why. With a small spread the contours of $J$ are nearly
-circular, the gradient points straight at the minimum, and steepest descent arrives in a handful
-of steps. With a spread of 12 the contours are long thin ellipses; the path drops quickly into the
-bottom of the valley along the steep eigen-direction and then crawls along its floor. For an
-equalizer the connection to the channel is direct: the eigenvalues of the Toeplitz matrix
+Figure~\ref{fig:ch12_error_surface} shows why it matters. With a small spread the contours of $J$
+are nearly circular, the gradient points straight at the minimum, and steepest descent arrives in a
+handful of steps. With a spread of 12 the contours are long thin ellipses; the path drops quickly
+into the bottom of the valley along the steep eigen-direction and then crawls along its floor.
+
+For an equalizer the connection to the channel is direct: the eigenvalues of the Toeplitz matrix
 $\vect R$ lie between the minimum and maximum of the input power spectrum
 $E_s|H(e^{j\omega})|^2+N_0$ (a consequence of Szeg\H{o}'s theorem on Toeplitz matrices), so
 \begin{equation}
@@ -619,16 +882,20 @@ with near equality for long equalizers. \emph{The channels that are hard to equa
 channels on which adaptive equalizers converge slowly.} A spectral notch 30\,dB deep (at high SNR)
 implies an eigenvalue spread of about 1000.
 
-\mdcfig{ch12_error_surface}{Contours of the MSE surface of a two-tap Wiener filter with input
-correlation $\rho$ between adjacent samples; the star marks the optimum. Left: nearly circular
-contours, fast convergence. Right: eigenvalue spread 12.3; steepest descent (dots, one per
-iteration) drops into the valley and then crawls along it. LMS (red, 1500 iterations) follows the
-same path on average but jitters around it.}
+\mdcpair{ch12_lms_taps}{LMS learning in action: the seven taps of an equalizer for
+$h\propto[0.35,\,1,\,0.45]$ start from zero and creep towards their Wiener values (dotted) as
+training symbols arrive ($\mu=0.03$, 20\,dB SNR).}{ch12_lms_mu}{The step-size trade-off on the same
+channel (11 taps, average of 150 runs). A large $\mu$ (red) converges fast but settles at a high
+error; a small $\mu$ (green) settles low but takes thousands of symbols. Dotted: the Wiener
+floor.}
 
 \subsection{The LMS algorithm}
 
-Steepest descent needs $\vect R$ and $\vect p$, which the receiver does not have. The
-\term{least-mean-squares} (LMS) algorithm of Widrow and Hoff replaces them by their instantaneous
+Steepest descent needs $\vect R$ and $\vect p$, which the receiver does not have. In 1959 Bernard
+Widrow and Ted Hoff made the leap that changed signal processing: \emph{don't bother estimating
+them}. Use the single most recent sample as a (very noisy) estimate of the average, take a small
+step, and let the averaging happen automatically over thousands of steps. The
+\term{least-mean-squares} (LMS) algorithm replaces $\vect R$ and $\vect p$ by their instantaneous
 estimates $\vect y_n\vect y_n^H$ and $\vect y_n d_n^*$, where $d_n$ is the \emph{desired response}:
 a known training symbol, or the slicer's decision. The gradient estimate becomes
 $-\vect y_n e_n^*$ with $e_n=d_n-\vect w_n^H\vect y_n$, and the update is
@@ -636,12 +903,28 @@ $-\vect y_n e_n^*$ with $e_n=d_n-\vect w_n^H\vect y_n$, and the update is
 \boxed{\ \vect w_{n+1}=\vect w_n+\mu\,\vect y_n\,e_n^*,\qquad e_n=d_n-z_n,\quad z_n=\vect w_n^H\vect y_n\ }
 \label{eq:ch12:lms}
 \end{equation}
-Per symbol that is $2L$ complex multiply--accumulates---$L$ for the filter, $L$ for the
-update---and no divisions, matrix operations or square roots. Its simplicity, robustness and
-hardware friendliness are why LMS is, with little exaggeration, the most widely deployed adaptive
-algorithm in the world.
+Read it as a sentence: \emph{after every symbol, look at your mistake, and nudge each tap in
+proportion to the mistake times the sample sitting on that tap.} A tap whose sample was large and
+in phase with the error gets a big nudge; a tap holding a near-zero sample barely moves. Per symbol
+that is $2L$ complex multiply--accumulates---$L$ for the filter, $L$ for the update---and no
+divisions, matrix operations or square roots. Its simplicity, robustness and hardware
+friendliness are why LMS is, with little exaggeration, the most widely deployed adaptive algorithm
+in the world.
 
-\begin{history}[title=Widrow, Hoff and the ADALINE (1959--1960)]
+\begin{figure}[htbp]\centering
+\begin{minipage}[t]{0.54\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch12_widrow_adaline}
+\caption{Bernard Widrow with an ADALINE machine, from a 1963 Stanford magazine
+feature.\mdccredit{ch12_widrow_adaline}}\label{fig:ch12_widrow_adaline}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.42\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch12_knobby_adaline}
+\caption{``Knobby ADALINE'': each knob is one adjustable weight, set by the LMS
+rule.\mdccredit{ch12_knobby_adaline}}\label{fig:ch12_knobby_adaline}
+\end{minipage}
+\end{figure}
+
+\begin{history}[Widrow, Hoff and the ADALINE (1959--1960)]
 In the autumn of 1959 Bernard Widrow, a young Stanford professor, and his doctoral student
 Marcian ``Ted'' Hoff derived the LMS algorithm while working on adaptive pattern-recognising
 ``neurons''. By Widrow's own later account the idea came together over a weekend, and they had a
@@ -653,6 +936,25 @@ where he was one of the architects of the 4004 microprocessor. Widrow spent the 
 applying LMS to adaptive antennas, noise cancelling and echo cancellation, and his 1985 book with
 Samuel Stearns, \emph{Adaptive Signal Processing}, made it standard engineering practice.
 \end{history}
+
+Look closely at the ``Knobby ADALINE'' in Figure~\ref{fig:ch12_knobby_adaline}. Its rows of
+rotary knobs are the weights $\vect w$; the meter shows the output; an operator presented a pattern,
+read the error, and turned each knob by an amount proportional to the error and to that knob's
+input. That is~\eqref{eq:ch12:lms} done by hand. Every SerDes receiver now does the same thing
+billions of times a second, with the knobs replaced by registers.
+
+\begin{analogy}[Learning by nudging after every mistake]
+Think of learning to throw darts. You do not compute the physics; you throw, see that you missed a
+little to the left, and adjust your aim a little to the right. Adjust too timidly and you take an
+hour to find the bullseye; adjust too eagerly and you overcorrect, missing right, then left. And
+because every throw has some random wobble, even an expert's adjustments never stop completely---they
+hover around the right aim. That is LMS: the step size is how eagerly you correct, and the
+``misadjustment'' below is the hovering.
+\end{analogy}
+
+\mdcfig{ch12_lms_rls}{Ensemble-averaged learning curves of an 11-tap equalizer (200 runs, noise variance
+0.001) for four channels of increasing eigenvalue spread $\chi$, after Haykin. Left: LMS slows down
+roughly in proportion to $\chi$. Right: RLS converges in about $2L$ iterations regardless of $\chi$.}
 
 \subsection{Convergence and misadjustment}
 
@@ -673,10 +975,24 @@ data; check before comparing numbers across books.) Mean-square stability requir
 $\mu<2/(3\,\mathrm{tr}\,\vect R)$ for Gaussian inputs; in practice designers stay well below
 $1/\mathrm{tr}\,\vect R$.
 
-This is the central trade-off of LMS: \emph{step size buys speed at the cost of accuracy.} The
-convergence time of the slowest mode is about $1/(\mu\lambda_{\min})$ symbols, the misadjustment is
-proportional to $\mu$, and their product is fixed by the eigenvalue spread. Practical receivers
-use \term{gear shifting}: a large $\mu$ during acquisition, then a smaller one for tracking.
+This is the central trade-off of LMS: \emph{step size buys speed at the cost of accuracy}
+(Figure~\ref{fig:ch12_lms_mu}). The convergence time of the slowest mode is about
+$1/(\mu\lambda_{\min})$ symbols, the misadjustment is proportional to $\mu$, and their product is
+fixed by the eigenvalue spread. Practical receivers use \term{gear shifting}: a large $\mu$ during
+acquisition, then a smaller one for tracking.
+
+\mdcphoto[0.62]{ch12_microwave}{Microwave relay dishes on a telecommunications tower in New South Wales,
+Australia. Point-to-point digital microwave links carrying high-order QAM use adaptive equalizers to
+ride out the multipath created by reflections from the ground and atmospheric layers.}
+
+\begin{tryit}[Watch LMS learn]
+Lab~6's \emph{LMS learning, live} experiment runs the algorithm as you watch: the learning curve
+drops towards the dashed MMSE floor while the tap stems creep towards the Wiener optimum. Drag the
+\emph{Step size $\mu$} slider up by a factor of ten: convergence is faster but the \emph{Excess over
+MMSE} readout rises; push further and it diverges. Try \emph{Sign-sign LMS} and \emph{Normalized
+LMS} from the algorithm menu, and set \emph{Training symbols} to zero to see decision-directed
+start-up fail on a closed eye.
+\end{tryit}
 
 Figure~\ref{fig:ch12_lms_rls} reproduces a classic experiment from Haykin's \emph{Adaptive Filter
 Theory}. BPSK symbols pass through a three-tap raised-cosine channel
@@ -687,11 +1003,7 @@ steady-state error rises. (With a step size of 0.075, used in some editions of t
 worst channel here occasionally diverges in individual runs; we use 0.05.) The same figure shows
 the RLS algorithm on the same channels, which we meet next.
 
-\mdcfig{ch12_lms_rls}{Ensemble-averaged learning curves of an 11-tap equalizer (200 runs, noise variance
-0.001) for four channels of increasing eigenvalue spread $\chi$, after Haykin. Left: LMS slows down
-roughly in proportion to $\chi$. Right: RLS converges in about $2L$ iterations regardless of $\chi$.}
-
-\begin{worked}[title=Choosing an LMS step size]
+\begin{worked}[Choosing an LMS step size]
 A 16-QAM microwave receiver uses a 21-tap equalizer. The AGC holds the input power at $P_y=1$. The
 designer wants a misadjustment of 5\% (about a 0.2\,dB SNR penalty) in tracking.
 From~\eqref{eq:ch12:misadj}, $\mu=2\mathcal M/(LP_y)=2(0.05)/21\approx4.8\times10^{-3}$. Suppose the
@@ -713,8 +1025,9 @@ AGC. \textbf{Normalized LMS}\index{normalized LMS} (NLMS) divides it out:
 \end{equation}
 where the small $\epsilon$ prevents division by zero. NLMS is the exact solution of a neat problem:
 for $\tilde\mu=1$ it finds the tap vector closest to $\vect w_n$ that makes the \emph{a posteriori}
-error on the current sample zero. It is invariant to input scaling, converges faster than LMS when the
-input power fluctuates (speech, bursty data), and is the default for acoustic echo cancellation.
+error on the current sample zero---the smallest nudge that would have made the last guess right. It
+is invariant to input scaling, converges faster than LMS when the input power fluctuates (speech,
+bursty data), and is the default for acoustic echo cancellation.
 
 Hardware designers add further simplifications. \emph{Sign-error} LMS uses $\operatorname{sgn}(e_n)$,
 \emph{sign-data} LMS uses $\operatorname{sgn}(\vect y_n)$, and \term{sign-sign LMS} uses both, so
@@ -730,17 +1043,30 @@ equalizer has converged and the error rate is low, the receiver switches to
 \term{decision-directed} (DD) mode and uses its own slicer decisions as $d_n$. Occasional wrong
 decisions add noise to the update but do not derail it as long as they are rare---typically a
 symbol error rate below a few percent. DD mode lets the equalizer track slow channel variations
-indefinitely without any overhead.
+indefinitely without any overhead. It is a student who, after enough lessons with a teacher's
+answer key, starts marking her own homework---and is right often enough that it works.
 
 Standards reflect the trade-off between training overhead and channel dynamics. GSM places a
-26-bit training sequence in the middle of every 148-bit normal burst (the \emph{midamble}), so the
-channel is re-estimated every 577\,\textmu s burst. ATSC 8-VSB digital television inserts a known
-pseudo-random training segment in each field sync, roughly every 24\,ms. Voice-band modems trained
-once per call for a fraction of a second, then ran decision-directed for hours. High-speed SerDes
-train with known patterns during link bring-up (the ``link training'' phase defined in the Ethernet
-and PCI Express specifications) and then adapt continuously in DD mode.
+26-bit training sequence in the middle of every 148-bit normal burst (the \emph{midamble},
+Figure~\ref{fig:ch12_gsm_burst}), so the channel is re-estimated every 577\,\textmu s burst. ATSC
+8-VSB digital television inserts a known pseudo-random training segment in each field sync, roughly
+every 24\,ms. Voice-band modems trained once per call for a fraction of a second, then ran
+decision-directed for hours (Figure~\ref{fig:ch12_modem_spectrogram}). High-speed SerDes train with
+known patterns during link bring-up (the ``link training'' phase defined in the Ethernet and PCI
+Express specifications) and then adapt continuously in DD mode.
 
-\begin{pitfall}[title=Decision-directed start-up]
+\mdcfig{ch12_gsm_burst}{The GSM normal burst. A 26-bit training sequence (red) sits in the middle,
+between two 57-bit data fields, so that the channel estimated from it is as accurate as possible for
+the data on both sides. T: tail bits; F: stealing flags. The whole burst, with its guard period,
+lasts 577\,\textmu s.}
+
+\mdcphoto[0.98]{ch12_modem_spectrogram}{A spectrogram of a dial-up modem connecting, annotated by Oona
+R\"ais\"anen. After the dialling tones and the V.8 negotiation of phase~1, the modems probe the line
+with tones (phase~2) and then, in phase~3 (right, about 14--18\,s), transmit known wideband
+sequences while \emph{training their equalizers and echo cancellers}---the broadband hiss familiar
+to anyone who used the internet in the 1990s.}
+
+\begin{pitfall}[Decision-directed start-up]
 Decision-directed adaptation only works if the eye is already open enough that most decisions are
 correct. Start a DD equalizer on a closed eye and it can converge to a wrong solution---one that
 reproduces a shifted or rotated version of the constellation, or one with a different delay---and
@@ -748,30 +1074,45 @@ stay there, because the wrong decisions look self-consistent. If you cannot trai
 algorithm (Section~\ref{sec:ch12:blind}) to open the eye first.
 \end{pitfall}
 
+%======================================================================
 \section{Adaptive equalization II: recursive least squares}
 \label{sec:ch12:rls}
+%======================================================================
 
 \subsection{Least squares, recursively}
 
-LMS approximates the Wiener solution stochastically. The \term{recursive least squares} (RLS)
-algorithm instead solves, exactly at every time step, the deterministic problem
+LMS is the hiker feeling her way down in fog. What if, instead, you kept a careful notebook of
+every step and its slope, and at each step solved exactly for the bottom of the valley implied by
+everything you had seen so far? That is \term{recursive least squares} (RLS). Rather than
+approximating the Wiener solution stochastically, it solves, exactly at every time step, the
+deterministic problem
 \begin{equation}
 \vect w_n=\arg\min_{\vect w}\ \sum_{i=1}^{n}\lambda^{n-i}\big|d_i-\vect w^H\vect y_i\big|^2
 +\delta\lambda^n\|\vect w\|^2,
 \label{eq:ch12:rlscost}
 \end{equation}
 where $0<\lambda\le1$ is a \term{forgetting factor} that discounts old data (effective memory
-about $1/(1-\lambda)$ samples) and $\delta$ is a small regulariser. The solution is
-$\vect w_n=\boldsymbol\Phi_n^{-1}\vect z_n$ with the exponentially weighted sample correlation
-$\boldsymbol\Phi_n=\lambda\boldsymbol\Phi_{n-1}+\vect y_n\vect y_n^H$ and cross-correlation
-$\vect z_n=\lambda\vect z_{n-1}+\vect y_nd_n^*$. Inverting an $L\times L$ matrix every symbol would
-cost $\mathcal O(L^3)$, but $\boldsymbol\Phi_n$ changes by a rank-one term, and the
-\term{matrix inversion lemma}
+about $1/(1-\lambda)$ samples) and $\delta$ is a small regulariser.
+
+\mdcfig[0.5]{ch12_rls_newton}{Why RLS converges fast. In a narrow ravine (eigenvalue spread 19), steepest
+descent with the largest stable step zig-zags across the valley and crawls along it (red). A Newton
+step, which pre-multiplies the gradient by $\vect R^{-1}$, points straight at the minimum (blue); RLS
+builds that $\vect R^{-1}$ recursively from the data.}
+
+\begin{deeper}[From the cost function to four lines of algorithm]
+The solution of~\eqref{eq:ch12:rlscost} is $\vect w_n=\boldsymbol\Phi_n^{-1}\vect z_n$ with the
+exponentially weighted sample correlation $\boldsymbol\Phi_n=\lambda\boldsymbol\Phi_{n-1}+\vect y_n\vect
+y_n^H$ and cross-correlation $\vect z_n=\lambda\vect z_{n-1}+\vect y_nd_n^*$. Inverting an
+$L\times L$ matrix every symbol would cost $\mathcal O(L^3)$, but $\boldsymbol\Phi_n$ changes by a
+rank-one term, and the \term{matrix inversion lemma}
 \begin{equation}
 (\vect A+\vect u\vect u^H)^{-1}=\vect A^{-1}-\frac{\vect A^{-1}\vect u\,\vect u^H\vect A^{-1}}{1+\vect u^H\vect A^{-1}\vect u}
 \end{equation}
-updates the inverse $\vect P_n=\boldsymbol\Phi_n^{-1}$ in $\mathcal O(L^2)$ operations. The result is
-the RLS algorithm:
+updates the inverse $\vect P_n=\boldsymbol\Phi_n^{-1}$ in $\mathcal O(L^2)$ operations. Substituting
+and simplifying gives the recursion below.
+\end{deeper}
+
+The result is the RLS algorithm:
 \begin{align}
 \vect k_n&=\frac{\vect P_{n-1}\vect y_n}{\lambda+\vect y_n^H\vect P_{n-1}\vect y_n}
 &&\text{(gain vector)}\nonumber\\
@@ -783,8 +1124,26 @@ the RLS algorithm:
 initialised with $\vect w_0=\vect 0$ and $\vect P_0=\delta^{-1}\vect I$. Compare with LMS: the scalar
 step $\mu$ has become the matrix gain $\vect P_{n-1}$, which \emph{whitens} the input---it
 pre-multiplies the gradient by an estimate of $\vect R^{-1}$, turning the elongated bowl of
-Figure~\ref{fig:ch12_error_surface} into a round one. RLS is Newton's method made recursive.
+Figure~\ref{fig:ch12_error_surface} into a round one. In the hiker's terms, RLS reshapes the ravine
+into a round basin before taking each step. It is Newton's method made recursive.
 (\texttt{commlib.eqadv.rls\_equalizer} implements exactly these four lines.)
+
+\begin{table}[htbp]\centering\small
+\caption{Adaptive algorithms compared ($L$ taps, complex arithmetic, approximate counts).}
+\label{tab:ch12:adaptive}
+\begin{tabular}{lcccl}
+\toprule
+Algorithm & Mults/symbol & Convergence & Slowed by $\chi$? & Typical use \\
+\midrule
+Sign-sign LMS & 0 (counters) & slowest & yes & SerDes FFE/DFE \\
+LMS & $2L$ & $\propto\chi$ & yes & modems, cable, optics \\
+NLMS & $\approx3L$ & $\propto\chi$, scale-free & yes & echo cancellation \\
+RLS (conventional) & $\approx4L^2$ & $\approx2L$ & no & fast start-up, HF modems \\
+QR-RLS / lattice & $\mathcal O(L^2)$ / $\mathcal O(L)$ & $\approx2L$ & no & robust fast start-up \\
+Direct solve & $\mathcal O(L^3)$/block & one block & no & from channel estimate \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Convergence, tracking and cost}
 
@@ -811,24 +1170,12 @@ for tracking a slowly time-varying channel in steady state a well-tuned LMS is o
 because both are limited by the same trade-off between noise averaging and memory.
 \end{itemize}
 
-\begin{table}[htbp]\centering\small
-\caption{Adaptive algorithms compared ($L$ taps, complex arithmetic, approximate counts).}
-\label{tab:ch12:adaptive}
-\begin{tabular}{lcccl}
-\toprule
-Algorithm & Mults/symbol & Convergence & Slowed by $\chi$? & Typical use \\
-\midrule
-Sign-sign LMS & 0 (counters) & slowest & yes & SerDes FFE/DFE \\
-LMS & $2L$ & $\propto\chi$ & yes & modems, cable, optics \\
-NLMS & $\approx3L$ & $\propto\chi$, scale-free & yes & echo cancellation \\
-RLS (conventional) & $\approx4L^2$ & $\approx2L$ & no & fast start-up, HF modems \\
-QR-RLS / lattice & $\mathcal O(L^2)$ / $\mathcal O(L)$ & $\approx2L$ & no & robust fast start-up \\
-Direct solve & $\mathcal O(L^3)$/block & one block & no & from channel estimate \\
-\bottomrule
-\end{tabular}
-\end{table}
+\mdcfig[0.5]{ch12_tracking}{Tracking, not just converging. A 7-tap equalizer follows an echo whose
+phase rotates once every 1500 symbols. RLS with a short memory ($\lambda=0.98$) tracks best; RLS with a
+long memory ($\lambda=0.999$) averages over too much stale data and falls behind; a well-chosen LMS step
+size sits in between.}
 
-\begin{inpractice}[title=Fast start-up: from Godard's Kalman equalizer to HF modems]
+\begin{inpractice}[Fast start-up: from Godard's Kalman equalizer to HF modems]
 In 1974 Dominique Godard at IBM showed that the equalizer taps could be estimated with a Kalman
 filter---in effect an RLS algorithm---so that a data modem trained in tens of symbols instead of
 thousands, a big deal for polled multipoint networks where every terminal had to be re-acquired.
@@ -841,21 +1188,18 @@ adapted with fast least-squares algorithms) can keep up. Satellite and military 
 same ideas for bursts too short for LMS to converge.
 \end{inpractice}
 
-\begin{labbox}[title=Lab: equalizers you can see]
-\lab{moderncomms-labs/labs/lab06\_equalization.py} (and its executed notebook) builds the
-three-tap channel $h\propto[1,\ ae^{j\theta},\ 0.2]$ with a slider for the null depth $a$, and
-compares the frequency responses, constellations, MSE and symbol error rate of ZF and MMSE FIR
-equalizers from \texttt{commlib.zf\_fir} and \texttt{commlib.mmse\_fir}. Section~2 plots LMS
-learning curves for three step sizes, with a switch from training to decision-directed mode, against
-the known-channel MMSE floor; Section~3 opens a rotated QPSK eye blindly with CMA; Section~4 compares
-linear LMS, the LMS decision-feedback equalizer \texttt{commlib.dfe\_lms} and the known-channel MMSE
-equalizer on a deep-null channel. The exercises ask you to sweep the decision delay, build a $T/2$
-fractionally spaced LMS equalizer, and implement a 4-state MLSE for comparison with the DFE---for
-which \texttt{commlib.eqadv.viterbi\_mlse} provides a reference solution.
-\end{labbox}
+\begin{tryit}[RLS against LMS]
+In Lab~6's \emph{LMS vs RLS: eigenvalue spread} experiment, raise the \emph{Channel parameter W}
+slider and watch the \emph{Eigenvalue spread $\chi$} readout grow: the LMS curve slows down while
+RLS keeps converging in about $2L$ iterations. The challenge asks you to make LMS eight times slower
+than RLS. Then lower the \emph{RLS forgetting factor $\lambda$} from 1 to 0.95 and watch RLS's
+steady-state error rise: you have bought tracking agility with noise.
+\end{tryit}
 
+%======================================================================
 \section{Blind equalization}
 \label{sec:ch12:blind}
+%======================================================================
 
 \subsection{Why go blind?}
 
@@ -869,6 +1213,12 @@ systems never have the training sequence to begin with. What they all need is \t
 equalization}: adapting the equalizer using nothing but the statistics of the transmitted
 constellation.
 
+\mdcfig{ch12_gaussianity}{The central limit theorem at work. Binary symbols through a six-tap channel:
+the received samples (left) have a smooth, almost bell-shaped histogram, because each is a sum of
+several random symbols. After equalization (right) the two sharp peaks of the binary alphabet
+reappear. Excess kurtosis, the fourth-order statistic blind algorithms exploit, moves from near the
+Gaussian value of 0 towards the binary value of $-2$.}
+
 At first sight this seems impossible. Second-order statistics (the autocorrelation of $y_n$) reveal
 only $|H(e^{j\omega})|^2$, not the phase of $H$, so any algorithm that uses only correlations cannot
 distinguish a channel from its reflected-zero twins in Figure~\ref{fig:ch12_min_max_phase}. The escape
@@ -876,7 +1226,19 @@ is that the transmitted symbols are \emph{not} Gaussian. A QAM constellation has
 amplitude distribution, and higher-order statistics---in practice, fourth-order moments---do carry
 phase information. Blind equalizers exploit this non-Gaussianity: ISI adds up many symbols and so,
 by the central limit theorem, makes the output \emph{more} Gaussian; an equalizer that makes its
-output as non-Gaussian as possible, in the right sense, undoes the ISI.
+output as non-Gaussian as possible, in the right sense, undoes the ISI
+(Figure~\ref{fig:ch12_gaussianity}).
+
+\begin{analogy}[A teacher who only checks the size of your handwriting]
+Imagine a handwriting teacher who cannot read your language. She cannot tell whether you wrote the
+right words, but she can see whether every letter is the same height, and she corrects you whenever
+a letter is too tall or too short. Surprisingly, that alone is enough to fix smudged, sprawling
+writing---the smudges are what make letters the wrong size. The constant modulus algorithm is that
+teacher: it never knows which symbol was sent, only that every QPSK symbol should lie on a circle of
+radius one, and it nudges the equalizer whenever the output strays off the circle. What it cannot
+fix is a page written upside down: rotate every letter and their heights are unchanged. CMA, too,
+leaves the constellation's rotation untouched.
+\end{analogy}
 
 \subsection{Sato and Godard}
 
@@ -901,6 +1263,14 @@ which Treichler and Agee, applying it independently to FM and other constant-env
 1983, named the \term{constant modulus algorithm} (CMA). The constant $R_2$ sets the target modulus;
 for unit-energy QPSK it is 1, and for unit-energy 16-QAM it is $\E|a|^4=1.32$. The update costs
 barely more than LMS, and it needs neither training symbols, nor decisions, nor carrier lock.
+Figure~\ref{fig:ch12_cma_snap} shows it at work on QPSK: a shapeless cloud becomes a ring, and the
+ring condenses into four tight clusters---rotated by an arbitrary angle.
+
+\mdcfig{ch12_cma_snap}{CMA opening a QPSK eye blindly (four-tap complex channel, $34^\circ$ carrier
+offset, 25\,dB SNR, 11 taps). Three snapshots of the equalizer output: at first a featureless cloud;
+after 1500 symbols, four clusters forming on the unit circle (dashed); after 11{,}000 symbols, tight
+clusters---rotated, because the modulus cost cannot see phase. Right: the moving-average modulus
+error falls by about 10\,dB.}
 
 \subsection{Why CMA works, and what it cannot do}
 
@@ -912,6 +1282,13 @@ symbols (negative kurtosis---true of every uniform QAM or PSK constellation), Fo
 that the minima of $J_2$ are exactly the zero-forcing solutions, up to a phase rotation; related
 results by Benveniste, Goursat and Ruget (1980) and Shalvi and Weinstein (1990) established the
 general conditions under which blind deconvolution is possible at all.
+
+\mdcfig{ch12_cma}{Blind acquisition of 16-QAM. Left: the constant-modulus cost as a function of a
+complex scalar gain $g$ has a ring of minima at $|g|=1$ (dashed): CMA fixes the modulus but not the
+phase. Then: the received signal through a four-tap complex channel with a $29^\circ$ carrier-phase
+offset at 28\,dB SNR; the output of a 15-tap CMA equalizer after 20{,}000 symbols (equalized but
+rotated and still noisy); and the output after switching to decision-directed LMS, which removes
+both the rotation and the residual CMA noise.}
 
 Three limitations follow.
 \begin{itemize}
@@ -931,13 +1308,6 @@ of thousands of symbols to converge and its steady-state MSE is higher than that
 LMS, because the ``error'' $z(|z|^2-R_2)$ is non-zero even for perfectly equalized QAM.
 \end{itemize}
 
-\mdcfig{ch12_cma}{Blind acquisition of 16-QAM. Left: the constant-modulus cost as a function of a
-complex scalar gain $g$ has a ring of minima at $|g|=1$ (dashed): CMA fixes the modulus but not the
-phase. Then: the received signal through a four-tap complex channel with a $29^\circ$ carrier-phase
-offset at 28\,dB SNR; the output of a 15-tap CMA equalizer after 20{,}000 symbols (equalized but
-rotated and still noisy); and the output after switching to decision-directed LMS, which removes
-both the rotation and the residual CMA noise.}
-
 The standard receiver recipe is therefore a two-stage one: \emph{CMA to open the eye, then
 decision-directed LMS to finish}. The switch can be abrupt (after a fixed time, or when a
 dispersion measure falls below a threshold) or soft. Picchi and Prati's \emph{stop-and-go}
@@ -947,7 +1317,7 @@ CMA-like cost separately to the real and imaginary parts, which corrects phase a
 square QAM and converges faster on dense constellations; it was developed for broadband access
 receivers in the late 1990s.
 
-\begin{history}[title=Blind equalization: from Sato to Godard]
+\begin{history}[Blind equalization: from Sato to Godard]
 Yoichi Sato's 1975 paper ``A method of self-recovering equalization for multilevel
 amplitude-modulation systems'' (\emph{IEEE Trans.\ Communications}) introduced the idea that an
 equalizer could train itself on unknown data. Dominique Godard's 1980 paper ``Self-recovering
@@ -961,7 +1331,7 @@ application---every coherent optical receiver shipped since about 2010, where a 
 separates two polarizations scrambled randomly by the fibre (Section~\ref{sec:ch12:optical}).
 \end{history}
 
-\begin{inpractice}[title=Blind acquisition in cable and microwave]
+\begin{inpractice}[Blind acquisition in cable and microwave]
 Downstream cable QAM (ITU-T J.83 Annex B, the physical layer of DOCSIS~3.0 downstream and of digital
 cable television in North America) has no training sequence: every set-top box and modem acquires the
 64- or 256-QAM signal blindly. Receiver chips in this class have commonly used CMA or MMA on a
@@ -973,26 +1343,36 @@ impedance mismatches or ground reflections whose delay is a fraction of a micros
 tens of symbols at their symbol rates.
 \end{inpractice}
 
+\mdcphoto[0.5]{ch12_cable_modem}{A DOCSIS~3.0 cable modem. Its downstream (DS) light reports that the
+downstream QAM channels are locked; like set-top boxes, such modems must acquire those channels without
+any training sequence, which is why blind equalization was built into cable QAM receiver chips.}
+
+\begin{tryit}[Blind acquisition]
+Lab~6's \emph{Blind equalization: CMA} experiment starts a QPSK or 16-QAM equalizer with no
+training at all, behind a channel echo and an \emph{Unknown carrier phase}. Watch the output condense
+onto a ring and then into rotated clusters as the \emph{Dispersion} readout falls; with \emph{Then
+decision-directed LMS} switched on, the \emph{Residual rotation} snaps to zero once DD takes over.
+Raise the step size to acquire faster---and noisier.
+\end{tryit}
+
+%======================================================================
 \section{Decision-feedback equalization}
 \label{sec:ch12:dfe}
+%======================================================================
 
-\subsection{The idea}
+\mdcfig[0.55]{ch12_dfe_cursors}{Anatomy of a sampled pulse response. The cursor (blue) carries the
+symbol being decided. Precursors (orange) come from symbols not yet decided and must be removed by a
+linear feedforward filter. Postcursors (green) are echoes of symbols already decided; a DFE subtracts
+them using its own past decisions, without amplifying any noise.}
+
+\subsection{The idea: subtract what you already know}
 
 A linear equalizer must suppress precursor and postcursor ISI with the same filter, and suppressing
 postcursor ISI linearly means inverting part of the channel---with the attendant noise enhancement.
-But postcursor ISI comes from symbols the receiver has \emph{already decided}. If those decisions are
-correct, the receiver knows exactly how much interference they cause and can simply subtract it,
-noise-free. That is the \term{decision-feedback equalizer} (DFE), shown in
-Figure~\ref{fig:ch12_structures}(b). A \emph{feedforward} filter $\vect w_f$ processes the received
-samples, a \emph{feedback} filter $\vect w_b$ processes past decisions, and the slicer input is
-\begin{equation}
-z_n=\vect w_f^H\vect y_n-\sum_{k=1}^{L_b}w_{b,k}^*\,\hat a_{n-\Delta-k}.
-\label{eq:ch12:dfe}
-\end{equation}
-The DFE is a \emph{nonlinear} equalizer, because the slicer sits inside the feedback loop. Its
-feedforward filter has an easier job than a linear equalizer's: it only needs to make the combined
-response causal (removing precursors) and to whiten the noise, while the feedback filter removes the
-postcursors. On a minimum-phase channel the ideal feedforward filter is just a scale factor.
+But look at where postcursor ISI comes from (Figure~\ref{fig:ch12_dfe_cursors}): symbols the receiver
+has \emph{already decided}. If those decisions are correct, the receiver knows exactly how much
+interference they are causing now and can simply subtract it. No filtering of the noisy received
+signal is involved, so no noise is amplified.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[>=Stealth, font=\small,
@@ -1044,7 +1424,35 @@ the noise, and the feedback filter subtracts the postcursor ISI of symbols alrea
 \label{fig:ch12_structures}
 \end{figure}
 
+\begin{analogy}[Subtracting the echo of what you already said]
+Back in the cathedral: you are listening to a friend speak, and you hear their current word mixed
+with the echo of the last few. But you \emph{know} what those last few words were---you understood
+them a moment ago---so your brain can predict their echo and mentally subtract it, leaving the new
+word clear. That is decision feedback. The scheme has an obvious weak spot: if you misheard a word,
+you subtract the wrong echo, and the next word sounds even stranger. DFEs suffer from exactly this,
+and we will measure it.
+\end{analogy}
+
+That is the \term{decision-feedback equalizer} (DFE), shown in
+Figure~\ref{fig:ch12_structures}(b). A \emph{feedforward} filter $\vect w_f$ processes the received
+samples, a \emph{feedback} filter $\vect w_b$ processes past decisions, and the slicer input is
+\begin{equation}
+z_n=\vect w_f^H\vect y_n-\sum_{k=1}^{L_b}w_{b,k}^*\,\hat a_{n-\Delta-k}.
+\label{eq:ch12:dfe}
+\end{equation}
+The DFE is a \emph{nonlinear} equalizer, because the slicer sits inside the feedback loop. Its
+feedforward filter has an easier job than a linear equalizer's: it only needs to make the combined
+response causal (removing precursors) and to whiten the noise, while the feedback filter removes the
+postcursors. On a minimum-phase channel the ideal feedforward filter is just a scale factor.
+
 \subsection{ZF-DFE and MMSE-DFE}
+
+How much does decision feedback buy? The answer is one of the most elegant results in
+communication theory, and it can be stated without any algebra: \emph{each receiver sees a
+different kind of average of the channel's power spectrum.} The linear ZF equalizer sees the
+harmonic mean, which a single deep notch drags towards zero. The ZF-DFE sees the geometric mean,
+which a notch dents only logarithmically. The genie-aided matched-filter bound sees the ordinary
+arithmetic mean. Here is the formula behind the slogan.
 
 The ideal DFE is best understood through the spectral factorization~\eqref{eq:ch12:specfact}. For
 the \emph{zero-forcing} DFE, the feedforward filter is the whitened matched filter, which leaves the
@@ -1059,6 +1467,12 @@ arithmetic mean (MFB). Since $\text{harmonic}\le\text{geometric}\le\text{arithme
 beats the linear equalizer, and the geometric mean is far more forgiving of a single deep notch:
 a notch contributes its \emph{logarithm}, not its reciprocal. The ZF-DFE still fails for a true
 spectral null ($\ln 0=-\infty$), but gracefully for a merely deep one.
+
+\mdcfig[0.8]{ch12_three_means}{Unbiased output SNR of the four infinite-length equalizers on four
+channels at $E_s/N_0=20$\,dB. On mild channels everything is close to the matched-filter bound
+(dotted). As the channel acquires deep notches the linear equalizers collapse---the linear ZF
+equalizer on Proakis C, which has spectral nulls, has no bar at all---while the decision-feedback
+equalizers hold on.}
 
 The \emph{MMSE}-DFE replaces the factorization of $|H|^2$ by that of $|H|^2+N_0/E_s$, and Salz's
 classic result (1973) gives
@@ -1081,7 +1495,7 @@ unbiased MMSE-DFE---assuming correct decisions---converts the ISI channel into a
 the ISI channel's information rate (Chapter~\ref{ch:infotheory}). The caveat ``assuming correct
 decisions'' is exactly what the next two subsections and Tomlinson--Harashima precoding are about.
 
-\begin{keyidea}[title=Three means of the channel spectrum]
+\begin{keyidea}[Three means of the channel spectrum]
 For a unit-energy channel with power response $|H|^2$ at high SNR:
 linear ZF sees the \emph{harmonic} mean of $|H|^2$, the ZF-DFE sees the \emph{geometric} mean, and
 the matched-filter bound is the \emph{arithmetic} mean. The gaps between these means are the losses
@@ -1103,27 +1517,42 @@ applied to both filters, with the error $e_n=\hat a_{n-\Delta}-z_n$
 
 \subsection{Error propagation}
 
+\mdcfig{ch12_bursts}{Error propagation, simulated on Proakis channel B with an MMSE-DFE ($L_f=11$,
+$L_b=2$) at $E_b/N_0=9$\,dB. Left: a 120-symbol stretch in which a single error of the genie-aided DFE
+(correct decisions fed back) becomes a burst of errors when the DFE feeds back its own decisions.
+Right: distribution of burst spans over 200{,}000 symbols; feeding back real decisions makes multi-symbol
+bursts common and raises the bit error rate about fourfold.}
+
 The DFE's Achilles heel is its reliance on its own decisions. When a decision is wrong, the
 feedback filter subtracts the wrong interference, which \emph{adds} ISI of twice the amplitude to the
 following symbols and makes further errors more likely. Errors therefore arrive in bursts. For a
 binary DFE with $L_b$ feedback taps, a burst ends once $L_b$ consecutive correct decisions flush
 the feedback register, and analyses in the 1970s (Duttweiler, Mazo and Messerschmitt) bounded the
 average burst length; in practice it is a few symbols for well-behaved channels, and error
-propagation costs of order 1--3\,dB at moderate error rates.
+propagation costs of order 1--3\,dB at moderate error rates. Figure~\ref{fig:ch12_bursts} catches
+one such burst in the act.
 
 Figure~\ref{fig:ch12_dfe_ber} quantifies all of this on Proakis channel B, whose spectral null at the
-band edge, is the linear equalizer's nightmare. A 31-tap linear MMSE equalizer does not even
+band edge is the linear equalizer's nightmare. A 31-tap linear MMSE equalizer does not even
 reach a BER of $10^{-2}$ until about 16\,dB, roughly 10\,dB behind the matched-filter bound. An
-MMSE-DFE with correct decisions fed back (a genie) reaches $10^{-3}$ at about 10.5\,dB; with its own decisions it loses about 1.5\,dB to error
-propagation at that BER. And the maximum-likelihood sequence detector of the next section beats
-both.
+MMSE-DFE with correct decisions fed back (a genie) reaches $10^{-3}$ at about 10.5\,dB; with its own
+decisions it loses about 1.5\,dB to error propagation at that BER. And the maximum-likelihood
+sequence detector of Section~\ref{sec:ch12:mlse} beats both.
 
 \mdcfig[0.8]{ch12_dfe_ber}{Monte Carlo bit error rate of BPSK over Proakis channel B (spectral null at
 $fT=0.5$). Linear MMSE (31 taps), MMSE-DFE ($L_f=11$, $L_b=2$) with its own decisions and with
 correct decisions fed back, and 4-state MLSE, against the matched-filter bound. The gap between the
 two DFE curves is the cost of error propagation.}
 
-\begin{pitfall}[title=DFE and forward error correction do not mix easily]
+\begin{tryit}[Make a DFE stumble]
+In Lab~6's \emph{Decision feedback and error bursts} experiment, select Proakis~B. The top strip
+shows where the errors of the linear MMSE equalizer, the DFE and the genie-fed DFE fall; the
+histogram shows burst lengths. Lower $E_b/N_0$ until errors appear and watch single genie errors
+turn into DFE bursts, then change the number of \emph{Feedback taps} from 2 to 6. One challenge asks
+you to make the mean burst four errors or longer.
+\end{tryit}
+
+\begin{pitfall}[DFE and forward error correction do not mix easily]
 Modern links run close to the error-correction threshold, where the raw symbol error rate before
 decoding may be $10^{-2}$ or higher. At such rates a DFE's decisions are frequently wrong, error
 propagation is severe, and the bursts it creates can defeat a decoder designed for random errors. You
@@ -1135,7 +1564,7 @@ links do, Section~\ref{sec:ch12:serdes}); move the feedback filter to the transm
 Section~\ref{sec:ch12:turbo}).
 \end{pitfall}
 
-\begin{inpractice}[title=Decision feedback everywhere]
+\begin{inpractice}[Decision feedback everywhere]
 The DFE is the default equalizer of the wired world. ATSC 8-VSB digital-television receivers use a
 long DFE (hundreds of taps, many of them feedback) to cancel ghosts that can arrive tens of
 microseconds late. High-speed SerDes use a DFE of one to a dozen or more taps after a CTLE and FFE
@@ -1147,31 +1576,18 @@ MIMO (Chapter~\ref{ch:mimo}), which is a decision-feedback equalizer operating a
 time.
 \end{inpractice}
 
+%======================================================================
 \section{Tomlinson--Harashima precoding}
 \label{sec:ch12:thp}
+%======================================================================
 
 \subsection{Moving the feedback filter to the transmitter}
 
-If the transmitter knows the channel (because the receiver measured it during training and sent the
-coefficients back), it can pre-subtract the postcursor ISI \emph{before} transmission, using the
-true symbols instead of noisy decisions. Error propagation disappears. The naive way---pre-filtering
-by $1/H(z)$---fails because the pre-filter's output power can be enormous when $H(z)$ has deep notches
-(the transmitter's version of noise enhancement), and because $1/H(z)$ is unstable unless $H$ is
-minimum phase. \term{Tomlinson--Harashima precoding} (THP) fixes the power problem with a modulo
-operation. For $M$-PAM with levels $\pm1,\pm3,\dots,\pm(M-1)$ and a monic causal channel
-($h_0=1$), the transmitter sends
-\begin{equation}
-x_n=\operatorname{mod}_{2M}\Big(a_n-\sum_{k=1}^{\nu}h_k\,x_{n-k}\Big),
-\qquad \operatorname{mod}_{2M}(v)=v-2M\Big\lfloor\frac{v+M}{2M}\Big\rfloor\in[-M,M).
-\label{eq:ch12:thp}
-\end{equation}
-The modulo keeps $x_n$ inside $[-M,M)$ whatever the channel. The channel then adds back the
-interference the transmitter subtracted:
-$y_n=x_n+\sum_{k\ge1}h_kx_{n-k}+w_n=a_n+2Mi_n+w_n$ for some integer $i_n$, so the receiver
-simply applies the same modulo to recover $a_n+w_n$ and slices (Figure~\ref{fig:ch12_thp_block}).
-The receiver sees an \emph{extended} constellation---copies of the $M$-PAM alphabet repeated every
-$2M$---which the modulo folds back (Figure~\ref{fig:ch12_thp}). For QAM the modulo is applied to the
-real and imaginary parts separately.
+The DFE's problem is that it subtracts echoes based on \emph{guesses}. But there is one party in the
+link that knows the symbols with certainty: the transmitter. If the transmitter knows the channel
+(because the receiver measured it during training and sent the coefficients back), it can
+pre-subtract the postcursor ISI \emph{before} transmission, using the true symbols instead of noisy
+decisions. Error propagation disappears.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[>=Stealth, font=\small,
@@ -1203,6 +1619,44 @@ minimum phase).}
 \label{fig:ch12_thp_block}
 \end{figure}
 
+The naive way---pre-filtering by $1/H(z)$---fails because the pre-filter's output power can be
+enormous when $H(z)$ has deep notches (the transmitter's version of noise enhancement), and because
+$1/H(z)$ is unstable unless $H$ is minimum phase. \term{Tomlinson--Harashima precoding} (THP) fixes
+the power problem with a beautifully simple trick: \emph{modulo arithmetic}. Whenever the
+pre-subtracted signal wanders outside the allowed range, wrap it back in, like the hand of a clock
+passing twelve. The receiver, which sees the channel add the echoes back, applies the same wrap
+and the symbols reappear.
+
+For $M$-PAM with levels $\pm1,\pm3,\dots,\pm(M-1)$ and a monic causal channel ($h_0=1$), the
+transmitter sends
+\begin{equation}
+x_n=\operatorname{mod}_{2M}\Big(a_n-\sum_{k=1}^{\nu}h_k\,x_{n-k}\Big),
+\qquad \operatorname{mod}_{2M}(v)=v-2M\Big\lfloor\frac{v+M}{2M}\Big\rfloor\in[-M,M).
+\label{eq:ch12:thp}
+\end{equation}
+The modulo keeps $x_n$ inside $[-M,M)$ whatever the channel. The channel then adds back the
+interference the transmitter subtracted:
+$y_n=x_n+\sum_{k\ge1}h_kx_{n-k}+w_n=a_n+2Mi_n+w_n$ for some integer $i_n$, so the receiver
+simply applies the same modulo to recover $a_n+w_n$ and slices (Figure~\ref{fig:ch12_thp_block}).
+The receiver sees an \emph{extended} constellation---copies of the $M$-PAM alphabet repeated every
+$2M$---which the modulo folds back (Figure~\ref{fig:ch12_thp}). For QAM the modulo is applied to the
+real and imaginary parts separately.
+
+\begin{analogy}[Telling the time on a clock face]
+Add 5 hours to 10 o'clock and a clock shows 3, not 15. Nothing is lost as long as everyone agrees
+to read the clock modulo twelve. THP treats amplitude the same way: when pre-subtracting the echoes
+would push the transmitted value off the end of the allowed range, it wraps around to the other end.
+The channel then adds the echoes back, the received value may land on ``15 o'clock'', and the
+receiver's modulo reads it as 3---the right answer. The analogy breaks only at the edges: noise near
+the wrap point can tip a value to the wrong side, which is the small ``modulo loss'' below.
+\end{analogy}
+
+\mdcfig{ch12_thp}{THP for 4-PAM over $h=[1,\ 0.95,\ 0.5]$. Left: the linear pre-inverse $1/H(z)$ more
+than doubles the transmit power, whereas THP output is almost uniform on $[-4,4)$ with power close to
+the 5.33 predicted for a uniform distribution. Centre: received samples fall on an extended lattice.
+Right: after the receiver's modulo, the four levels reappear, cleanly separated by the dashed
+boundaries $\pm M$.}
+
 \subsection{The costs of THP}
 
 THP is not free, but its costs are small and known:
@@ -1221,13 +1675,7 @@ compute the feedback filter and send it back, which requires a handshake at star
 unsuitable for fast-changing channels.
 \end{itemize}
 
-\mdcfig{ch12_thp}{THP for 4-PAM over $h=[1,\ 0.95,\ 0.5]$. Left: the linear pre-inverse $1/H(z)$ more
-than doubles the transmit power, whereas THP output is almost uniform on $[-4,4)$ with power close to
-the 5.33 predicted for a uniform distribution. Centre: received samples fall on an extended lattice.
-Right: after the receiver's modulo, the four levels reappear, cleanly separated by the dashed
-boundaries $\pm M$.}
-
-\begin{history}[title=Tomlinson and Harashima (1971--1972)]
+\begin{history}[Tomlinson and Harashima (1971--1972)]
 Martin Tomlinson, then at the Plessey company in England, published the modulo-arithmetic precoder
 in a two-page letter, ``New automatic equaliser employing modulo arithmetic'', in \emph{Electronics
 Letters} in 1971. Independently, Hiroshi Harashima and Hiroshi Miyakawa of the University of Tokyo
@@ -1241,7 +1689,12 @@ mathematics, extended to many users, underlies nonlinear precoding for multi-use
 vectoring, where it is sometimes described as ``dirty-paper coding made practical''.
 \end{history}
 
-\begin{worked}[title=The precoding loss of 10GBASE-T]
+\mdcphoto[0.6]{ch12_courier_v34}{A US Robotics Courier V.34 modem. A V.34 modem probes the line during
+its handshake, picks a symbol rate and carrier, and can switch on a nonlinear precoder of the
+Tomlinson--Harashima family so that the far-end transmitter pre-cancels the line's ISI. The front-panel
+lights report the carrier (CD), high speed (HS) and error control (ARQ).}
+
+\begin{worked}[The precoding loss of 10GBASE-T]
 10GBASE-T transmits 800\,Msymbol/s on each of four twisted pairs using 16-level PAM (arranged in a
 two-dimensional 128-point constellation called DSQ128), with THP to pre-equalize the cable. For
 one-dimensional 16-PAM the precoding loss is $10\log_{10}(256/255)=0.017$\,dB, utterly negligible. By
@@ -1250,39 +1703,61 @@ of decibels at 400\,MHz, would suffer long error bursts that would defeat the LD
 the DFE's performance without its bursts, for less than two hundredths of a decibel.
 \end{worked}
 
+\mdcphoto[0.55]{ch12_x540}{A dual-port 10GBASE-T network adapter (Intel X540-T2). Behind each RJ45 jack
+is a transceiver running, on each of four pairs, THP at the transmitter, an echo canceller and three
+crosstalk cancellers at the receiver, and LDPC decoding---much of this chapter on one heat-sinked
+chip.}
+
+%======================================================================
 \section{Maximum-likelihood sequence estimation}
 \label{sec:ch12:mlse}
+%======================================================================
 
 \subsection{Detecting the sequence, not the symbol}
 
-Linear equalizers and DFEs make symbol-by-symbol decisions and treat ISI as an enemy. But ISI also
-carries information: each symbol's energy is spread over several samples, and a detector that
-considers all of them jointly can use that energy instead of discarding or cancelling it. The optimal
-detector of the whole sequence, given the Forney model~\eqref{eq:ch12:forney} with white Gaussian
-noise, chooses
+Linear equalizers and DFEs make symbol-by-symbol decisions and treat ISI as an enemy to be removed.
+But ISI is not pure loss. Each symbol's energy is spread over several samples, and a detector that
+considers all of them jointly can \emph{use} that energy instead of discarding or cancelling it.
+The question changes from ``what is this symbol?'' to ``which whole sequence of symbols best explains
+everything I received?''
+
+The optimal detector of the whole sequence, given the Forney model~\eqref{eq:ch12:forney} with white
+Gaussian noise, chooses
 \begin{equation}
 \hat{\vect a}=\arg\min_{\vect a\in\mathcal A^N}\ \sum_n\Big|y_n-\sum_{k=0}^{\nu}h_k\,a_{n-k}\Big|^2 .
 \label{eq:ch12:mlse}
 \end{equation}
-This is \term{maximum-likelihood sequence estimation} (MLSE). A brute-force search over $M^N$
-sequences is absurd, but the channel's finite memory gives the problem a \emph{trellis} structure.
-Define the state at time $n$ as the $\nu$ most recent symbols $s_n=(a_{n-1},\dots,a_{n-\nu})$; there
-are $M^\nu$ states. Each new symbol $a_n$ moves the trellis from $s_n$ to $s_{n+1}$ and produces the
-noiseless output $\sum_k h_ka_{n-k}$, which depends only on $(s_n,a_n)$. The cost~\eqref{eq:ch12:mlse}
-is a sum of branch metrics along a path through the trellis, and the \term{Viterbi algorithm}
-(Chapter~\ref{ch:classiccodes}) finds the minimum-cost path with $M^{\nu+1}$ branch-metric
-computations per symbol: for each state, keep only the best path (the \emph{survivor}) into it.
+In words: try every possible symbol sequence, push it through a model of the channel, and pick the
+one whose noiseless output is closest to what you received. This is \term{maximum-likelihood
+sequence estimation} (MLSE). A brute-force search over $M^N$ sequences is absurd, but the channel's
+finite memory gives the problem a \emph{trellis} structure. Define the state at time $n$ as the $\nu$
+most recent symbols $s_n=(a_{n-1},\dots,a_{n-\nu})$; there are $M^\nu$ states. Each new symbol $a_n$
+moves the trellis from $s_n$ to $s_{n+1}$ and produces the noiseless output $\sum_k h_ka_{n-k}$,
+which depends only on $(s_n,a_n)$. The cost~\eqref{eq:ch12:mlse} is a sum of branch metrics along a
+path through the trellis, and the \term{Viterbi algorithm} (Chapter~\ref{ch:classiccodes}) finds the
+minimum-cost path with $M^{\nu+1}$ branch-metric computations per symbol: for each state, keep only
+the best path (the \emph{survivor}) into it.
+
+\mdcfig{ch12_trellis}{Viterbi MLSE on a 4-state trellis (BPSK over Proakis channel B, 14 noisy
+samples). Thin grey lines are all possible transitions; coloured lines are the survivors into each
+of the four final states, which merge a few steps back. The ML survivor (dark blue) coincides with
+the transmitted state sequence (red circles).}
+
+\begin{analogy}[A satnav that keeps several routes alive]
+A good satnav does not commit to the first turning that looks promising. It keeps the best route
+to each nearby junction alive, and only when the routes it is tracking all share the same early
+streets does it say, with confidence, ``we definitely took the high street''. The Viterbi detector
+does exactly this: for every possible channel state it keeps the single best history leading there,
+discards the rest, and commits to old decisions only once all the surviving histories agree about
+them. Where the analogy stops: the satnav's cost is distance, the detector's is the squared
+distance between what it received and what each hypothesised history would have produced.
+\end{analogy}
 
 Figure~\ref{fig:ch12_trellis} shows a 4-state trellis for BPSK over channel B ($\nu=2$), with the
 survivors into each final state traced back. They \emph{merge}: a few symbols back, all survivors
 agree, so the decisions for those symbols are final regardless of what happens later. This is why
 practical Viterbi detectors output decisions with a fixed \emph{traceback depth} of about five times
 the channel memory rather than waiting for the end of the sequence.
-
-\mdcfig{ch12_trellis}{Viterbi MLSE on a 4-state trellis (BPSK over Proakis channel B, 14 noisy
-samples). Thin grey lines are all possible transitions; coloured lines are the survivors into each
-of the four final states, which merge a few steps back. The ML survivor (dark blue) coincides with
-the transmitted state sequence (red circles).}
 
 \subsection{Forney's and Ungerboeck's formulations}
 
@@ -1311,7 +1786,7 @@ $|\varepsilon_0|^2\sum|h_k|^2$---the matched-filter bound. So MLSE achieves the 
 multi-symbol error event is closer than a single-symbol one, which is true for many channels. When
 some longer event is closer, the loss relative to the MFB is $10\log_{10}(d^2_{\mathrm{MFB}}/d^2_{\min})$.
 
-\begin{worked}[title=The MLSE loss on channels B and C]
+\begin{worked}[The MLSE loss on channels B and C]
 For BPSK the error symbols are $\varepsilon_k\in\{0,\pm2\}$ and the MFB distance is $4\|h\|^2=4$.
 For channel B, $h=[0.408,\ 0.816,\ 0.408]$, the double error $\boldsymbol\varepsilon=(2,-2)$ produces
 the output difference $2h*(1,-1)=[0.816,\ 0.816,\ -0.816,\ -0.816]$, whose energy is $4\times0.667=2.67$.
@@ -1324,26 +1799,48 @@ than 8\,dB from the bound even before counting error propagation. On hard channe
 several decibels.
 \end{worked}
 
+\mdcfig[0.55]{ch12_states}{The exponential wall of sequence detection: trellis states $M^\nu$
+against channel memory for five constellations. Binary GSM with four symbols of memory needs 16
+states (star); 8-PSK with the same memory would need 4096, and dense QAM on a long channel is
+hopeless without state reduction.}
+
 \subsection{MLSE in GSM}
 
-GSM is the textbook deployment of MLSE. Its GMSK modulation is not linear, but Laurent's
-decomposition shows that it is very well approximated by a linearly modulated signal with a single
-pulse, so the ISI model applies. Each normal burst carries a 26-bit training sequence in its middle;
-the receiver correlates the received midamble with the known sequence (each 26-bit sequence is a 16-bit core with cyclic extensions, chosen so that the correlation is
-impulse-like over the range of delays of interest) to estimate a channel
-impulse response of about five symbol periods, then runs a Viterbi detector across the two halves of
-the burst. A channel memory of four symbols (about 15\,\textmu s) gives $2^4=16$ states, and 16-state
-equalizers were typical; they cope with most of the delay spreads in the GSM propagation test profiles. The
-estimate is held fixed across the burst, which is short enough (577\,\textmu s) that the channel is
-nearly constant even at high speeds.
+GSM is the textbook deployment of MLSE, and it ran in hundreds of millions of handsets like the one
+in Figure~\ref{fig:ch12_nokia5110}. Its GMSK modulation is not linear, but Laurent's decomposition
+shows that it is very well approximated by a linearly modulated signal with a single pulse, so the
+ISI model applies. Each normal burst carries a 26-bit training sequence in its middle
+(Figure~\ref{fig:ch12_gsm_burst}); the receiver correlates the received midamble with the known
+sequence (each 26-bit sequence is a 16-bit core with cyclic extensions, chosen so that the
+correlation is impulse-like over the range of delays of interest) to estimate a channel impulse
+response of about five symbol periods, then runs a Viterbi detector across the two halves of the
+burst. A channel memory of four symbols (about 15\,\textmu s) gives $2^4=16$ states, and 16-state
+equalizers were typical; they cope with most of the delay spreads in the GSM propagation test
+profiles. The estimate is held fixed across the burst, which is short enough (577\,\textmu s) that the
+channel is nearly constant even at high speeds.
+
+It is worth pausing on how remarkable that was. In the mid-1990s a handset's DSP had a fraction of
+the processing power of a modern wristwatch, yet on every one of the bursts arriving at a rate of
+about 217 per second it estimated a channel from the midamble, built a 16-state trellis, ran the
+Viterbi recursion over the 116 data bits and handed soft-ish decisions to the convolutional
+decoder---while also running a speech codec. GSM's designers chose the burst length, the midamble
+position and the modulation index with exactly this equalizer in mind. It is one of the best
+examples in this book of a system whose air interface was designed around the receiver
+algorithm, rather than the other way round. The same trellis also explains why the approach did not
+scale: Figure~\ref{fig:ch12_states} shows how the number of states explodes with constellation size
+and channel memory.
+
+\mdcphoto[0.28]{ch12_nokia5110}{A Nokia 5110 GSM handset of the late 1990s. Inside, a DSP ran a
+16-state Viterbi equalizer on every received burst.}
 
 \subsection{Reduced-state sequence estimation}
 
-The $M^\nu$ states of full MLSE explode for large constellations or long channels. EDGE, the 8-PSK
-evolution of GSM, would need $8^4=4096$ states for the same channel memory, and 16-QAM on a
-five-symbol channel would need 65{,}536. \textbf{Reduced-state sequence estimation}\index{reduced-state sequence estimation} (RSSE; Eyuboglu and
-Qureshi, 1988) and \term{decision-feedback sequence estimation} (DFSE; Duel-Hallen and Heegard, 1989)
-keep a trellis over only the first $\mu<\nu$ channel taps and cancel the remaining tail with
+The $M^\nu$ states of full MLSE explode for large constellations or long channels
+(Figure~\ref{fig:ch12_states}). EDGE, the 8-PSK evolution of GSM, would need $8^4=4096$ states for
+the same channel memory, and 16-QAM on a five-symbol channel would need 65{,}536.
+\textbf{Reduced-state sequence estimation}\index{reduced-state sequence estimation} (RSSE; Eyuboglu
+and Qureshi, 1988) and \term{decision-feedback sequence estimation} (DFSE; Duel-Hallen and Heegard,
+1989) keep a trellis over only the first $\mu<\nu$ channel taps and cancel the remaining tail with
 decision feedback taken from each survivor's own history (\emph{per-survivor processing}). With
 $\mu=0$ the detector degenerates to a DFE; with $\mu=\nu$ it is full MLSE. Because the tail is
 handled by feedback, these detectors work best when the channel's energy is concentrated in its
@@ -1364,7 +1861,12 @@ Hoeher (1989) approximates them more cheaply. Soft-output equalizers are the gat
 equalization (Section~\ref{sec:ch12:turbo}) and are treated fully with turbo codes in
 Chapter~\ref{ch:moderncodes}.
 
-\begin{inpractice}[title=PRML: sequence detection in every hard disk]
+\mdcfig[0.5]{ch12_bcjr_llr}{What ``soft'' output looks like. Log-likelihood ratios from a BCJR
+equalizer on Proakis channel B at $E_b/N_0=6$\,dB, multiplied by the true sign so that positive means
+``right''. The rare wrong decisions (red) almost all carry small LLRs: the equalizer knows when it is
+unsure, which is exactly what a following decoder needs.}
+
+\begin{inpractice}[PRML: sequence detection in every hard disk]
 The magnetic recording channel is an ISI channel whose response lengthens as bits are packed more
 densely. In 1990 IBM shipped the first disk drive with a \emph{partial-response maximum-likelihood}
 (PRML) read channel: an equalizer shapes the channel to a short, known partial-response target such
@@ -1376,8 +1878,22 @@ SerDes receivers of Section~\ref{sec:ch12:serdes}: equalize to a short target, t
 sequence.
 \end{inpractice}
 
+\mdcphoto[0.6]{ch12_hdd_head}{The read/write head of a hard disk drive, at the tip of its suspension arm,
+resting above a platter. The signal it reads back is an ISI channel spanning several bits; a PRML or
+noise-predictive Viterbi detector, iterating with an LDPC decoder in modern drives, turns it back into
+data.}
+
+\begin{tryit}[Viterbi against the DFE]
+Lab~6's \emph{MLSE: the Viterbi equalizer} experiment animates the trellis: gray survivor paths,
+the best path in green and the truth dashed. Watch the survivors merge a few symbols back (the
+\emph{Survivors merge after} readout). Switch from Proakis~B (4 states) to Proakis~C (16 states) and
+compare the \emph{Asymptotic MLSE loss} readout with the 1.76\,dB and 5.0\,dB of the worked example.
+\end{tryit}
+
+%======================================================================
 \section{Frequency-domain equalization}
 \label{sec:ch12:fde}
+%======================================================================
 
 \subsection{The complexity wall}
 
@@ -1393,24 +1909,35 @@ in the frequency domain.
 \subsection{Cyclic prefix and one-tap equalization}
 
 The trick is to make linear convolution look circular. Transmit data in blocks of $N$ symbols and
-precede each block by a copy of its last $N_{\mathrm{cp}}\ge\nu$ symbols, a \term{cyclic prefix}.
-After discarding the prefix at the receiver, the channel's linear convolution with the block equals a
-\emph{circular} convolution, which the $N$-point DFT diagonalises:
+precede each block by a copy of its last $N_{\mathrm{cp}}\ge\nu$ symbols, a \term{cyclic prefix}
+(Figure~\ref{fig:ch12_cyclic_prefix}). The smear of each block spills only into the next block's
+prefix, which the receiver throws away. After discarding the prefix, the channel's linear
+convolution with the block equals a \emph{circular} convolution, which the $N$-point DFT
+diagonalises:
 \begin{equation}
 Y_k=H_k\,A_k+W_k,\qquad k=0,\dots,N-1,
 \end{equation}
 where $A_k$, $Y_k$ and $H_k$ are the DFTs of the block, the received block and the channel. The
-channel has become $N$ independent flat sub-channels, each equalized by one complex multiply. The
-\term{single-carrier frequency-domain equalizer} (SC-FDE) applies the MMSE weights
+channel has become $N$ independent flat sub-channels, each equalized by one complex multiply---one
+slider per band, exactly the graphic equalizer of Figure~\ref{fig:ch12_graphic_eq_bars}, but with
+hundreds or thousands of bands.
+
+\mdcfig{ch12_cyclic_prefix}{The cyclic prefix. Each block of $N$ symbols is preceded by a copy of its
+own last $N_{cp}$ symbols. The channel's smear of block $k$ (red) spills only into the prefix of block
+$k+1$, which the receiver discards, so what remains looks to the receiver as if the channel had
+convolved each block with itself circularly---the operation the FFT turns into one multiply per
+frequency.}
+
+The \term{single-carrier frequency-domain equalizer} (SC-FDE) applies the MMSE weights
 \begin{equation}
 W_k=\frac{H_k^*}{|H_k|^2+N_0/E_s},
 \end{equation}
 the discrete counterpart of~\eqref{eq:ch12:mmseinf}, then transforms back to the time domain with an
 inverse DFT and slices. Per block the cost is two FFTs and $N$ multiplies---about
 $\log_2N+1$ complex multiplies per symbol, independent of the delay spread as long as the prefix
-covers it.
+covers it (Figure~\ref{fig:ch12_fde_cost}).
 
-\begin{worked}[title=Time domain versus frequency domain]
+\begin{worked}[Time domain versus frequency domain]
 A single-carrier link at 20\,Msymbol/s must equalize a 10\,\textmu s channel (200 symbols). A
 time-domain linear equalizer of $L=600$ taps costs 600 complex multiplies per symbol for filtering
 alone: $1.2\times10^{10}$ per second. An SC-FDE with $N=2048$ and a 256-symbol prefix (12.5\%
@@ -1422,14 +1949,50 @@ and the prefix is pure overhead, but the complexity advantage is overwhelming.
 
 \subsection{SC-FDE, OFDM and their relatives}
 
-Move the inverse DFT from the receiver to the transmitter and you have \term{OFDM}: data are placed
+Move the inverse DFT from the receiver to the transmitter (Figure~\ref{fig:ch12_scfde_ofdm}) and you have \term{OFDM}: data are placed
 directly on the subcarriers, and the receiver's per-bin equalizer outputs the symbols without
 transforming back. OFDM and SC-FDE have identical complexity and use the same one-tap equalizer; they
 differ in where the symbols live. OFDM's per-subcarrier symbols allow adaptive bit loading and simple
-MIMO processing but produce a Gaussian-like waveform with a high peak-to-average power ratio. SC-FDE
+MIMO processing but produce a Gaussian-like waveform with a high peak-to-average power ratio
+(Figure~\ref{fig:ch12_papr}). SC-FDE
 keeps the low PAPR of a single-carrier signal, and each symbol is spread across all frequencies, which
 gives frequency diversity even without coding, but it cannot load bits per frequency and pays the
 MMSE equalizer's noise penalty on deep fades. Chapter~\ref{ch:ofdm} develops OFDM in full.
+
+\mdcfig[0.55]{ch12_fde_cost}{Complex multiplies per symbol to equalize a channel of given memory:
+a time-domain FFE three channel spans long (red) against FFT-based block equalization with a block
+eight times the channel memory (blue). Beyond a few tens of symbols, the FFT wins by orders of
+magnitude.}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth, font=\footnotesize, node distance=0.3cm,
+  blk/.style={draw=navy, fill=navy!6, thick, rounded corners=2pt, minimum height=0.75cm, minimum width=1.1cm, align=center},
+  hot/.style={draw=accent, fill=accent!8, thick, rounded corners=2pt, minimum height=0.75cm, minimum width=1.1cm, align=center},
+  lbl/.style={font=\footnotesize, align=right, anchor=east}]
+\node[lbl] at (-0.3,0) {SC-FDE};
+\node[blk] (a1) at (0.7,0) {symbols};
+\node[blk, right=of a1] (b1) {add CP};
+\node[blk, right=of b1, minimum width=1.4cm] (c1) {channel};
+\node[blk, right=of c1] (d1) {drop CP,\\FFT};
+\node[blk, right=of d1] (e1) {$\times W_k$};
+\node[hot, right=of e1] (f1) {IFFT};
+\node[blk, right=of f1] (g1) {slicer};
+\foreach \u/\v in {a1/b1,b1/c1,c1/d1,d1/e1,e1/f1,f1/g1} \draw[->] (\u) -- (\v);
+\node[lbl] at (-0.3,-1.3) {OFDM};
+\node[blk] (a2) at (0.7,-1.3) {symbols};
+\node[hot, right=of a2] (h2) {IFFT};
+\node[blk, right=of h2] (b2) {add CP};
+\node[blk, right=of b2, minimum width=1.4cm] (c2) {channel};
+\node[blk, right=of c2] (d2) {drop CP,\\FFT};
+\node[blk, right=of d2] (e2) {$\times W_k$};
+\node[blk, right=of e2] (g2) {slicer};
+\foreach \u/\v in {a2/h2,h2/b2,b2/c2,c2/d2,d2/e2,e2/g2} \draw[->] (\u) -- (\v);
+\end{tikzpicture}
+\caption{SC-FDE and OFDM use the same blocks. The only difference is where the inverse FFT (red) sits:
+at the receiver, after the one-tap equalizer, for SC-FDE; at the transmitter for OFDM, which puts the
+data symbols directly on the subcarriers.}
+\label{fig:ch12_scfde_ofdm}
+\end{figure}
 
 The single-carrier branch is very much alive. The LTE uplink uses \emph{SC-FDMA}, which is DFT-spread
 OFDM---SC-FDE with the users multiplexed in frequency---precisely to keep handset power-amplifier PAPR
@@ -1440,7 +2003,22 @@ frequency domain for the same complexity reason (Section~\ref{sec:ch12:optical})
 satellite standards remain single-carrier because the satellite's power amplifier must run near
 saturation.
 
-\begin{history}[title=Equalizing in the frequency domain]
+\mdcfig[0.5]{ch12_papr}{Same equalizer, different peaks. Simulated probability that the instantaneous
+power of QPSK exceeds its average by a given amount, for OFDM with 256 subcarriers and for a
+single-carrier signal with raised-cosine pulses. At a probability of $10^{-4}$ the OFDM peaks are about
+4\,dB higher, which the transmitter's power amplifier must accommodate.}
+
+\begin{keyidea}[Why the wireless world chose OFDM and the wired world did not]
+A time-domain equalizer's cost grows with the channel memory in symbols; an FFT-based equalizer's
+cost grows only with its logarithm. Wideband wireless channels span hundreds of symbols and change
+quickly, so block processing with a cyclic prefix wins decisively, and OFDM adds bit loading and easy
+MIMO on top. Wireline channels (SerDes, optical) are long in symbols too, but they are static, run
+at tens of gigabaud where every picojoule counts, cannot afford a prefix, and are dominated by a
+smooth loss that a short FFE, a DFE and a few taps of feedback handle well---except for chromatic
+dispersion, which is long, static and therefore equalized in the frequency domain after all.
+\end{keyidea}
+
+\begin{history}[Equalizing in the frequency domain]
 Frequency-domain adaptive equalization was proposed as early as 1973 by Walzman and Schwartz, but the
 idea that a cyclic prefix plus an FFT could replace a long time-domain equalizer entered wideband
 system design through OFDM broadcasting (DAB and DVB-T in the 1990s). In 1994--1995 Hikmet Sari,
@@ -1450,16 +2028,21 @@ single-carrier signal, with the same complexity and lower PAPR. David Falconer a
 DFT-spread OFDM for the LTE uplink.
 \end{history}
 
+%======================================================================
 \section{Turbo equalization}
 \label{sec:ch12:turbo}
+%======================================================================
 
 In a coded system, the classical receiver equalizes first, makes decisions (or computes soft values),
 and then decodes. Information flows one way: the equalizer never benefits from the code's
-redundancy, even though the decoder's output is far more reliable than the equalizer's. In 1995
-Catherine Douillard, Michel J\'ez\'equel, Claude Berrou and colleagues at ENST Bretagne---the group that had
-just invented turbo codes---proposed closing the loop. \textbf{Turbo equalization}\index{turbo equalization} treats the ISI channel
-as an inner rate-one convolutional code, concatenated through an interleaver with the outer error-correcting
-code, and decodes the pair iteratively:
+redundancy, even though the decoder's output is far more reliable than the equalizer's. It is like
+two detectives working the same case in separate rooms, one examining the scene and one interviewing
+witnesses, with the first allowed to pass notes to the second but never to receive any. In 1995
+Catherine Douillard, Michel J\'ez\'equel, Claude Berrou and colleagues at ENST Bretagne---the group that
+had just invented turbo codes---opened the door between the rooms. \textbf{Turbo
+equalization}\index{turbo equalization} treats the ISI channel as an inner rate-one convolutional code,
+concatenated through an interleaver with the outer error-correcting code, and decodes the pair
+iteratively (Figure~\ref{fig:ch12_turbo_loop}):
 \begin{enumerate}
 \item A soft-input soft-output (SISO) equalizer (BCJR on the ISI trellis) computes a posteriori LLRs of
 the coded bits, using the channel observations and \emph{a priori} LLRs from the decoder (zero on the
@@ -1470,6 +2053,34 @@ input---so that information the decoder already has is not fed back to it as if 
 trellis) computes a posteriori LLRs of the coded bits, and its extrinsic part, reinterleaved, becomes
 the equalizer's a priori input for the next iteration.
 \end{enumerate}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth, font=\small,
+  blk/.style={draw=navy, fill=navy!6, thick, rounded corners=2pt, minimum height=1.0cm, minimum width=2.3cm, align=center},
+  pi/.style={draw=accent, fill=accent!6, thick, rounded corners=2pt, minimum height=0.7cm, minimum width=1.0cm, align=center},
+  sub/.style={draw=navy, thick, circle, inner sep=0pt, minimum size=0.42cm},
+  lbl/.style={font=\footnotesize, align=center}]
+\node[lbl] (y) at (0,0) {$y_n$};
+\node[blk] (eq) at (2.2,0) {SISO equalizer\\(BCJR, ISI trellis)};
+\node[sub] (s1) at (4.7,0) {$-$};
+\node[pi] (dint) at (6.1,0) {$\Pi^{-1}$};
+\node[blk] (dec) at (8.9,0) {SISO decoder\\(BCJR, code trellis)};
+\node[lbl] (out) at (11.6,0) {decoded\\bits};
+\node[sub] (s2) at (8.9,-1.6) {$-$};
+\node[pi] (int) at (6.1,-1.6) {$\Pi$};
+\draw[->] (y) -- (eq); \draw[->] (eq) -- node[above,lbl]{APP} (s1);
+\draw[->] (s1) -- node[above,lbl]{ext.} (dint); \draw[->] (dint) -- (dec);
+\draw[->] (dec) -- (out);
+\draw[->] (dec.south) -- node[right,lbl]{APP} (s2.north); \draw[->] (s2.west) -- node[above,lbl]{ext.} (int.east);
+\draw[->] (int.west) -| node[pos=0.25,below,lbl]{a priori LLRs} (eq.south);
+\draw[->, gray] (int.north west) -- (s1.south east);
+\draw[->, gray] (7.0,0) -- (7.0,-0.8) -| ([xshift=-0.6cm]s2.north) -- (s2.north west);
+\end{tikzpicture}
+\caption{The turbo equalizer. The equalizer and decoder exchange only \emph{extrinsic} information
+(their output log-likelihood ratios minus what they were told), through the interleaver $\Pi$ and
+deinterleaver $\Pi^{-1}$, iterating several times per frame.}
+\label{fig:ch12_turbo_loop}
+\end{figure}
 
 Figure~\ref{fig:ch12_turbo_eq} shows the result on Proakis channel C with a rate-1/2, 4-state (7,5)
 convolutional code, random interleaving and 1024-bit frames, simulated in \texttt{ch12\_figs.py}
@@ -1494,26 +2105,38 @@ blocks; Chapter~\ref{ch:moderncodes} develops them for turbo and LDPC codes. Tur
 principles now appear in magnetic-recording read channels, in iterative MIMO detection, and in
 receivers for high-order modulation over severe channels.
 
+%======================================================================
 \section{Equalization at 100\,Gb/s and beyond: SerDes}
 \label{sec:ch12:serdes}
+%======================================================================
+
+\mdcphoto[0.4]{ch12_switches}{A modular data-centre switch chassis (Cisco Nexus 7700 series).
+Line cards plug into a common backplane or fabric; every lane between them is a SerDes link with its
+own adaptive equalizer.}
 
 \subsection{The electrical channel}
 
-Inside every data centre switch, server and accelerator, serializer/deserializer (\term{SerDes})
+Inside every data-centre switch, server and AI accelerator, serializer/deserializer (\term{SerDes})
 transceivers push data across printed-circuit traces, connectors, packages and copper cables at rates
-that were science fiction twenty years ago: 112\,Gb/s per lane (53--56\,GBd PAM-4 in IEEE 802.3ck and OIF
-CEI-112G) is mainstream, and 224\,Gb/s per lane (about 106--112\,GBd PAM-4, IEEE 802.3dj and OIF CEI-224G)
-is arriving. PCI Express 6.0 moved to 64\,GT/s PAM-4 for the same reasons. At these rates a copper
-channel is a brutal low-pass filter. Conductor loss due to the skin effect grows as $\sqrt f$,
-dielectric loss grows roughly as $f$, and the total insertion loss at the Nyquist frequency is commonly
-specified at 28--40\,dB for backplane or long-reach channels. Reflections from vias, connector
-discontinuities and package stubs add ripples and long tails, and crosstalk from neighbouring lanes adds
-noise.
+that were science fiction twenty years ago (Figure~\ref{fig:ch12_switches}). 112\,Gb/s per lane
+(53--56\,GBd PAM-4 in IEEE 802.3ck and OIF CEI-112G) is mainstream, and 224\,Gb/s per lane (about
+106--112\,GBd PAM-4, IEEE 802.3dj and OIF CEI-224G) is arriving. PCI Express 6.0 moved to 64\,GT/s
+PAM-4 for the same reasons. At these rates a copper channel is a brutal low-pass filter. Conductor
+loss due to the skin effect grows as $\sqrt f$, dielectric loss grows roughly as $f$, and the total
+insertion loss at the Nyquist frequency is commonly specified at 28--40\,dB for backplane or
+long-reach channels. Reflections from vias, connector discontinuities and package stubs add ripples
+and long tails, and crosstalk from neighbouring lanes adds noise.
 
-Figure~\ref{fig:ch12_serdes} shows a synthetic channel of this class: about 30\,dB of loss at the
-53\,GHz Nyquist frequency of a 106.25\,GBd PAM-4 lane. The pulse response of one unit interval (UI)
-peaks at only about a tenth of the transmitted amplitude and decays over dozens of UIs, and the
-received eye is completely closed.
+Put those numbers in perspective. A loss of 30\,dB means that only one thousandth of the power
+launched at the Nyquist frequency arrives at the far end. A PAM-4 symbol at 106\,GBd lasts 9.4\,ps,
+during which a signal on a circuit board travels about a millimetre and a half; a connector or via a
+few millimetres long is several symbols long, and every impedance bump along the way reflects a
+little echo that lands on a later symbol. Figure~\ref{fig:ch12_serdes} shows a synthetic channel of
+this class: about 30\,dB of loss at the 53\,GHz Nyquist frequency of a 106.25\,GBd PAM-4 lane. The
+pulse response of one unit interval (UI) peaks at only about a tenth of the transmitted amplitude
+and decays over dozens of UIs, and the received eye is completely closed. That this link can be made
+to work at all, with a raw error rate of one in a few thousand, inside a power budget of a few
+picojoules per bit, is a triumph of equalization.
 
 \begin{figure}[tb]\centering\includegraphics[width=0.92\linewidth]{figs/ch12_serdes}\caption{Equalizing a 212.5\,Gb/s PAM-4 lane (106.25\,GBd, synthetic channel with about
 30\,dB loss at Nyquist). Top left: insertion loss of the channel, a CTLE with a zero near 13\,GHz, and their
@@ -1526,7 +2149,7 @@ where the slicer samples, matters.}\label{fig:ch12_serdes}\end{figure}
 \subsection{The equalizer chain}
 
 A SerDes uses the whole family of this chapter, split between analog and digital and between
-transmitter and receiver:
+transmitter and receiver (Figure~\ref{fig:ch12_serdes_chain}):
 \begin{itemize}
 \item \textbf{Transmit FFE (de-emphasis).} A short FIR at the transmitter---typically a main
 cursor with one to three precursor taps and one postcursor tap---pre-distorts the signal. Because the
@@ -1550,7 +2173,39 @@ detector after the FFE, replacing or supplementing the DFE, to gain back a few d
 Adaptation is almost always a variant of sign-sign LMS (for the analog and mixed-signal taps) or LMS
 (in the DSP), running continuously in decision-directed mode after link training.
 
-\begin{worked}[title=Why a DFE tap is worth more than an FFE tap]
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth, font=\small, node distance=0.35cm,
+  blk/.style={draw=navy, fill=navy!6, thick, rounded corners=2pt, minimum height=1.0cm, minimum width=1.25cm, align=center, font=\footnotesize},
+  ch/.style={draw=accent, fill=accent!8, thick, rounded corners=2pt, minimum height=1.0cm, minimum width=1.6cm, align=center, font=\footnotesize},
+  lbl/.style={font=\scriptsize, align=center}]
+\node[blk] (txffe) {TX FFE\\(3--5 taps)};
+\node[blk, right=of txffe] (dac) {DAC /\\driver};
+\node[ch, right=of dac] (chan) {package, PCB,\\connector,\\cable};
+\node[blk, right=of chan] (ctle) {CTLE\\(analog)};
+\node[blk, right=of ctle] (adc) {ADC\\(6--8 bit)};
+\node[blk, right=of adc] (rxffe) {RX FFE\\(tens of taps)};
+\node[blk, right=of rxffe] (dfe) {DFE or\\MLSE};
+\draw[->] (txffe) -- (dac); \draw[->] (dac) -- (chan); \draw[->] (chan) -- (ctle);
+\draw[->] (ctle) -- (adc); \draw[->] (adc) -- (rxffe); \draw[->] (rxffe) -- (dfe);
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}, navy]
+  ([yshift=-0.15cm]txffe.south west) -- ([yshift=-0.15cm]dac.south east) node[midway, below=5pt, lbl, text=navy]{transmitter};
+\draw[decorate, decoration={brace, amplitude=4pt, mirror}, navy]
+  ([yshift=-0.15cm]ctle.south west) -- ([yshift=-0.15cm]dfe.south east) node[midway, below=5pt, lbl, text=navy]{receiver: analog front end, then DSP};
+\draw[->, accent, dashed] (rxffe.north) -- ++(0,0.45) -| node[pos=0.25, above, lbl, text=accent]{link training: receiver sets TX FFE taps} (txffe.north);
+\end{tikzpicture}
+\caption{The equalizer chain of an ADC-based 112--224\,Gb/s SerDes. Every stage is one of this
+chapter's equalizers: a transmit FFE (pre-emphasis), an analog CTLE (linear ZF-like peaking), a digital
+FFE (MMSE-like, removes precursors), and a DFE or short sequence detector. All taps adapt by LMS
+variants; the transmit taps are set over a back channel during link training.}
+\label{fig:ch12_serdes_chain}
+\end{figure}
+
+\mdcfig{ch12_ffe_taps}{The cursors of the lane of Figure~\ref{fig:ch12_serdes}, sampled once per UI.
+Left: after the channel and CTLE there is one strong precursor (orange) and a long postcursor tail
+(green). Right: the 12-tap FFE forces the precursor and the tail to (nearly) zero but deliberately
+leaves the first postcursor (red) for the DFE.}
+
+\begin{worked}[Why a DFE tap is worth more than an FFE tap]
 In Figure~\ref{fig:ch12_serdes} the sampled pulse response after the CTLE has a precursor of 0.29
 and a first postcursor of 0.66 relative to the main cursor, followed by a long tail. The 12-tap FFE
 was designed to zero the precursors and the tail but to \emph{leave} a first postcursor of about 0.33
@@ -1565,7 +2220,12 @@ forward): it converts a DFE error burst into, typically, just two symbol errors 
 end, which the Reed--Solomon FEC then handles.
 \end{worked}
 
-\begin{inpractice}[title=Reading a SerDes datasheet]
+\mdcphoto[0.5]{ch12_backplane}{A card-cage backplane from older equipment: plug-in boards mate with
+the rows of gold-plated connectors, and every signal between boards runs along the backplane's copper.
+Today's switch backplanes and midplanes carry 100--200\,Gb/s per lane over the same kind of path, which
+is why each lane needs the equalizer chain of Figure~\ref{fig:ch12_serdes_chain}.}
+
+\begin{inpractice}[Reading a SerDes datasheet]
 When you see a SerDes quoted as supporting ``40\,dB channels'', the loss is measured at the Nyquist
 frequency, and the claim implies the whole chain above: typically a transmit FFE with several taps,
 a CTLE with around 10\,dB or more of peaking, an ADC with six to eight bits of nominal resolution, a receive FFE of
@@ -1576,25 +2236,51 @@ merit that decides which equalizer architecture wins; it is one of the most inte
 numbers in the semiconductor industry.
 \end{inpractice}
 
+\begin{tryit}[Open a 200G eye]
+Lab~6's \emph{SerDes: CTLE, FFE and DFE} experiment models a lossy lane. Choose PAM-4, set the
+\emph{Channel loss at Nyquist} to about 30\,dB and look at the closed eye. Raise the \emph{CTLE
+peaking}, then add \emph{FFE taps} one at a time and watch the cursors in the pulse-response plot
+fall; finally add a \emph{DFE tap} and see the eye height readout jump while the noise-enhancement
+readout stays put. For more, Lab~13 (\lab{lab13\_line\_codes\_eyes.py}) has a \emph{PAM-4 over a lossy
+channel} experiment with the same three equalizers and a persistence eye.
+\end{tryit}
+
+%======================================================================
 \section{Equalization in coherent optical receivers}
 \label{sec:ch12:optical}
+%======================================================================
 
 A coherent optical receiver (Chapter~\ref{ch:wireline}) mixes the incoming light with a local laser,
 detects the in-phase and quadrature components of both polarizations, samples them at around two
 samples per symbol, and hands the rest to DSP. Its equalizers are among the largest in any
-communication system.
+communication system, and they live inside modules small enough to hold between finger and thumb
+(Figure~\ref{fig:ch12_sfp_internal}).
+
+\mdcphoto[0.55]{ch12_sfp_internal}{A small form-factor pluggable (SFP) optical transceiver taken apart:
+the metal cage (bottom), the lid (top), and the circuit board with its laser and photodiode
+sub-assemblies (centre). Today's coherent 400ZR and 800G modules pack a full DSP of the kind described in
+this section, with its equalizers, into pluggables only somewhat larger than this one.}
 
 \subsection{Chromatic dispersion}
 
-In single-mode fibre different wavelengths travel at different group velocities. At 1550\,nm standard
-fibre has a dispersion parameter $D\approx17$\,ps/(nm\,km). A signal of symbol rate $R_s$ occupies a
-wavelength range of about $\Delta\lambda\approx\lambda^2R_s/c$, so after a length $\ell$ its pulses
-spread by $\Delta\tau\approx D\,\ell\,\Delta\lambda$, which in symbols is
+In single-mode fibre different wavelengths travel at different group velocities, so a short pulse,
+which necessarily contains a small spread of wavelengths, arrives smeared out in time---like a
+group of runners of slightly different speeds who start together and finish strung out along the
+track. At 1550\,nm standard fibre has a dispersion parameter $D\approx17$\,ps/(nm\,km). A signal of
+symbol rate $R_s$ occupies a wavelength range of about $\Delta\lambda\approx\lambda^2R_s/c$, so after
+a length $\ell$ its pulses spread by $\Delta\tau\approx D\,\ell\,\Delta\lambda$, which in symbols is
 \begin{equation}
 N_{\mathrm{CD}}\approx\frac{D\,\ell\,\lambda^2R_s^2}{c}.
 \label{eq:ch12:cd}
 \end{equation}
-Chromatic dispersion is a pure, lossless phase distortion, an all-pass filter
+\mdcfig{ch12_cd}{Chromatic dispersion. Left: the power of a single 64\,GBd root-raised-cosine pulse
+after 0, 5, 20 and 80\,km of standard single-mode fibre; after 80\,km it spans about 40 symbols. Right:
+length of the CD-compensating FIR at two samples per symbol against distance, from~\eqref{eq:ch12:cd}.
+Long-haul and transoceanic links need thousands to tens of thousands of taps.}
+
+Note the \emph{square} of the symbol rate: double the baud rate and the spectrum is twice as wide
+\emph{and} each symbol twice as short, so the smear measured in symbols quadruples. Chromatic
+dispersion is a pure, lossless phase distortion, an all-pass filter
 $H_{\mathrm{CD}}(\omega)=\exp(-j\beta_2\ell\omega^2/2)$ with $\beta_2=-D\lambda^2/(2\pi c)\approx-21.7$\,ps$^2$/km,
 and it is \emph{static}: it changes only with the route. It is therefore compensated by a fixed
 filter---the inverse all-pass---whose length grows linearly with distance and with the square of the
@@ -1602,12 +2288,7 @@ symbol rate (Figure~\ref{fig:ch12_cd}). Because thousands of taps are needed on 
 filter is always implemented in the frequency domain with overlap-save FFT processing, exactly the
 complexity argument of Section~\ref{sec:ch12:fde}.
 
-\mdcfig{ch12_cd}{Chromatic dispersion. Left: the power of a single 64\,GBd root-raised-cosine pulse
-after 0, 5, 20 and 80\,km of standard single-mode fibre; after 80\,km it spans about 40 symbols. Right:
-length of the CD-compensating FIR at two samples per symbol against distance, from~\eqref{eq:ch12:cd}.
-Long-haul and transoceanic links need thousands to tens of thousands of taps.}
-
-\begin{worked}[title=Sizing the CD equalizer of a 400ZR module]
+\begin{worked}[Sizing the CD equalizer of a 400ZR module]
 The OIF 400ZR implementation agreement specifies dual-polarization 16-QAM at about 60\,GBd for
 data-centre interconnect up to about 120\,km. Using~\eqref{eq:ch12:cd}:
 $\Delta\lambda=\lambda^2R_s/c=(1.55\times10^{-6})^2(60\times10^9)/(3\times10^8)\approx0.48$\,nm; the
@@ -1637,7 +2318,8 @@ followed by decision-directed LMS, the same recipe as in Section~\ref{sec:ch12:b
 demanding setting, with the twist that CMA can converge with both outputs locked to the \emph{same}
 polarization (the \emph{singularity} problem), which practical receivers prevent by initialisation
 or by constraining $\vect w_{yx}, \vect w_{yy}$ to be orthogonal to $\vect w_{xx}, \vect w_{xy}$.
-Chapter~\ref{ch:mimo} generalises the same idea to wireless MIMO.
+Chapter~\ref{ch:mimo} generalises the same idea to wireless MIMO. Figure~\ref{fig:ch12_polarization}
+shows it unscrambling two QPSK streams.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[>=Stealth, font=\small,
@@ -1669,7 +2351,13 @@ polarization rotation and PMD, each output drawing on both received polarization
 \label{fig:ch12_butterfly}
 \end{figure}
 
-\begin{inpractice}[title=The DSP of a coherent transceiver]
+\mdcfig{ch12_polarization}{A $2\times2$ CMA butterfly equalizer (5 taps per filter) unscrambling
+dual-polarization QPSK, simulated with a random polarization rotation, a little differential delay
+on one polarization and 22\,dB SNR. Left: each received polarization is a mixture of both transmitted
+streams---16 or more clusters instead of 4. Right: the two butterfly outputs are clean QPSK
+constellations again.}
+
+\begin{inpractice}[The DSP of a coherent transceiver]
 The receive DSP of a coherent optical module is a textbook of this chapter, in order: static CD
 compensation in the frequency domain (Section~\ref{sec:ch12:fde}), timing recovery
 (Chapter~\ref{ch:sync}), the adaptive $2\times2$ butterfly (this section), carrier frequency and phase
@@ -1679,8 +2367,14 @@ tens of gigabaud with parallelism of hundreds of samples per clock, the whole ch
 complex signal-processing ASICs made.
 \end{inpractice}
 
+%======================================================================
 \section{Echo cancellation: the same mathematics}
 \label{sec:ch12:echo}
+%======================================================================
+
+Have you ever been on a speakerphone call and heard your own voice coming back, a fraction of a
+second late? That is echo, and removing it uses exactly the machinery of this chapter, turned
+inside out.
 
 A two-wire telephone line carries both directions of a conversation on one pair; a \emph{hybrid}
 transformer separates them at each end. Because the hybrid is balanced for a nominal line impedance
@@ -1689,8 +2383,38 @@ receiver: \term{echo}. For a full-duplex modem the near-end echo can be much str
 far-end signal, which has been attenuated by the whole line, so the echo must be suppressed by
 perhaps 50--60\,dB or more. The solution is an \term{echo canceller}: an adaptive FIR filter driven by
 the local transmit symbols that learns the echo path and subtracts a replica of the echo from the
-received signal. The error signal is the received signal after cancellation, and the algorithm is
-LMS.
+received signal (Figure~\ref{fig:ch12_echo_block}). The error signal is the received signal after
+cancellation, and the algorithm is LMS.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[>=Stealth, font=\small,
+  blk/.style={draw=navy, fill=navy!6, thick, rounded corners=2pt, minimum height=0.9cm, align=center},
+  sum/.style={draw=navy, thick, circle, inner sep=0pt, minimum size=0.45cm},
+  lbl/.style={font=\footnotesize, align=center}]
+\node[lbl] (tx) at (0,1.5) {local transmit\\symbols $x_n$};
+\node[blk] (txb) at (2.4,1.5) {transmitter};
+\node[draw=navy, fill=navy!6, thick, rounded corners=2pt, minimum height=3.0cm, minimum width=1.7cm] (hyb) at (6.6,0.25) {};
+\node[lbl, text=navy] at (6.6,1.5) {hybrid};
+\draw[->, accent, dashed, thick] (6.6,1.15) -- node[right, lbl, text=accent]{echo} (6.6,-0.85);
+\node[lbl] (line) at (9.6,0.25) {two-wire line\\to far end};
+\node[blk] (ec) at (3.9,0.25) {echo canceller\\(adaptive FIR $\hat h$)};
+\node[sum] (s) at (3.9,-1.0) {$+$};
+\node[lbl, anchor=east] (rx) at (0.9,-1.0) {to receiver};
+\draw[->] (tx) -- (txb); \draw[->] (txb) -- (hyb.west |- txb);
+\draw[<->] (hyb) -- (line);
+\draw[->] (hyb.west |- s) -- node[pos=0.62,below,lbl]{far end + echo} (s);
+\fill (3.9,1.5) circle (1.5pt);
+\draw[->] (3.9,1.5) -- (ec.north);
+\draw[->] (ec) -- node[right,lbl]{$-$replica} (s);
+\draw[->] (s) -- (rx);
+\fill (1.8,-1.0) circle (1.5pt);
+\draw[->, accent, thick] (1.8,-1.0) |- node[pos=0.6, left, lbl, text=accent]{residual\\drives LMS} (ec.west);
+\end{tikzpicture}
+\caption{An echo canceller. The hybrid leaks part of the local transmit signal into the receive
+path. An adaptive FIR filter, driven by the same transmit symbols, learns that leakage path and
+subtracts a replica; the residual is the error signal for its LMS update.}
+\label{fig:ch12_echo_block}
+\end{figure}
 
 Structurally this is the dual of an equalizer. An equalizer performs \emph{inverse modelling}: it
 learns the inverse of the channel. An echo canceller performs \emph{system identification}: it learns
@@ -1699,6 +2423,14 @@ and everything in Sections~\ref{sec:ch12:lms} and~\ref{sec:ch12:rls} applies---s
 misadjustment, eigenvalue spread (now of the transmit signal, which is white for data and strongly
 coloured for speech). The echo canceller has one pleasant difference: its input is the transmitter's
 own clean symbol stream, so there are no decision errors to worry about.
+Figure~\ref{fig:ch12_echo_erle} shows a 64-tap data echo canceller learning: within a few thousand
+symbols it removes the echo by 35--45\,dB, with the familiar LMS trade-off between speed and final
+depth.
+
+\mdcfig[0.5]{ch12_echo_erle}{A 64-tap LMS data echo canceller learning an exponentially decaying echo
+path while a far-end signal 30\,dB weaker is present. The larger step size converges in a few hundred
+symbols but stops near 37\,dB of suppression; the smaller one takes thousands of symbols to reach
+about 45\,dB.}
 
 Echo cancellation shaped modem history. V.32 (1984) was the first widely used standard to run
 9600\,bit/s full duplex over a two-wire line by cancelling the echo instead of splitting the band; every
@@ -1714,8 +2446,14 @@ cancellers do not face: \emph{double talk}, when the near-end talker speaks at t
 far end, which must be detected so that adaptation is frozen before the near-end speech corrupts the
 echo-path estimate.
 
+\mdcphoto[0.5]{ch12_polycom}{A conference speakerphone. Its loudspeaker and its three microphones share
+one small box, so without an acoustic echo canceller the far-end talkers would hear themselves
+coming back. Inside, an NLMS filter with thousands of taps continually learns the room's echo path.}
+
+%======================================================================
 \section{Neural-network equalizers}
 \label{sec:ch12:nn}
+%======================================================================
 
 Every equalizer in this chapter assumes a linear channel. Some channels are not: an optical fibre at
 high launch power (the Kerr nonlinearity), a directly modulated laser, a power amplifier driven into
@@ -1726,6 +2464,17 @@ trained on known sequences exactly as an LMS equalizer is trained, can learn non
 a linear FIR cannot, and in laboratory experiments on short-reach optical links with strong
 nonlinearity they have shown gains of a decibel or more over linear equalizers.
 
+Figure~\ref{fig:ch12_nonlinear} shows the effect in miniature. PAM-4 passes through a channel with
+memory followed by a compressive (saturating) amplifier. A 9-tap linear FFE, trained by least squares,
+cannot undo the compression: the outer levels are squeezed and the histogram is a smear. Add cubic
+(Volterra) terms over the same nine samples and the four levels reappear, with a symbol error rate
+almost ten times lower---but with nine times as many coefficients.
+
+\mdcfig{ch12_nonlinear}{A nonlinear channel: PAM-4 through $h=[0.2,\,1,\,0.45,\,0.15]$ followed by
+$\tanh$ compression and noise. Left: histogram of a least-squares 9-tap linear FFE output; the four
+levels merge. Right: a third-order Volterra equalizer over the same nine samples separates them.
+Coefficient counts and symbol error rates are from the simulation in \texttt{ch12\_figs.py}.}
+
 The engineering reality check is complexity. A neural equalizer that needs thousands of
 multiplications per symbol competes with a Volterra or linear equalizer that needs tens, in hardware
 where power per bit is the figure of merit. The fair comparison is always at \emph{equal complexity},
@@ -1735,10 +2484,12 @@ modelled, and where the network can be kept small or its structure borrowed from
 instance, networks that unfold the split-step Fourier method used to model fibre propagation).
 Equalization is, after all, where adaptive learning systems began: LMS was invented to train a neuron.
 
+%======================================================================
 \section{Summary}
 \label{sec:ch12:summary}
+%======================================================================
 
-\begin{keyidea}[title=Equalization in ten lines]
+\begin{keyidea}[Equalization in ten lines]
 \begin{itemize}
 \item After the (whitened) matched filter, every linear ISI channel is an FIR filter in white noise;
 the matched-filter bound $E_s\|h\|^2/N_0$ is the benchmark.
@@ -1759,6 +2510,36 @@ lets the code help the equalizer.
 \item The same mathematics runs 224G SerDes, coherent optics and echo cancellers.
 \end{itemize}
 \end{keyidea}
+
+\mdcfig[0.52]{ch12_family_map}{The equalizer family on one map (schematic, with losses loosely based on
+the two-path worked example of Section~\ref{sec:ch12:mmse}): each step towards the lower right buys
+decibels with complexity. FFT-based equalization sits apart, cheap per symbol for long channels but with
+the performance of a linear or decision-feedback equalizer.}
+
+\begin{labbox}[Lab: equalizers you can see and drag]
+\lab{moderncomms-labs/labs/lab06\_equalization.py} is a live app with one experiment per big idea of
+this chapter:
+\begin{itemize}
+\item \emph{Symbols that collide}: channel menu (3-tap, two-path, Proakis B and C), echo amplitude and
+phase sliders; taps, $|H(f)|^2$, unequalized QPSK, peak distortion and deepest notch.
+\item \emph{Zero forcing vs MMSE}: constellations after ZF and MMSE, noise enhancement, and output SNR of
+all five receivers from the book formulas (\texttt{commlib.zf\_fir}, \texttt{commlib.mmse\_fir}).
+\item \emph{Equalizer length and delay}: MSE against decision delay and length for minimum-, mixed- and
+maximum-phase versions of one channel (Figure~\ref{fig:ch12_delay_length}).
+\item \emph{LMS learning, live}: LMS, NLMS or sign-sign LMS learning in real time, with step-size and
+training-length sliders, tap stems against the Wiener optimum.
+\item \emph{LMS vs RLS: eigenvalue spread}: the Haykin experiment of Figure~\ref{fig:ch12_lms_rls}.
+\item \emph{Blind equalization: CMA}: blind acquisition of QPSK/16-QAM, then decision-directed LMS.
+\item \emph{Decision feedback and error bursts}: linear MMSE, DFE and genie DFE error positions, burst
+histogram and BER curves.
+\item \emph{MLSE: the Viterbi equalizer}: an animated trellis with survivors, merge depth and
+asymptotic loss (\texttt{commlib.eqadv.viterbi\_mlse}).
+\item \emph{SerDes: CTLE, FFE and DFE}: a lossy NRZ/PAM-4 lane whose eye opens as you add CTLE peaking,
+FFE taps and DFE taps.
+\end{itemize}
+\lab{moderncomms-labs/labs/lab13\_line\_codes\_eyes.py} (\emph{PAM-4 over a lossy channel}) complements
+the SerDes experiment with a persistence eye of PAM-4 equalized by CTLE, FFE and DFE.
+\end{labbox}
 
 \problems
 \begin{enumerate}[label=\thechapter.\arabic*]
