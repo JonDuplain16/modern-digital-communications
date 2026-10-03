@@ -32,7 +32,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from . import book
 from .controls import Button, Heading
-from .core import Params, fmt_value
+from .core import Experiment, Params, fmt_value, slug
 from .theme import DARK, LIGHT, PALETTE, THEMES, UI_FONT, story_css, stylesheet
 
 __all__ = ["run", "MainWindow", "make_app"]
@@ -162,6 +162,26 @@ class _Toast(QtWidgets.QFrame):
         self.anim.start()
 
 
+class _CurrentStack(QtWidgets.QStackedWidget):
+    """A stacked widget sized by its *current* page, not the largest one: a short control
+    page does not scroll through the empty space of a long one, and a wide page cannot
+    widen the others."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.currentChanged.connect(lambda _i: self.updateGeometry())
+
+    def sizeHint(self):                                     # noqa: N802 (Qt naming)
+        w = self.currentWidget()
+        return w.sizeHint() if w is not None else super().sizeHint()
+
+    def minimumSizeHint(self):                              # noqa: N802
+        w = self.currentWidget()
+        if w is None:
+            return super().minimumSizeHint()
+        return QtCore.QSize(0, w.minimumSizeHint().height())
+
+
 def _section(text):
     lab = QtWidgets.QLabel(text.upper())
     lab.setObjectName("section")
@@ -261,7 +281,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # sidebar: experiments + controls -----------------------------------
         side = QtWidgets.QFrame()
         side.setObjectName("sidebar")
-        side.setFixedWidth(300)
+        side.setFixedWidth(getattr(self.lab, "controls_width", 300))
         sl = QtWidgets.QVBoxLayout(side)
         sl.setContentsMargins(12, 4, 12, 10)
         sl.setSpacing(0)
@@ -269,16 +289,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.explist = QtWidgets.QListWidget()
         self.explist.setObjectName("explist")
         self.explist.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.explist.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.explist.setTextElideMode(QtCore.Qt.ElideRight)
         self.explist.setCursor(QtCore.Qt.PointingHandCursor)
         for i, pg_ in enumerate(self.pages):
             it = QtWidgets.QListWidgetItem(self._exp_label(i))
-            it.setToolTip(pg_.cls.blurb or pg_.cls.title)
+            it.setToolTip(pg_.cls.title + (" — " + pg_.cls.blurb if pg_.cls.blurb else ""))
             self.explist.addItem(it)
         self._fit_explist()
         self.explist.currentRowChanged.connect(self.select)
         sl.addWidget(self.explist)
         sl.addWidget(_section("Controls"))
-        self.ctl_stack = QtWidgets.QStackedWidget()
+        self.ctl_stack = _CurrentStack()
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
@@ -385,6 +407,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 c.done = self.settings.value(self._ch_key(page, c), False, type=bool)
         # controls column
         w = QtWidgets.QWidget()
+        w.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         lay = QtWidgets.QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 4, 0)
         lay.setSpacing(4)
@@ -454,6 +477,12 @@ class MainWindow(QtWidgets.QMainWindow):
             p.widget.setMinimumSize(220, 160)
             page.plots[p.key] = p
         exp._plots = page.plots
+        for p in page.plots.values():
+            p._drag_cb = (lambda pl, item, i, x, y, phase, page=page:
+                          self._on_plot_drag(page, pl.key, item, i, x, y, phase))
+        if type(exp).on_click is not Experiment.on_click:
+            for p in page.plots.values():
+                p._connect_click(lambda pl, x, y, page=page: self._on_plot_click(page, pl.key, x, y))
         layout = exp.layout or self._auto_layout(list(specs))
         cells = {}
         for r, rowkeys in enumerate(layout):
@@ -558,6 +587,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.booklink.hide()
         self._book_pdf = pdf
+        self._book_ref = page.exp.book
         self.btn_play.setVisible(bool(page.exp.animate))
         self._update_enabled(page)
         page.story_cache = None
@@ -592,15 +622,48 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             self._report_error(traceback.format_exc())
         self.refresh()
+        if getattr(ctl, "starts_play", False) and exp.animate and not self._anim.isActive() \
+                and page is self.page and not self.quick:
+            self._start_play()
 
-    def _set_control(self, exp, key, value):
+    def _set_control(self, exp, key, value, refresh=True):
         page = next(p for p in self.pages if p.exp is exp)
         for c in page.controls:
             if c.key == key:
                 c.set_value(value)
         page.exp.p = self._params(page)
         self._update_enabled(page)
-        self._debounce.start()
+        if refresh:
+            self._debounce.start()
+
+    def _on_plot_drag(self, page, key, item, i, x, y, phase):
+        exp = page.exp
+        if exp is None or self.cur < 0 or self.page is not page:
+            return
+        exp.dragging = phase != "finish"
+        try:
+            res = exp.on_drag(key, item, i, x, y)
+        except Exception:
+            exp.dragging = False
+            self._report_error(traceback.format_exc())
+            return
+        if res is not False or phase == "finish":
+            if phase == "finish":
+                self._debounce.stop()
+                self.refresh(page)
+            else:
+                self._debounce.start()
+
+    def _on_plot_click(self, page, key, x, y):
+        if page.exp is None or self.cur < 0 or self.page is not page:
+            return
+        try:
+            res = page.exp.on_click(key, x, y)
+        except Exception:
+            self._report_error(traceback.format_exc())
+            return
+        if res is not False:
+            self.refresh(page)
 
     def _update_enabled(self, page):
         p = page.exp.p
@@ -665,9 +728,9 @@ class MainWindow(QtWidgets.QMainWindow):
             if k not in page.ro_widgets:
                 continue
             ro, lab = page.ro_widgets[k]
-            lab.setText(fmt_value(v, ro.fmt))
+            lab.setText(fmt_value(v, ro.fmt, getattr(ro, "floor", None)))
             col = self.theme.text
-            if ro.good is not None and v is not None:
+            if ro.good is not None and v is not None and not _is_nan(v):
                 try:
                     g = ro.good(v)
                     col = self.theme.good if g is True else self.theme.bad if g is False else col
@@ -770,6 +833,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if self._anim.isActive():
             self._stop_play()
+            # ticks only re-check every few frames: settle the story and challenges now
+            self._refresh_story(self.page)
+            self._check_challenges(self.page)
         else:
             self._start_play()
 
@@ -818,6 +884,12 @@ class MainWindow(QtWidgets.QMainWindow):
             pl.reset_persistence()
         page.exp.p = self._params(page)
         self._update_enabled(page)
+        try:
+            page.exp.on_reset(page.exp.p)
+        except Exception:
+            if self.raise_errors:
+                raise
+            self._report_error(traceback.format_exc())
         self.refresh()
         self._status_msg("Controls reset to their defaults.")
 
@@ -826,9 +898,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def export_png(self, path=None):
         if path is None:
-            slug = "".join(ch if ch.isalnum() else "_" for ch in self.page.cls.title.lower())
             default = os.path.join(QtCore.QStandardPaths.writableLocation(
-                QtCore.QStandardPaths.PicturesLocation), f"{self.lab.tag}_{slug}.png")
+                QtCore.QStandardPaths.PicturesLocation),
+                f"{self.lab.tag}_{slug(self.page.cls.title)}.png")
             path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export PNG", default,
                                                             "PNG image (*.png)")
             if not path:
@@ -873,10 +945,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_panel.setText("Hide notes" if vis else "Show notes")
 
     def _open_book(self, _link):
-        if self._book_pdf:
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(self._book_pdf))
-        else:
+        if not self._book_pdf:
             self._status_msg("The book PDF has not been built yet (book/main.pdf).")
+            return
+        how = book.open_pdf(self._book_pdf, getattr(self, "_book_ref", None))
+        self._status_msg(how)
 
     # ------------------------------------------------------------------ status
     def _hover(self, plot, x, y):
@@ -910,6 +983,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._bg_gen += 1
         self._anim.stop()
         super().closeEvent(ev)
+
+
+def _is_nan(v):
+    try:
+        return bool(np.isnan(float(v)))
+    except (TypeError, ValueError):
+        return False
 
 
 # ============================================================================ entry point

@@ -99,7 +99,13 @@ def stylesheet(t: Theme) -> str:
     QLabel#exptitle {{ font-size: 13.5pt; font-weight: 600; }}
     QLabel#expblurb {{ color: {t.muted}; font-size: 10pt; }}
     QLabel#ctlname {{ font-size: 9.5pt; }}
-    QLabel#ctlname:disabled, QLabel#rounit:disabled {{ color: {t.muted}; }}
+    QLabel#togglename {{ font-size: 10pt; }}
+    QLabel#ctlname:disabled, QLabel#rounit:disabled, QLabel#togglename:disabled {{ color: {t.muted}; }}
+    QLineEdit#textctl {{ background: {t.card}; border: 1px solid {t.border}; border-radius: 4px;
+                         padding: 3px 6px; min-height: 20px; }}
+    QLineEdit#textctl:focus {{ border: 1px solid {t.accent}; }}
+    QLineEdit#textctl:disabled {{ color: {t.muted}; }}
+    QLineEdit#textctl[mono="true"] {{ font-family: "{MONO_FONT}"; }}
     QLineEdit#ctlvalue:disabled {{ color: {t.muted}; }}
     QLabel#ctlheading {{ color: {t.accent}; font-size: 9pt; font-weight: 700;
                          padding-top: 8px; border-bottom: 1px solid {t.border}; }}

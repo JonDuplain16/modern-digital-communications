@@ -1,4 +1,4 @@
-# Lab Style Guide — converting a notebook lab to a studio lab
+# Lab Style Guide — writing a studio lab
 
 Every lab is now a **live, interactive desktop script**: sliders on the left, plots that
 change instantly in the middle, a short friendly explanation on the right. No Jupyter, no
@@ -12,10 +12,10 @@ them what they just saw. Not a math dump.
 
 ## 1. The workflow
 
-1. Read the old notebook source `labs/labNN_name.py` (jupytext) and the matching book chapter.
-   List the 4–8 ideas worth *playing with*. Drop anything that is only a static table.
-2. Rewrite `labs/labNN_name.py` **in place** (same file name) as a studio lab. Delete
-   `labs/labNN_name.ipynb`. `tests/build_notebooks.py` skips studio labs automatically.
+1. Read the matching book chapter (and the lab's current version, if any). List the 4–8
+   ideas worth *playing with*. Drop anything that is only a static table.
+2. Write or edit `labs/labNN_name.py` as a studio lab (all 36 labs are studio apps; the
+   Jupyter notebook versions are retired).
 3. Put any reusable DSP in `commlib` (new module if needed, e.g. `commlib/analog.py`), with a
    test in `tests/test_commlib.py`. Lab-specific glue may live in the lab file. `studio`
    itself contains no DSP.
@@ -93,8 +93,17 @@ if __name__ == "__main__":
 * Plot keys are short; plot titles describe what is shown ("Eye opening vs sampling phase").
   Axis labels always carry units in parentheses: `"time (ms)"`, `"power (dB)"`.
 * Group controls with `Heading("Transmitter")`, `Heading("Channel")`, `Heading("Receiver")`.
-* Do not name your own attributes after framework ones (`frame`, `playing`, `quick`, `rng`,
-  `p`, `r`, … see studio/README.md). Use `make_frame`, not `frame`.
+* Do not name your own attributes after framework ones (`frame`, `playing`, `dragging`,
+  `quick`, `rng`, `p`, `r`, `plot`, `readout`, … see studio/README.md). Class-level clashes are
+  caught when the `Lab` is built, with a message naming the culprit. Use `make_frame`, not
+  `frame`.
+* Text input (a message, a bit pattern, a polynomial) uses `Text(...)`, never a local
+  `QLineEdit` control: `Text("msg", "Message", "SOS", examples=[…], upper=True)` or, for bits,
+  `Text("bits", "Bit pattern", "0110", allowed="01", live=False, mono=True)`.
+* Choices may hold numbers: `Choice("M", "Order", [4, 16, 64], labels=["QPSK", "16-QAM",
+  "64-QAM"])` gives `p.M` as an int; no parsing of label strings.
+* Labels can be long: they wrap (captions, toggles) or elide with a tooltip (buttons,
+  segments). Still prefer ≤ 30 characters; put detail in `help=`.
 
 ## 4. Writing the story ("What's going on")
 
@@ -129,6 +138,9 @@ if __name__ == "__main__":
   bandwidth, eye height, separation… Units in `unit=`.
 * `good=lambda x: …` turns the number green/red. Use it when there is a clear target.
 * Strings are fine for states ("overmodulated", "PAM-4", "—").
+* A readout that does not apply in the current mode can simply be `float("nan")`: it shows
+  "—" and is not a self-test failure. Use `floor=` for Monte Carlo results that cannot be
+  resolved below some value ("< 1.0×10⁻⁵").
 
 ## 7. Plots and colours
 
@@ -144,6 +156,16 @@ if __name__ == "__main__":
 * Use `vline/hline/band` with labels for the things the story talks about (Nyquist frequency,
   threshold, best sampling phase).
 * Eye diagrams: `EyePlot` + `plot.eye(...)` (persistence image), not hundreds of lines.
+* Legends for bars, cell colours or images: give `bars(..., name=...)` (coloured swatch) or add
+  `plot.legend_swatch("label", COLOR)` entries. Bars work on log axes.
+* Shaded regions: `fill_between` (or `line(..., fill=baseline)`); both are safe for long
+  stretches of zero area.
+* Diagrams (trellises, shift registers, Venn diagrams, grids of bits): `Canvas(...)` or
+  `Plot(..., axes=False)`; make them interactive with `on_click(self, key, x, y)`. Draggable
+  points/bars: `plot.handles(...)` + `on_drag(self, key, item, i, x, y)` (see Lab 19,
+  water-filling). Parametric curves (circles, trajectories) longer than 4000 points:
+  `line(..., downsample=False)`.
+* With `aspect=True`, or to change both ranges, use `set_range(xlim, ylim)`.
 
 ## 8. Performance rules
 
@@ -155,6 +177,11 @@ if __name__ == "__main__":
   `self.quick` is True (self-test). Never touch plots inside `background`.
 * Streaming/"oscilloscope" experiments: `animate = True` (optionally `autoplay = True`),
   override `tick(p)` to accumulate persistence (`accumulate=True`), keep a frame under ~60 ms.
+  A `tick` must redraw every item it wants visible (untouched items are hidden). To show a value
+  the animation chose on a slider, use `self.set_control(key, v, refresh=False)` (no flicker).
+  A "Run"/"Start" button can start the animation: `Button("go", "▶  Run", starts_play=True)`.
+  Implement `on_reset(self, p)` if the experiment keeps state (trained weights, a running
+  simulation clock) that the window's Reset should clear.
 * Measurements on periodic test tones: use an integer number of periods or fit a DC term;
   FFT brick-wall filters on non-periodic records create artificial distortion floors.
 
@@ -176,7 +203,8 @@ python tests/test_commlib.py                         # after any commlib change
 
 The self-test builds each experiment, runs it at the defaults (including the background job
 in quick mode and a few animation frames), then at `--random` random control settings, and
-fails on exceptions, non-finite readouts/plot data, or slow updates. It saves a window
+fails on exceptions, infinite readouts/plot data, or slow updates (NaN readouts and all-NaN
+traces are allowed). It saves a window
 screenshot per experiment. Look at all of them with an image viewer: clipped labels,
 legends over data, empty plots, absurd numbers (BER 10⁻¹³¹) and walls of text are bugs.
 
@@ -189,4 +217,4 @@ legends over data, empty plots, absurd numbers (BER 10⁻¹³¹) and walls of te
 - [ ] Readouts with units; `good=` where there is a target
 - [ ] Self-test passes (light and dark); every screenshot reviewed
 - [ ] Real window smoke-tested; updates feel instant; Play mode smooth
-- [ ] Old `.ipynb` deleted; `studio/catalog.py` entry updated; reusable DSP in `commlib` with a test
+- [ ] `studio/catalog.py` entry updated; reusable DSP in `commlib` with a test

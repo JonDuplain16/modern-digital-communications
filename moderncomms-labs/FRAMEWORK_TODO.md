@@ -1,23 +1,23 @@
 # studio framework follow-ups (collect from lab authors)
-- catalog.py one-liners: lab02 "Constellation zoo, signal space, decision regions and MAP, BER Monte Carlo, LLRs, noncoherent FSK, Shannon plane, Rayleigh fading"; lab21 "CPM phase and spectra, MSK = OQPSK (Laurent), three receivers, PAPR, PA regrowth, EVM signatures and budget"; lab04 "Impairment diagnosis, PLL steps and slips, S-curves, live Costas and timing loops, frequency estimators vs CRB, Farrow, frame sync, Schmidl–Cox and PSS cell search"
-- hook for window Reset (on_reset) so experiments can leave special modes
-- option to disable auto-downsampling (>4000 pts) for parametric curves
+
+Done in studio 1.1 (see studio/README.md): cmap lists; fixed-width controls column with
+wrapping/eliding labels and a scroll area sized to the current page; `Text` control (labs 13,
+19, 24, 34 migrated); `on_click`; `Plot(axes=False)` / `Canvas`; `legend_swatch` and coloured
+bar legends; bars on log axes; NaN readouts ("—") and all-NaN traces allowed by the self-test;
+`Readout(floor=)`; polygon `fill_between`; `text(y=None)` re-pins on range changes; joint
+x/y ranges and `set_range` (aspect plots); `Button(starts_play=True)`; `on_reset`; challenges
+re-checked on pause and reset between self-test settings; ASCII `_slug`; reserved-name errors;
+`line(downsample=False)`; non-string `Choice` options (+ `labels=`); `set_control(refresh=False)`;
+`theory`/`sim` on every plot; multi-line x tick labels; no SI prefixes; plain LogSlider values;
+legend KeyError on key reuse; draggable `handles` + `on_drag` (lab 19 water-filling); book
+titles strip `$…$`; book link opens the PDF at the page; catalog descriptions for all 36 labs.
+
+## Still open
 - commlib cpm.LaurentReceiver.calibrate ref phase depends on first precoded bit
-- catalog: lab15 "Tune the band, images, IF selectivity, AGC, double conversion, IM3/SFDR, zero-IF vs low-IF"; lab16 "Aliasing, ZOH, SQNR, dither, G.711, DM/CVSD, sigma-delta, jitter, T1/E1"; lab34 "Morse keying, Morse vs Huffman, Kelvin's cable, semaphore pipeline, regenerators, loading coils, capacity"
-- add studio Text control (lab34 has local TextBox(Control))
-- Plot._cmap: list colormap -> dict.get unhashable; check list before name lookup
-- document: tick() hides plots not redrawn
-- BOOK: final pass on all labboxes/tryit to match new lab experiment names (ch05 labbox "companion notebook... 75 minutes"; ch04 "Section 6" of lab15 -> experiment 7 "Zero-IF vs low-IF")
-- catalog: lab07/lab28/lab18 descriptions stale (see report: OFDM basics 8 exps; OFDM system 7 exps; satellite 7 exps)
-- Readout "below X" floor format option; Plot hide-axes option; bar legend swatches grey; multi-line tick labels clipped
 - commlib.ofdm.dft_s_ofdm_modulate maps non-contiguously around DC -> inflated PAPR (check vs book ch17 figure)
-- bars() ignores log axes; NaN readouts fail selftest (allow NaN -> "—"); width cap/elision for long Choice/Toggle labels in controls column
-- Plot.fill_between segfaults Qt on long zero-area regions (labs use line(fill=baseline)); controls stacked widget: long label widens all pages (elide/wrap); text(y=None) pins y at call time (doc); challenges not re-checked on Play pause; Plot(axes=False)
-- catalog: lab17 "Pole–zero, FIR/IIR and fixed point, aliasing, PFB channelizer, CIC, NCO spurs, CORDIC, a live DDC"; lab36 "Two-tone IIP3, line-up and SFDR, reciprocal mixing, I/Q image, PA ACLR/EVM, Doherty, CFR, DPD"; lab13 "Typed line codes and PSDs, baseline wander, scramblers, 8b/10b, jitter bathtub, PAM-4 with CTLE/FFE/DFE, duobinary"
-- controls stack sizes to largest page -> size to current page; book.py strip $...$ from section titles
+- BOOK: final pass on all labboxes/tryit to match new lab experiment names (ch05 labbox "companion notebook... 75 minutes"; ch04 "Section 6" of lab15 -> experiment 7 "Zero-IF vs low-IF")
 - BOOK: ch08 MLT-3 "DC null" claim (lab measures only ~4.5 dB below peak) -> soften
-- catalog: lab08 "Shannon's gap, shift-register encoder, trellis and d_free, Viterbi step by step, soft vs hard, puncturing, traceback, bursts and interleaving"; lab20 "Hamming Venn diagram, SECDED, CRC calculator and detection, GF(2^m), Reed–Solomon errors/erasures, interleaving, coding gain"; lab09 "Tanner graphs and girth, live belief propagation, min-sum variants, early stopping, polarization, SC vs CA-SCL, finite-length limits"; lab23 "LTE turbo encoder and QPP, BCJR vs max-log, iterations, EXIT tunnel, BEC density evolution, coupling wave, error floors"
-- public on_click hook; Canvas (no-axes) plot type; xlim not honoured in narrow plots; tick() set slider without flicker; aspect=True overrides limits; _slug transliterate non-ASCII; Button can start Play; reserved method names (frame) should error
-- catalog: lab10 "Fading and combining live, SC/EGC/MRC slopes, Alamouti, water-filling, ergodic/outage capacity, ZF/MMSE/SIC/ML, DMT, massive MIMO, MU precoding"; lab29 "Steering and grating lobes, planar panel EIRP, beam squint vs TTD, Bartlett/MVDR/MUSIC, SSB sweep and Type I codebook, OMP hybrid precoding, LOS MIMO"; lab26 "Reuse and SIR maps, live Erlang switchboard, ALOHA/CSMA live, ALOHA instability, Bianchi DCF, RACH and barring, PPP coverage, PF scheduling, handover"
-- fixed-width controls panel; Plot.sim(); legend-only entries; selftest warm-import vs real launch timing
-- BOOK: re-capture lab screenshots embedded in chapters (e.g. figs/ch06_lab17_*.png via lab --exp N --shot) after studio framework cleanup
+- selftest timings use warm imports (real first launch is slower); text(y=None) with the default
+  anchor (0, 1) sits partly above the view top: pass anchor=(…, 0) for labels pinned to the top
+- retire notebook tooling: delete labs/lab00_index.py, labs/lab00_index.ipynb,
+  tests/build_notebooks.py, tests/build_all.sh, tests/dump_figs.py (deletion needs the owner's OK)

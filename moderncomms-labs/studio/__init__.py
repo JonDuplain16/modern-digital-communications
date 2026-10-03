@@ -21,10 +21,10 @@ A lab is a Python script that declares experiments and calls ``studio.run``::
 
 See studio/README.md for the full API and LAB_STYLE_GUIDE.md for the conventions.
 """
-from .controls import Button, Choice, Heading, IntSlider, LogSlider, Slider, Toggle
-from .core import Challenge, Experiment, Lab, Params, Readout, fmt_value, sci
-from .plots import (BarPlot, BERPlot, ConstellationPlot, EyePlot, ImagePlot, Plot, PolarPlot,
-                    SpectrumPlot, TimePlot)
+from .controls import Button, Choice, Heading, IntSlider, LogSlider, Slider, Text, Toggle
+from .core import Challenge, Experiment, Lab, Params, Readout, fmt_value, sci, slug
+from .plots import (BarPlot, BERPlot, Canvas, ConstellationPlot, EyePlot, ImagePlot, Plot,
+                    PolarPlot, SpectrumPlot, TimePlot)
 from .theme import BLUE, GOLD, GRAY, GREEN, NAVY, ORANGE, PALETTE, PURPLE, RED, TEAL
 
 
@@ -62,9 +62,9 @@ def keybox(html):
 
 
 __all__ = ["run", "Lab", "Experiment", "Params", "Readout", "Challenge",
-           "Slider", "LogSlider", "IntSlider", "Choice", "Toggle", "Button", "Heading",
+           "Slider", "LogSlider", "IntSlider", "Choice", "Toggle", "Button", "Heading", "Text",
            "Plot", "TimePlot", "SpectrumPlot", "ConstellationPlot", "EyePlot", "BERPlot",
-           "PolarPlot", "ImagePlot", "BarPlot",
+           "PolarPlot", "ImagePlot", "BarPlot", "Canvas",
            "NAVY", "RED", "GREEN", "ORANGE", "PURPLE", "BLUE", "GRAY", "GOLD", "TEAL", "PALETTE",
-           "fmt_value", "sci", "v", "good", "bad", "eq", "keybox"]
-__version__ = "1.0.0"
+           "fmt_value", "sci", "slug", "v", "good", "bad", "eq", "keybox"]
+__version__ = "1.1.0"

@@ -20,95 +20,16 @@ from collections import Counter, defaultdict
 from functools import lru_cache
 
 import numpy as np
-from PySide6 import QtWidgets
 
 import commlib as cl
 from commlib import infotheory as it
 from commlib import sourcecoding as sc
 from commlib import sourcekit as sk
 import studio as st
-from studio import (Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
+from studio import (Text, Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
                     Plot, ConstellationPlot, ImagePlot, BarPlot, Readout, Challenge,
                     NAVY, RED, GREEN, ORANGE, PURPLE, BLUE, GRAY, GOLD, TEAL)
 from studio import v, keybox, good, bad
-from studio.controls import Control
-
-
-# =============================================================================== a text-entry control
-class TextBox(Control):
-    """A one-line text field (studio has no text control yet), with a menu of examples
-    that fills it. The value is the text; every keystroke updates the experiment."""
-
-    def __init__(self, key, label, default="", examples=(), help="", max_len=600,
-                 enabled_if=None):
-        super().__init__(key, label, help, enabled_if)
-        self.default = default
-        self.examples = list(examples)
-        self.max_len = max_len
-        self._v = default
-
-    def make_widget(self, on_change):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        lay.setContentsMargins(2, 4, 2, 2)
-        lay.setSpacing(3)
-        name = QtWidgets.QLabel(self.label)
-        name.setObjectName("ctlname")
-        lay.addWidget(name)
-        self._edit = QtWidgets.QLineEdit(self.default)
-        self._edit.setObjectName("search")          # the theme's styled text field
-        self._edit.setMaxLength(self.max_len)
-        self._edit.setPlaceholderText("type anything…")
-        self._edit.setClearButtonEnabled(True)
-        self._edit.setMinimumWidth(40)
-        self._edit.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
-        lay.addWidget(self._edit)
-        self._on_change = on_change
-        self._edit.textChanged.connect(self._typed)
-        if self.examples:
-            self._combo = QtWidgets.QComboBox()
-            self._combo.addItems(["Examples…"] + [e[:40] + ("…" if len(e) > 40 else "")
-                                                  for e in self.examples])
-            self._combo.setSizeAdjustPolicy(
-                QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            self._combo.setMinimumContentsLength(8)
-            self._combo.activated.connect(self._pick)
-            lay.addWidget(self._combo)
-        if self.help:
-            w.setToolTip(self.help)
-        self.widget = w
-        return w
-
-    def _typed(self, t):
-        if t == self._v:
-            return
-        self._v = t
-        self._on_change(self.key, t)
-
-    def _pick(self, i):
-        if i > 0:
-            self._edit.setText(self.examples[i - 1])
-            self._combo.setCurrentIndex(0)
-
-    def value(self):
-        return self._v
-
-    def set_value(self, v, notify=False):
-        self._v = str(v)
-        if self.widget is not None:
-            self._edit.blockSignals(True)
-            self._edit.setText(self._v)
-            self._edit.blockSignals(False)
-        if notify and self.widget is not None:
-            self._on_change(self.key, self._v)
-
-    def set_enabled(self, on):
-        if self.widget is not None:
-            self.widget.setEnabled(on)
-
-    def random_value(self, rng):
-        pool = self.examples + [self.default, "", "a", "zzzzzzzzzzzzzzzz"]
-        return pool[int(rng.integers(0, len(pool)))]
 
 
 # =============================================================================== shared helpers
@@ -390,7 +311,7 @@ class TextImage(Experiment):
     controls = [
         Choice("src", "Source", ["Your text", "Book (Chapter 1)", "Photograph", "Synthetic image"],
                style="menu"),
-        TextBox("text", "Your text", DEFAULT_TEXT, examples=TEXTS,
+        Text("text", "Your text", DEFAULT_TEXT, examples=TEXTS,
                 help="Up to 600 characters; every keystroke updates the plots",
                 enabled_if=lambda p: p.src == "Your text"),
         Choice("pred", "Image predictor", ["None (raw pixels)", "Left neighbour",
@@ -1404,7 +1325,7 @@ class WaterFilling(Experiment):
                  Slider("psd", "Transmit PSD", -60.0, -30.0, -40.0, step=1.0, unit="dBm/Hz",
                         enabled_if=lambda p: p.mode != "6 sub-channels")])
     plots = [
-        Plot("vessel", "The vessel: gray floor N/|H|², blue water = power poured",
+        Plot("vessel", "The vessel: drag a gray floor (●) · blue water = power poured",
              x="sub-channel", y="power (linear units)", legend=None),
         BarPlot("bits", "Bits: gray equal · navy water-filling · ■ integer",
                 x="sub-channel", y="bits per symbol", legend=None),
@@ -1437,6 +1358,16 @@ class WaterFilling(Experiment):
 
     def setup(self):
         self.n_used = 0
+        self._top = None
+
+    def on_drag(self, key, item, i, x, y):
+        """Drag a sub-channel's floor N/|H|²: a lower floor is a better channel."""
+        if key != "vessel" or item != "grab":
+            return False
+        g_db = -10 * np.log10(max(y, 1e-3))
+        g_db = float(np.clip(np.round(g_db * 2) / 2, -10.0, 30.0))
+        self.set_control(f"g{i}", g_db, refresh=False)
+        return True
 
     def update(self, p):
         if p.mode == "6 sub-channels":
@@ -1458,11 +1389,15 @@ class WaterFilling(Experiment):
         pv = self.plot("vessel")
         pv.set_labels(x="sub-channel", y="power (linear units)")
         top = 1.6 * mu
+        if self.dragging and self._top:          # hold the scale still while a floor is dragged
+            top = self._top
+        self._top = top
         floor = np.minimum(inv, top * 1.2)
         pv.bars("floor", x, floor, width=0.92, color=GRAY)
         pv.bars("water", x, floor + pw, base=floor, width=0.92, color=BLUE, alpha=0.55)
         pv.hline("mu", mu, color=NAVY, style="--", width=1.8, label=f"water level μ = {mu:.3g}",
                  label_pos=0.02)
+        pv.handles("grab", x, np.minimum(inv, 0.97 * top), color=NAVY, size=13, axis="y")
         for i in range(6):
             if pw[i] > 0.04 * top:
                 pv.text(f"t{i}", x[i], floor[i] + pw[i] / 2, f"{pw[i]:.2g}", color=NAVY, size=8.5,
@@ -1559,7 +1494,8 @@ class WaterFilling(Experiment):
                  f"sit low, bad ones high. Pour the total power in like water: it settles at "
                  f"one level μ = {v(stt['mu'], '.3g')}, so good channels get more power, and "
                  f"channels whose floor sticks out above the water get <b>none</b>. Right now "
-                 f"{v(stt['n'], 'd')} of 6 are in use.</p>"
+                 f"{v(stt['n'], 'd')} of 6 are in use. Drag a floor's dot up or down to make "
+                 f"that sub-channel worse or better.</p>"
                  f"<p>Water-filling beats spreading the power equally by "
                  f"{v(gain, '.1f', '%')}. The gain is large when power is scarce (do not waste "
                  f"it on hopeless channels) and vanishes at high SNR, where every channel is "

@@ -1,108 +1,111 @@
-# Modern Digital Communications — Labs and SDR Examples
+# Modern Digital Communications — Lab Studio and SDR Examples
 
-Companion code for the textbook *Modern Digital Communications*. Thirty-six interactive Python
-simulation labs (plus a start-here index), a small shared DSP library, and five GNU Radio 3.10
-flowgraphs for the Ettus USRP B200. **Start with `labs/lab00_index.ipynb`.**
+Companion code for the textbook *Modern Digital Communications*: thirty-six **interactive
+desktop labs** (the *Lab Studio*), the shared DSP library they are built on, and five GNU Radio
+3.10 flowgraphs for the Ettus USRP B200. **Start with the launcher: `python labs/launcher.py`.**
 
 ```
-commlib/     shared library: modulation, filters, channels, sync, equalizers (+ eqadv), OFDM (+ ofdmadv),
-             coding (Viterbi, LDPC, polar; blockcodes, gf), MIMO, IQ file I/O, satellite links, line codes,
-             information theory, CPM/EVM, propagation, source coding, spread spectrum/GNSS, turbo codes and
-             EXIT/DE, cellular systems, an LTE/NR PHY (ltephy), wireline/optical, Wi-Fi/BLE/LoRa (iot), 6G
-             waveforms (sixg), RF transceiver models (rf), and labkit (the common look-and-feel, widgets and self-checks used by every lab)
-labs/        labNN_*.ipynb (pre-executed, with figures) + labNN_*.py sources (jupytext percent format)
+commlib/     shared DSP/comms library used by the labs AND the book figures: modulation, filters,
+             channels, sync, equalizers, OFDM, coding (Viterbi, LDPC, polar, block codes, GF, turbo),
+             MIMO, satellite links, line codes, information theory, CPM/EVM, propagation, source
+             coding, spread spectrum/GNSS, cellular, an LTE/NR PHY, wireline/optical, Wi-Fi/BLE/LoRa,
+             6G waveforms, RF transceiver models
+studio/      the Lab Studio framework (PySide6 + pyqtgraph): window, controls, live plots, self-test,
+             launcher. API: studio/README.md
+labs/        labNN_*.py: one studio app per lab, plus launcher.py (the gallery)
 gnuradio/    grNN_*.py hardware flowgraphs + grcommon.py helpers
-tests/       test_commlib.py, build_notebooks.py (rebuild/execute labs), dump_figs.py (figure review)
+tests/       test_commlib.py (library), selftest_labs.py (every lab, headless, with screenshots)
 data/        IQ captures from gr01 land here
+LAB_STYLE_GUIDE.md   how to write or edit a lab
 ```
 
-## 1. Labs
+## 1. Installing and running the labs
+
+Python 3.10 or newer.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python labs/launcher.py            # the Lab Studio gallery (or: python -m studio)
+pip install -r requirements.txt    # numpy, scipy, matplotlib, PySide6, pyqtgraph
+python labs/launcher.py            # the Lab Studio gallery (same as: python -m studio)
 ```
 
-**Interactive studio labs (new).** The labs are being converted from Jupyter notebooks into
-live desktop apps built on `studio/` (PySide6 + pyqtgraph): sliders on the left, plots that
-update instantly, live readouts, a "What's going on" panel, self-ticking challenges and a link
-to the book section. Converted so far: **Lab 03** (pulse shaping, Nyquist, live eyes, matched
-filter, BER Monte Carlo, NRZ vs PAM-4, FTN) and **Lab 14** (AM envelope detector, DSB/SSB,
-FM in time, Bessel/Carson, FM threshold and clicks, FM stereo, with optional audio). Run any
-of them directly (`python labs/lab03_pulse_shaping.py`); `--selftest` checks them headless and
-saves screenshots (`python tests/selftest_labs.py` runs all). See `studio/README.md` for the API
-and `LAB_STYLE_GUIDE.md` for how to convert the remaining labs.
-
-**Notebook labs (being converted).** The others are still notebooks: `jupyter lab labs/`, open
-one and choose *Restart Kernel and Run All Cells*. Panels built with `interact` become
-live sliders; in the shipped (pre-executed) notebooks they are rendered once at their defaults.
-
-Every lab follows the same template: a title block (chapter, what you will learn, prerequisites, time,
-roadmap); numbered sections that start with the physics and the key equations, then code, then a
-**What you should see** paragraph; **Try it yourself** questions with `lk.check(...)` self-checks that
-print PASS / FAIL / TODO; and closing **Key takeaways**, **Going further (USRP B200 / GNU Radio)** and
-graded **Exercises**. Run times below are for the full notebook on a desktop PC.
-
-| Lab | Chapter(s) | Topic | Interactive highlights | Run time |
-|-----|-----------|-------|------------------------|---------:|
-| 00 | — | Start here: setup, environment check, index | — | 1 s |
-| 01 | 2, 7 | Complex baseband, IQ sampling, the SDR receive chain | real vs IQ sampling, IQ imbalance, sensitivity | 3 s |
-| 02 | 9 | Digital modulation and optimal detection (PSK/QAM/APSK, FSK, DPSK, MSK/GMSK) | any constellation vs Eb/N0, GMSK BT | 5 s |
-| 03 | 8 | **Studio app**: pulses and spectra, Nyquist zero-ISI, live eye, matched filter, TX/RX chains, BER Monte Carlo, NRZ vs PAM-4, FTN | everything | live |
-| 04 | 10 | Carrier, timing and frame synchronization; MCRB | PLL playground, burst receiver | 6 s |
-| 05 | 11 | Path loss, fading, Doppler, level crossings, coherence bandwidth, sounding | TDL time-frequency response | 10 s |
-| 06 | 12 | ZF/MMSE, LMS/NLMS/RLS, CMA, DFE, MLSE | null depth vs ZF/MMSE | 5 s |
-| 07 | 17 | OFDM: CP, ICI, Schmidl–Cox, pilots, PAPR, NR numerology | CP vs delay spread | 21 s |
-| 08 | 13, 14 | Capacity, Hamming, CRC, convolutional codes, puncturing, interleaving | Viterbi frame viewer | 35 s |
-| 09 | 15 | LDPC (PEG, BP, min-sum) and polar codes (SC, CA-SCL) | iterations histogram | 55 s |
-| 10 | 19 | MIMO diversity, capacity, detection, beamforming, massive MIMO precoding | water-filling, beam steering | 12 s |
-| 11 | 20–22 | Frequency reuse, Erlang B, NR grid, scheduling, link adaptation, CSMA/CA, 4096-QAM | PF scheduler, PAPR, MCS/HARQ | 6 s |
-| 12 | 25 | OTFS vs OFDM, OFDM radar (ISAC), RIS, learned demapper | range-Doppler map, RIS | 11 s |
-| 13 | 8 | Line codes and PSDs, PRBS/scramblers, 8b/10b, jitter and bathtubs, NRZ vs PAM-4 + FFE, duobinary | jitter budget, backplane loss | 8 s |
-| 14 | 4 | **Studio app**: AM envelope detector, DSB-SC/SSB, FM in time, Bessel/Carson, FM threshold and clicks, FM stereo (with audio) | everything | live |
-| 15 | 4, 7 | Superheterodyne receiver, images, IF selectivity, AGC, zero-IF and low-IF | preselector Q and IF order, low-IF image | 2 s |
-| 16 | 5 | Sampling, ZOH, quantization, dither, μ-law/A-law, delta and sigma-delta, T1 | aliasing, delta-mod step | 2 s |
-| 17 | 6 | FIR/IIR design, polyphase, CIC + compensation, NCO, multi-stage DDC | FIR window vs Parks–McClellan | 2 s |
-| 18 | 23 | Satellite link budgets, GEO/LEO geometry and Doppler, P.618 rain, ACM vs CCM, TWTA | DTH budget, orbit explorer | 3 s |
-| 19 | 13 | Entropy of text and images, Huffman, Blahut–Arimoto, CM/BICM capacity, finite blocklength, water-filling | Markov source, block Huffman, constellation capacity, DSL loading | 5 s |
-| 20 | 14 | Hamming/SECDED, CRC calculator and detection test, GF(2^m), BCH and Reed–Solomon step by step, bursts and interleaving | syndrome decoder, CRC, GF table, RS errors/erasures, interleaver depth | 9 s |
-| 21 | 9 | MSK/GMSK/GFSK, 99% bandwidth, Laurent receiver vs differential/discriminator, PAPR CCDF, EVM signatures and budget | BT and h, GMSK eye, impairment explorer | 33 s |
-| 22 | 11 | Antennas, Fresnel/knife-edge, two-ray, Hata/COST-231/TR 38.901 + O2I, gas and rain, Jakes–Reudink coverage, link-budget planner | path profile, models, coverage planner | 13 s |
-| 23 | 15 | LTE turbo code (RSC, QPP), BCJR vs brute force, log-MAP vs max-log-MAP, BER per iteration, weight-2 error floor, EXIT charts, BEC density evolution incl. spatial coupling | block length/decoder/iterations, EXIT SNR, DE ensemble and ε | 58 s |
-| 24 | 16 | Huffman/canonical, adaptive arithmetic coder, LPC vocoder, toy JPEG, masking threshold and shaped noise | arithmetic orders, LPC pitch, JPEG quality, noise offset | 18 s |
-| 25 | 18 | m-sequences/Gold/Kasami/C/A, DSSS vs jammer, Rake, near–far + MUD, IS-95 capacity, GPS acquisition, tracking, position fix | jammer, near–far, acquisition grid, DOP | 8 s |
-| 26 | 20 | Hexagonal reuse and SIR (sectors, shadowing), Erlang B/C + call simulator, ALOHA/CSMA, ALOHA instability, RACH, PPP coverage, PF/α-fair scheduling | cluster, SIR layout, trunking, stability, PPP, scheduler | 6 s |
-| 27 | 21 | LTE grid and overhead, PSS/SSS cell search with CFO (two cells), PDSCH chain: CRC24, segmentation, LDPC, circular-buffer RM, scrambling, QAM, OFDM, CRS chest; BLER per MCS; HARQ chase vs IR | grid/PCI, cell search, PDSCH chain | 50 s |
-| 28 | 17 | LS/DFT/LMMSE channel estimation, CFO/Doppler/phase-noise ICI, coded OFDM, CFR + PA (EVM/ACLR), WOLA/f-OFDM, DMT bit loading, OFDM radar | pilots, phase noise, CFR/PA, spectra, DSL reach, radar | 22 s |
-| 29 | 19 | Planar arrays and EIRP, beam squint (PS vs TTD), Bartlett/MVDR/MUSIC, SSB sweep + Type I codebook, hybrid precoding by OMP, LOS MIMO | panel, squint, DOA, beams, hybrid, LOS spacing | 3 s |
-| 30 | 24 | RLGC loops, loading coils, bridged taps, DSL loading and reach, FEXT vectoring, IM/DD vs coherent over dispersive fibre, coherent DSP chain, OSNR/GN and PON budgets | loop, DSL, vectoring, fibre, coherent DSP, link plan | 3 s |
-| 31 | 22 | 802.11 preamble sync and LTF chest, MAC efficiency/aggregation/rate anomaly, Minstrel-like RA, BLE GFSK + battery, 802.15.4 O-QPSK, LoRa SER/ToA/range, RFID | preamble, MAC, Minstrel, BLE, Zigbee, LoRa | 5 s |
-| 32 | 25 | DD channels and OTFS sizing, OFDM vs OTFS vs AFDM, embedded-pilot OTFS estimation, near-field focusing, ISAC range–Doppler and sidelobe floors, RIS sizing | grid, Doppler, pilot, focus, ISAC, RIS | 17 s |
-| 33 | 3 | Gaussian/Q tails, Rayleigh/Rice, filtered noise and B_N, bandpass noise, spectral correlation, Friis cascades, Y-factor, ROC curves | samples, filter, line-up, Y-factor, ROC | 10 s |
-| 34 | 1 | Morse keying and key clicks, Morse vs Huffman and Shannon's telegraph capacity, Atlantic cable law of squares, repeaters vs regenerators | keying, text, cable, repeaters | 2 s |
-| 35 | 2 | Windows/scalloping/zero padding, uncertainty, group delay and dispersion, spectrograms, five bandwidths, two-tone IP3 | window, pulse width, delays, STFT, bandwidth, IP3 | 2 s |
-| 36 | 7 | Two-tone IIP3 + cascade check, receiver line-up and SFDR, phase noise from an L(f) mask and reciprocal mixing, PA classes and Doherty, memory-polynomial DPD (ILA) | IIP3, line-up, phase noise, PA, DPD | 5 s |
-
-### Writing or editing a lab
-Edit `labs/labNN_*.py` (jupytext percent format: `# %%` code cells, `# %% [markdown]` text cells), then
-rebuild and review:
+The launcher lists every lab grouped by the book's parts, with a search box; **Launch** opens a
+lab in its own window (you can keep several open). To run one lab directly:
 
 ```bash
-python tests/build_notebooks.py lab07           # one lab (or several: lab07 lab13); no argument = all
-python tests/dump_figs.py lab07_ofdm out.png     # stitch the lab's figures into one PNG to eyeball
-python tests/test_commlib.py                     # library self-tests (run after any commlib change)
+python labs/lab03_pulse_shaping.py              # open the lab
+python labs/lab03_pulse_shaping.py --exp 4      # open on experiment 4
+python labs/lab03_pulse_shaping.py --dark       # dark theme (remembered)
 ```
-`build_notebooks.py` executes in-process (no Jupyter kernel), captures prints, figures and labkit tables
-in order, records each cell's run time, and exits non-zero if a lab fails. It works on Linux, macOS and
-Windows (Git Bash or PowerShell). It caps BLAS threads at 2: on many-core machines OpenBLAS thread
-start-up can make the small matrix solves in these labs 100× slower, so the labs set
-`OPENBLAS_NUM_THREADS=2` in their first cell as well.
 
-New labs should start from any existing lab: use `from commlib import labkit as lk`, `rng = lk.setup(...)`,
-`lk.fig/lk.show` for figures, `lk.interact` + `lk.slider/lk.islider/lk.choice` for controls, `lk.table` for
-results, `lk.check` for self-checks and `lk.summary()` at the end.
+Every lab looks and works the same way: the **experiments** of the lab on the left with their
+**controls** (sliders, menus, switches, text fields; double-click a slider to reset it, or type
+a value into its box); **live plots** and big **readouts** in the middle that update as you move
+a control; on the right, **What's going on** (a short explanation tied to your current settings),
+**Try this** challenges that tick themselves when you achieve them, and a **Read more in the book**
+link that opens the PDF at the matching section. Streaming experiments have a **Play** button.
+Keyboard: Ctrl+1…9 experiments, PgUp/PgDn, Ctrl+P play/pause, Ctrl+R reset, Ctrl+E export PNG,
+Ctrl+D dark/light, F1 hide/show the notes. Some labs can play audio (optional `sounddevice`;
+they fall back to the operating system's player).
+
+| Lab | Chapter(s) | Topic and experiments | File |
+|-----|-----------|-----------------------|------|
+| 34 | 1 | **The Telegraph and the Birth of Signalling** — Morse keying, Morse vs Huffman, Kelvin's cable, semaphore pipeline, regenerators, loading coils, capacity | `labs/lab34_telegraph_history.py` |
+| 01 | 2, 7 | **Complex Baseband and IQ Sampling** — The IQ helix, real vs IQ sampling, up/down-conversion, the DDC, zero-IF images, phase noise, ADC bits, sensitivity, a live waterfall | `labs/lab01_baseband.py` |
+| 35 | 2 | **Fourier, Spectra and Bandwidth** — Fourier series and Gibbs, windows and scalloping, zero padding, uncertainty, convolution in slow motion, group delay, five bandwidths, STFT, IP3 | `labs/lab35_fourier_spectra.py` |
+| 33 | 3 | **Noise and Detection** — Why noise is Gaussian, Q-function tails, Rayleigh/Rice, filtered and bandpass noise, Friis, Y-factor, ROC curves, signals below the noise | `labs/lab33_noise_detection.py` |
+| 14 | 4 | **Analog Modulation: AM, SSB, FM and Stereo** — Envelope detector, DSB-SC and SSB, FM in time, Bessel sidebands and Carson, FM threshold and clicks, stereo multiplex (with audio) | `labs/lab14_analog_am_fm.py` |
+| 15 | 4, 7 | **The Superheterodyne Receiver** — Tune the band, images, IF selectivity, AGC, double conversion, IM3/SFDR, zero-IF vs low-IF | `labs/lab15_superhet_receiver.py` |
+| 16 | 5 | **Sampling, PCM and Companding** — Aliasing, ZOH, SQNR, dither, G.711, DM/CVSD, sigma-delta, jitter, T1/E1 | `labs/lab16_pcm_companding.py` |
+| 17 | 6 | **Digital Filters and Multirate DSP** — Pole–zero, FIR/IIR and fixed point, aliasing, PFB channelizer, CIC, NCO spurs, CORDIC, a live DDC | `labs/lab17_multirate_dsp.py` |
+| 36 | 7 | **The RF Transceiver** — Two-tone IIP3, line-up and SFDR, reciprocal mixing, I/Q image, PA ACLR/EVM, Doherty, CFR, DPD | `labs/lab36_rf_transceiver.py` |
+| 03 | 8 | **Pulse Shaping, Nyquist and the Eye** — Pulses and spectra, zero ISI, live eye diagrams, the matched filter, TX/RX chains, BER Monte Carlo, NRZ vs PAM-4, faster than Nyquist | `labs/lab03_pulse_shaping.py` |
+| 13 | 8 | **Line Codes, Jitter and SerDes Eyes** — Typed line codes and PSDs, baseline wander, scramblers, 8b/10b, jitter bathtub, PAM-4 with CTLE/FFE/DFE, duobinary | `labs/lab13_line_codes_eyes.py` |
+| 02 | 9 | **Digital Modulation and Optimal Detection** — Constellation zoo, signal space, decision regions and MAP, BER Monte Carlo, LLRs, noncoherent FSK, Shannon plane, Rayleigh fading | `labs/lab02_modulation.py` |
+| 21 | 9 | **Constant Envelope, PAPR and EVM** — CPM phase and spectra, MSK = OQPSK (Laurent), three receivers, PAPR, PA regrowth, EVM signatures and budget | `labs/lab21_cpm_evm.py` |
+| 04 | 10 | **Synchronization: Carrier, Timing and Frame** — Impairment diagnosis, PLL steps and slips, S-curves, live Costas and timing loops, frequency estimators vs CRB, Farrow, frame sync, Schmidl–Cox and PSS cell search | `labs/lab04_synchronization.py` |
+| 05 | 11 | **The Wireless Channel** — Path loss and shadowing, room standing waves, Doppler speckle, Rayleigh/Rice/Nakagami, echoes as notches, 3GPP TDL models, diversity, channel sounding | `labs/lab05_channels.py` |
+| 22 | 11 | **Propagation and Link Budgets** — Friis, the decibel bank account, Fresnel zones and knife edges, two-ray, Hata/COST-231/38.901, rain and oxygen, edge vs area coverage, a coverage map | `labs/lab22_propagation_link_budget.py` |
+| 06 | 12 | **Equalization** — ISI, ZF vs MMSE, length and delay, live LMS, LMS vs RLS, blind CMA, DFE error bursts, the Viterbi equalizer, SerDes CTLE/FFE/DFE | `labs/lab06_equalization.py` |
+| 19 | 13 | **Information Theory** — Entropy of your own text, live Huffman trees, Blahut–Arimoto, Shannon's limit, real constellations, short packets, water-filling and rate–distortion | `labs/lab19_information_theory.py` |
+| 08 | 14 | **Convolutional Codes and the Viterbi Algorithm** — Shannon's gap, shift-register encoder, trellis and d_free, Viterbi step by step, soft vs hard, puncturing, traceback, bursts and interleaving | `labs/lab08_convolutional.py` |
+| 20 | 14 | **Block Codes: Hamming to Reed–Solomon** — Hamming Venn diagram, SECDED, CRC calculator and detection, GF(2^m), Reed–Solomon errors/erasures, interleaving, coding gain | `labs/lab20_block_codes.py` |
+| 09 | 15 | **LDPC and Polar Codes** — Tanner graphs and girth, live belief propagation, min-sum variants, early stopping, polarization, SC vs CA-SCL, finite-length limits | `labs/lab09_ldpc_polar.py` |
+| 23 | 15 | **Turbo Codes and EXIT Charts** — LTE turbo encoder and QPP, BCJR vs max-log, iterations, EXIT tunnel, BEC density evolution, coupling wave, error floors | `labs/lab23_turbo_exit.py` |
+| 24 | 16 | **Source Coding** — Huffman vs arithmetic coding, LZ77, Lloyd–Max, the DCT, a working JPEG, an LPC vocoder you can hear, psychoacoustic masking and motion search | `labs/lab24_source_coding.py` |
+| 07 | 17 | **OFDM: From the IFFT to the NR Grid** — Orthogonal subcarriers, IFFT + CP, CP vs multipath, the one-tap equaliser, Schmidl & Cox, pilots, PAPR vs DFT-s-OFDM, NR numerology | `labs/lab07_ofdm.py` |
+| 28 | 17 | **OFDM as a System** — LS/DFT/LMMSE channel estimation, CFO/Doppler/phase noise, coded OFDM, clipping and the PA, WOLA/f-OFDM, DMT bit loading, OFDM radar | `labs/lab28_ofdm_system.py` |
+| 25 | 18 | **Spread Spectrum, CDMA and GPS** — Gold codes, a DSSS link under jamming, frequency hopping, the RAKE, near–far and multiuser detection, and a GPS receiver from acquisition to position fix | `labs/lab25_spread_spectrum_gps.py` |
+| 10 | 19 | **MIMO: Diversity, Capacity, Detection** — Fading and combining live, SC/EGC/MRC slopes, Alamouti, water-filling, ergodic/outage capacity, ZF/MMSE/SIC/ML, DMT, massive MIMO, MU precoding | `labs/lab10_mimo.py` |
+| 29 | 19 | **Antenna Arrays and Beamforming** — Steering and grating lobes, planar panel EIRP, beam squint vs TTD, Bartlett/MVDR/MUSIC, SSB sweep and Type I codebook, OMP hybrid precoding, LOS MIMO | `labs/lab29_arrays_beamforming.py` |
+| 11 | 20, 21, 22 | **Air Interfaces: Cells, Trunks, Schedulers** — Reuse and SIR, a live switchboard, OFDMA scheduling, link adaptation and HARQ, Wi-Fi contention, the 4096-QAM EVM budget, air interfaces side by side | `labs/lab11_air_interfaces.py` |
+| 26 | 20 | **The Cellular Concept** — Reuse and SIR maps, live Erlang switchboard, ALOHA/CSMA live, ALOHA instability, Bianchi DCF, RACH and barring, PPP coverage, PF scheduling, handover | `labs/lab26_cellular_system.py` |
+| 27 | 21 | **Inside an LTE/NR Downlink** — Resource grid builder, PSS/SSS and two-cell search, the PDSCH chain step by step, chase vs IR HARQ, CQI/MCS throughput, TS 38.306 peak rate | `labs/lab27_lte_nr_phy.py` |
+| 31 | 22 | **Wi-Fi, Bluetooth LE, 802.15.4, LoRa and RFID** — 802.11 preamble, A-MPDU efficiency, rate anomaly, live Minstrel, BLE GFSK, coin-cell life, 802.15.4 O-QPSK, LoRa chirps, air time and range, RFID | `labs/lab31_wifi_ble_lora.py` |
+| 18 | 23 | **Satellite Links** — Link budget as a decibel bank account, GEO vs LEO, a live LEO pass, rain fade and availability, ACM vs CCM, TWTA with 16QAM vs 16APSK, Voyager | `labs/lab18_satellite_link.py` |
+| 30 | 24 | **Wireline and Optical** — Loop loss and Z0, loading coils and taps, DSL rate vs reach, vectoring, IM/DD vs coherent, live CMA, GN link planning, PON | `labs/lab30_wireline_optical.py` |
+| 12 | 25 | **Frontiers: Delay–Doppler, ISAC, RIS, Learning** — Delay–Doppler view, OTFS vs OFDM on a fast train, phase noise and numerology, OFDM radar, RIS N² law, a learned demapper and autoencoder | `labs/lab12_frontiers.py` |
+| 32 | 25 | **Toward 6G: Waveforms, Near Field, ISAC** — OFDM/OTFS/AFDM under Doppler, embedded pilot, near-field focusing, ISAC trade-off, RIS vs relay, sub-THz budget | `labs/lab32_6g_waveforms.py` |
+
+### Self-test and editing a lab
+
+```bash
+python tests/selftest_labs.py                     # every lab, headless: defaults + random settings
+python tests/selftest_labs.py lab03 lab14         # some labs
+python tests/selftest_labs.py --random 2          # fewer random settings (faster)
+python labs/lab03_pulse_shaping.py --selftest     # one lab; add --dark for the dark theme
+python tests/test_commlib.py                      # library self-tests (after any commlib change)
+```
+
+The self-test opens each experiment, runs it at the default settings (including background
+Monte Carlo jobs in quick mode and a few animation frames) and at random settings, fails on
+exceptions, infinite values or slow updates, and saves a screenshot of every experiment to
+`tests/screens/labNN/`. Look at them: layout bugs are bugs.
+
+To write or change a lab, read `LAB_STYLE_GUIDE.md` (conventions, checklist) and
+`studio/README.md` (API). A lab is one declarative Python file; all signal processing lives in
+`commlib` so the labs and the book figures agree.
 
 ## 2. GNU Radio hardware examples
 
@@ -140,15 +143,6 @@ an offset (implemented as an RX LO offset). Start with low `--tx-gain` and raise
   or keep the labs in a separate virtual environment.
 * Check the radio: `uhd_find_devices` and `uhd_usrp_probe`.
 
-## 3. Tests and rebuilding
-
-```bash
-python tests/test_commlib.py                 # library self-test (BER vs theory, loops lock, codes decode)
-python tests/build_notebooks.py              # regenerate + execute every lab from labs/*.py
-python tests/build_notebooks.py lab07        # just one
-bash tests/build_all.sh                      # one process per lab (isolates failures)
-```
-Edit the `labs/*.py` sources (jupytext percent format) and rebuild, or edit the notebooks directly.
-
 ## License
-Course material for teaching use. commlib and the flowgraphs may be reused freely with attribution.
+Course material for teaching use. commlib, studio and the flowgraphs may be reused freely with
+attribution.

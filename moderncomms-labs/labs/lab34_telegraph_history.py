@@ -14,91 +14,17 @@ you change the history: type your own message, lengthen the cable, add repeaters
 import _path  # noqa: F401  (makes commlib and studio importable)
 
 import numpy as np
-from PySide6 import QtWidgets
 from scipy.signal import fftconvolve, welch
 
 from commlib import infotheory as it
 from commlib import telegraph as tg
 import studio as st
-from studio import (Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
+from studio import (Text, Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
                     Plot, SpectrumPlot, BarPlot, Readout, Challenge,
                     NAVY, RED, GREEN, ORANGE, PURPLE, BLUE, GRAY, GOLD)
 from studio import v, keybox, good, bad
-from studio.controls import Control
 
-
-# =============================================================================== a text-entry control
-class TextBox(Control):
-    """A one-line text field (studio has no text control yet), with a menu of examples
-    that fills it. The value is the text; every keystroke updates the experiment."""
-
-    def __init__(self, key, label, default="", examples=(), help="", max_len=600):
-        super().__init__(key, label, help)
-        self.default = default
-        self.examples = list(examples)
-        self.max_len = max_len
-        self._v = default
-
-    def make_widget(self, on_change):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        lay.setContentsMargins(2, 4, 2, 2)
-        lay.setSpacing(3)
-        name = QtWidgets.QLabel(self.label)
-        name.setObjectName("ctlname")
-        lay.addWidget(name)
-        self._edit = QtWidgets.QLineEdit(self.default)
-        self._edit.setObjectName("search")          # the theme's styled text field
-        self._edit.setMaxLength(self.max_len)
-        self._edit.setPlaceholderText("type anything…")
-        self._edit.setClearButtonEnabled(True)
-        self._edit.setMinimumWidth(40)
-        self._edit.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
-        lay.addWidget(self._edit)
-        self._on_change = on_change
-        self._edit.textChanged.connect(self._typed)
-        if self.examples:
-            self._combo = QtWidgets.QComboBox()
-            self._combo.addItems(["Examples…"] + self.examples)
-            self._combo.setSizeAdjustPolicy(
-                QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            self._combo.setMinimumContentsLength(8)
-            self._combo.activated.connect(self._pick)
-            lay.addWidget(self._combo)
-        if self.help:
-            w.setToolTip(self.help)
-        self.widget = w
-        return w
-
-    def _typed(self, t):
-        if t == self._v:
-            return
-        self._v = t
-        self._on_change(self.key, t)
-
-    def _pick(self, i):
-        if i > 0:
-            self._edit.setText(self.examples[i - 1])
-            self._combo.setCurrentIndex(0)
-
-    def value(self):
-        return self._v
-
-    def set_value(self, v, notify=False):
-        self._v = str(v)
-        if self.widget is not None:
-            self._edit.blockSignals(True)
-            self._edit.setText(self._v)
-            self._edit.blockSignals(False)
-        if notify and self.widget is not None:
-            self._on_change(self.key, self._v)
-
-    def random_value(self, rng):
-        pool = self.examples + [self.default, "", "123 ?!", "E"]
-        return pool[int(rng.integers(0, len(pool)))]
-
-
-C_TEL = tg.telegraph_capacity()                     # 0.539 bit per unit (Shannon, 1948)
+C_TEL = tg.telegraph_capacity()
 MESSAGES = ["SOS", "WHAT HATH GOD WROUGHT", "PARIS PARIS", "CQ CQ DE W1AW",
             "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG"]
 
@@ -109,7 +35,7 @@ class KeyClicks(Experiment):
     blurb = "Key a carrier on and off. Sharp edges splatter; shaped edges stay in their lane."
     book = "sec:ch01:morse"
     controls = [
-        TextBox("text", "Message", "SOS", examples=MESSAGES,
+        Text("text", "Message", "SOS", examples=MESSAGES,
                 help="Letters and digits are keyed; anything else is skipped"),
         Slider("wpm", "Speed", 5, 40, 20, step=1, unit="wpm",
                help="Words per minute, PARIS standard: one dot unit lasts 1.2/wpm seconds"),
@@ -236,7 +162,7 @@ class MorseHuffman(Experiment):
     blurb = "Vail counted the type in a printer's case. How close did he get to Shannon?"
     book = "sec:ch01:morse"
     controls = [
-        TextBox("text", "Your text", "WHAT HATH GOD WROUGHT, THE FIRST MESSAGE ON THE "
+        Text("text", "Your text", "WHAT HATH GOD WROUGHT, THE FIRST MESSAGE ON THE "
                 "WASHINGTON TO BALTIMORE LINE IN 1844",
                 examples=["THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG",
                           "ZYZZYVA QUIZ JAZZ BUZZ FIZZ",

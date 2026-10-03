@@ -21,7 +21,6 @@ from collections import Counter
 from functools import lru_cache
 
 import numpy as np
-from PySide6 import QtWidgets
 from scipy import signal
 
 import commlib as cl
@@ -29,88 +28,10 @@ from commlib import infotheory as it
 from commlib import sourcecoding as sc
 from commlib import sourcekit as sk
 import studio as st
-from studio import (Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
+from studio import (Text, Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
                     Plot, SpectrumPlot, ImagePlot, BarPlot, Readout, Challenge,
                     NAVY, RED, GREEN, ORANGE, PURPLE, BLUE, GRAY, GOLD, TEAL)
 from studio import v, keybox, good, bad
-from studio.controls import Control
-
-
-# =============================================================================== a text-entry control
-class TextBox(Control):
-    """A one-line text field (studio has no text control yet), with a menu of examples
-    that fills it. The value is the text; every keystroke updates the experiment."""
-
-    def __init__(self, key, label, default="", examples=(), help="", max_len=600,
-                 enabled_if=None):
-        super().__init__(key, label, help, enabled_if)
-        self.default = default
-        self.examples = list(examples)
-        self.max_len = max_len
-        self._v = default
-
-    def make_widget(self, on_change):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        lay.setContentsMargins(2, 4, 2, 2)
-        lay.setSpacing(3)
-        name = QtWidgets.QLabel(self.label)
-        name.setObjectName("ctlname")
-        lay.addWidget(name)
-        self._edit = QtWidgets.QLineEdit(self.default)
-        self._edit.setObjectName("search")
-        self._edit.setMaxLength(self.max_len)
-        self._edit.setPlaceholderText("type anything…")
-        self._edit.setClearButtonEnabled(True)
-        self._edit.setMinimumWidth(40)
-        self._edit.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
-        lay.addWidget(self._edit)
-        self._on_change = on_change
-        self._edit.textChanged.connect(self._typed)
-        if self.examples:
-            self._combo = QtWidgets.QComboBox()
-            self._combo.addItems(["Examples…"] + [e[:40] + ("…" if len(e) > 40 else "")
-                                                  for e in self.examples])
-            self._combo.setSizeAdjustPolicy(
-                QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            self._combo.setMinimumContentsLength(8)
-            self._combo.activated.connect(self._pick)
-            lay.addWidget(self._combo)
-        if self.help:
-            w.setToolTip(self.help)
-        self.widget = w
-        return w
-
-    def _typed(self, t):
-        if t == self._v:
-            return
-        self._v = t
-        self._on_change(self.key, t)
-
-    def _pick(self, i):
-        if i > 0:
-            self._edit.setText(self.examples[i - 1])
-            self._combo.setCurrentIndex(0)
-
-    def value(self):
-        return self._v
-
-    def set_value(self, v, notify=False):
-        self._v = str(v)
-        if self.widget is not None:
-            self._edit.blockSignals(True)
-            self._edit.setText(self._v)
-            self._edit.blockSignals(False)
-        if notify and self.widget is not None:
-            self._on_change(self.key, self._v)
-
-    def set_enabled(self, on):
-        if self.widget is not None:
-            self.widget.setEnabled(on)
-
-    def random_value(self, rng):
-        pool = self.examples + [self.default, "", "a", "zzzzzzzzzzzzzzzz"]
-        return pool[int(rng.integers(0, len(pool)))]
 
 
 # =============================================================================== shared helpers
@@ -226,7 +147,7 @@ class HuffmanArithmetic(Experiment):
     book = "sec:ch16:lossless"
     controls = [
         Choice("src", "Text", ["Your text", "Book (Chapter 1, 3000 chars)"]),
-        TextBox("text", "Your text", DEFAULT_TEXT, examples=TEXTS,
+        Text("text", "Your text", DEFAULT_TEXT, examples=TEXTS,
                 enabled_if=lambda p: p.src == "Your text"),
         IntSlider("order", "Arithmetic coder context order", 0, 3, 1,
                   help="How many previous characters the adaptive model looks at"),
@@ -356,7 +277,7 @@ class LZ77(Experiment):
     animate = True
     fps = 2
     controls = [
-        TextBox("text", "Text to compress", LZ_TEXTS[0], examples=LZ_TEXTS),
+        Text("text", "Text to compress", LZ_TEXTS[0], examples=LZ_TEXTS),
         IntSlider("lw", "Window size (log₂)", 3, 12, 5, unit="",
                   help="The parser looks this many characters back: 2^x (DEFLATE uses 32 768)"),
         IntSlider("maxlen", "Longest match", 3, 64, 18, unit="chars",

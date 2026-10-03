@@ -3,6 +3,7 @@
     python tests/selftest_labs.py             # all studio labs
     python tests/selftest_labs.py lab03 lab14 # some
     python tests/selftest_labs.py --random 2  # fewer random settings per experiment (faster)
+    python tests/selftest_labs.py --dark      # dark theme; screenshots in tests/screens/labNN_dark/
 
 Each lab runs in its own process with QT_QPA_PLATFORM=offscreen. Screenshots of every
 experiment land in tests/screens/labNN/ (NN_slug.png at defaults, NN_slug_random.png at the
@@ -38,6 +39,7 @@ def main(argv):
         i = argv.index("--random")
         extra = ["--random", argv[i + 1]]
         argv = argv[:i] + argv[i + 2:]
+    dark = "--dark" in argv
     pats = [a for a in argv if not a.startswith("--")]
     labs = studio_labs(pats)
     if not labs:
@@ -48,7 +50,8 @@ def main(argv):
     for f in labs:
         name = os.path.basename(f)[:-3]
         t0 = time.time()
-        r = subprocess.run([sys.executable, f, "--selftest", *extra], cwd=LABS, env=env,
+        more = ["--dark", "--out", os.path.join(HERE, "screens", name[:5] + "_dark")] if dark else []
+        r = subprocess.run([sys.executable, f, "--selftest", *extra, *more], cwd=LABS, env=env,
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         dt = time.time() - t0
         ok = r.returncode == 0

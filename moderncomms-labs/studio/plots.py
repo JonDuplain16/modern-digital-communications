@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6 import QtCore, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from .theme import GRAY, GREEN, NAVY, PALETTE, UI_FONT
 
 __all__ = ["Plot", "TimePlot", "SpectrumPlot", "ConstellationPlot", "EyePlot", "BERPlot",
-           "PolarPlot", "ImagePlot", "BarPlot"]
+           "PolarPlot", "ImagePlot", "BarPlot", "Canvas"]
 
 _STYLES = {"-": QtCore.Qt.SolidLine, "--": QtCore.Qt.DashLine, ":": QtCore.Qt.DotLine,
            "-.": QtCore.Qt.DashDotLine}
@@ -43,7 +43,12 @@ _SUP = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 class _Axis(pg.AxisItem):
     """Linear axis with 'nice' tick spacing (1, 2, 5 × 10ⁿ) chosen for about one label
-    per 80 px horizontally / 45 px vertically, and unlabelled minor ticks in between."""
+    per 80 px horizontally / 45 px vertically, and unlabelled minor ticks in between.
+    Never rescales its labels with an SI prefix (0.5 stays 0.5, not 500 m)."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.enableAutoSIPrefix(False)
 
     def tickSpacing(self, minVal, maxVal, size):
         if self.logMode or maxVal <= minVal or size <= 0:
@@ -63,6 +68,10 @@ class _Axis(pg.AxisItem):
 
 class _LogAxis(pg.AxisItem):
     """Log axis whose decade labels read 10⁻³ rather than 0.001."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.enableAutoSIPrefix(False)
 
     def tickStrings(self, values, scale, spacing):
         out = []
@@ -89,16 +98,21 @@ class Plot:
     logx, logy       logarithmic axes
     legend           "tr", "tl", "br", "bl" or None
     legend_cols      >1 lays the legend out horizontally (leave headroom with ylim)
-    aspect           True locks 1:1 aspect (constellations, maps)
+    aspect           True locks 1:1 aspect (constellations, maps); the view always shows
+                     at least xlim × ylim, widening one of them to keep circles round
     grid             show grid lines
+    axes             False: a drawing canvas (no axes, no grid, no pan/zoom, no menu)
+    mouse            pan/zoom with the mouse (default: True, False when axes=False)
     """
 
     def __init__(self, key, title="", x="", y="", xlim=None, ylim=None, logx=False, logy=False,
-                 legend="tr", aspect=False, grid=True, legend_cols=1):
+                 legend="tr", aspect=False, grid=True, legend_cols=1, axes=True, mouse=None):
         self.key, self.title_text, self.xlabel, self.ylabel = key, title, x, y
         self.legend_cols = legend_cols
         self.xlim, self.ylim, self.logx, self.logy = xlim, ylim, logx, logy
-        self.legend_pos, self.aspect, self.grid = legend, aspect, grid
+        self.legend_pos, self.aspect, self.grid = legend, aspect, grid and axes
+        self.axes = axes
+        self.mouse = axes if mouse is None else mouse
         self.widget = None
 
     # ------------------------------------------------------------------ construction
@@ -128,11 +142,42 @@ class Plot:
         if self.aspect:
             self.vb.setAspectLocked(True)
         self._style()
+        self._apply_canvas()
         self.reset_view()
         self._extra_build()
         if hover_cb is not None:
             self.widget.scene().sigMouseMoved.connect(lambda pos: self._hover(pos, hover_cb))
+        self.vb.sigRangeChanged.connect(lambda *_: self._repin_top())
         return self.widget
+
+    def _apply_canvas(self):
+        if not self.axes:
+            for side in ("left", "bottom"):
+                self.pi.hideAxis(side)
+        if not self.mouse:
+            self.vb.setMouseEnabled(False, False)
+            self.pi.setMenuEnabled(False)
+
+    def _connect_click(self, cb):
+        """Call ``cb(self, x, y)`` (data units) on left clicks inside the plot area."""
+        def handler(ev):
+            try:
+                if ev.button() != QtCore.Qt.LeftButton or self.widget is None:
+                    return
+                pos = ev.scenePos()
+                if not self.vb.sceneBoundingRect().contains(pos):
+                    return
+                p = self.vb.mapSceneToView(pos)
+                x, y = p.x(), p.y()
+                if self.logx:
+                    x = 10 ** x
+                if self.logy:
+                    y = 10 ** y
+                cb(self, x, y)
+            except Exception:                   # a click must never crash the lab
+                import traceback
+                traceback.print_exc()
+        self.widget.scene().sigMouseClicked.connect(handler)
 
     def _extra_build(self):
         pass
@@ -166,26 +211,33 @@ class Plot:
         self.theme = theme
         self.clear()
         self._style()
+        self._apply_canvas()
         self._extra_build()
 
     def reset_view(self):
         """Return to the declared axis ranges (or autoscale)."""
         if self.widget is None:
             return
+        xr = yr = None
         if self.xlim is not None:
             lo, hi = self.xlim
             if self.logx:
                 lo, hi = np.log10(lo), np.log10(hi)
-            self.vb.setXRange(lo, hi, padding=0)
-        else:
-            self.vb.enableAutoRange(axis="x")
+            xr = (lo, hi)
         if self.ylim is not None:
             lo, hi = self.ylim
             if self.logy:
                 lo, hi = np.log10(lo), np.log10(hi)
-            self.vb.setYRange(lo, hi, padding=0)
-        else:
+            yr = (lo, hi)
+        # one joint call: with a locked aspect, separate x and y calls fight each other
+        # (the second one shrinks the first); jointly, both ranges stay fully visible.
+        if xr is not None or yr is not None:
+            self.vb.setRange(xRange=xr, yRange=yr, padding=0, disableAutoRange=True)
+        if xr is None:
+            self.vb.enableAutoRange(axis="x")
+        if yr is None:
             self.vb.enableAutoRange(axis="y")
+        self._repin_top()
 
     def _hover(self, pos, cb):
         if not self.pi.sceneBoundingRect().contains(pos):
@@ -224,9 +276,9 @@ class Plot:
         return it
 
     def _remove(self, key):
+        self._legend_remove(key)               # before the item is forgotten
         it = self._items.pop(key, None)
         self._kinds.pop(key, None)
-        self._legend_remove(key)
         if it is not None:
             self.pi.removeItem(it)
 
@@ -246,7 +298,9 @@ class Plot:
 
     def _legend_remove(self, key):
         if self.legend is not None and key in self._names:
-            self.legend.removeItem(self._items[key])
+            it = self._items.get(key)
+            if it is not None:
+                self.legend.removeItem(it)
             self._names.pop(key, None)
             self.legend.setVisible(bool(self._names))
 
@@ -289,9 +343,26 @@ class Plot:
         self.ylim = (lo, hi)
         self.reset_view()
 
+    def set_range(self, xlim=None, ylim=None):
+        """Set both ranges at once (one view change; best for aspect-locked plots).
+        None leaves that axis as it is."""
+        if xlim is not None:
+            self.xlim = tuple(xlim)
+        if ylim is not None:
+            self.ylim = tuple(ylim)
+        self.reset_view()
+
     def set_xticks(self, ticks):
-        """Label the x axis with explicit ticks: [(value, "label"), ...] (None = automatic)."""
-        self.pi.getAxis("bottom").setTicks(None if ticks is None else [list(ticks)])
+        """Label the x axis with explicit ticks: [(value, "label"), ...] (None = automatic).
+        Labels may contain "\n" for two-line labels (the axis grows to fit)."""
+        ax = self.pi.getAxis("bottom")
+        ax.setTicks(None if ticks is None else [list(ticks)])
+        lines = max((str(t[1]).count("\n") + 1 for t in (ticks or [])), default=1)
+        if lines > 1 or getattr(self, "_xtick_lines", 1) > 1:
+            fh = QtGui.QFontMetrics(ax.style.get("tickFont") or QtGui.QFont(UI_FONT)).height()
+            lab_h = 22 if self.xlabel else 4
+            ax.setHeight(int(lines * fh + lab_h + 10) if lines > 1 else None)
+        self._xtick_lines = lines
 
     def set_yticks(self, ticks):
         """Label the y axis with explicit ticks: [(value, "label"), ...] (None = automatic)."""
@@ -306,9 +377,13 @@ class Plot:
 
     # ------------------------------------------------------------------ data items
     def line(self, key, x, y=None, color=NAVY, width=2.0, style="-", name=None, alpha=1.0,
-             fill=None, fill_alpha=0.15, step=False, z=0):
+             fill=None, fill_alpha=0.15, step=False, z=0, downsample=None):
         """A curve. ``fill`` = baseline level to shade down to (e.g. 0 or -100 dB).
-        ``step=True`` draws a staircase (x one longer than y). NaN breaks the line."""
+        ``step=True`` draws a staircase (x one longer than y). NaN breaks the line.
+
+        ``downsample``: None (default) = automatic peak decimation for curves longer than
+        4000 points whose x is increasing; False = never (parametric curves such as
+        circles, trajectories, Lissajous figures); True = always."""
         if y is None:
             x, y = np.arange(len(x)), x
         x = np.asarray(x, float)
@@ -323,9 +398,17 @@ class Plot:
         else:
             kw.update(fillLevel=None, brush=None)
         it.setData(x, y, stepMode="center" if step else None, **kw)
-        if len(x) > 4000:
+        if downsample is None:
+            ds = len(x) > 4000 and bool(np.all(np.diff(x[np.isfinite(x)]) >= 0))
+        else:
+            ds = bool(downsample)
+        if ds:
             it.setDownsampling(auto=True, method="peak")
             it.setClipToView(True)
+        elif getattr(it, "_studio_ds", False):
+            it.setDownsampling(ds=1, auto=False)
+            it.setClipToView(False)
+        it._studio_ds = ds
         it.setZValue(z)
         self._legend_set(key, it, name)
         return it
@@ -363,29 +446,125 @@ class Plot:
 
     def bars(self, key, x, height, width=0.8, color=NAVY, name=None, base=0.0, alpha=0.9,
              colors=None):
-        """Vertical bars. ``colors`` (list) colours each bar individually."""
+        """Vertical bars from ``base`` up to ``height``. ``colors`` (list) colours each bar
+        individually (the legend swatch uses ``color``, or the first of ``colors``).
+        Works on log axes: on a log y axis a base ≤ 0 means "from the bottom of the view"."""
         x = np.asarray(x, float)
         h = np.asarray(height, float)
+        b = np.broadcast_to(np.asarray(base, float), h.shape).astype(float)
         if colors is not None:
             brushes = [_qcolor(self.theme.c(c), alpha) for c in colors]
         else:
             brushes = [_qcolor(self.theme.c(color), alpha)] * len(x)
-        it = self._get(key, "bars", lambda: pg.BarGraphItem(x=x, height=h, width=width))
-        it.setOpts(x=x, height=h - base, y0=base, width=width, brushes=brushes,
+        w = np.broadcast_to(np.asarray(width, float), x.shape).astype(float)
+        if self.logx:                           # bar edges in log10 units
+            lo = np.log10(np.maximum(x - w / 2, 1e-300))
+            hi = np.log10(np.maximum(x + w / 2, 1e-300))
+            bad = x - w / 2 <= 0                 # e.g. width wider than x: keep it visible
+            lo = np.where(bad, np.log10(np.maximum(x, 1e-300)) - 0.05, lo)
+            x, w = (lo + hi) / 2, hi - lo
+        if self.logy:
+            pos = h[np.isfinite(h) & (h > 0)]
+            if self.ylim is not None:
+                floor = np.log10(self.ylim[0])
+            else:
+                floor = np.log10(pos.min()) - 1 if pos.size else 0.0
+            yb = np.where(b > 0, np.log10(np.maximum(b, 1e-300)), floor)
+            yt = np.where(h > 0, np.log10(np.maximum(h, 1e-300)), yb)
+            b, h = yb, yt
+        it = self._get(key, "bars", lambda: pg.BarGraphItem(x=x, height=h - b, width=w))
+        legend_brush = brushes[0] if (colors is not None and len(brushes)) else \
+            _qcolor(self.theme.c(color), alpha)
+        it.setOpts(x=x, height=h - b, y0=b, width=w, brushes=brushes, brush=legend_brush,
                    pen=pg.mkPen(None))
         self._legend_set(key, it, name)
         return it
 
+    def legend_swatch(self, name, color=NAVY, kind="box", style="-", width=2.0, symbol="o",
+                      key=None):
+        """A legend-only entry (nothing is drawn in the plot): a coloured box (``kind="box"``),
+        a line (``"line"``, with ``style``/``width``) or a marker (``"marker"``, with
+        ``symbol``). Use it to explain colours of bars, cells or images. Like every item it
+        must be re-issued on each update (keyed by ``key`` or the name)."""
+        k = key or ("#swatch:" + name)
+        it = self._get(k, "swatch", lambda: pg.PlotDataItem([], []))
+        c = self.theme.c(color)
+        if kind == "line":
+            it.setData([], [], pen=self._pen(color, width, style), symbol=None)
+        else:
+            sym = "s" if kind == "box" else symbol
+            it.setData([], [], pen=None, symbol=sym, symbolSize=11 if kind == "box" else 9,
+                       symbolBrush=_qcolor(c, 0.9), symbolPen=pg.mkPen(None))
+        self._legend_set(k, it, name)
+        return it
+
     def fill_between(self, key, x, y1, y2, color=NAVY, alpha=0.18, name=None):
-        """Shade the area between two curves."""
+        """Shade the area between two curves (scalars broadcast). NaN gaps split the shading.
+        Drawn as one plain polygon per finite run, so long zero-area stretches are safe."""
         x = np.asarray(x, float)
-        a = self.line(key + "#a", x, y1, color=color, width=0, alpha=0)
-        b = self.line(key + "#b", x, y2, color=color, width=0, alpha=0)
-        it = self._get(key, "fill", lambda: pg.FillBetweenItem(a, b))
-        it.setCurves(a, b)
+        y1 = np.broadcast_to(np.asarray(y1, float), x.shape)
+        y2 = np.broadcast_to(np.asarray(y2, float), x.shape)
+        if self.logx:
+            x = np.log10(np.where(x > 0, x, np.nan))
+        if self.logy:
+            y1 = np.log10(np.where(y1 > 0, y1, np.nan))
+            y2 = np.log10(np.where(y2 > 0, y2, np.nan))
+        ok = np.isfinite(x) & np.isfinite(y1) & np.isfinite(y2)
+        path = QtGui.QPainterPath()
+        idx = np.flatnonzero(ok)
+        if idx.size:
+            xs_, ys_, cn_ = [], [], []
+            for r in np.split(idx, np.flatnonzero(np.diff(idx) > 1) + 1):
+                if r.size < 2:
+                    continue
+                xs_ += [x[r], x[r][::-1]]
+                ys_ += [y2[r], y1[r][::-1]]
+                c = np.ones(2 * r.size, bool)
+                c[-1] = False                   # each run is its own (implicitly closed) subpath
+                cn_.append(c)
+            if xs_:
+                path = pg.arrayToQPath(np.concatenate(xs_), np.concatenate(ys_),
+                                       connect=np.concatenate(cn_))
+        it = self._get(key, "fill", lambda: _PathItem())
+        it.setPath(path)
         it.setBrush(_qcolor(self.theme.c(color), alpha))
+        it.setPen(pg.mkPen(None))
+        it.setZValue(-5)
+        if name:
+            self.legend_swatch(name, color, key=key + "#legend")
+        return it
+
+    def handles(self, key, x, y, color=None, size=13, symbol="o", axis="y", name=None):
+        """Draggable markers. When the user drags point i, the experiment's
+        ``on_drag(plot_key, key, i, x, y)`` is called with the new position and the
+        experiment is refreshed (your update then redraws the handles where they belong).
+
+        axis  "y": move vertically only (bar heights, levels) · "x": horizontally only
+              · "both": anywhere
+        The cursor changes over a handle; the plot does not pan while one is dragged."""
+        x = np.atleast_1d(np.asarray(x, float))
+        y = np.atleast_1d(np.asarray(y, float))
+        if self.logx:
+            x = np.log10(np.where(x > 0, x, np.nan))
+        if self.logy:
+            y = np.log10(np.where(y > 0, y, np.nan))
+        it = self._get(key, "handles", lambda: _Handles())
+        c = self.theme.c(color) if color else self.theme.accent
+        it.setData(x=x, y=y, symbol=symbol, size=size, brush=pg.mkBrush(_qcolor(c, 0.95)),
+                   pen=pg.mkPen(self.theme.plot_bg, width=2))
+        it._studio = (self, key, axis)
+        it.setZValue(30)
         self._legend_set(key, it, name)
         return it
+
+    def _on_drag(self, key, i, x, y, phase):
+        cb = getattr(self, "_drag_cb", None)
+        if self.logx:
+            x = 10 ** x
+        if self.logy:
+            y = 10 ** y
+        if cb is not None:
+            cb(self, key, i, x, y, phase)
 
     # ------------------------------------------------------------------ annotations
     def vline(self, key, x, color=GRAY, style="--", width=1.2, label=None, label_pos=0.92):
@@ -467,9 +646,22 @@ class Plot:
             it._studio_top = True
         else:
             yy = self._y(y)
-        it.setPos(self._x(x), yy)
+            it._studio_top = False
+        it._studio_x = self._x(x)
+        it.setPos(it._studio_x, yy)
         it.setZValue(20)
         return it
+
+    def _repin_top(self):
+        """Keep text(y=None) labels at the top of the view when the y range changes
+        (set_ylim, autoscale, pan/zoom)."""
+        if self.widget is None or not getattr(self, "_items", None):
+            return
+        (_, (ylo, yhi)) = self.vb.viewRange()
+        yy = yhi - 0.04 * (yhi - ylo)
+        for it in self._items.values():
+            if getattr(it, "_studio_top", False):
+                it.setPos(it._studio_x, yy)
 
     def arrow(self, key, x, y, text="", color=None, direction="down", size=12):
         """An arrow whose tip is at (x, y), with an optional label at its tail.
@@ -520,6 +712,7 @@ class Plot:
                 cb = pg.ColorBarItem(values=levels, colorMap=self._cmap(cmap), interactive=False,
                                      width=12, label=cbar_label)
                 cb.setImageItem(it, insert_in=self.pi)
+                cb.axis.enableAutoSIPrefix(False)
                 self._colorbars[key] = cb
             elif getattr(cb, "_studio_img", None) is not it:     # image recreated (theme)
                 cb.setImageItem(it)
@@ -531,9 +724,15 @@ class Plot:
     def _cmap(self, cmap):
         if isinstance(cmap, pg.ColorMap):
             return cmap
-        stops = {"heat": self.theme.heat_cmap, "eye": self.theme.eye_cmap}.get(cmap, cmap)
+        if isinstance(cmap, str):
+            stops = {"heat": self.theme.heat_cmap, "eye": self.theme.eye_cmap}.get(cmap, cmap)
+        else:
+            stops = list(cmap)                  # a list/tuple of colours or (pos, colour) stops
         if isinstance(stops, str):
-            return pg.colormap.get(stops)
+            try:
+                return pg.colormap.get(stops)
+            except Exception:
+                return pg.colormap.get(stops, source="matplotlib")
         if isinstance(stops[0], (tuple, list)):
             return pg.ColorMap([float(q) for q, _ in stops], [pg.mkColor(c) for _, c in stops])
         return pg.ColorMap(np.linspace(0, 1, len(stops)), [pg.mkColor(s) for s in stops])
@@ -622,6 +821,84 @@ class Plot:
         self.line(key, f / scale, p, color=color, name=name, width=width, fill=fill)
         return f, p
 
+    # ------------------------------------------------------------------ theory vs simulation
+    def theory(self, key, x, y, color=NAVY, name=None, style="-", width=2.0):
+        """A theory curve (a line). Available on every plot, not only BERPlot."""
+        return self.line(key, x, y, color=color, name=name, style=style, width=width)
+
+    def sim(self, key, x, y, color=PALETTE[1], name=None, size=9, connect=True):
+        """Simulated points: hollow markers, optionally joined by a dotted line."""
+        if connect:
+            self.line(key + "#ln", x, y, color=color, width=1.0, style=":")
+        return self.scatter(key, x, y, color=color, size=size, name=name, outline=color)
+
+
+class _Handles(pg.ScatterPlotItem):
+    """Scatter points that can be dragged with the left mouse button (Plot.handles)."""
+
+    def __init__(self):
+        super().__init__()
+        self._studio = None
+        self._drag = None
+        self.setAcceptHoverEvents(True)
+
+    def _cursor(self):
+        axis = self._studio[2] if self._studio else "both"
+        return {"y": QtCore.Qt.SizeVerCursor, "x": QtCore.Qt.SizeHorCursor}.get(
+            axis, QtCore.Qt.SizeAllCursor)
+
+    def hoverEvent(self, ev):                                   # noqa: N802 (pyqtgraph API)
+        if ev.isExit():
+            self.unsetCursor()
+            return
+        if len(self.pointsAt(ev.pos())):
+            ev.acceptDrags(QtCore.Qt.LeftButton)
+            self.setCursor(self._cursor())
+        else:
+            self.unsetCursor()
+
+    def mouseDragEvent(self, ev):                               # noqa: N802
+        if ev.button() != QtCore.Qt.LeftButton or self._studio is None:
+            ev.ignore()
+            return
+        if ev.isStart():
+            pts = self.pointsAt(ev.buttonDownPos())
+            if not len(pts):
+                ev.ignore()
+                return
+            p0 = pts[0].pos()
+            self._drag = (pts[0].index(), p0.x(), p0.y())
+        if self._drag is None:
+            ev.ignore()
+            return
+        ev.accept()
+        plot, key, axis = self._studio
+        i, x0, y0 = self._drag
+        pos = ev.pos()
+        x = x0 if axis == "y" else pos.x()
+        y = y0 if axis == "x" else pos.y()
+        phase = "start" if ev.isStart() else "finish" if ev.isFinish() else "move"
+        if ev.isFinish():
+            self._drag = None
+        try:
+            plot._on_drag(key, i, x, y, phase)
+        except Exception:                                       # never crash on a drag
+            import traceback
+            traceback.print_exc()
+
+
+class _PathItem(QtWidgets.QGraphicsPathItem):
+    """A filled path in data coordinates (fill_between). Bounds feed autoscaling."""
+
+    def dataBounds(self, axis, frac=1.0, orthoRange=None):      # noqa: N802 (pyqtgraph API)
+        r = self.path().boundingRect()
+        if r.isNull() and r.width() == 0 and r.height() == 0:
+            return None
+        return (r.left(), r.right()) if axis == 0 else (r.top(), r.bottom())
+
+    def pixelPadding(self):                                     # noqa: N802
+        return 0
+
 
 # ----------------------------------------------------------------------------- presets
 def TimePlot(key, title="", x="time", y="amplitude", **kw):
@@ -682,14 +959,6 @@ class BERPlot(Plot):
                  **kw):
         super().__init__(key, title, x=x, y=y, ylim=ylim, logy=True, **kw)
 
-    def theory(self, key, x, y, color=NAVY, name=None, style="-", width=2.0):
-        return self.line(key, x, y, color=color, name=name, style=style, width=width)
-
-    def sim(self, key, x, y, color=PALETTE[1], name=None, size=9, connect=True):
-        if connect:
-            self.line(key + "#ln", x, y, color=color, width=1.0, style=":")
-        return self.scatter(key, x, y, color=color, size=size, name=name, outline=color)
-
 
 class PolarPlot(Plot):
     """Polar gain pattern in dB. Angles are measured from broadside (straight up) and
@@ -739,6 +1008,17 @@ class PolarPlot(Plot):
         th = np.asarray(theta, float)
         return self.line(key, r * np.sin(th), r * np.cos(th), color=color, name=name,
                          width=width, fill=0 if fill else None)
+
+
+class Canvas(Plot):
+    """A drawing surface for diagrams (shift registers, trellises, Venn diagrams, maps of
+    cells): fixed ranges, no axes, no grid, no pan/zoom. Combine with ``on_click``."""
+
+    def __init__(self, key, title="", xlim=(0, 1), ylim=(0, 1), aspect=False, **kw):
+        kw.setdefault("legend", None)
+        kw.setdefault("x", "")
+        kw.setdefault("y", "")
+        super().__init__(key, title, xlim=xlim, ylim=ylim, aspect=aspect, axes=False, **kw)
 
 
 class ImagePlot(Plot):

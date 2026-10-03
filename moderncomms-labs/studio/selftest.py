@@ -31,19 +31,22 @@ SCREENS = os.path.abspath(os.path.join(_HERE, "..", "tests", "screens"))
 
 
 def _slug(s):
-    out = "".join(c if c.isalnum() else "_" for c in s.lower())
-    while "__" in out:
-        out = out.replace("__", "_")
-    return out.strip("_")[:40]
+    from .core import slug
+    return slug(s, 40)
 
 
 def _finite_report(page):
-    """Return a list of problems with non-finite data in readouts and plot items."""
+    """Return a list of problems with non-finite data in readouts and plot items.
+
+    NaN readouts are allowed (they display as "—", meaning "not available here");
+    infinite readouts are reported. Plot items that are entirely NaN are skipped (an
+    empty trace is a legitimate way to show nothing); infinities in plotted data are
+    reported."""
     import pyqtgraph as pg
     probs = []
     for k, v in page.exp.r.items():
         if isinstance(v, (int, float, np.floating, np.integer)) and not isinstance(v, bool):
-            if not np.isfinite(v):
+            if np.isinf(v):
                 probs.append(f"readout {k} = {v}")
     for pk, pl in page.plots.items():
         for ik, it in pl._items.items():
@@ -51,12 +54,10 @@ def _finite_report(page):
                 continue
             if isinstance(it, pg.PlotDataItem):
                 x, y = it.getData() if it.xData is not None else (None, None)
-                if y is None or len(y) == 0:
+                if y is None or len(y) == 0 or np.isnan(y).all():
                     continue
                 if np.isinf(x).any() or np.isinf(y).any():
                     probs.append(f"plot {pk}/{ik}: infinite values")
-                if not pl.logy and np.isnan(y).all():
-                    probs.append(f"plot {pk}/{ik}: all NaN")
             elif isinstance(it, pg.ImageItem) and it.image is not None:
                 if not np.isfinite(it.image).all():
                     probs.append(f"plot {pk}/{ik}: non-finite image")
@@ -111,6 +112,9 @@ def run_selftest(lab, out_dir=None, n_random=5, dark=False, seed=1):
             win.grab().save(os.path.join(out_dir, name + ".png"))
             # random settings
             for k in range(n_random):
+                for ch, (fr, tick) in zip(page.challenges, page.ch_widgets):
+                    ch.done = False                 # re-evaluate every check each time
+                    win._mark_challenge(fr, tick, False)
                 for c in page.controls:
                     if c.has_value:
                         c.set_value(c.random_value(rng))

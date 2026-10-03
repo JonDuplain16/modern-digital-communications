@@ -15,71 +15,16 @@ import _path  # noqa: F401  (makes commlib and studio importable)
 from functools import lru_cache
 
 import numpy as np
-from PySide6 import QtCore, QtWidgets
 from scipy.signal import fftconvolve, lfilter, welch
 
 import commlib as cl
 from commlib import linecodes as lc
 from commlib import serdes as sd
 import studio as st
-from studio import (Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading, Plot,
+from studio import (Text, Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading, Plot,
                     SpectrumPlot, EyePlot, BERPlot, BarPlot, ImagePlot, Readout, Challenge,
                     NAVY, RED, GREEN, ORANGE, PURPLE, BLUE, GRAY, GOLD, TEAL, PALETTE)
 from studio import v, keybox, good, bad
-from studio.controls import Control
-
-
-# =============================================================================== a text control
-class BitField(Control):
-    """A one-line text box for a bit pattern (only 0 and 1 are kept). Implemented here because
-    studio has no text-entry control yet."""
-
-    def __init__(self, key, label, default="", help="", maxlen=48):
-        super().__init__(key, label, help)
-        self.default = default
-        self.maxlen = maxlen
-        self._v = default
-
-    def _clean(self, s):
-        s = "".join(c for c in str(s) if c in "01")[:self.maxlen]
-        return s or "0"
-
-    def make_widget(self, on_change):
-        w = QtWidgets.QWidget()
-        lay = QtWidgets.QVBoxLayout(w)
-        lay.setContentsMargins(2, 4, 2, 2)
-        lay.setSpacing(3)
-        name = QtWidgets.QLabel(self.label)
-        name.setObjectName("ctlname")
-        lay.addWidget(name)
-        self._edit = QtWidgets.QLineEdit(self._v)
-        self._edit.setMinimumHeight(26)
-        self._edit.setMaxLength(self.maxlen + 8)
-        self._edit.setToolTip(self.help or "Type 0s and 1s, then press Enter")
-        self._edit.editingFinished.connect(lambda: self._typed(on_change))
-        lay.addWidget(self._edit)
-        if self.help:
-            w.setToolTip(self.help)
-        self.widget = w
-        return w
-
-    def _typed(self, on_change):
-        v_ = self._clean(self._edit.text())
-        self._edit.setText(v_)
-        if v_ != self._v:
-            self._v = v_
-            on_change(self.key, v_)
-
-    def value(self):
-        return self._v
-
-    def set_value(self, v_, notify=False):
-        self._v = self._clean(v_)
-        if self.widget is not None:
-            self._edit.setText(self._v)
-
-    def random_value(self, rng):
-        return "".join(rng.choice(["0", "1", "0000"], 12))
 
 
 # =============================================================================== shared helpers
@@ -137,8 +82,10 @@ class LineCodes(Experiment):
     blurb = "Type a bit pattern; see it as NRZ, Manchester, AMI, MLT-3… and what each does to the spectrum."
     book = "sec:ch08:linecodes"
     controls = [
-        BitField("bits", "Bit pattern (type, then Enter)", "0110100000000000111010",
-                 help="Up to 48 bits of 0 and 1"),
+        Text("bits", "Bit pattern (type, then Enter)", "0110100000000000111010",
+             help="Up to 48 bits of 0 and 1", allowed="01", max_len=48, live=False,
+             clean=lambda b: b or "0", mono=True,
+             random=lambda rng: "".join(rng.choice(["0", "1", "0000"], 12))),
         Choice("code", "Line code (for the spectrum)", list(CODES), "AMI", style="menu"),
         Toggle("side", "Compare NRZ, Manchester, AMI, MLT-3", True),
     ]
