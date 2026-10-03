@@ -3,37 +3,48 @@
 
 \begin{chapterintro}
 Most of this book is about using bandwidth sparingly. This chapter is about the opposite
-choice: deliberately spreading a signal over a bandwidth hundreds or thousands of times
-wider than its data rate requires. The idea began as a military secret---signals that an
-enemy cannot jam, cannot find and cannot read---and became, in turn, the basis of the
-second-generation cellular standard IS-95, of all the third-generation standards, of the
-first Wi-Fi and of Bluetooth. Most importantly, it is the basis of satellite navigation.
-Every GPS, Galileo, GLONASS and BeiDou receiver recovers a signal buried far below the
-thermal noise, measures its arrival time to a few nanoseconds, and from four or more
-such measurements computes where it is and what time it is. The chapter starts with the
-reasons for spreading and the sequences that make it possible (m-sequences, Gold, Kasami
-and Walsh codes). It then develops direct-sequence and frequency-hopping spread spectrum
-and their resistance to jamming, and code-division multiple access with its near--far
-problem, power control, soft handoff, capacity formula, Rake receiver and multiuser
-detectors. Chirp spread spectrum (LoRa) and ultra-wideband ranging follow. The second
-half is a full treatment of satellite navigation: the history of GPS, the pseudorange
-equation and its solution, the GNSS signals, the receiver from antenna to position
-(acquisition, delay-locked and phase-locked tracking), the error budget and the
-augmentation systems that reduce it to centimetres, relativity, and the vulnerability of
-a civilisation that now takes its time and position from signals weaker than
-$10^{-16}$\,W.
+choice: deliberately smearing a signal over a band hundreds or thousands of times wider than its
+data need---and getting something precious in return. The idea began as a military secret
+(signals an enemy cannot jam, cannot find and cannot read) and grew into the second-generation
+cellular standard IS-95, all three big third-generation standards, the first Wi-Fi and Bluetooth.
+Most remarkably of all, it is how satellite navigation works. Every GPS, Galileo, GLONASS and
+BeiDou receiver digs a signal out from \emph{under} the thermal noise, times its arrival to a few
+nanoseconds, and from four or more such measurements works out where it is and what time it is.
+
+We start with why anyone would spread, and with the clever binary sequences that make it possible
+(m-sequences, Gold, Kasami and Walsh codes). Then direct-sequence and frequency-hopping spread
+spectrum and how they shrug off jammers; code-division multiple access, with its near--far
+problem, power control, soft handoff, capacity formula, Rake receiver and multiuser detectors;
+and two cousins, the chirps of LoRa and the picosecond pulses of ultra-wideband ranging. The
+second half is a full tour of satellite navigation: the story of GPS, the pseudorange equation and
+its solution, the signals, the receiver from antenna to position fix, the error budget and the
+corrections that shrink it to centimetres, Einstein's contribution, and the fragility of a
+civilisation that takes its time and position from signals weaker than $10^{-16}$\,W.
+Figure~\ref{fig:ch18_by_numbers} previews the numbers we will meet along the way.
 \end{chapterintro}
+
+\begin{figure}[!h]\centering\includegraphics[width=0.9\linewidth]{figs/ch18_by_numbers}
+\caption{Spread spectrum and satellite navigation by the numbers. Every one of
+these values is derived or explained somewhere in this chapter.}\label{fig:ch18_by_numbers}\end{figure}
 
 %======================================================================
 \section{Why spread?}
 \label{sec:ch18:why}
 %======================================================================
 
-A 9.6\,kb/s voice channel needs roughly 10\,kHz of bandwidth. The IS-95 cellular
-standard sent it in 1.25\,MHz. A GPS satellite sends its 50\,b/s navigation message in about
-2\,MHz, and its military signal in 20\,MHz. At first sight this looks wasteful. Everything
-in Chapters~\ref{ch:modulation} and~\ref{ch:infotheory} pushes towards more bits per hertz,
-and here are systems that deliberately run at a few thousandths of a bit per hertz.
+Here is a puzzle. A 9.6\,kb/s voice channel needs roughly 10\,kHz of bandwidth, yet the IS-95
+cellular standard sent it in 1.25\,MHz. A GPS satellite sends its 50\,b/s navigation message in
+about 2\,MHz, and its military signal in 20\,MHz. Everything in Chapters~\ref{ch:modulation}
+and~\ref{ch:infotheory} pushes us towards more bits per hertz, and here are systems that
+cheerfully run at a few \emph{thousandths} of a bit per hertz. Are their designers mad?
+
+They are not, and the reason is one of the most beautiful trades in engineering. Think of
+whispering a secret across a crowded, noisy room. Instead of saying it once, loudly, you spread
+it over a hundred quiet voices scattered around the room, each saying a tiny piece in a pattern
+that only your friend knows. To everyone else the room just sounds a little noisier. Your friend,
+who knows the pattern, listens to exactly those voices in exactly that order and hears your
+secret clearly. Someone shouting in one corner hardly bothers her, because she was only listening
+to that corner for a moment. That, in one paragraph, is spread spectrum.
 
 \subsection{What ``spread spectrum'' means}
 
@@ -49,6 +60,16 @@ The second condition is essential. Wideband FM also uses far more bandwidth than
 it carries (Chapter~\ref{ch:analog}), but the spreading is done by the message itself and
 anyone can demodulate it. In spread spectrum the spreading is done by the code, and without
 the code the signal looks like noise.
+
+Figure~\ref{fig:ch18_spread_concept} shows the simplest version in the time domain. Each data
+bit is chopped into many short \emph{chips} by a fast pseudo-random $\pm1$ code. The product
+wiggles $G_p$ times faster than the data, so its spectrum is $G_p$ times wider. Multiply by the
+same code again and every chip is squared back to $+1$: the data reappear untouched.
+
+\mdcfig{ch18_spread_concept}{Direct-sequence spreading in the time domain. Each data bit (top) is
+multiplied by 15 chips of a pseudo-noise code (middle). The transmitted waveform (bottom) changes
+sign 15 times faster than the data, so it occupies 15 times the bandwidth. A receiver that
+multiplies by the same code, chip for chip, gets the top trace back, because $c^2(t)=1$.}
 
 The ratio
 \begin{equation}
@@ -77,19 +98,24 @@ Bluetooth's slow hopping carries a narrowband GFSK signal in each hop.
 
 \subsection{Shannon's view: bandwidth is not wasted}
 
-The Shannon capacity of an AWGN channel of bandwidth $W$ with received power $S$ and noise
+Why is throwing bandwidth at a signal not as wasteful as it looks? Shannon answers it. The
+capacity of an AWGN channel of bandwidth $W$ with received power $S$ and noise
 density $N_0$ is (Chapter~\ref{ch:infotheory})
 \begin{equation}
 C=W\log_2\!\left(1+\frac{S}{N_0W}\right)\;\xrightarrow{\;W\to\infty\;}\;\frac{S}{N_0\ln2}.
 \end{equation}
-At low SNR, capacity depends on power, not bandwidth: spreading a signal over more bandwidth
-costs almost nothing in achievable rate. A spread-spectrum system is simply a system that
+In words: at low SNR, capacity depends on power, not bandwidth, so spreading a signal over more
+bandwidth costs almost nothing in achievable rate. A spread-spectrum system is simply a system that
 has chosen to operate in the power-limited regime, far to the left of the capacity curve,
 and spends the extra bandwidth on something other than bits. It spends it on resistance to
 interference, on hiding, on resolving multipath, on sharing the band and on measuring time.
-Spreading also gives no advantage against white Gaussian noise
+Spreading gives no advantage against white Gaussian noise, though
 (Section~\ref{sec:ch18:awgn}): a DSSS link has exactly the bit error rate of the
 unspread link at the same $\ebno$.
+
+\mdcfig[0.55]{ch18_cocktail}{Why correlation works (simulated, random $\pm1$ codes). The output
+for the code you are listening for grows like $N$; the output for any other code is a random walk
+that grows only like $\sqrt N$. Their ratio in power is $N=G_p$.}
 
 \subsection{Five reasons to spread}
 
@@ -115,6 +141,21 @@ Chapter~\ref{ch:sync} showed that timing accuracy scales with bandwidth (the Cra
 bound); spreading is the way to buy bandwidth without buying data rate.
 \end{enumerate}
 
+\begin{analogy}[An ear trained to one voice]
+At a noisy cocktail party you can follow your friend's voice across the room while thirty other
+conversations wash over you. Your brain is correlating: it knows the rhythm, pitch and accent it
+is waiting for, so every syllable of your friend's speech adds up, while the others, uncorrelated
+with what you expect, add up only as a blur. A spread-spectrum correlator does exactly this with
+chips. Figure~\ref{fig:ch18_cocktail} measures it: after $N$ chips the wanted code has piled up an
+output of $N$, while any other code has managed only about $\sqrt N$. Where the analogy breaks:
+your brain cannot pull a voice out from 20\,dB \emph{below} the babble. A correlator with
+enough chips can.
+\end{analogy}
+
+\mdcfig[0.98]{ch18_timeline}{Eighty years of spread spectrum and satellite navigation. Military
+secrecy (grey and navy) gave way to cellular CDMA and unlicensed radio (red and orange) and to
+satellite navigation (green), which is now the largest civil use of spread spectrum by far.}
+
 \begin{keyidea}[Processing gain is a trade]
 Spreading does not create energy, and it does not help against white noise. What it does
 is make the wanted signal \emph{coherent} with the receiver's code while everything
@@ -124,16 +165,20 @@ but adds the interference only in power (a gain of $G_p$). The ratio, $G_p$, is 
 processing gain. Every application in this chapter is a way of spending it.
 \end{keyidea}
 
+\mdcphoto[0.45]{ch18_lamarr_patent}{The first page of US Patent 2,292,387, ``Secret Communication
+System'', by Hedy Kiesler Markey (Hedy Lamarr) and George Antheil, filed June 1941: a radio-guided
+torpedo whose carrier hops among 88 frequencies under the control of synchronised paper rolls.}
+
 \begin{history}[Hedy Lamarr, George Antheil and the piano roll]
 In June 1941 the film actress Hedy Lamarr and the composer George Antheil filed a patent for a
-``Secret Communication System''. It was granted as US Patent 2,292,387 on 11~August 1942. The
-idea was to guide a torpedo by radio while hopping the carrier among 88 frequencies---the
-number of keys on a piano---in a pattern stored on two synchronised paper rolls like those of a
-player piano, one in the ship and one in the torpedo. An enemy could not jam a signal whose
-frequency he did not know. Lamarr had learned something of weapons engineering from her
-first husband, an Austrian arms manufacturer; Antheil had synchronised sixteen player pianos
-for his \emph{Ballet M\'ecanique}. The US Navy did not adopt the invention, and the patent
-expired unused.
+``Secret Communication System'' (Figure~\ref{fig:ch18_lamarr_patent}). It was granted as US
+Patent 2,292,387 on 11~August 1942. The idea was to guide a torpedo by radio while hopping the
+carrier among 88 frequencies---the number of keys on a piano---in a pattern stored on two
+synchronised paper rolls like those of a player piano, one in the ship and one in the torpedo. An
+enemy could not jam a signal whose frequency he did not know. Lamarr had learned something of
+weapons engineering from her first husband, an Austrian arms manufacturer; Antheil had
+synchronised sixteen player pianos for his \emph{Ballet M\'ecanique}. The US Navy did not adopt
+the invention, and the patent expired unused.
 
 The patent's real significance is sometimes overstated. It did not invent frequency hopping
 (earlier proposals existed), it was not the origin of the direct-sequence techniques behind
@@ -161,26 +206,54 @@ Green's solution to that smearing, published in 1958, was the Rake receiver. Thr
 War spread spectrum carried military satellite links, missile guidance and command links
 that had to survive jamming, and the details stayed classified until the 1970s. Robert
 Scholtz's 1982 history of the field (see Further Reading) pieced the story together from the
-participants.
+participants. Figure~\ref{fig:ch18_timeline} puts these milestones alongside the civil story that
+followed.
 \end{history}
 
 %======================================================================
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[cell/.style={draw=navy,fill=navy!6,thick,minimum size=0.75cm,font=\sffamily\small},
+  xo/.style={draw=accent,circle,thick,minimum size=0.5cm,inner sep=0pt,font=\small},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[cell] (c1) at (0,0) {$a_{k+2}$};
+\node[cell] (c2) at (1.2,0) {$a_{k+1}$};
+\node[cell] (c3) at (2.4,0) {$a_{k}$};
+\draw[arr] (c1) -- (c2); \draw[arr] (c2) -- (c3);
+\draw[arr] (c3.east) -- ++(1.3,0) node[right,font=\sffamily\scriptsize,align=left] {output chips\\0\,0\,1\,0\,1\,1\,1\,\dots};
+\node[xo] (x) at (1.8,1.2) {$\oplus$};
+\draw[navy,thick] (c2.north) |- (x.west);
+\draw[navy,thick] ([xshift=0.4cm]c3.east) |- (x.east);
+\draw[arr] (x.north) -- ++(0,0.35) -| ([xshift=-0.55cm]c1.west) -- (c1.west);
+\node[font=\sffamily\scriptsize,text=navy!70,align=center] at (1.2,-0.8) {clock: one shift per chip};
+\node[font=\sffamily\scriptsize,text=accent] at (3.7,1.65) {$a_{k+3}=a_{k+1}\oplus a_k$};
+\node[font=\sffamily\scriptsize,text=green!40!black,align=left,anchor=west] at (6.6,0.3)
+ {states visited:\\001, 010, 101, 011,\\111, 110, 100, then repeat\\(all 7 non-zero states)};
+\end{tikzpicture}
+\caption{A three-stage linear feedback shift register for $p(x)=x^3+x+1$. Two flip-flop outputs are
+XORed and fed back; the register cycles through all seven non-zero states before repeating, so the
+output is an m-sequence of period 7. The GPS C/A generator (Figure~\ref{fig:ch18_cagen}) is the same
+idea with two ten-stage registers.}
+\label{fig:ch18_lfsr}
+\end{figure}
+
 \section{Pseudo-noise sequences}
 \label{sec:ch18:pn}
 %======================================================================
 
-A spreading code must look random---balanced, with no structure an interferer or an
-eavesdropper can exploit, with a sharp autocorrelation so the receiver can find it and
-measure its delay---yet it must be exactly reproducible by the intended receiver. Such
-deterministic sequences with random-like properties are called \term{pseudo-noise} (PN)
-sequences. Chapter~\ref{ch:sync} used them as synchronisation preambles; here they carry
-the whole signal.
+How do you make a sequence that looks perfectly random to everyone else, yet which your friend
+can reproduce exactly, chip for chip, billions of chips later? A spreading code must be balanced,
+with no structure an interferer or an eavesdropper can exploit, and with a sharp autocorrelation
+so the receiver can find it and measure its delay---yet it must be exactly reproducible by the
+intended receiver. Such deterministic sequences with random-like properties are called
+\term{pseudo-noise} (PN) sequences. Chapter~\ref{ch:sync} used them as synchronisation
+preambles; here they carry the whole signal. Remarkably, the best of them come from a few
+flip-flops and an exclusive-OR gate.
 
 \subsection{Linear feedback shift registers}
 
 The workhorse generator is the \term{linear feedback shift register} (LFSR): $m$ binary
 storage cells, shifted once per chip, with the new input formed as the exclusive-OR of
-selected cells. The output obeys the linear recurrence
+selected cells (Figure~\ref{fig:ch18_lfsr}). The output obeys the linear recurrence
 \begin{equation}
 a_{k+m}=c_{m-1}a_{k+m-1}\oplus\cdots\oplus c_1a_{k+1}\oplus c_0a_k,
 \label{eq:ch18:lfsr}
@@ -191,9 +264,10 @@ and the all-zero state maps to itself, the output is periodic with period at mos
 It reaches that maximum exactly when $p(x)$ is a \term{primitive polynomial}, one whose
 roots generate the multiplicative group of the finite field GF($2^m$)
 (Chapter~\ref{ch:classiccodes} develops finite fields). The output is then a
-\term{maximal-length sequence}, or \term{m-sequence}, of period $N=2^m-1$. There are
-$\phi(2^m-1)/m$ primitive polynomials of degree $m$, where $\phi$ is Euler's totient: 6 for
-$m=5$, 60 for $m=10$, and 1800 for $m=15$.
+\term{maximal-length sequence}, or \term{m-sequence}, of period $N=2^m-1$: the register visits
+every non-zero state exactly once before repeating, like an odometer that has been rewired to
+count in a scrambled order. There are $\phi(2^m-1)/m$ primitive polynomials of degree $m$, where
+$\phi$ is Euler's totient: 6 for $m=5$, 60 for $m=10$, and 1800 for $m=15$.
 
 There are two equivalent hardware forms. The \emph{Fibonacci} (external-XOR) form computes
 one parity of several cells and feeds it back to the input, as in~\eqref{eq:ch18:lfsr}. The
@@ -202,6 +276,11 @@ produces the same sequence at a different phase and is faster in hardware becaus
 stage has at most one XOR gate in its path. Software implementations use word-wide Galois
 LFSRs, or simply store the code in a table: a GPS receiver's 1023-chip codes occupy 128
 bytes each.
+
+\mdcfig{ch18_mseq}{The m-sequence's near-perfect correlation. (a) The periodic autocorrelation of a
+length-31 m-sequence: a spike of 31 every period and a flat floor of exactly $-1$ in between. (b)
+Its spectrum is a comb of lines $R_c/N$ apart under the $\sinc^2$ envelope of a random chip stream,
+as in~\eqref{eq:ch18:pnpsd} (drawn for $N=15$ so the lines can be seen).}
 
 \begin{worked}[An m-sequence by hand]
 Take $p(x)=x^3+x+1$, which is primitive, so $a_{k+3}=a_{k+1}\oplus a_k$. Starting from
@@ -223,7 +302,7 @@ reason is the shift-and-add property below.
 \subsection{Properties of m-sequences}
 
 M-sequences have three ``randomness'' properties, first catalogued by Solomon Golomb in the
-1950s:
+1950s. They are the same properties you would expect from a fair coin tossed many times:
 \begin{enumerate}
 \item \textbf{Balance.} One period contains $2^{m-1}$ ones and $2^{m-1}-1$ zeros.
 \item \textbf{Runs.} Half the runs (maximal strings of identical symbols) have length 1,
@@ -240,27 +319,43 @@ $k\ne0$, so it has one more $-1$ than $+1$:
 R(k)=\sum_{n=0}^{N-1}c_nc_{n+k}=\begin{cases}N,&k\equiv0\pmod N,\\-1,&\text{otherwise.}\end{cases}
 \label{eq:ch18:mseqacf}
 \end{equation}
-This two-valued periodic autocorrelation is as close to an impulse as a binary sequence of
-odd length can get. The spreading waveform $c(t)=\sum_nc_n\,p(t-nT_c)$ with rectangular
-chips then has a periodic autocorrelation function that is a train of triangles of height 1
-and base $2T_c$, sitting on a floor of $-1/N$. Its power spectrum is a line spectrum, with
-lines at multiples of $1/(NT_c)$ under a $\sinc^2(fT_c)$ envelope:
+This two-valued periodic autocorrelation (Figure~\ref{fig:ch18_mseq}a) is as close to an impulse
+as a binary sequence of odd length can get: a single tall spike when the receiver's copy is aligned, and an almost flat
+floor everywhere else. That spike is what lets a receiver find the code and measure its delay.
+
+\mdcfig{ch18_codes}{Correlation properties of spreading codes. (a) The periodic
+autocorrelation of the GPS C/A code for PRN~1: a peak of 1023 and sidelobes taking only the
+values 63, $-1$ and $-65$. (b) The cross-correlation of PRN~1 and PRN~2 takes the same three
+values. (c) Distribution of the correlation magnitude over all pairs and all lags for three
+families of length 63: random codes spread out to beyond $0.4N$; Gold codes never exceed
+$t/N=17/63$; the small Kasami set never exceeds $9/63$, close to the Welch bound.}
+
+\begin{deeper}[The spectrum of an m-sequence]
+The spreading waveform $c(t)=\sum_nc_n\,p(t-nT_c)$ with rectangular
+chips has a periodic autocorrelation function that is a train of triangles of height 1
+and base $2T_c$, sitting on a floor of $-1/N$. Its power spectrum is therefore a line spectrum,
+with lines at multiples of $1/(NT_c)$ under a $\sinc^2(fT_c)$ envelope:
 \begin{equation}
 S_c(f)=\frac{1}{N^2}\delta(f)+\frac{N+1}{N^2}\sum_{k\ne0}\sinc^2\!\left(\frac{k}{N}\right)\delta\!\left(f-\frac{k}{NT_c}\right).
 \label{eq:ch18:pnpsd}
 \end{equation}
-For long codes the lines are so close together that the spectrum is effectively the
-continuous $T_c\sinc^2(fT_c)$ of random chips. For short codes, like GPS C/A with lines
-every 1\,kHz, the line structure matters: a narrowband interferer that lands on a strong
-line leaks through the correlator more than the average, a well-known weakness of the C/A
-code.
+The small DC line $1/N^2$ comes from the one-chip imbalance; the factor $(N+1)/N^2$ comes from
+Fourier-transforming the triangle-plus-floor autocorrelation. For long codes the lines are so close
+together that the spectrum is effectively the continuous $T_c\sinc^2(fT_c)$ of random chips.
+\end{deeper}
+
+For short codes, like GPS C/A with lines every 1\,kHz, the line structure of~\eqref{eq:ch18:pnpsd}
+matters: a narrowband interferer that lands on a strong line leaks through the correlator more
+than the average, a well-known weakness of the C/A code.
 
 \subsection{Cross-correlation: Gold and Kasami codes}
 
-For CDMA and GNSS, many users or satellites need different codes, and the property that
-matters is the \emph{cross-correlation} between them. Different m-sequences of the same
-length can have large cross-correlation peaks, and there are few of them. What is needed is
-a large \emph{family} of sequences with uniformly low cross-correlation.
+One code is not enough. For CDMA and GNSS, many users or satellites need different codes, and the
+property that matters is the \emph{cross-correlation} between them: how much one code ``sounds
+like'' another at every possible offset. Different m-sequences of the same length can have large
+cross-correlation peaks, and there are few of them. What is needed is a large \emph{family} of
+sequences with uniformly low cross-correlation---a crowd of voices in which no two ever sound
+alike.
 
 There is a limit to how good a family can be. The \term{Welch bound} (1974) says that for any
 set of $K$ sequences of length $N$ with unit-energy chips, the largest off-peak auto- or
@@ -269,8 +364,15 @@ cross-correlation magnitude $R_{\max}$ satisfies
 R_{\max}\ge N\sqrt{\frac{K-1}{NK-1}}\approx\sqrt N\quad(K\gg1).
 \label{eq:ch18:welch}
 \end{equation}
+\begin{figure}[H]\centering\includegraphics[width=0.5\linewidth]{figs/ch18_family_bounds}
+\caption{How good can a code family be? The worst-case correlation of Gold
+and small Kasami families against the Welch bound. Kasami codes sit on the bound but come in small
+families; Gold codes are about $\sqrt2$ to 2 times worse but offer $N+2$ codes---1025 for the GPS
+length.}\label{fig:ch18_family_bounds}\end{figure}
+
 Random sequences have correlations of order $\sqrt N$ on average, but with occasional larger
-excursions. The goal is to guarantee a maximum close to $\sqrt N$.
+excursions. The goal is to guarantee a maximum close to $\sqrt N$; Figure~\ref{fig:ch18_family_bounds}
+shows how close the two classic families come.
 
 \term{Gold codes} (Robert Gold, 1967) do this with trivial hardware. Take two m-sequences
 $u$ and $v$ of the same degree $m$ that form a \emph{preferred pair}, meaning their
@@ -296,12 +398,51 @@ larger than Gold's with the same $t(m)$. Kasami sets are the benchmark against w
 families are judged; Gold codes win in practice because their family is large and
 their generator is two LFSRs.
 
-\mdcfig{ch18_codes}{Correlation properties of spreading codes. (a) The periodic
-autocorrelation of the GPS C/A code for PRN~1: a peak of 1023 and sidelobes taking only the
-values 63, $-1$ and $-65$. (b) The cross-correlation of PRN~1 and PRN~2 takes the same three
-values. (c) Distribution of the correlation magnitude over all pairs and all lags for three
-families of length 63: random codes spread out to beyond $0.4N$; Gold codes never exceed
-$t/N=17/63$; the small Kasami set never exceeds $9/63$, close to the Welch bound.}
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[scale=0.88,transform shape,
+  nd/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,font=\sffamily\scriptsize,inner sep=2pt,minimum height=0.55cm},
+  bl/.style={nd,fill=gray!15,draw=gray,text=gray},
+  us/.style={nd,fill=accent!15,draw=accent,text=accent!80!black},
+  level distance=1.25cm]
+\node[nd] (r) at (0,0) {$C_{1,0}=(1)$};
+\node[us] (a) at (-3.6,-1.2) {$C_{2,0}=(1,1)$};
+\node[nd] (b) at (3.6,-1.2) {$C_{2,1}=(1,-1)$};
+\node[bl] (a0) at (-5.4,-2.4) {$C_{4,0}$};
+\node[bl] (a1) at (-1.8,-2.4) {$C_{4,1}$};
+\node[nd] (b0) at (1.8,-2.4) {$C_{4,2}=(1,-1,1,-1)$};
+\node[nd] (b1) at (5.4,-2.4) {$C_{4,3}=(1,-1,-1,1)$};
+\foreach \x/\n in {-6.3/0,-4.5/1,-2.7/2,-0.9/3}{\node[bl] at (\x,-3.6) {$C_{8,\n}$};}
+\node[us] (c4) at (0.9,-3.6) {$C_{8,4}$};
+\node[nd] (c5) at (2.7,-3.6) {$C_{8,5}$};
+\node[nd] (c6) at (4.5,-3.6) {$C_{8,6}$};
+\node[nd] (c7) at (6.3,-3.6) {$C_{8,7}$};
+\draw[navy] (r) -- (a); \draw[navy] (r) -- (b);
+\draw[gray] (a) -- (a0); \draw[gray] (a) -- (a1);
+\draw[navy] (b) -- (b0); \draw[navy] (b) -- (b1);
+\draw[gray] (a0) -- (-6.3,-3.3); \draw[gray] (a0) -- (-4.5,-3.3); \draw[gray] (a1) -- (-2.7,-3.3); \draw[gray] (a1) -- (-0.9,-3.3);
+\draw[navy] (b0) -- (c4); \draw[navy] (b0) -- (c5); \draw[navy] (b1) -- (c6); \draw[navy] (b1) -- (c7);
+\node[font=\sffamily\scriptsize,anchor=west] at (-7.0,-4.4) {SF\,8};
+\node[font=\sffamily\scriptsize,text=accent!80!black,align=center] at (0,-4.5)
+ {red: codes in use (a fast SF\,2 user and a slow SF\,8 user)\\grey: blocked because their ancestor is in use};
+\end{tikzpicture}
+\caption{The OVSF code tree. Each code spawns two children of twice the length,
+$[C,C]$ and $[C,-C]$. Codes are orthogonal unless one is an ancestor of the other, so a high-rate
+user (short code near the root) blocks its entire subtree---half the tree here.}
+\label{fig:ch18_ovsf_tree}
+\end{figure}
+
+\begin{tryit}[Codes that ignore each other]
+Open the \emph{PN, Gold and Kasami codes} experiment of Lab~25. Set \emph{Code family} to
+m-sequence and \emph{Shift-register length m} to 7: the cross-correlation of the two codes has ugly
+peaks. Switch to Gold and watch the histogram collapse onto just three values; then try Small
+Kasami at $m=8$ and compare the ``worst cross-correlation'' readout with the theory bound.
+\end{tryit}
+
+\mdcfig{ch18_walsh}{(a) The 64 OVSF codes of spreading factor 64, black $=-1$. (b)
+Orthogonal codes are orthogonal only when aligned: with even one chip of misalignment
+(as multipath produces), the cross-correlation between OVSF codes is on average about
+$1/\sqrt N$, but the worst pairs reach $0.4$--$0.5$ of the peak, worse than Gold codes.
+Scrambling with a long PN sequence restores noise-like behaviour.}
 
 \subsection{Orthogonal codes: Walsh--Hadamard and OVSF}
 
@@ -318,10 +459,10 @@ same cell completely---in the absence of multipath.
 
 Third-generation systems needed codes of \emph{different} lengths for users with different
 data rates. The \term{orthogonal variable spreading factor} (OVSF) codes of WCDMA arrange
-Walsh codes in a binary tree: code $C_{n,k}$ of spreading factor $n$ has two children,
-$C_{2n,2k}=[C_{n,k},\,C_{n,k}]$ and $C_{2n,2k+1}=[C_{n,k},\,-C_{n,k}]$. Any two codes are
-orthogonal provided neither is an ancestor of the other. A high-rate user takes a short
-code near the root and thereby blocks its whole subtree; the base station's code allocator
+Walsh codes in a binary tree (Figure~\ref{fig:ch18_ovsf_tree}): code $C_{n,k}$ of spreading factor
+$n$ has two children, $C_{2n,2k}=[C_{n,k},\,C_{n,k}]$ and $C_{2n,2k+1}=[C_{n,k},\,-C_{n,k}]$. Any
+two codes are orthogonal provided neither is an ancestor of the other. A high-rate user takes a
+short code near the root and thereby blocks its whole subtree; the base station's code allocator
 manages the tree like a buddy memory allocator.
 
 Orthogonality has a fragility that Figure~\ref{fig:ch18_walsh} makes plain. Shift two Walsh
@@ -333,11 +474,11 @@ is why every CDMA system multiplies the orthogonal channelisation code by a
 aligned orthogonality intact while making the misaligned interference noise-like and
 Gold-code-sized.
 
-\mdcfig{ch18_walsh}{(a) The 64 OVSF codes of spreading factor 64, black $=-1$. (b)
-Orthogonal codes are orthogonal only when aligned: with even one chip of misalignment
-(as multipath produces), the cross-correlation between OVSF codes is on average about
-$1/\sqrt N$, but the worst pairs reach $0.4$--$0.5$ of the peak, worse than Gold codes.
-Scrambling with a long PN sequence restores noise-like behaviour.}
+\mdcpairany{ch18_barker}{The 11-chip Barker sequence of 802.11b has a perfect aperiodic
+autocorrelation: a peak of 11 and every sidelobe 0 or $-1$, so a receiver can find each symbol's
+start with a single short correlator.}{ch18_orinoco}{An ORiNOCO 802.11b PC card, typical of the
+first mass-market Wi-Fi around 2000: 11\,Mchip/s direct-sequence spread spectrum at
+2.4\,GHz.}
 
 \begin{inpractice}[The code toolbox in real systems]
 \begin{itemize}
@@ -366,10 +507,10 @@ autocorrelation, are used for random access (Chapter~\ref{ch:sync}).
 
 Two further families complete the toolbox. \term{Barker sequences} have aperiodic
 autocorrelation sidelobes no larger than 1 and exist only for lengths up to 13; they suit
-short one-shot preambles and the 11-chip spreading of 802.11b. \term{Zadoff--Chu sequences}
-are complex, of constant amplitude, and have \emph{zero} periodic autocorrelation sidelobes;
-they are used as channel-sounding and synchronisation sequences rather than as data
-spreading codes. Both were treated in Chapter~\ref{ch:sync}.
+short one-shot preambles and the 11-chip spreading of 802.11b (Figure~\ref{fig:ch18_barker}).
+\term{Zadoff--Chu sequences} are complex, of constant amplitude, and have \emph{zero} periodic
+autocorrelation sidelobes; they are used as channel-sounding and synchronisation sequences rather
+than as data spreading codes. Both were treated in Chapter~\ref{ch:sync}.
 
 \begin{pitfall}[Linear means predictable]
 An LFSR sequence is easy to generate and easy to predict: by the Berlekamp--Massey algorithm,
@@ -387,6 +528,15 @@ keep secrets.
 %======================================================================
 
 \subsection{Transmitter and receiver}
+\mdcfig[0.98]{ch18_lab_e2}{Lab~25's \emph{DSSS against a jammer} experiment. A tone jammer
+(left spectrum) towers over the spread signal; after despreading (right) it is smeared flat while
+the data collapse into a narrow peak, and the constellation and error count show the link
+surviving. Every control in this chapter's \emph{Try it} boxes lives in a window like this.}
+
+
+Direct sequence is the workhorse: GPS, IS-95, WCDMA and the first Wi-Fi all use it. The idea
+fits in one line---multiply by a fast code, then multiply by it again---and the whole of its
+magic lives in what that second multiplication does to everything \emph{else} that arrives.
 
 In \term{direct-sequence spread spectrum} (DSSS) the data waveform $d(t)=\sum_kb_k\,p_b(t-kT_b)$,
 with $b_k=\pm1$, is multiplied by a spreading waveform $c(t)=\sum_nc_n\,p_c(t-nT_c)$ running
@@ -450,7 +600,9 @@ receiver (Sections~\ref{sec:ch18:acq} and~\ref{sec:ch18:tracking}).}
 \subsection{Spreading does not help against white noise}
 \label{sec:ch18:awgn}
 
-Work at complex baseband with one sample per chip. The received chips of one bit are
+Before we celebrate, an honest warning: against plain thermal noise, spreading buys exactly
+nothing. Here is why, in one short calculation. Work at complex baseband with one sample per chip.
+The received chips of one bit are
 \begin{equation}
 r_n=\sqrt{E_c}\,b\,c_n+i_n+w_n,\qquad n=0,\dots,G_p-1,
 \end{equation}
@@ -469,13 +621,18 @@ Gaussian noise by $\pm1$ changes nothing), so its variance is $G_pN_0$. The SNR 
 exactly that of the unspread signal. Spreading moved the signal energy over a wider band,
 but white noise was already everywhere, so the correlator collects the same noise per unit
 of signal energy as it would have without spreading. The bit error probability of DSSS-BPSK
-in AWGN is $\Q(\sqrt{2E_b/N_0})$, as always.
+in AWGN is $\Q(\sqrt{2E_b/N_0})$, as always. White noise is the one ``interferer'' that cannot be
+diluted, because it is already as diluted as it can be.
 
 \subsection{Narrowband interference rejection}
 \label{sec:ch18:jamming}
 
-Now let the interference be a narrowband jammer of power $J$, say a tone
-$i_n=\sqrt J\,e^{j(2\pi\nu n+\phi)}$. Treat the code as a sequence of independent, equally
+Now the good news. Let the interference be a narrowband jammer of power $J$---say a tone
+$i_n=\sqrt J\,e^{j(2\pi\nu n+\phi)}$, ten times stronger than our whole signal. An ordinary BPSK
+receiver would be flattened. What does the despreader make of it?
+
+\begin{deeper}[The jammer after despreading]
+Treat the code as a sequence of independent, equally
 likely $\pm1$ chips, as it effectively is for a long code. The interference term
 in~\eqref{eq:ch18:despread}, $\sum_nc_ni_n$, then has zero mean and variance
 \begin{equation}
@@ -483,7 +640,10 @@ in~\eqref{eq:ch18:despread}, $\sum_nc_ni_n$, then has zero mean and variance
 \end{equation}
 because $\E[c_nc_m]=0$ for $n\ne m$. Whatever the jammer's waveform, the despreader turns it
 into a noise-like term whose power has grown only by $G_p$, while the signal power has grown
-by $G_p^2$. With signal power $S=E_c$ per chip sample, the signal-to-interference ratio after
+by $G_p^2$.
+\end{deeper}
+
+With signal power $S=E_c$ per chip sample, the signal-to-interference ratio after
 despreading is
 \begin{equation}
 \text{SIR}_{\text{out}}=\frac{G_p^2E_c}{G_pJ}=G_p\,\frac{S}{J}.
@@ -495,6 +655,9 @@ signal bandwidth $W=1/T_c$; then
 \frac{E_b}{J_0}=\frac{ST_b}{J/W}=\frac{S}{J}\cdot\frac{W}{R}=G_p\,\frac{S}{J}.
 \label{eq:ch18:ebj0}
 \end{equation}
+In words: the jammer is cut down by the processing gain. A jammer 10\,dB stronger than the signal,
+facing 20\,dB of processing gain, sees its 10\,dB advantage turned into a 10\,dB deficit.
+
 In the frequency domain (Figure~\ref{fig:ch18_jammer_spectra}), multiplying the tone by
 $c(t)$ convolves its line spectrum with the code's $\sinc^2$ spectrum, smearing the jammer's
 power over $\pm R_c$; the data filter of bandwidth $R_b$ passes only the fraction $1/G_p$ of
@@ -529,6 +692,14 @@ synchronous interferers each 10\,dB stronger, with Gold codes of length 31.}
 \label{fig:ch18_dsss_ber}
 \end{figure}
 
+\begin{tryit}[Beat the jammer]
+In Lab~25's \emph{DSSS against a jammer} experiment (Figure~\ref{fig:ch18_lab_e2}), set \emph{Processing gain} to 15 and drag
+\emph{Jammer-to-signal ratio J/S} up until the bit errors explode. Now change the processing gain to
+255 without touching the jammer: the despread spectrum shows the jammer flattened into a carpet and
+the errors vanish. Find the largest J/S each processing gain survives---that is its jamming
+margin.
+\end{tryit}
+
 \subsection{Jamming margin}
 
 The \term{jamming margin} is the jammer-to-signal ratio the link can tolerate while still
@@ -544,18 +715,27 @@ coding increases the margin by lowering the required $E_b/J_0$, and since the pr
 gain is fixed by bandwidth, coding gain is the cheapest jamming margin there is.
 
 A clever jammer does not spread its power evenly. A \emph{pulsed} jammer transmits at power
-$J/\rho$ for a fraction $\rho$ of the time. When it is on, the receiver sees $E_b/J_0$
+$J/\rho$ for a fraction $\rho$ of the time---like a heckler who stays quiet most of the evening
+and then bellows at the punchline. When it is on, the receiver sees $E_b/J_0$
 reduced by the factor $\rho$; when it is off, there is no jamming at all. For uncoded DS-BPSK
 the jammer's best choice is $\rho\approx0.71/(E_b/J_0)$, which produces
 \begin{equation}
 P_b\approx\frac{0.083}{E_b/J_0},
 \end{equation}
 a BER that falls only inversely with $E_b/J_0$ instead of exponentially: at
-$E_b/J_0=20$\,dB, about $8\times10^{-4}$ instead of a number too small to measure.
+$E_b/J_0=20$\,dB, about $8\times10^{-4}$ instead of a number too small to measure
+(Figure~\ref{fig:ch18_jam_strategies}a).
 Partial-band jamming of frequency hopping has the same effect (Section~\ref{sec:ch18:fhss}).
 The cure is forward error correction with interleaving over the jamming pulses, which turns
 the few badly jammed symbols into correctable errors or erasures and restores exponential
 behaviour. Every military spread-spectrum system is therefore also a coded system.
+
+\mdcfig{ch18_jam_strategies}{Smart jammers concentrate their power. (a) A pulsed jammer against
+uncoded DS-BPSK: switched on a fraction $\rho$ of the time at power $J/\rho$, it turns the
+waterfall into a straight line; the worst-case $\rho$ gives $P_b\approx0.083/(E_b/J_0)$. (b) The
+same game against frequency hopping with non-coherent FSK: a partial-band jammer covering a fraction
+$\rho$ of the band gives, at worst, $P_b\approx0.37/(E_b/J_0)$. Coding with interleaving
+restores the waterfall.}
 
 \begin{worked}[How deep below the noise is a GPS signal?]
 The GPS L1 C/A signal has a specified minimum received power of $-158.5$\,dBW
@@ -575,10 +755,16 @@ in a bandwidth of about $1/T=1$\,kHz: the post-correlation SNR is
 $(C/N_0)\,T$, or $44.3-30=14.3$\,dB. The 33\,dB improvement over the front-end SNR is the
 processing gain of one code period, $10\log_{10}(2\,\text{MHz}\times1\,\text{ms})$. Integrating over a
 whole 20\,ms data bit gives $E_b/N_0=44.3-10\log_{10}50=27.3$\,dB, far more than the few
-decibels the navigation data need. GPS has abundant margin for its data; the margin is
+decibels the navigation data need (Figure~\ref{fig:ch18_power_ladder} puts these levels on one
+scale). GPS has abundant margin for its data; the margin is
 spent instead on acquisition, tracking, penetration into buildings and resistance to
 interference.
 \end{worked}
+
+\mdcfig[0.9]{ch18_power_ladder}{How weak is weak? Received powers on one scale. The GPS signal
+arrives about 17\,dB below the thermal noise in its 2\,MHz band---like hearing a whisper across a
+football stadium during a concert. After one millisecond of correlation the noise that matters
+is only the noise in about 1\,kHz, and the signal stands clear of it.}
 
 \subsection{Low probability of detection and multipath}
 
@@ -601,13 +787,13 @@ and suppresses it by roughly $G_p$. A spread-spectrum receiver can therefore
 collect the energy of all of them. Section~\ref{sec:ch18:rake} develops this Rake receiver.
 
 \begin{inpractice}[802.11b: Barker codes and CCK]
-The first widely deployed Wi-Fi was spread spectrum. IEEE~802.11 (1997) and 802.11b (1999)
-occupy channels about 22\,MHz wide in the 2.4\,GHz band at 11\,Mchip/s. At 1 and 2\,Mb/s, each
-DBPSK or DQPSK symbol is spread by the 11-chip Barker sequence
-$+1,-1,+1,+1,-1,+1,+1,+1,-1,-1,-1$, a processing gain of 10.4\,dB. The choice was partly
-regulatory: the FCC's Part~15 rules for the 2.4\,GHz ISM band then required spread-spectrum
-systems to have at least 10\,dB of processing gain. For 5.5 and 11\,Mb/s, 802.11b used
-\emph{complementary code keying} (CCK): each symbol is one of 16 or 256 complex 8-chip
+The first widely deployed Wi-Fi was spread spectrum (Figure~\ref{fig:ch18_orinoco}).
+IEEE~802.11 (1997) and 802.11b (1999) occupy channels about 22\,MHz wide in the 2.4\,GHz band at
+11\,Mchip/s. At 1 and 2\,Mb/s, each DBPSK or DQPSK symbol is spread by the 11-chip Barker sequence
+$+1,-1,+1,+1,-1,+1,+1,+1,-1,-1,-1$ (Figure~\ref{fig:ch18_barker}), a processing gain of 10.4\,dB.
+The choice was partly regulatory: the FCC's Part~15 rules for the 2.4\,GHz ISM band then required
+spread-spectrum systems to have at least 10\,dB of processing gain. For 5.5 and 11\,Mb/s, 802.11b
+used \emph{complementary code keying} (CCK): each symbol is one of 16 or 256 complex 8-chip
 code words at 1.375\,Msymbol/s, so the chip rate and spectrum stay the same while each
 symbol carries 4 or 8 bits. CCK has almost no processing gain in the anti-jam sense; it is
 really a block code with good correlation properties. In 2002 the FCC dropped the
@@ -617,9 +803,27 @@ decode the 1\,Mb/s Barker mode, because some management frames may use it.
 \end{inpractice}
 
 %======================================================================
+\mdcfig{ch18_fhss}{Bluetooth hopping at 1600 hops/s over 79 channels; 25\,ms shown. (a)
+Hopping over the whole band collides with a Wi-Fi network on channel 6 on roughly a quarter
+of the hops (red). (b) Adaptive frequency hopping removes the 22 channels under the Wi-Fi
+signal from the hop set, and the collisions disappear.}
+
 \section{Frequency hopping}
 \label{sec:ch18:fhss}
 %======================================================================
+
+Direct sequence smears the signal across the whole band at once. Frequency hopping takes the
+opposite approach: it stays narrowband, but it never stays put.
+
+\begin{analogy}[Jumping between radio stations]
+Imagine two friends who want a private chat on a crowded walkie-talkie band. They agree on a
+secret list of channels and a rhythm: every few hundredths of a second both jump to the next
+channel on the list. An eavesdropper tuned to one channel hears a fragment of a word, then
+silence. A troublemaker blasting noise on one channel spoils only the moments the friends happen
+to land there. The analogy captures what hopping buys---and its weakness: unlike direct
+sequence, hopping gives no protection at all for the fraction of time you land on a jammed
+channel. Its protection is statistical.
+\end{analogy}
 
 In \term{frequency-hopping spread spectrum} (FHSS), the carrier frequency jumps among $N_h$
 channels in a pseudo-random pattern known to the receiver, which hops its local oscillator in
@@ -639,6 +843,12 @@ which must detect the frequency and retransmit on it before the hop ends. Harder
 build: the synthesiser must settle in a fraction of a symbol.
 \end{description}
 
+\mdcpairany{ch18_bt_chip}{A single-chip Bluetooth transceiver (Broadcom BCM20730) from a wireless
+keyboard. Inside a few square millimetres: a synthesiser that retunes 1600 times a second, a GFSK
+modem and the hop-sequence generator.}{ch18_sincgars}{A SINCGARS combat net radio. The display
+reads ``Single Channel or Frequency Hopping Mode, 30--87.975\,MHz'': it hops among 25\,kHz
+channels across the whole military VHF band.}
+
 \subsection{Partial-band jamming}
 
 Frequency hopping has no correlator gain against a jammer that sits on the channel currently
@@ -653,12 +863,20 @@ and the jammer's best choice, $\rho=2/(E_b/J_0)$ (when that is less than 1), giv
 \begin{equation}
 P_b=\frac{e^{-1}}{E_b/J_0}\approx\frac{0.37}{E_b/J_0}.
 \end{equation}
-As with pulsed jamming of DSSS, the error rate falls only inversely with signal energy.
+As with pulsed jamming of DSSS, the error rate falls only inversely with signal energy
+(Figure~\ref{fig:ch18_jam_strategies}b).
 Coding with interleaving across hops, and diversity (several hops per bit, combined),
 restores exponential behaviour. The choice between DSSS and FHSS is thus not about
 processing gain, which both have, but about practicalities: FHSS can spread over hundreds
 of megahertz using non-contiguous channels and needs no fast chip-rate processing, while
 DSSS gives coherent detection, multipath resolution and precise timing.
+
+\begin{tryit}[Outwit a partial-band jammer]
+In Lab~25's \emph{Frequency hopping} experiment choose \emph{Interference}: Partial-band jammer.
+Sweep \emph{Fraction of the band jammed $\rho$} at a fixed $E_b/J_0$ of 20\,dB and find the
+$\rho$ that does the most damage (it should be near $2/(E_b/J_0)=0.02$). Then raise
+\emph{Hops per bit} to 3 or 5 and watch diversity take the jammer's advantage away.
+\end{tryit}
 
 \subsection{Bluetooth and adaptive hopping}
 
@@ -666,7 +884,8 @@ Bluetooth Classic (Basic Rate) divides the 2.4\,GHz ISM band into 79 channels of
 from 2402 to 2480\,MHz, and hops once per 625\,$\mu$s time slot: 1600 hops per second (fewer
 when multi-slot packets are used). The hop sequence is derived from the address and clock of
 the central device of the piconet, so each piconet hops differently and piconets collide
-only occasionally. The modulation is GFSK at 1\,Mb/s, with $\pi/4$-DQPSK and 8DPSK for the
+only occasionally. All of this fits in one small chip (Figure~\ref{fig:ch18_bt_chip}). The modulation is GFSK at
+1\,Mb/s, with $\pi/4$-DQPSK and 8DPSK for the
 2 and 3\,Mb/s Enhanced Data Rate modes.
 
 Hopping blindly over the whole band means that a Wi-Fi network on a 20--22\,MHz channel
@@ -675,22 +894,23 @@ hopping} (AFH), introduced in Bluetooth~1.2 (2003), lets the central device clas
 channels as good or bad from measured packet errors and exclude the bad ones, down to a
 minimum of 20 channels, remapping their slots onto good channels. Bluetooth Low Energy uses
 40 channels of 2\,MHz; three are fixed advertising channels placed in the gaps around the
-common Wi-Fi channels 1, 6 and 11, and the other 37 carry connections, which hop once per
-connection event using a channel map that excludes bad channels (Chapter~\ref{ch:wifi}).
+common Wi-Fi channels 1, 6 and 11 (Figure~\ref{fig:ch18_ism_map}), and the other 37 carry
+connections, which hop once per connection event using a channel map that excludes bad channels
+(Chapter~\ref{ch:wifi}).
 
-\mdcfig{ch18_fhss}{Bluetooth hopping at 1600 hops/s over 79 channels; 25\,ms shown. (a)
-Hopping over the whole band collides with a Wi-Fi network on channel 6 on roughly a quarter
-of the hops (red). (b) Adaptive frequency hopping removes the 22 channels under the Wi-Fi
-signal from the hop set, and the collisions disappear.}
+\mdcfig{ch18_ism_map}{The crowded 2.4\,GHz band. Wi-Fi's three non-overlapping channels 1, 6 and 11
+each cover about 22\,MHz. Bluetooth Low Energy's 40 channels of 2\,MHz include three advertising
+channels (red) tucked into the gaps between them, so that devices can always find each other even
+in a busy office.}
 
 \begin{inpractice}[Military hoppers]
 Frequency hopping dominates military tactical radio because it can spread over bandwidths
 far wider than any practical DSSS chip rate and because hopping synthesisers are cheap.
-The US Army's SINCGARS VHF radio (fielded from the late 1980s) hops over 25\,kHz channels
-between 30 and 88\,MHz at roughly 100 hops per second, carrying digitised voice and data.
-Link~16 (JTIDS/MIDS), the tactical data link of NATO aircraft and ships, combines several
-ideas of this chapter: each 5-bit symbol is sent as one of 32 cyclic shifts of a 32-chip
-sequence, protected by a Reed--Solomon code, as a 6.4\,$\mu$s pulse that hops, pulse by
+The US Army's SINCGARS VHF radio (Figure~\ref{fig:ch18_sincgars}, fielded from the late 1980s)
+hops over 25\,kHz channels between 30 and 88\,MHz at roughly 100 hops per second, carrying
+digitised voice and data. Link~16 (JTIDS/MIDS), the tactical data link of NATO aircraft and ships,
+combines several ideas of this chapter: each 5-bit symbol is sent as one of 32 cyclic shifts of a
+32-chip sequence, protected by a Reed--Solomon code, as a 6.4\,$\mu$s pulse that hops, pulse by
 pulse, among 51 frequencies between 969 and 1206\,MHz (avoiding the 1030 and 1090\,MHz
 secondary-radar channels), at roughly 77\,000 pulses per second. At that rate a follower
 jammer must sit within a few kilometres of the path to react in time. Civil GSM also used
@@ -699,18 +919,31 @@ average interference and fading across frequencies.
 \end{inpractice}
 
 %======================================================================
+\mdcfig{ch18_access_grid}{Three ways to share a channel. (a) Frequency division and (b) time
+division carve the time--frequency plane into private tiles. (c) Code division lets every user
+fill the whole plane at once; the receiver tells them apart by correlating with the right code.}
+
 \section{Code-division multiple access}
 \label{sec:ch18:cdma}
 %======================================================================
 
-In \term{code-division multiple access} (CDMA) many users transmit in the same band at the same
-time, each spread by its own code. Each receiver correlates with the code it wants; the
-others pass through the correlator as interference reduced by roughly $G_p$. Unlike FDMA
-and TDMA (Chapter~\ref{ch:multipleaccess}), there is no hard limit on the number of users:
-each new user adds a little interference to everyone else, and the system degrades
-gracefully until the interference is too high.
+Picture a party where every couple speaks a different language: English in one corner, Japanese
+in another, Swahili by the window. Everyone talks at once, in the same room, at the same time.
+You follow your own conversation because the other languages are just babble to your ear---and
+the party works as long as nobody shouts and the total din stays below what everyone can talk
+over. That is \term{code-division multiple access} (CDMA), with codes for languages.
+
+In CDMA many users transmit in the same band at the same time, each spread by its own code. Each
+receiver correlates with the code it wants; the others pass through the correlator as
+interference reduced by roughly $G_p$. Unlike FDMA and TDMA (Chapter~\ref{ch:multipleaccess}),
+there is no hard limit on the number of users: each new user adds a little interference to
+everyone else, and the system degrades gracefully until the interference is too high.
 
 \subsection{Multiple-access interference}
+Figure~\ref{fig:ch18_access_grid} sets CDMA beside its rivals. FDMA gives each user a slice of
+the band, TDMA a slice of time; CDMA gives every user the whole band all the time and separates
+them by code, like layers stacked on top of each other.
+
 
 Consider $K$ users with codes $c^{(k)}$, received with powers $P_k$ and delays $\tau_k$. The
 correlator for user 1 produces
@@ -733,23 +966,40 @@ classic result
 P_b\approx\Q\!\left(\left[\frac{K-1}{3G_p}+\frac{N_0}{2E_b}\right]^{-1/2}\right).
 \label{eq:ch18:sga}
 \end{equation}
-Each additional user adds to the effective noise as if it were a jammer of the same power
-as the wanted signal. Ignoring thermal noise, the effective $E_b/I_0$, where $I_0$ is the
-interference density, is about $G_p/(K-1)$, up to the chip-shape factor. Nearly all of CDMA
-system design follows from this one ratio.
+Read it as a sentence: each additional user adds to the effective noise as if it were a jammer of
+the same power as the wanted signal, cut down by the processing gain. Ignoring thermal noise, the
+effective $E_b/I_0$, where $I_0$ is the interference density, is about $G_p/(K-1)$, up to the
+chip-shape factor. Nearly all of CDMA system design follows from this one ratio.
+
+\mdcfig{ch18_nearfar_cartoon}{The near--far problem in one picture. Two phones transmit the same
+power, but with fourth-power path loss the near one arrives about 49\,dB louder---far more than
+any processing gain can absorb. Power control turns the near phone down until both arrive at the
+same level.}
+
+\mdcfig{ch18_nearfar}{(a) Near--far: bit error rate of a weak user with a conventional
+correlator (Gold codes of length 63, random relative code phases, $E_b/N_0=8$\,dB; the dotted
+line is the single-user BER) as the other users' power rises above it. A few
+decibels of excess power from a handful of users already costs an order of magnitude.
+(b, c) Closed-loop power control at 800 updates per second with 1\,dB steps on a Rayleigh
+channel at 1.9\,GHz. At 3\,km/h the transmit power mirrors the fading and the received
+power stays within about 1\,dB of target; at 60\,km/h the loop cannot keep up.}
 
 \subsection{The near--far problem and power control}
 
-Equation~\eqref{eq:ch18:sga} assumed equal received powers. In a cell, a mobile near the
+Back at the party: what if one guest is standing right next to you, shouting? Never mind that he
+speaks Finnish; at that volume he drowns out the distant whisper you are trying to follow. This
+is the \term{near--far problem} (Figure~\ref{fig:ch18_nearfar_cartoon}), and in a cell it is
+brutal. Equation~\eqref{eq:ch18:sga} assumed equal received powers. But a mobile near the
 base station may have a path loss 60--80\,dB smaller than one at the cell edge. Its signal
 arrives that much stronger, and after despreading it is still $G_p$ divided into a
-much larger number. A 21\,dB processing gain cannot cope with a 60\,dB power difference.
-This is the \term{near--far problem} (Figure~\ref{fig:ch18_nearfar}a), and it was the main
-technical objection to cellular CDMA in the late 1980s.
+much larger number. A 21\,dB processing gain cannot cope with a 60\,dB power difference
+(Figure~\ref{fig:ch18_nearfar}a). It was the main technical objection to cellular CDMA in the
+late 1980s.
 
 The solution is \term{power control}: every mobile adjusts its transmit power so that all
 signals arrive at the base station with the same power, the minimum needed for the target
-quality. IS-95 uses three nested loops:
+quality. Everybody at the party agrees to speak just loudly enough to be heard, and no louder.
+IS-95 uses three nested loops:
 \begin{itemize}
 \item \textbf{Open loop}: the mobile measures the received downlink power and sets its transmit
 power so that the two sum to a constant (in dB). Fast and coarse, it handles the distance
@@ -767,25 +1017,32 @@ a given error rate depends on speed and multipath.
 At vehicular speeds the fades come faster than an 800\,Hz loop with one-step, one-decibel
 corrections can follow (Figure~\ref{fig:ch18_nearfar}c), and the residual fading must be
 handled by interleaving, coding and Rake diversity. Power control needs a dynamic range of
-about 80\,dB at the mobile. It is also why a CDMA phone is frugal: in good conditions it
+about 80\,dB at the mobile. It is also why a CDMA phone (Figure~\ref{fig:ch18_cdma_phone}) is frugal: in good conditions it
 transmits only milliwatts.
 
-\mdcfig{ch18_nearfar}{(a) Near--far: bit error rate of a weak user with a conventional
-correlator (Gold codes of length 63, random relative code phases, $E_b/N_0=8$\,dB; the dotted
-line is the single-user BER) as the other users' power rises above it. A few
-decibels of excess power from a handful of users already costs an order of magnitude.
-(b, c) Closed-loop power control at 800 updates per second with 1\,dB steps on a Rayleigh
-channel at 1.9\,GHz. At 3\,km/h the transmit power mirrors the fading and the received
-power stays within about 1\,dB of target; at 60\,km/h the loop cannot keep up.}
+\begin{tryit}[Shout, then whisper]
+In Lab~25's \emph{CDMA: near--far and multiuser detection} experiment
+(Figure~\ref{fig:ch18_lab_e5}), keep the \emph{Detector} on
+Matched filter and drag \emph{Power excess of the other users} from 0 to 20\,dB: the weak user's
+constellation dissolves. Now tick \emph{Perfect power control}---everyone arrives at the same
+level and the cloud snaps back. Finally untick it and try the Decorrelator instead.
+\end{tryit}
+
+\mdcpairany{ch18_cdma_vs_amps}{The worked example as a bar chart: pole capacity of an IS-95 cell
+as each ingredient is added, against the six analogue channels AMPS fits into the same
+1.25\,MHz.}{ch18_cdma_phone}{A cdmaOne (IS-95) handset taken apart. The metal partitions shield
+the RF sections; somewhere on that board a 1.2288\,Mchip/s Rake receiver and an 80\,dB power-control
+range are doing the work of this section.}
 
 \subsection{Capacity of a CDMA cell}
 
-The capacity argument of Gilhousen, Jacobs, Viterbi and colleagues (1991), which convinced
-the industry, runs as follows. With perfect power control, each of $N$ users in a cell is
-received with power $S$. The interference seen by any one of them is that of the other
-$N-1$, plus interference from users in neighbouring cells, which are power-controlled by
-their own base stations and arrive attenuated; write it as a fraction $f$ of the
-own-cell interference. Three features of the system reduce the interference further:
+How many people can talk at the party before the din wins? The capacity argument of Gilhousen,
+Jacobs, Viterbi and colleagues (1991), which convinced the industry, runs as follows. With perfect
+power control, each of $N$ users in a cell is received with power $S$. The interference seen by
+any one of them is that of the other $N-1$, plus interference from users in neighbouring cells,
+which are power-controlled by their own base stations and arrive attenuated; write it as a
+fraction $f$ of the own-cell interference. Three features of the system reduce the interference
+further:
 \begin{itemize}
 \item \textbf{Voice activity}: a speaker talks about 40\% of the time, and the IS-95 vocoder
 reduces its rate (and the transmitter its power) during pauses, so each user's average
@@ -805,10 +1062,18 @@ Neglecting thermal noise and solving for $N$:
 N\approx1+\frac{W/R}{E_b/I_0}\cdot\frac{G_s}{\nu\,(1+f)}.
 \label{eq:ch18:capacity}
 \end{equation}
-Compare FDMA or TDMA, whose capacity is the number of channels divided by the reuse factor
-(7 in AMPS). CDMA's capacity is set instead by the required $E_b/I_0$, which is why the
-battle for CDMA capacity was fought with better vocoders, Rake receivers, coding and power
-control.
+In words: capacity is the processing gain divided by the $E_b/I_0$ each user needs, boosted by
+silence and sectors, and taxed by the neighbours. Compare FDMA or TDMA, whose capacity is the
+number of channels divided by the reuse factor (7 in AMPS). CDMA's capacity is set instead by the
+required $E_b/I_0$, which is why the battle for CDMA capacity was fought with better vocoders,
+Rake receivers, coding and power control.
+
+\mdcfig{ch18_capacity}{(a) Uplink pole capacity of an IS-95 cell from~\eqref{eq:ch18:capacity},
+showing how each ingredient changes the number of users. (b) Soft capacity: with Poisson call
+arrivals, random voice activity and fluctuating other-cell interference, the probability that
+the total interference exceeds the budget rises smoothly with load, rather than abruptly at a
+fixed number of channels. Operators trade a slightly higher outage probability for more users
+at busy hours.}
 
 \begin{worked}[IS-95 uplink capacity]
 IS-95 uses $W=1.2288$\,Mchip/s and $R=9.6$\,kb/s, so $W/R=128$ (21.1\,dB). With the
@@ -822,21 +1087,36 @@ Voice activity ($\nu=0.4$) multiplies the interference-limited term by 2.5, givi
 Other-cell interference with $f=0.55$, a typical value for a hexagonal layout with
 fourth-power path loss, divides it by 1.55, giving 42. Three sectors with $G_s=2.55$ multiply
 it again, giving about 105 users per cell, or 35 per sector, on a 1.25\,MHz carrier
-(Figure~\ref{fig:ch18_capacity}a). An AMPS system (Chapter~\ref{ch:cellular}) with
-30\,kHz channels and a seven-cell reuse pattern puts $1250/30/7\approx6$ analogue voice
-channels per cell into the same spectrum. Gilhousen and colleagues claimed a capacity
-gain over analogue of roughly an order of magnitude or more. Real networks, which run at
-perhaps 50--75\% of this pole capacity to keep the noise rise in check and suffer imperfect
-power control, achieved less, but a gain of several times over AMPS and about two to three
-times over the digital TDMA of IS-54 was widely reported.
+(Figures~\ref{fig:ch18_capacity}a and~\ref{fig:ch18_cdma_vs_amps}). An AMPS system
+(Chapter~\ref{ch:cellular}) with 30\,kHz channels and a seven-cell reuse pattern puts
+$1250/30/7\approx6$ analogue voice channels per cell into the same spectrum. Gilhousen and
+colleagues claimed a capacity gain over analogue of roughly an order of magnitude or more. Real
+networks, which run at perhaps 50--75\% of this pole capacity to keep the noise rise in check and
+suffer imperfect power control, achieved less, but a gain of several times over AMPS and about two
+to three times over the digital TDMA of IS-54 was widely reported.
 \end{worked}
 
-\mdcfig{ch18_capacity}{(a) Uplink pole capacity of an IS-95 cell from~\eqref{eq:ch18:capacity},
-showing how each ingredient changes the number of users. (b) Soft capacity: with Poisson call
-arrivals, random voice activity and fluctuating other-cell interference, the probability that
-the total interference exceeds the budget rises smoothly with load, rather than abruptly at a
-fixed number of channels. Operators trade a slightly higher outage probability for more users
-at busy hours.}
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  bs/.style={draw=navy,thick,fill=navy!8,minimum width=1.1cm,minimum height=0.7cm,font=\sffamily\scriptsize,align=center},
+  arr/.style={-{Stealth[length=2mm]},thick}]
+\node[bs] (A) at (0,0) {cell A};
+\node[bs] (B) at (9,0) {cell B};
+\draw[navy!30,thick,dashed] (0,0) circle (2.6cm);
+\draw[green!40!black!30,thick,dashed] (9,0) circle (2.6cm);
+\foreach \x/\l in {2.0/1,4.5/2,7.0/3}{\node[draw=accent,fill=accent!15,thick,minimum width=0.35cm,minimum height=0.6cm] (m\l) at (\x,-1.6) {};}
+\draw[arr,navy] (A) -- (m1); \draw[arr,navy] (A) -- (m2); \draw[arr,green!40!black] (B) -- (m2); \draw[arr,green!40!black] (B) -- (m3);
+\node[font=\sffamily\scriptsize,align=center] at (2.0,-2.4) {active set: A};
+\node[font=\sffamily\scriptsize,align=center,text=accent] at (4.5,-2.55) {active set: A and B\\Rake combines both;\\obeys either's ``power down''};
+\node[font=\sffamily\scriptsize,align=center] at (7.0,-2.4) {active set: B};
+\draw[-{Stealth},gray,thick] (1.2,-3.3) -- node[below,font=\sffamily\scriptsize]{mobile moves from A to B: make before break} (7.8,-3.3);
+\end{tikzpicture}
+\caption{Soft handoff. Because every cell uses the same carrier, a mobile between two cells talks
+to both at once: its Rake receiver combines both downlinks, and on the uplink the network keeps
+the better frame. Cell B is added to the active set when its pilot rises above T\_ADD and cell A is
+dropped when its pilot falls below T\_DROP.}
+\label{fig:ch18_soft_handoff}
+\end{figure}
 
 The capacity formula hides a subtlety that operators came to value: \term{soft capacity}.
 An FDMA or TDMA cell with 30 channels blocks the 31st call. A CDMA cell admits another user
@@ -845,14 +1125,15 @@ by the probability that the instantaneous interference exceeds the budget
 (Figure~\ref{fig:ch18_capacity}b). A lightly loaded neighbour contributes less interference,
 so a busy cell can borrow capacity from quiet neighbours. The flip side is \emph{cell
 breathing}: as load rises, the noise floor rises, the cell edge shrinks and the coverage
-area contracts. The uplink \term{noise rise} $\eta$ of a cell loaded to a fraction $x$ of its
+area contracts---the party gets louder, so you can no longer hear people at the far end of the
+room. The uplink \term{noise rise} $\eta$ of a cell loaded to a fraction $x$ of its
 pole capacity is $1/(1-x)$; at 75\% load it is 6\,dB, which must be included in every link
 budget (Chapter~\ref{ch:channels}).
 
 \subsection{Soft handoff}
 
 Because every cell uses the same frequency, a mobile can talk to two or three base stations
-at once. In \term{soft handoff}, the mobile continuously measures the pilot strength $E_c/I_0$
+at once (Figure~\ref{fig:ch18_soft_handoff}). In \term{soft handoff}, the mobile continuously measures the pilot strength $E_c/I_0$
 of all nearby cells. When a pilot rises above a threshold (T\_ADD), the network adds that
 base station to the mobile's \emph{active set}; when it falls below another (T\_DROP) for
 a few seconds, it is removed. On the downlink, the mobile combines the signals from all
@@ -861,67 +1142,9 @@ mobile independently and the network selects the best frame. A mobile in soft ha
 obeys a power-down command from \emph{any} base station, so it always transmits the minimum
 power needed by the best one. Soft handoff provides macro-diversity against shadowing, a gain
 of several decibels at the cell edge, and it removes the ``ping-pong'' and dropped calls of
-hard handoff. Its cost is that one call occupies channel resources at several base stations;
-typically 30--50\% of IS-95 calls were in soft handoff at any time.
-
-\begin{history}[Qualcomm and the CDMA wars]
-In 1985 Irwin Jacobs, Andrew Viterbi and five colleagues founded Qualcomm in San Diego. Jacobs
-and Viterbi had previously built Linkabit, a successful military satellite and spread-spectrum
-communications company, and Viterbi had invented the Viterbi algorithm
-(Chapter~\ref{ch:classiccodes}). Qualcomm's first product was OmniTRACS, a satellite messaging
-and positioning system for trucks. In 1988--89 Klein Gilhousen, Jacobs and Viterbi proposed
-CDMA for cellular telephony---just as the Cellular Telecommunications Industry Association
-had chosen TDMA (IS-54) as the US digital standard.
-
-The reaction from much of the industry was scepticism bordering on hostility. Critics argued
-that the near--far problem made CDMA impractical, that power control could not work to the
-precision required, and that the capacity claims were fantasy. Qualcomm demonstrated a
-working system in San Diego in 1989 and ran field trials with operators, including a
-well-publicised trial in New York. The TIA published the CDMA air interface as interim
-standard IS-95 in 1993. Hutchison launched the first commercial network in Hong Kong in
-1995, and South Korea, which had chosen CDMA as its national standard, launched in early
-1996 and became for a time the largest CDMA market in the world. In the US, CDMA was adopted
-by Verizon's predecessors and Sprint. The ``CDMA wars'' did not end with a single winner---GSM's
-TDMA dominated the world in the 2G era---but all three main 3G standards (WCDMA, cdma2000 and
-China's TD-SCDMA) were built on CDMA, and the patents made Qualcomm one of the world's largest
-semiconductor and licensing companies.
-\end{history}
-
-%======================================================================
-\section{The Rake receiver}
-\label{sec:ch18:rake}
-%======================================================================
-
-A wideband signal in a multipath channel arrives as a sum of delayed copies
-(Chapter~\ref{ch:channels}),
-\begin{equation}
-r(t)=\sum_{l=1}^{L}h_l\,s(t-\tau_l)+n(t).
-\end{equation}
-If the delays differ by more than a chip, a correlator aligned with path $l$ sees that path
-coherently and the others as interference suppressed by $G_p$. Each such correlator is a
-\term{finger}. The \term{Rake receiver} of Price and Green (1958) assigns a finger to each
-strong path, weights the finger outputs and adds them, gathering the energy of all the paths
-like the tines of a garden rake gathering leaves (Figure~\ref{fig:ch18_rake_rx}). With finger
-outputs $z_l=h_l\sqrt{E_b}\,b+\nu_l$, the optimum combination is \term{maximal-ratio
-combining}:
-\begin{equation}
-z=\sum_{l=1}^Lh_l^*z_l=\sqrt{E_b}\,b\sum_l|h_l|^2+\sum_lh_l^*\nu_l,
-\qquad
-\gamma_{\text{Rake}}=\frac{E_b}{N_0}\sum_{l=1}^L|h_l|^2=\sum_l\gamma_l.
-\label{eq:ch18:mrc}
-\end{equation}
-The output SNR is the \emph{sum} of the finger SNRs: multipath, which is destructive to a
-narrowband receiver, becomes a source of diversity. If the $L$ paths fade independently with
-Rayleigh statistics and equal mean power, the BER of coherent BPSK with MRC is
-\begin{equation}
-P_b=\left(\frac{1-\mu}{2}\right)^L\sum_{k=0}^{L-1}\binom{L-1+k}{k}\left(\frac{1+\mu}{2}\right)^k,
-\qquad\mu=\sqrt{\frac{\bar\gamma_c}{1+\bar\gamma_c}},
-\label{eq:ch18:rakeber}
-\end{equation}
-where $\bar\gamma_c$ is the mean SNR per path. At high SNR it falls as $\bar\gamma^{-L}$: the
-diversity order is the number of resolvable paths. Figure~\ref{fig:ch18_rake} shows the
-effect, with the total energy held constant: two fingers save about 15\,dB at a BER of
-$10^{-4}$, and four save about 21\,dB, compared with a single Rayleigh path.
+hard handoff---it is ``make before break'' rather than ``break before make''. Its cost is that
+one call occupies channel resources at several base stations; typically 30--50\% of IS-95 calls
+were in soft handoff at any time.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[
@@ -956,11 +1179,103 @@ combines signals from different base stations during soft handoff.}
 \label{fig:ch18_rake_rx}
 \end{figure}
 
+\begin{history}[Qualcomm and the CDMA wars]
+In 1985 Irwin Jacobs, Andrew Viterbi and five colleagues founded Qualcomm in San Diego. Jacobs
+and Viterbi had previously built Linkabit, a successful military satellite and spread-spectrum
+communications company, and Viterbi had invented the Viterbi algorithm
+(Chapter~\ref{ch:classiccodes}). Qualcomm's first product was OmniTRACS, a satellite messaging
+and positioning system for trucks. In 1988--89 Klein Gilhousen, Jacobs and Viterbi proposed
+CDMA for cellular telephony---just as the Cellular Telecommunications Industry Association
+had chosen TDMA (IS-54) as the US digital standard.
+
+The reaction from much of the industry was scepticism bordering on hostility. Critics argued
+that the near--far problem made CDMA impractical, that power control could not work to the
+precision required, and that the capacity claims were fantasy. Qualcomm demonstrated a
+working system in San Diego in 1989 and ran field trials with operators, including a
+well-publicised trial in New York. The TIA published the CDMA air interface as interim
+standard IS-95 in 1993. Hutchison launched the first commercial network in Hong Kong in
+1995, and South Korea, which had chosen CDMA as its national standard, launched in early
+1996 and became for a time the largest CDMA market in the world. In the US, CDMA was adopted
+by Verizon's predecessors and Sprint. The ``CDMA wars'' did not end with a single winner---GSM's
+TDMA dominated the world in the 2G era---but all three main 3G standards (WCDMA, cdma2000 and
+China's TD-SCDMA) were built on CDMA, and the patents made Qualcomm one of the world's largest
+semiconductor and licensing companies.
+\end{history}
+
+%======================================================================
+\section{The Rake receiver}
+\label{sec:ch18:rake}
+%======================================================================
+
+In a city, your phone never receives just one copy of the signal. It receives the direct wave,
+then an echo off the office block across the street a microsecond later, then another off the
+hill behind. To a narrowband receiver those echoes are a curse: they add up with random phases and
+the signal fades. To a spread-spectrum receiver they are a gift---extra copies of the same
+message, each one separately recognisable because the code's sharp correlation peak tells them
+apart.
+
 \mdcfig{ch18_rake}{(a) The searcher's view: the magnitude of the pilot correlation against
 delay for a three-path channel at a WCDMA-like chip rate, with fingers assigned to the three
 peaks. (b) BER of BPSK with an $L$-finger maximal-ratio Rake in independent Rayleigh paths of
 equal power, total received energy fixed; lines from~\eqref{eq:ch18:rakeber}, circles
 simulation. The diversity order equals the number of resolvable paths.}
+
+\begin{analogy}[A garden rake gathering the echoes]
+Drag a garden rake across a lawn and each tine gathers the leaves in its own strip; together they
+collect far more than a single stick could. A Rake receiver gives each strong echo its own
+``tine'', a correlator set to exactly that echo's delay, and then sweeps the results together.
+Echoes that would have cancelled each other in a simple receiver now add up. The analogy's limit:
+real tines are evenly spaced, but a Rake's fingers go wherever the echoes happen to be, and a
+searcher keeps moving them as the echoes drift.
+\end{analogy}
+
+A wideband signal in a multipath channel arrives as a sum of delayed copies
+(Chapter~\ref{ch:channels}),
+\begin{equation}
+r(t)=\sum_{l=1}^{L}h_l\,s(t-\tau_l)+n(t).
+\end{equation}
+If the delays differ by more than a chip, a correlator aligned with path $l$ sees that path
+coherently and the others as interference suppressed by $G_p$. Each such correlator is a
+\term{finger}. The \term{Rake receiver} of Price and Green (1958) assigns a finger to each
+strong path, weights the finger outputs and adds them, gathering the energy of all the paths
+like the tines of a garden rake gathering leaves (Figure~\ref{fig:ch18_rake_rx}). With finger
+outputs $z_l=h_l\sqrt{E_b}\,b+\nu_l$, the optimum combination is \term{maximal-ratio
+combining}:
+\begin{equation}
+z=\sum_{l=1}^Lh_l^*z_l=\sqrt{E_b}\,b\sum_l|h_l|^2+\sum_lh_l^*\nu_l,
+\qquad
+\gamma_{\text{Rake}}=\frac{E_b}{N_0}\sum_{l=1}^L|h_l|^2=\sum_l\gamma_l.
+\label{eq:ch18:mrc}
+\end{equation}
+The output SNR is the \emph{sum} of the finger SNRs: multipath, which is destructive to a
+narrowband receiver, becomes a source of diversity. Strong fingers get big weights, weak ones
+small, and the conjugate $h_l^*$ rotates every echo back into phase before they are added.
+
+
+\mdcfig[0.55]{ch18_rake_snr}{Diversity, seen directly (simulated). The distribution of the
+combined SNR for one, two and four equal Rayleigh paths at the same 10\,dB mean. Deep fades below
+3\,dB happen 18\% of the time with one finger and about 1\% with four.}
+
+If the $L$ paths fade independently with Rayleigh statistics and equal mean power, the BER of
+coherent BPSK with MRC is
+\begin{equation}
+P_b=\left(\frac{1-\mu}{2}\right)^L\sum_{k=0}^{L-1}\binom{L-1+k}{k}\left(\frac{1+\mu}{2}\right)^k,
+\qquad\mu=\sqrt{\frac{\bar\gamma_c}{1+\bar\gamma_c}},
+\label{eq:ch18:rakeber}
+\end{equation}
+where $\bar\gamma_c$ is the mean SNR per path. At high SNR it falls as $\bar\gamma^{-L}$: the
+diversity order is the number of resolvable paths. Figure~\ref{fig:ch18_rake} shows the
+effect, with the total energy held constant: two fingers save about 15\,dB at a BER of
+$10^{-4}$, and four save about 21\,dB, compared with a single Rayleigh path.
+Figure~\ref{fig:ch18_rake_snr} shows where that saving comes from: with more fingers the
+combined SNR almost never collapses, because all the echoes rarely fade at once.
+
+\begin{tryit}[Rake the echoes]
+In Lab~25's \emph{The RAKE receiver}, set \emph{Resolvable paths} to 3 and \emph{RAKE fingers}
+to 1: the BER is stuck on the Rayleigh line. Add fingers one at a time and watch the curve steepen.
+Then switch \emph{Combining} from Maximal ratio to Equal gain and Selection, and measure what each
+shortcut costs in decibels at a BER of $10^{-3}$.
+\end{tryit}
 
 Three practical points complete the picture. First, the paths must be resolvable: two
 paths closer than about one chip merge into one finger that fades. A 1.2288\,Mchip/s IS-95
@@ -974,6 +1289,11 @@ heavy multipath on the downlink, the multipath copies destroy the Walsh orthogon
 (Chapter~\ref{ch:equalization}) that restores it outperforms the Rake. HSDPA terminals use
 such equalisers.
 
+\mdcfig[0.55]{ch18_mud_scatter}{What multiuser detection buys (simulated: three misaligned Gold-31
+interferers, each 6\,dB stronger than the weak user). The matched filter's output for the weak
+user is smeared into several humps by the interferers and straddles the threshold; the decorrelator
+removes them and leaves two clean, well-separated peaks.}
+
 \begin{keyidea}[A Rake is a matched filter for the channel]
 The Rake combiner, with fingers at every chip delay and weights $h_l^*$, is exactly the filter
 matched to the received pulse $\sum_lh_lc(t-\tau_l)$, the matched filter of
@@ -985,14 +1305,21 @@ in the frequency domain, at lower complexity for wide bandwidths, which is the m
 \end{keyidea}
 
 %======================================================================
+\mdcfig[0.98]{ch18_lab_e5}{Lab~25's \emph{CDMA: near--far and multiuser detection} with six users,
+the other five arriving 5\,dB stronger than the weak one. The matched filter's decision statistic
+(bottom right) is smeared by multiple-access interference into two humps, and the weak user's
+error rate is about 50 times what it would be alone in the cell. Switch the \emph{Detector} menu
+to the decorrelator, MMSE or SIC to see them pulled apart.}
+
 \section{Multiuser detection}
 \label{sec:ch18:mud}
 %======================================================================
 
-The conventional CDMA receiver treats other users' signals as noise. But at the base station
-all those signals are known in structure---their codes, their timing and their powers---and a
-receiver that detects them jointly can do much better. This is \term{multiuser detection}
-(MUD), the subject of Sergio Verd\'u's work in the 1980s.
+The conventional CDMA receiver treats other users' signals as noise. But that is a strange thing
+to do at a base station, which knows everyone's code, timing and power! It is like a referee who
+can hear every player but insists on listening to one at a time. A receiver that detects them
+jointly can do much better. This is \term{multiuser detection} (MUD), the subject of Sergio
+Verd\'u's work in the 1980s.
 
 Write the synchronous $K$-user system in vector form. Stack one symbol period of chips:
 \begin{equation}
@@ -1017,31 +1344,15 @@ A^{-2})^{-1}\vect z\big)$. Balances MAI suppression against noise enhancement; i
 the decorrelator at high SNR and to the conventional detector at low SNR.
 \item[Successive interference cancellation (SIC).] Detect the strongest user, regenerate its
 signal, subtract it, and repeat with the next strongest. Simple and effective when the powers
-are unequal, which is exactly the near--far case; errors in early stages propagate.
+are unequal, which is exactly the near--far case; errors in early stages propagate. At the party,
+it is like politely asking the loudest guest to repeat himself, writing down what he said, and
+mentally deleting him so you can hear the next.
 \end{description}
+Figure~\ref{fig:ch18_mud_scatter} shows the difference directly.
+
 In Figure~\ref{fig:ch18_dsss_ber} (right), seven interferers 10\,dB stronger than the wanted
 user leave the conventional detector two orders of magnitude worse at 10\,dB, while the
 decorrelator, MMSE and SIC receivers are close to the single-user bound.
-
-\begin{inpractice}[Where multiuser detection went]
-Full multiuser detection was too complex for the IS-95 and early WCDMA base stations, but
-its ideas spread. WCDMA and cdma2000 base stations later added interference cancellation for
-high-rate uplink users; the GSM-era ``single antenna interference cancellation'' and
-LTE's interference-rejection combining use the MMSE idea across antennas rather than codes;
-and SIC is the decoding rule behind non-orthogonal multiple access (NOMA), which superposes
-users in power and separates them at the receiver (Chapter~\ref{ch:multipleaccess}). MIMO
-detection (Chapter~\ref{ch:mimo}) is the same mathematics with antennas in place of codes:
-$\vect y=\vect H\vect x+\vect n$, solved by zero forcing, MMSE or successive cancellation.
-\end{inpractice}
-
-%======================================================================
-\section{CDMA in third-generation cellular}
-\label{sec:ch18:3g}
-%======================================================================
-
-The 3G standards of the ITU's IMT-2000 programme were all CDMA. Their parameters are
-compared in Table~\ref{tab:ch18:cdma}; their history and network architecture are in
-Chapter~\ref{ch:cellular}.
 
 \begin{table}[htbp]\centering\small
 \caption{CDMA cellular air interfaces compared (main parameters; later releases added many
@@ -1065,12 +1376,51 @@ Peak data rate (downlink) & 14.4\,kb/s & 153\,kb/s (1x); 2.4--3.1\,Mb/s (EV-DO) 
 \end{tabularx}
 \end{table}
 
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  st/.style={draw=navy,thick,fill=navy!6,rounded corners=2pt,minimum height=1.25cm,text width=3.3cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2.2mm]},thick,navy}]
+\node[st] (a) at (0,0) {\textbf{Step 1: slot timing}\\correlate with the primary sync code, the same in every cell};
+\node[st,fill=green!8,draw=green!50!black] (b) at (4.3,0) {\textbf{Step 2: frame timing and code group}\\read the secondary sync code pattern (64 groups)};
+\node[st,fill=accent!8,draw=accent] (c) at (8.6,0) {\textbf{Step 3: scrambling code}\\try the 8 codes of the group on the pilot channel};
+\draw[arr] (a) -- (b); \draw[arr] (b) -- (c);
+\node[font=\sffamily\scriptsize,text=navy!70] at (0,-1.0) {666.7\,$\mu$s slot found};
+\node[font=\sffamily\scriptsize,text=green!40!black] at (4.3,-1.0) {10\,ms frame, 1 of 64 groups};
+\node[font=\sffamily\scriptsize,text=accent] at (8.6,-1.0) {1 of 512 cells identified};
+\end{tikzpicture}
+\caption{How a WCDMA phone finds a cell without GPS-synchronised base stations: a three-step search
+that narrows 512 possible scrambling codes, at unknown timing, to one, by solving for slot timing,
+then frame timing and code group, then the code itself.}
+\label{fig:ch18_wcdma_search}
+\end{figure}
+
+\begin{inpractice}[Where multiuser detection went]
+Full multiuser detection was too complex for the IS-95 and early WCDMA base stations, but
+its ideas spread. WCDMA and cdma2000 base stations later added interference cancellation for
+high-rate uplink users; the GSM-era ``single antenna interference cancellation'' and
+LTE's interference-rejection combining use the MMSE idea across antennas rather than codes;
+and SIC is the decoding rule behind non-orthogonal multiple access (NOMA), which superposes
+users in power and separates them at the receiver (Chapter~\ref{ch:multipleaccess}). MIMO
+detection (Chapter~\ref{ch:mimo}) is the same mathematics with antennas in place of codes:
+$\vect y=\vect H\vect x+\vect n$, solved by zero forcing, MMSE or successive cancellation.
+\end{inpractice}
+
+%======================================================================
+\section{CDMA in third-generation cellular}
+\label{sec:ch18:3g}
+%======================================================================
+
+By the late 1990s the CDMA wars had been won, at least for 3G: the ITU's IMT-2000 standards were
+all CDMA. Their parameters are compared in Table~\ref{tab:ch18:cdma}; their history and network
+architecture are in Chapter~\ref{ch:cellular}.
+
 \paragraph{WCDMA.} The European and Japanese 3G standard, specified by 3GPP from 1999, uses
 3.84\,Mchip/s in 5\,MHz carriers with root-raised-cosine chips of roll-off 0.22. Data are
 spread by an OVSF channelisation code and then scrambled by a cell-specific Gold code
 (downlink) or a user-specific code (uplink), as in TS~25.213. The spreading factor sets the
 rate: SF~4 carries 960\,ksymbol/s, SF~256 carries 15\,ksymbol/s. Base stations are not
-synchronised, so a phone finds a cell with a three-step search: slot timing from the primary
+synchronised, so a phone finds a cell with a three-step search
+(Figure~\ref{fig:ch18_wcdma_search}): slot timing from the primary
 synchronisation code (identical in all cells), frame timing and the scrambling-code group
 from the secondary synchronisation codes, then the scrambling code itself by correlating with
 the eight candidates of the group on the pilot channel. Release~5's HSDPA (2002) moved
@@ -1099,14 +1449,24 @@ GNSS time, which has only grown with 4G and 5G TDD (Chapter~\ref{ch:sync}).
 \label{sec:ch18:css}
 %======================================================================
 
+Two more ways to spend bandwidth have found enormous modern markets: chirps, which let a
+battery-powered sensor reach a gateway kilometres away, and ultra-short pulses, which let your
+phone find your keys to within a few centimetres.
+
+\mdcpairany{ch18_chirp}{Pulse compression. A chirp sweeping a bandwidth $B$ over a time $T$ (top)
+emerges from its matched filter as a pulse about $1/B$ wide (bottom): all the energy of the long
+chirp, the timing sharpness of a short pulse.}{ch18_lora_tradeoff}{LoRa's trade at 125\,kHz with the
+rate-4/5 code: each step up in spreading factor roughly doubles the time on air of a 20-byte packet
+(bars, bit rates printed above) and buys about 2.5\,dB of sensitivity (red, approximate).}
+
 \subsection{Chirps and LoRa}
 
 A \term{chirp} is a sinusoid whose frequency sweeps linearly across a bandwidth $B$ in a time
-$T$. Its matched filter compresses it into a pulse of width about $1/B$, a gain of $BT$;
-radar engineers have used this \emph{pulse compression} since the 1950s to obtain the range
-resolution of a short pulse with the energy of a long one. A chirp is also remarkably robust
-to Doppler and to oscillator offsets: a frequency offset merely shifts the compressed peak
-slightly in time.
+$T$---the ``whoop'' of a slide whistle. Its matched filter compresses it into a pulse of width
+about $1/B$, a gain of $BT$ (Figure~\ref{fig:ch18_chirp}); radar engineers have used this
+\emph{pulse compression} since the 1950s to obtain the range resolution of a short pulse with the
+energy of a long one. A chirp is also remarkably robust to Doppler and to oscillator offsets: a
+frequency offset merely shifts the compressed peak slightly in time.
 
 \term{LoRa}, a proprietary physical layer developed by the French start-up Cycleo and acquired by
 Semtech in 2012, uses chirps for low-power, long-range IoT links (Chapter~\ref{ch:wifi}). A
@@ -1118,9 +1478,17 @@ the shift, and takes an FFT of size $2^{SF}$: the peak bin is the symbol
 (Figure~\ref{fig:ch18_css_uwb}a,b). This is non-coherent $M$-ary orthogonal signalling with
 $M=2^{SF}$, and like all orthogonal signalling (Chapter~\ref{ch:modulation}) it trades
 bandwidth for power efficiency. The symbol time is $2^{SF}/B$ and the bit rate
-$SF\cdot B/2^{SF}$ times the code rate: at SF\,12 and 125\,kHz, 366\,b/s before coding (293\,b/s with the rate-4/5 code), and the
-link works at an SNR of about $-20$\,dB in the channel bandwidth, giving sensitivities near
-$-137$\,dBm. Each step in SF roughly doubles the time on air and buys about 2.5\,dB.
+$SF\cdot B/2^{SF}$ times the code rate: at SF\,12 and 125\,kHz, 366\,b/s before coding (293\,b/s
+with the rate-4/5 code), and the link works at an SNR of about $-20$\,dB in the channel bandwidth,
+giving sensitivities near $-137$\,dBm. Each step in SF roughly doubles the time on air and buys
+about 2.5\,dB (Figure~\ref{fig:ch18_lora_tradeoff}).
+
+\mdcfig{ch18_css_uwb}{(a) A LoRa SF7 frame: preamble up-chirps followed by data symbols, each a
+cyclically shifted chirp. (b) Dechirping and a 128-point FFT recover symbol 37 at an SNR of
+$-10$\,dB in the channel bandwidth. (c) A Gaussian monocycle and a carrier-modulated
+802.15.4z pulse (channel 5). (d) Their spectra, scaled to the FCC indoor limit of
+$-41.3$\,dBm/MHz: the baseband monocycle violates the stricter limits below 3.1\,GHz,
+whereas the modulated pulse sits comfortably inside the UWB band.}
 
 \subsection{Ultra-wideband impulse radio}
 
@@ -1129,7 +1497,12 @@ The FCC's 2002 rules defined UWB as a signal with a bandwidth of at least 500\,M
 fractional bandwidth of at least 20\%, and allowed it to transmit, unlicensed, between 3.1
 and 10.6\,GHz at an average EIRP density of no more than $-41.3$\,dBm/MHz---the same limit as
 unintentional emissions from any electronic device. Over 500\,MHz that is about $-14$\,dBm,
-less than 0.05\,mW. UWB lives \emph{under} everyone else's noise floor.
+less than 0.05\,mW. UWB lives \emph{under} everyone else's noise floor, a ghost in the spectrum.
+
+\mdcpairany{ch18_lora_gw}{An outdoor LoRaWAN gateway for the 868\,MHz band. One such box, with a
+mast-mounted antenna, can collect readings from thousands of meters and sensors over several
+kilometres.}{ch18_airtag}{A UWB tag on a key ring. Item finders and digital car keys use 802.15.4z
+ultra-wideband ranging to locate a device to within roughly ten centimetres.}
 
 The original impulse-radio idea (Win and Scholtz, 1990s) used baseband pulses such as
 Gaussian monocycles, time-hopped to allow multiple access. Such pulses have energy at low
@@ -1149,14 +1522,8 @@ cryptographically generated pulse sequence that an attacker cannot predict, to s
 distance-reduction attacks in which a relay or a spoofer makes a car key appear closer than
 it is. Apple's U1 chip (iPhone~11, 2019), Samsung's and Google's phones, and the Car
 Connectivity Consortium's Digital Key~3.0 use HRP UWB for precise device finding and
-keyless car entry.
-
-\mdcfig{ch18_css_uwb}{(a) A LoRa SF7 frame: preamble up-chirps followed by data symbols, each a
-cyclically shifted chirp. (b) Dechirping and a 128-point FFT recover symbol 37 at an SNR of
-$-10$\,dB in the channel bandwidth. (c) A Gaussian monocycle and a carrier-modulated
-802.15.4z pulse (channel 5). (d) Their spectra, scaled to the FCC indoor limit of
-$-41.3$\,dBm/MHz: the baseband monocycle violates the stricter limits below 3.1\,GHz,
-whereas the modulated pulse sits comfortably inside the UWB band.}
+keyless car entry (Figure~\ref{fig:ch18_airtag}). LoRa's niche is the opposite one: a single
+gateway (Figure~\ref{fig:ch18_lora_gw}) collecting tiny readings from far away.
 
 \begin{worked}[Ranging resolution from bandwidth]
 A UWB pulse with 500\,MHz bandwidth has a duration of roughly 2\,ns, corresponding to
@@ -1173,9 +1540,22 @@ a 1\,MHz chip and a metre-level answer.
 \end{worked}
 
 %======================================================================
+\mdcpairany{ch18_transit_sat}{A Transit navigation satellite (Transit 5-A, National Air and Space
+Museum). Transit located submarines from the Doppler curve of a single low satellite passing
+overhead---the idea born from listening to Sputnik.}{ch18_transit_rx}{An AN/BRN-3 Transit receiver
+of the kind carried by US submarines: a cabinet of electronics to do what a chip in your phone now
+does far better.}
+
 \section{Satellite navigation: the principle}
 \label{sec:ch18:gnss}
 %======================================================================
+
+Stand in a field on a clear night and look up. Somewhere above you, about thirty GPS satellites are
+each shouting the same thing over and over: ``This is satellite number seven. When this message
+left me, it was exactly 10:15:03.000000000, and I was \emph{here}.'' Your receiver hears the
+message arrive a little later---about 70 milliseconds later. Multiply the delay by the speed of
+light and you know how far away that satellite is. Do it with several satellites at once and you
+know where you are. Satellite navigation is, at heart, triangulating with clocks.
 
 A \term{global navigation satellite system} (GNSS) is a constellation of satellites, each
 carrying an atomic clock and broadcasting a spread-spectrum signal whose code phase and
@@ -1188,27 +1568,59 @@ chapter develops that idea: the geometry, the signals, the receiver that turns $
 into a range measurement good to a metre, and the corrections that turn a metre into a
 centimetre.
 
+\begin{figure}[htbp]\centering
+\begin{minipage}[t]{0.36\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch18_parkinson}
+\caption{Colonel Bradford Parkinson, chief architect of GPS, in his 1977 official
+portrait.\mdccredit{ch18_parkinson}}
+\label{fig:ch18_parkinson}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.6\linewidth}\centering
+\includegraphics[width=\linewidth]{figs/photos/ch18_gps_iif}
+\caption{A GPS Block IIF satellite in orbit (US Air Force artwork). The helix array on the
+Earth-facing panel radiates the L-band navigation signals; the satellite carries atomic clocks
+and circles the Earth twice a day at 20\,200\,km.\mdccredit{ch18_gps_iif}}
+\label{fig:ch18_gps_iif}
+\end{minipage}
+\end{figure}
+
+\begin{analogy}[Thunder and lightning, run backwards]
+You know the trick: count the seconds between the flash and the thunder, and every three seconds
+means about a kilometre. GPS is the same trick with the speed of light instead of sound, and
+with the satellite telling you exactly when the ``flash'' happened. The catch is the clock.
+Light covers 30\,cm in a nanosecond, so a receiver clock that is wrong by a single microsecond
+puts you 300\,m off. No pocket device carries an atomic clock---so GPS turns the problem around and
+lets the receiver \emph{solve} for its own clock error, using one extra satellite.
+\end{analogy}
+
 \begin{history}[From Sputnik's beeps to the Labor Day meeting]
 Days after the launch of Sputnik~1 in October 1957, William Guier and George Weiffenbach of
 the Johns Hopkins Applied Physics Laboratory found that they could determine the satellite's
 orbit from the Doppler shift of its 20\,MHz beacon received at a single known site. Their
 colleague Frank McClure turned the problem around: if the orbit were known, the Doppler
 curve would locate the receiver. The result was \emph{Transit}, the Navy Navigation Satellite
-System, developed to fix the positions of ballistic-missile submarines and operational from
-1964. Transit gave a two-dimensional fix good to a few hundred metres, but only when one of
-its handful of low satellites passed overhead, sometimes hours apart. Meanwhile the Naval
-Research Laboratory's \emph{Timation} programme, led by Roger Easton, flew precise clocks in
-orbit, and the Air Force's Project~621B studied pseudo-noise ranging signals.
+System (Figures~\ref{fig:ch18_transit_sat} and~\ref{fig:ch18_transit_rx}), developed to fix the positions of ballistic-missile
+submarines and operational from 1964. Transit gave a two-dimensional fix good to a few hundred
+metres, but only when one of its handful of low satellites passed overhead, sometimes hours apart.
+Meanwhile the Naval Research Laboratory's \emph{Timation} programme, led by Roger Easton, flew
+precise clocks in orbit, and the Air Force's Project~621B studied pseudo-noise ranging signals.
 
-In 1973 Colonel Bradford Parkinson, newly in charge of the Air Force's navigation programme,
-gathered a small group of officers and engineers in the Pentagon over the Labor Day weekend
-and merged the competing ideas into one design: satellites in medium Earth orbit carrying
-atomic clocks (from Timation), spread-spectrum ranging signals (from 621B), and a
+In 1973 Colonel Bradford Parkinson (Figure~\ref{fig:ch18_parkinson}), newly in charge of the Air
+Force's navigation programme, gathered a small group of officers and engineers in the Pentagon over
+the Labor Day weekend and merged the competing ideas into one design: satellites in medium Earth
+orbit carrying atomic clocks (from Timation), spread-spectrum ranging signals (from 621B), and a
 receiver that solves for its clock offset along with its position. The Defense Systems
 Acquisition Review Council approved the programme, NAVSTAR GPS, in December 1973. The first
 Block~I satellite was launched on 22 February 1978. Full operational capability was declared
-in 1995.
+in 1995. Its descendants, such as the Block IIF satellite of Figure~\ref{fig:ch18_gps_iif}, still
+follow Parkinson's design.
 \end{history}
+
+\mdcfig{ch18_trilat_concept}{Ranging with clocks, in two dimensions. (a) With a perfect clock, the
+range circles around three satellites meet at a single point: you. (b) A receiver clock that runs
+fast makes every measured range too long by the same amount; the circles no longer meet but
+enclose a small ``triangle of doubt''. Shrinking every radius by one common amount until they meet
+again is exactly what solving for the clock bias $b$ does.}
 
 \subsection{The pseudorange equation}
 
@@ -1221,18 +1633,19 @@ user's clock. The \term{pseudorange} is the measured transit time times the spee
 \end{equation}
 where $\vect u$ is the user's position, $b=c\,\delta t_u$ is the user clock bias in metres,
 and the remaining terms are the residual satellite clock error, the ionospheric and
-tropospheric delays and everything else (multipath, receiver noise). After the corrections
-of Section~\ref{sec:ch18:errors} are applied, the model is
+tropospheric delays and everything else (multipath, receiver noise). It is called a
+\emph{pseudo}range because it is the true range plus junk---mostly the receiver's clock error.
+After the corrections of Section~\ref{sec:ch18:errors} are applied, the model is
 \begin{equation}
 \rho_k=\|\vect s_k-\vect u\|+b+\varepsilon_k,\qquad k=1,\dots,K.
 \label{eq:ch18:prmodel}
 \end{equation}
 There are four unknowns: $u_x,u_y,u_z,b$. Hence the famous requirement of four satellites.
-Geometrically (Figure~\ref{fig:ch18_trilateration}), each true range defines a sphere around
-a satellite, and the user is where the spheres intersect; the clock bias inflates every
-sphere by the same unknown amount, and the fourth satellite fixes it. A receiver with a
-perfect clock would need three, and one that knows its height (a ship, say) can use the
-Earth's surface as one of the spheres.
+Geometrically (Figures~\ref{fig:ch18_trilat_concept} and~\ref{fig:ch18_trilateration}), each true
+range defines a sphere around a satellite, and the user is where the spheres intersect; the clock
+bias inflates every sphere by the same unknown amount, and the fourth satellite fixes it. A
+receiver with a perfect clock would need three, and one that knows its height (a ship, say) can use
+the Earth's surface as one of the spheres.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}
@@ -1285,7 +1698,8 @@ reality the satellites are about 20\,000\,km up and the ranges are spheres.}
 \subsection{Solving for position and time}
 
 Equation~\eqref{eq:ch18:prmodel} is non-linear in $\vect u$, but it is smooth, and the standard
-solution linearises it about a guess $\vect x_0=(\vect u_0,b_0)$ and iterates. Let
+solution is the engineer's favourite trick: guess, straighten the problem out around the guess,
+solve the straight version, and repeat. Linearise about a guess $\vect x_0=(\vect u_0,b_0)$. Let
 $r_{k,0}=\|\vect s_k-\vect u_0\|$ and let $\vect e_k=(\vect s_k-\vect u_0)/r_{k,0}$ be the unit
 vector from the guess to satellite $k$. To first order,
 \begin{equation}
@@ -1350,6 +1764,20 @@ pseudorange error per satellite gives about 4\,m of position error. The calculat
 
 \subsection{Dilution of precision}
 
+Suppose you want to pin down your position by asking friends how far away they are. If your
+friends are standing in a tight cluster to the north, their answers barely help you distinguish
+``a bit further east'' from ``a bit further west''; if they stand all around you, every direction
+is pinned. Satellites are the same, and \term{dilution of precision} (DOP) is the number that
+measures it. Figure~\ref{fig:ch18_dop_concept} shows the idea with two range measurements, each
+uncertain by $\pm\sigma$: crossing at a wide angle they pin you in a small diamond; at a narrow
+angle the diamond is long and thin.
+
+\mdcfig{ch18_dop_concept}{Why geometry matters. Each band is one range measurement with its
+uncertainty. (a) Two satellites in very different directions: the bands cross at a right angle and
+the possible positions form a small diamond. (b) Two satellites in nearly the same direction: the
+same measurement errors leave a long, thin diamond. DOP is the factor by which geometry stretches
+the range error into a position error.}
+
 If the pseudorange errors are independent with equal variance $\sigma_{\text{UERE}}^2$ (the
 \emph{user equivalent range error}), the covariance of the least-squares
 solution~\eqref{eq:ch18:ls} is
@@ -1357,7 +1785,7 @@ solution~\eqref{eq:ch18:ls} is
 \operatorname{cov}(\Delta\hat{\vect x})=\sigma_{\text{UERE}}^2\,(\vect G^{\mathsf T}\vect G)^{-1}=\sigma_{\text{UERE}}^2\,\vect Q.
 \end{equation}
 The matrix $\vect Q$ depends only on the geometry. Expressed in local east--north--up
-coordinates, its diagonal elements define the \term{dilution of precision} (DOP):
+coordinates, its diagonal elements define the dilution of precision:
 \begin{equation}
 \begin{gathered}
 \text{HDOP}=\sqrt{Q_{EE}+Q_{NN}},\qquad\text{VDOP}=\sqrt{Q_{UU}},\\
@@ -1375,12 +1803,21 @@ Vertical accuracy is always worse than horizontal (VDOP $>$ HDOP), because satel
 the horizon cannot be seen: all the $\vect e_k$ have positive up-components, so height and
 clock bias are partially confounded. In an open-sky location with today's multi-GNSS
 constellations, a receiver tracks 30 or more satellites and PDOP is often near 1; in an urban
-canyon, with only a slice of sky visible, DOPs of 5--20 are common.
+canyon, with only a slice of sky visible, DOPs of 5--20 are common. Because the satellites move,
+the geometry---and the DOP---changes through the day (Figure~\ref{fig:ch18_constellation}).
 
 \mdcfig{ch18_position}{Geometry matters. (a) Satellites spread over the sky, one near the
 zenith: PDOP 1.9. (b) Six satellites bunched in the north-east: PDOP 12. (c) Horizontal fixes
 from 400 noisy measurement sets ($\sigma_{\text{UERE}}=3$\,m) with each geometry; the poor
 geometry stretches the error cloud along the direction the satellites cannot constrain.}
+
+\begin{tryit}[Friends in a cluster]
+Open Lab~25's \emph{Position fix and DOP} (Figure~\ref{fig:ch18_lab_e8}). With \emph{Sky} set to ``Good: spread over the sky'',
+note the PDOP readout and the size of the 400-fix cloud. Switch to ``Poor: clustered'' and then to
+``Urban canyon (high only)'' without touching \emph{Pseudorange error $\sigma$}: the cloud stretches
+by the PDOP ratio. Drag \emph{Receiver clock error} anywhere you like---the solver recovers it every
+time, and the convergence plot shows Gauss--Newton arriving in four or five steps.
+\end{tryit}
 
 \mdcfig{ch18_constellation}{(a) Sky tracks of the satellites of an idealised 24-satellite GPS
 constellation over six hours as seen from 45$^\circ$\,N (dots mark the end of each track).
@@ -1405,7 +1842,15 @@ and GLONASS keep their own system times, and the offsets between them are broadc
 estimated as an extra unknown in a multi-constellation fix (one clock unknown per system,
 so a multi-GNSS solution needs a satellite for each extra unknown).
 
-Satellite clocks also need relativity. A clock in a GPS orbit (radius about 26\,560\,km) sits
+\mdcpairany{ch18_relativity}{Einstein in the sky (computed from the formulas in the text).
+(a) Weaker gravity makes a GPS satellite clock gain about 45.7\,$\mu$s a day; its orbital speed
+makes it lose about 7.2. (b) Left uncorrected, the net 38\,$\mu$s/day would grow into a range error
+of about 11.5\,km in a single day.}{ch18_hmaser}{A passive hydrogen maser, the master clock of a
+Galileo satellite. Clocks like this, drifting by roughly a nanosecond a day, are why the
+relativistic offsets must be---and can be---corrected.}
+
+Satellite clocks also need relativity---and this is not a footnote, it is a daily kilometre-sized
+effect (Figure~\ref{fig:ch18_relativity}). A clock in a GPS orbit (radius about 26\,560\,km) sits
 higher in the Earth's gravitational potential than one on the ground and so runs \emph{fast},
 by the general-relativistic fractional amount
 \begin{equation}
@@ -1416,11 +1861,17 @@ about $+45.7\,\mu$s per day. It also moves at about 3.87\,km/s, so by special re
 $+38.4\,\mu$s per day, or $4.45\times10^{-10}$. Uncorrected, it would accumulate a range error
 of $38.4\,\mu\text{s}\times c\approx11.5$\,km per day. GPS corrects most of it in hardware:
 the satellite clocks' nominal 10.23\,MHz frequency is set to 10.229\,999\,995\,43\,MHz before
-launch, so that it appears as exactly 10.23\,MHz on the ground. A remaining periodic term,
+launch, so that it appears as exactly 10.23\,MHz on the ground---a correction that only makes
+sense because the onboard clocks (Figure~\ref{fig:ch18_hmaser}) are stable enough to show it. A remaining periodic term,
 caused by the small eccentricity of the orbit, is corrected by the receiver as
 $\Delta t_r=F\,e\sqrt{a}\,\sin E_k$, with $F=-4.442807633\times10^{-10}$\,s/m$^{1/2}$ (IS-GPS-200);
 for $e=0.01$ its amplitude is about 23\,ns, or 7\,m. GPS is a working, everyday confirmation of
 both of Einstein's theories.
+
+\mdcphoto[0.5]{ch18_etrex}{A handheld GPS and GLONASS receiver. The screen shows the receiver's own
+sky plot and a bar of $C/N_0$ for each satellite tracked---the same quantities this section
+computes. Devices like this became affordable consumer products after Selective Availability was
+switched off in 2000.}
 
 \begin{history}[KAL007, Selective Availability and the civilian GPS]
 GPS was built as a military system, with a coarse civil signal as a by-product. On 1~September
@@ -1433,14 +1884,19 @@ horizontal accuracy to about 100\,m (95\%). Civil engineers responded with diffe
 (Section~\ref{sec:ch18:augmentation}), which removed SA's errors almost completely and made
 it largely pointless. At midnight on 1--2 May 2000, by a decision of President Clinton, SA
 was set to zero; overnight the accuracy of every civil receiver improved about tenfold, to
-roughly 10\,m, and the consumer GPS industry took off. In 2007 the US government announced that
-the GPS III satellites would be built without the SA capability at all.
+roughly 10\,m, and the consumer GPS industry took off (Figure~\ref{fig:ch18_etrex}). In 2007 the
+US government announced that the GPS III satellites would be built without the SA capability at
+all.
 \end{history}
 
 %======================================================================
 \section{GNSS signals}
 \label{sec:ch18:signals}
 %======================================================================
+
+What exactly does a GPS satellite shout? Every frequency, every code chip and every data bit
+it sends is locked to one atomic oscillator, and the design choices made in the 1970s---a
+1.023\,Mchip/s code, a 50\,b/s message---still shape every receiver on Earth.
 
 \subsection{GPS L1 C/A: the original civil signal}
 \label{sec:ch18:gpsca}
@@ -1497,23 +1953,57 @@ in a dozen lines.}
 \label{fig:ch18_cagen}
 \end{figure}
 
-The C/A code is modulo-2 added to the 50\,b/s \term{navigation message}. Each data bit spans
-exactly 20 code periods, and bit edges coincide with code epochs. The message is organised in
-1500-bit frames of five 300-bit subframes, each lasting 6\,s and made of ten 30-bit words with
-(32,26) Hamming-type parity. Each subframe begins with a telemetry word containing an 8-bit
-preamble (\texttt{10001011}) and a handover word containing the time of week. Subframe~1
-carries the satellite clock correction and health; subframes 2 and 3 the satellite's own
-precise orbit, the \term{ephemeris}, as Keplerian elements with perturbation terms, valid for
-about four hours; subframes 4 and 5 rotate through 25 pages of \term{almanac} (coarse orbits of
-all satellites), ionospheric model coefficients and UTC parameters, so the full message takes
-12.5 minutes. A receiver needs about 18--30\,s of clean signal to collect a satellite's
-ephemeris, which is why an unaided cold start takes that long and why assisted GNSS
-(Section~\ref{sec:ch18:acq}) delivers the ephemeris over the cellular network instead.
+The C/A code is modulo-2 added to the 50\,b/s \term{navigation message}
+(Figure~\ref{fig:ch18_navmsg}). Each data bit spans exactly 20 code periods, and bit edges coincide
+with code epochs. The message is organised in 1500-bit frames of five 300-bit subframes, each
+lasting 6\,s and made of ten 30-bit words with (32,26) Hamming-type parity. Each subframe begins
+with a telemetry word containing an 8-bit preamble (\texttt{10001011}) and a handover word
+containing the time of week. Subframe~1 carries the satellite clock correction and health;
+subframes 2 and 3 the satellite's own precise orbit, the \term{ephemeris}, as Keplerian elements
+with perturbation terms, valid for about four hours; subframes 4 and 5 rotate through 25 pages of
+\term{almanac} (coarse orbits of all satellites), ionospheric model coefficients and UTC
+parameters, so the full message takes 12.5 minutes. A receiver needs about 18--30\,s of clean
+signal to collect a satellite's ephemeris, which is why an unaided cold start takes that long and
+why assisted GNSS (Section~\ref{sec:ch18:acq}) delivers the ephemeris over the cellular network
+instead.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  sf/.style={draw=navy,thick,minimum height=0.75cm,minimum width=2.25cm,align=center,font=\sffamily\scriptsize},
+  wd/.style={draw=navy!70,minimum height=0.55cm,minimum width=1.08cm,align=center,font=\sffamily\tiny}]
+\node[sf,fill=accent!12] (s1) at (0,0) {Subframe 1\\clock, health};
+\node[sf,fill=green!12] (s2) at (2.3,0) {Subframe 2\\ephemeris I};
+\node[sf,fill=green!12] (s3) at (4.6,0) {Subframe 3\\ephemeris II};
+\node[sf,fill=orange!12] (s4) at (6.9,0) {Subframe 4\\almanac, iono, UTC};
+\node[sf,fill=orange!12] (s5) at (9.2,0) {Subframe 5\\almanac};
+\node[font=\sffamily\scriptsize,text=navy] at (4.6,0.75) {one frame: 1500 bits, 30\,s at 50\,b/s};
+\draw[navy!50,dashed] (s2.south west) -- (-1.1,-1.0);
+\draw[navy!50,dashed] (s2.south east) -- (10.3,-1.0);
+\node[wd,fill=accent!10] (w1) at (-0.55,-1.3) {TLM\\preamble};
+\node[wd,fill=accent!10] (w2) at (0.55,-1.3) {HOW\\time of week};
+\foreach \k in {3,...,10}{\node[wd,fill=navy!5] at (0.55+1.1*\k-2.2,-1.3) {word \k};}
+\node[font=\sffamily\scriptsize,text=navy] at (4.6,-1.95) {one subframe: 10 words of 30 bits (24 data + 6 parity) = 6\,s};
+\node[font=\sffamily\scriptsize,text=green!40!black] at (4.6,-2.4) {one bit = 20\,ms = 20 repetitions of the 1023-chip C/A code};
+\end{tikzpicture}
+\caption{The legacy GPS navigation message. Five 6-second subframes make a 30-second frame;
+each subframe starts with a telemetry word (with the preamble \texttt{10001011}) and a handover word
+carrying the time of week. Subframes 1--3 repeat every frame, so a receiver can read a satellite's
+clock and ephemeris in about 18--30\,s; subframes 4 and 5 cycle through 25 pages, so the whole
+almanac takes 12.5 minutes.}
+\label{fig:ch18_navmsg}
+\end{figure}
 
 The signal is BPSK: $s(t)=\sqrt{2P}\,c(t)\,d(t)\cos(2\pi f_{L1}t)$, in quadrature with the
 military P(Y) code. Its spectrum is the $\sinc^2$ of BPSK at 1.023\,Mchip/s, with a main lobe
 2.046\,MHz wide (Figure~\ref{fig:ch18_gnss_spectra}b), notated BPSK(1) or BPSK-R(1) in the GNSS
 literature, the number counting multiples of 1.023\,MHz.
+
+\mdcfig{ch18_gnss_spectra}{(a) Where the GNSS signals live: the upper L band
+(1559--1610\,MHz) and the lower L band (1164--1215\,MHz) are allocated to radionavigation
+satellite services and protected for aeronautical use, while 1215--1300\,MHz is shared with
+radars; widths are approximate main-lobe or allocated bandwidths. (b) Spectra of signals
+centred at 1575.42\,MHz: the C/A code's BPSK(1), the military P(Y) code's BPSK(10), the
+BOC(1,1) and MBOC civil signals, and the split M code BOC(10,5).}
 
 \subsection{The military code and the modernised signals}
 
@@ -1538,46 +2028,63 @@ data protected by a convolutional code and short Neuman--Hofman overlay codes th
 bit synchronisation. The safety-of-life signal for aviation, and the second frequency of
 dual-frequency smartphones.
 \item[L1C (1575.42\,MHz).] Designed in cooperation with Europe to be interoperable with Galileo
-E1 (and, as it turned out, with China's later BeiDou B1C): 10\,230-chip Weil codes at 1.023\,Mchip/s, 75\% of the power in a pilot,
-LDPC-coded data, and the multiplexed binary offset carrier (MBOC) spectrum described next.
+E1 (and, as it turned out, with China's later BeiDou B1C): 10\,230-chip Weil codes at
+1.023\,Mchip/s, 75\% of the power in a pilot, LDPC-coded data, and the multiplexed binary offset
+carrier (MBOC) spectrum described next.
 \item[M code.] A new encrypted military signal on L1 and L2 using BOC(10,5) modulation, whose
 spectrum (Figure~\ref{fig:ch18_gnss_spectra}b) has its energy at $\pm10$\,MHz from the
 carrier, away from the civil signals in the centre, so that civil signals can be jammed
 locally without jamming M code, and the reverse.
 \end{description}
 
+\mdcpairany{ch18_gps_iii}{A GPS Block III satellite (US Air Force artwork). Block III brought the
+fourth civil signal, L1C, and higher-power military M code, and was built without the Selective
+Availability capability.}{ch18_galileo}{A Galileo Full Operational Capability satellite being
+prepared for acoustic testing at ESA's ESTEC centre. Each Galileo satellite carries passive
+hydrogen masers and rubidium clocks.}
+
 \subsection{Binary offset carrier modulation}
 
-A \term{binary offset carrier} signal BOC($m,n$) multiplies the spreading code (chip rate
-$n\times1.023$\,MHz) by a square-wave subcarrier at $m\times1.023$\,MHz. The square wave
-shifts the code spectrum to $\pm m\times1.023$\,MHz, splitting it into two lobes. For sine-phased
-BOC with an even number $k=2m/n$ of subcarrier half-periods per chip, the unit-power PSD is
+How do you fit new signals into a band that is already occupied, without stepping on the old
+ones? Move their energy to the sides. A \term{binary offset carrier} signal BOC($m,n$) multiplies
+the spreading code (chip rate $n\times1.023$\,MHz) by a square-wave subcarrier at
+$m\times1.023$\,MHz. The square wave shifts the code spectrum to $\pm m\times1.023$\,MHz, splitting
+it into two lobes like a parting crowd.
+
+\Needspace{8\baselineskip}
+\begin{deeper}[The BOC spectrum]
+For sine-phased BOC with an even number $k=2m/n$ of subcarrier half-periods per chip, the
+unit-power PSD is
 \begin{equation}
 S_{\text{BOC}}(f)=f_c\left[\frac{\sin(\pi f/f_c)\,\tan\!\big(\pi f/(2f_s)\big)}{\pi f}\right]^2,
 \end{equation}
-with $f_c$ the chip rate and $f_s$ the subcarrier frequency. Two benefits follow. The split
-spectrum shares the band with the BPSK signals already there while overlapping them little.
-And the signal's RMS bandwidth, its \emph{Gabor bandwidth}, is larger than that of BPSK at the
-same chip rate, which sharpens the correlation peak and improves code-tracking accuracy and
-multipath resistance for the same receiver bandwidth (Chapter~\ref{ch:sync}: timing accuracy
-scales with RMS bandwidth). The cost is a correlation function with side peaks---BOC(1,1) has
-negative side peaks of half the main-peak height at $\pm0.5$\,chip---on which a careless tracking
-loop can lock. The interoperable L1C/E1/B1C signals use MBOC, a mixture of BOC(1,1) with a
-little BOC(6,1) (1/11 of the power) that adds high-frequency energy for the receivers wide
-enough to use it.
+with $f_c$ the chip rate and $f_s$ the subcarrier frequency. The $\sin(\pi f/f_c)/(\pi f)$ factor
+is the familiar BPSK $\sinc$; the $\tan$ factor is the square-wave subcarrier, which vanishes at
+$f=0$ and pushes the energy out to $\pm f_s$.
+\end{deeper}
 
-\mdcfig{ch18_gnss_spectra}{(a) Where the GNSS signals live: the upper L band
-(1559--1610\,MHz) and the lower L band (1164--1215\,MHz) are allocated to radionavigation
-satellite services and protected for aeronautical use, while 1215--1300\,MHz is shared with
-radars; widths are approximate main-lobe or allocated bandwidths. (b) Spectra of signals
-centred at 1575.42\,MHz: the C/A code's BPSK(1), the military P(Y) code's BPSK(10), the
-BOC(1,1) and MBOC civil signals, and the split M code BOC(10,5).}
+\mdcfig[0.55]{ch18_boc_acf}{The price of a split spectrum (simulated). BOC(1,1) has a correlation
+peak about three times steeper than the C/A code's BPSK(1) triangle, which sharpens code tracking,
+but it also has negative side peaks of half height at $\pm0.5$\,chip on which a careless loop can
+lock.}
+
+Two benefits follow. The split spectrum shares the band with the BPSK signals already there while
+overlapping them little. And the signal's RMS bandwidth, its \emph{Gabor bandwidth}, is larger than
+that of BPSK at the same chip rate, which sharpens the correlation peak and improves code-tracking
+accuracy and multipath resistance for the same receiver bandwidth (Chapter~\ref{ch:sync}: timing
+accuracy scales with RMS bandwidth). The cost is a correlation function with side
+peaks---BOC(1,1) has negative side peaks of half the main-peak height at $\pm0.5$\,chip---on which
+a careless tracking loop can lock (Figure~\ref{fig:ch18_boc_acf}). The interoperable L1C/E1/B1C signals use MBOC, a mixture of
+BOC(1,1) with a little BOC(6,1) (1/11 of the power) that adds high-frequency energy for the
+receivers wide enough to use it.
 
 \subsection{The other constellations}
 
-Four global systems and two regional ones now broadcast (Table~\ref{tab:ch18:gnss}).
-Multi-constellation receivers combine them all, which has transformed availability in
-cities: a smartphone in the 2020s routinely tracks 30--40 satellites.
+GPS is no longer alone in the sky. Four global systems and two regional ones now broadcast
+(Table~\ref{tab:ch18:gnss}). Multi-constellation receivers combine them all, which has transformed
+availability in cities: a smartphone in the 2020s routinely tracks 30--40 satellites, from
+modernised GPS (Figure~\ref{fig:ch18_gps_iii}) and Galileo (Figure~\ref{fig:ch18_galileo}) as well
+as the others.
 
 \begin{table}[htbp]\centering\small
 \caption{Satellite navigation systems (approximate figures; constellations are still being
@@ -1610,6 +2117,8 @@ hide low satellites.
 \label{sec:ch18:receiver}
 %======================================================================
 
+Now for the machine that does the impossible every second of every day: hears thirty signals,
+each far below the noise, sorts them out by their codes, and times each one to a few nanoseconds.
 Figure~\ref{fig:ch18_gnss_rx} shows the architecture of a modern GNSS receiver. Almost all of
 it after the analogue-to-digital converter is software or programmable hardware, and the
 reader can build a working one from the figure script and the lab.
@@ -1655,25 +2164,34 @@ network shortens acquisition and the time to first fix.}
 The antenna is right-hand circularly polarised, matching the satellites, which rejects
 reflections that have flipped to left-hand polarisation on a single bounce. Typical antennas
 are ceramic patches with a few dBi of gain toward the zenith and much less toward the
-horizon; survey antennas use choke rings to suppress reflections from below. A low-noise
-amplifier sets the noise figure, often at the antenna, followed by SAW or BAW filters that
-reject strong out-of-band signals, notably nearby cellular transmitters. Because the GNSS
-signal is far below the noise, the ADC sees essentially Gaussian noise and needs only a few
-bits: one-bit sampling costs about 2\,dB of SNR ($10\log_{10}(\pi/2)$), two bits about
-0.5\,dB. More bits are used when interference must be handled, since a strong interferer
-captures a one-bit quantiser completely. Receivers with an automatic gain control set the
-ADC level from the noise, and the AGC level itself is a sensitive jamming detector.
+horizon; survey antennas use choke rings to suppress reflections from below
+(Figure~\ref{fig:ch18_dgps_ref}). A low-noise amplifier sets the noise figure, often at the
+antenna, followed by SAW or BAW filters that reject strong out-of-band signals, notably nearby
+cellular transmitters. Because the GNSS signal is far below the noise, the ADC sees essentially
+Gaussian noise and needs only a few bits: one-bit sampling costs about 2\,dB of SNR
+($10\log_{10}(\pi/2)$), two bits about 0.5\,dB. More bits are used when interference must be
+handled, since a strong interferer captures a one-bit quantiser completely. Receivers with an
+automatic gain control set the ADC level from the noise, and the AGC level itself is a sensitive
+jamming detector.
+
+\mdcfig{ch18_acquisition}{(a) Acquisition search space for a synthetic signal: the
+correlation power over code phase and Doppler, from four 1\,ms coherent FFT searches added
+non-coherently, for a satellite at 44\,dB-Hz in noise; the single peak stands about 25 times
+above the median. (b) Detection probability per cell versus $C/N_0$ for a false-alarm
+probability of $10^{-6}$ per cell and 1.5\,dB of straddle losses, for coherent integration
+times of 1 and 10\,ms and various numbers of non-coherent sums.}
 
 \subsection{Acquisition: the delay--Doppler search}
 \label{sec:ch18:acq}
 
-Before tracking a satellite, the receiver must find two unknowns: the code phase (where in the
-1023-chip code the received signal is) and the Doppler shift. A satellite's line-of-sight
-velocity relative to a stationary user reaches roughly $\pm800$\,m/s, which at L1 is
-about $\pm4$\,kHz; the receiver's oscillator error and its own motion add more, so a cold
-search typically covers $\pm5$\,kHz or more. The receiver correlates the incoming signal with
-local replicas over a grid of trial code phases and trial Dopplers, and declares detection
-when a cell's correlation power exceeds a threshold (Figure~\ref{fig:ch18_acquisition}a).
+Before tracking a satellite, the receiver must find it---and it is looking for a needle in a
+two-dimensional haystack. It must find two unknowns: the code phase (where in the 1023-chip code
+the received signal is) and the Doppler shift. A satellite's line-of-sight velocity relative to a
+stationary user reaches roughly $\pm800$\,m/s, which at L1 is about $\pm4$\,kHz; the receiver's
+oscillator error and its own motion add more, so a cold search typically covers $\pm5$\,kHz or
+more. The receiver correlates the incoming signal with local replicas over a grid of trial code
+phases and trial Dopplers, and declares detection when a cell's correlation power exceeds a
+threshold (Figure~\ref{fig:ch18_acquisition}a).
 
 The grid spacing is set by the correlation function. In delay, the correlation triangle is
 two chips wide, so half-chip steps lose at most about 2.5\,dB: 2046 code cells. In frequency,
@@ -1702,6 +2220,10 @@ and the lab, do it (\lab{spread.acquire}).
 Modern chips go further, with massively parallel correlators---hundreds of thousands of
 them---that search many satellites and cells at once in hardware.
 
+\mdcfig[0.98]{ch18_lab_e6}{Lab~25 running its \emph{GPS acquisition} experiment: controls on the
+left, the delay--Doppler search grid with PRN~7's peak, a slice through the peak and the detection
+curves in the centre, and the explanation and challenges on the right.}
+
 \paragraph{Integration and sensitivity.} At $C/N_0=45$\,dB-Hz one millisecond of coherent
 integration gives an SNR of 15\,dB, ample for detection. Indoors, at 25\,dB-Hz, it gives
 $-5$\,dB, hopeless. Longer integration is needed, and it runs into three limits. The data bits
@@ -1716,12 +2238,13 @@ Figure~\ref{fig:ch18_acquisition}b shows the detection probabilities: 1\,ms cohe
 integration needs about 43\,dB-Hz, while one second of 10\,ms coherent sums added
 non-coherently reaches about 20\,dB-Hz.
 
-\mdcfig{ch18_acquisition}{(a) Acquisition search space for a synthetic signal: the
-correlation power over code phase and Doppler, from four 1\,ms coherent FFT searches added
-non-coherently, for a satellite at 44\,dB-Hz in noise; the single peak stands about 25 times
-above the median. (b) Detection probability per cell versus $C/N_0$ for a false-alarm
-probability of $10^{-6}$ per cell and 1.5\,dB of straddle losses, for coherent integration
-times of 1 and 10\,ms and various numbers of non-coherent sums.}
+\begin{tryit}[Find a satellite under the noise]
+In Lab~25's \emph{GPS acquisition} (Figure~\ref{fig:ch18_lab_e6}), pick ``PRN 21 (38 dB-Hz)'' in \emph{Satellite to search} and
+look for its peak on the search grid. Drag \emph{Signal strength change} down to $-10$\,dB (you
+have walked indoors): the peak drowns. Raise \emph{Coherent integration} to 10\,ms and
+\emph{Non-coherent sums} to 4 and it comes back. Then search for ``PRN 30 (not in view)'' and see
+what a false alarm would have to look like.
+\end{tryit}
 
 \begin{worked}[Search time and sensitivity]
 A smartphone must acquire satellites indoors at 25\,dB-Hz. With 10\,ms coherent integration,
@@ -1738,18 +2261,6 @@ predicted Dopplers, shrinking the frequency uncertainty to a few bins and the co
 uncertainty to a fraction of the code when fine time is available. Assistance also supplies
 the data bits, so that coherent integration can extend past 20\,ms.
 \end{worked}
-
-\subsection{Tracking: delay-locked and phase-locked loops}
-\label{sec:ch18:tracking}
-
-Once acquired, each satellite is handed to a tracking channel that keeps a local carrier and
-a local code aligned with the incoming signal, using the loop ideas of
-Chapter~\ref{ch:sync}. Figure~\ref{fig:ch18_tracking_loops} shows the structure. The incoming
-samples are multiplied by the local carrier (a numerically controlled oscillator, NCO, at the
-estimated Doppler) and then by three versions of the local code: \emph{prompt} (P), aligned
-with the estimate, and \emph{early} (E) and \emph{late} (L), shifted by $\pm d/2$ chips. Each
-product is integrated over 1--20\,ms, giving the complex correlator outputs
-$E=I_E+jQ_E$, $P=I_P+jQ_P$ and $L=I_L+jQ_L$.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[
@@ -1793,6 +2304,34 @@ slow divergence between code and carrier (mostly ionospheric).}
 \label{fig:ch18_tracking_loops}
 \end{figure}
 
+\subsection{Tracking: delay-locked and phase-locked loops}
+\label{sec:ch18:tracking}
+
+Finding a satellite is half the battle; staying locked onto it is the other half. Once acquired,
+each satellite is handed to a tracking channel that keeps a local carrier and a local code aligned
+with the incoming signal, using the loop ideas of Chapter~\ref{ch:sync}.
+Figure~\ref{fig:ch18_tracking_loops} shows the structure. The incoming samples are multiplied by
+the local carrier (a numerically controlled oscillator, NCO, at the estimated Doppler) and then by
+three versions of the local code: \emph{prompt} (P), aligned with the estimate, and \emph{early}
+(E) and \emph{late} (L), shifted by $\pm d/2$ chips. Each product is integrated over 1--20\,ms,
+giving the complex correlator outputs $E=I_E+jQ_E$, $P=I_P+jQ_P$ and $L=I_L+jQ_L$.
+
+\mdcfig{ch18_dll}{(a) The C/A correlation triangle with early, prompt and late samples at
+$d=1$ chip, and the rounding caused by a $\pm2$\,MHz front end. (b) Early-minus-late
+discriminator S-curves for three correlator spacings: narrower spacing has a smaller linear
+region. (c) Multipath error envelopes for a reflection of half the direct amplitude, in
+phase (solid) and out of phase (dashed): a narrow correlator ($d=0.1$) cuts the worst-case
+error from about 75\,m to about 7\,m, and is immune to reflections delayed by more than
+about 1.05 chips.}
+
+\begin{analogy}[Balancing on a ridge]
+The correlation peak is a sharp ridge, and the code loop keeps the receiver standing on top of
+it. The early and late correlators are two feet, one on each slope. If the early foot is higher
+than the late one, the peak is ahead---step forward; if lower, step back. When both feet are at the
+same height you are exactly on the ridge. The narrower your stance (a smaller spacing $d$), the more
+precisely you can stand, but the easier it is to slip off if the ridge moves suddenly.
+\end{analogy}
+
 \paragraph{The delay-locked loop.} For a code error $\tau$ (in chips) and an ideal correlation
 triangle $R(\tau)=1-|\tau|$, the early and late correlator magnitudes are $R(\tau-d/2)$ and
 $R(\tau+d/2)$. Their difference is zero when the prompt is aligned and changes sign with
@@ -1815,13 +2354,13 @@ Ford, 1992): with a front end wide enough to keep the correlation peak sharp (8\
 for C/A), spacing $d=0.1$ instead of 1 reduces the noise jitter by a factor of about three and,
 more importantly, the multipath error by about ten (Figure~\ref{fig:ch18_dll}c).
 
-\mdcfig{ch18_dll}{(a) The C/A correlation triangle with early, prompt and late samples at
-$d=1$ chip, and the rounding caused by a $\pm2$\,MHz front end. (b) Early-minus-late
-discriminator S-curves for three correlator spacings: narrower spacing has a smaller linear
-region. (c) Multipath error envelopes for a reflection of half the direct amplitude, in
-phase (solid) and out of phase (dashed): a narrow correlator ($d=0.1$) cuts the worst-case
-error from about 75\,m to about 7\,m, and is immune to reflections delayed by more than
-about 1.05 chips.}
+\mdcfig{ch18_tracking}{Tracking a synthetic GPS signal at 42\,dB-Hz with the loops of
+\lab{commlib.spread.track}: acquisition left the frequency 67\,Hz in error. (a) The
+FLL-assisted carrier loop pulls in within about 150\,ms. (b) The code error, measured against
+the truth, settles to a few hundredths of a chip. (c) Once the PLL locks, the prompt energy
+moves into $I_P$, which shows the 50\,b/s navigation bits, while $Q_P$ carries only noise.
+(d) The prompt correlator in the complex plane: a rotating cloud before lock, two BPSK
+clusters after. The $C/N_0$ is estimated from the prompt-correlator statistics.}
 
 \paragraph{The carrier loop.} The navigation data bits flip the sign of the prompt every
 20\,ms, so a standard PLL would lose lock at each transition. GNSS receivers therefore use a
@@ -1839,6 +2378,11 @@ several decibels in tracking threshold. Because a PLL has a narrow pull-in range
 receivers first close a \emph{frequency-locked loop}, whose discriminator uses the phase
 change between successive prompt samples, and hand over to the PLL once the frequency error
 is small (Figure~\ref{fig:ch18_tracking}a).
+
+\mdcfig[0.98]{ch18_lab_e7}{Lab~25's \emph{DLL and PLL tracking} running live: the code error
+settling towards zero, the Costas loop's phase error pulling in after a burst of cycle slips, the
+prompt correlator collapsing onto two BPSK clusters, and the 50\,b/s navigation bits emerging on
+$I_P$.}
 
 \begin{worked}[Tracking precision]
 Take $C/N_0=45$\,dB-Hz ($31\,600$\,Hz), a carrier-aided DLL with $B_L=1$\,Hz, $T=20$\,ms and
@@ -1860,13 +2404,15 @@ phase---the whole jitter budget. High-dynamics receivers therefore widen the loo
 with an inertial measurement unit.
 \end{worked}
 
-\mdcfig{ch18_tracking}{Tracking a synthetic GPS signal at 42\,dB-Hz with the loops of
-\lab{commlib.spread.track}: acquisition left the frequency 67\,Hz in error. (a) The
-FLL-assisted carrier loop pulls in within about 150\,ms. (b) The code error, measured against
-the truth, settles to a few hundredths of a chip. (c) Once the PLL locks, the prompt energy
-moves into $I_P$, which shows the 50\,b/s navigation bits, while $Q_P$ carries only noise.
-(d) The prompt correlator in the complex plane: a rotating cloud before lock, two BPSK
-clusters after. The $C/N_0$ is estimated from the prompt-correlator statistics.}
+\begin{tryit}[Keep the lock]
+Lab~25's \emph{DLL and PLL tracking} runs a live tracking channel
+(Figure~\ref{fig:ch18_lab_e7}). Start with the defaults and
+watch the constellation collapse onto the $I$ axis. Now drag \emph{C/N0} down towards 25\,dB-Hz
+until the PLL slips; recover by narrowing \emph{PLL bandwidth}. Then add
+\emph{Line-of-sight acceleration} of a few $g$: the narrow loop now loses lock, and you have
+found the bandwidth trade-off of the worked example for yourself. Try \emph{Early--late spacing}
+0.1 and compare the code jitter.
+\end{tryit}
 
 \subsection{From correlators to pseudoranges}
 
@@ -1878,6 +2424,27 @@ which bit of which subframe is arriving---that is, the satellite's transmit time
 small fraction of a chip. The pseudorange follows from~\eqref{eq:ch18:pseudorange}. Before the
 data are decoded, the code phase alone gives the transmit time modulo 1\,ms (300\,km),
 an ambiguity that assistance data or an approximate position can resolve.
+Figure~\ref{fig:ch18_time_ladder} shows the nested clock the receiver reads, from six-second
+subframes down to fractions of a chip.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  st/.style={draw=navy,thick,fill=navy!6,minimum height=0.62cm,align=center,font=\sffamily\scriptsize,anchor=west},
+  note/.style={font=\sffamily\scriptsize,anchor=west,text=navy!80}]
+\node[st,minimum width=12.0cm] (a) at (0,0) {subframe: 6\,s --- start found from the preamble, time of week from the handover word};
+\node[st,minimum width=9.6cm,fill=green!8,draw=green!50!black] (b) at (1.2,-0.8) {data bit: 20\,ms --- found from bit edges on $I_P$};
+\node[st,minimum width=7.2cm,fill=orange!10,draw=orange] (c) at (2.4,-1.6) {code period: 1\,ms (300\,km)};
+\node[st,minimum width=4.8cm,fill=accent!8,draw=accent] (d) at (3.6,-2.4) {chip: 977.5\,ns (293\,m)};
+\node[st,minimum width=2.4cm,fill=purple!8,draw=purple] (e) at (4.8,-3.2) {DLL: $\approx$0.004 chip};
+\node[note] at (7.4,-3.2) {$\approx$4\,ns, about 1\,m};
+\node[note] at (8.6,-2.4) {count chips within the code};
+\node[note] at (9.8,-1.6) {count code periods within the bit};
+\end{tikzpicture}
+\caption{Reading the satellite's transmit time is like reading a clock with five hands. The
+navigation message gives the coarse hands (subframe and bit), the code epochs and chip count give
+the finer ones, and the delay-locked loop interpolates within a chip to a few nanoseconds.}
+\label{fig:ch18_time_ladder}
+\end{figure}
 
 The tracking loops also produce two more measurements. The carrier NCO frequency is the
 \emph{Doppler}, the rate of change of range, from which the receiver solves for its
@@ -1902,6 +2469,16 @@ extends the validity of saved data to days.
 \section{Errors and augmentation}
 \label{sec:ch18:errors}
 %======================================================================
+
+A phone in the open says it knows where you are to about five metres. A surveyor's receiver on a
+tripod claims one centimetre. Both are listening to the same satellites. The difference is
+entirely in how they deal with the errors hiding in~\eqref{eq:ch18:pseudorange}
+(Figure~\ref{fig:ch18_accuracy_ladder}).
+
+\mdcfig{ch18_accuracy_ladder}{The accuracy ladder (approximate 95\% horizontal figures; real values
+depend on sky view, antenna and conditions). Each rung removes another error source: dual
+frequency removes the ionosphere, differential corrections remove the errors shared with a nearby
+station, and carrier-phase methods trade the metre-level code for the millimetre-level carrier.}
 
 \subsection{The error budget}
 
@@ -1934,8 +2511,9 @@ Horizontal error (HDOP $\approx1$, 95\%) & roughly 5--10\,m & roughly 2--3\,m\\
 
 \subsection{The ionosphere and dual-frequency positioning}
 
-The ionosphere, a layer of free electrons from about 60 to 1000\,km altitude, is dispersive: it
-delays the code (group delay) and advances the carrier phase by the same amount,
+The biggest single error for a phone is the sky itself. The ionosphere, a layer of free electrons
+from about 60 to 1000\,km altitude, is dispersive: it delays the code (group delay) and advances
+the carrier phase by the same amount,
 \begin{equation}
 I=\frac{40.3\,\text{TEC}}{f^2}\quad\text{m},
 \label{eq:ch18:iono}
@@ -1948,8 +2526,9 @@ Ionospheric delays of 5--30\,m are common and reach 100\,m in storms. Single-fre
 use the 8-coefficient \emph{Klobuchar} model broadcast in the GPS message, which removes
 roughly half of the delay; Galileo broadcasts coefficients for the more accurate NeQuick model.
 
-Because the delay scales as $1/f^2$, measurements on two frequencies remove it. With
-$\rho_i=r+I_1f_1^2/f_i^2$, the \term{ionosphere-free combination}
+Because the delay scales as $1/f^2$ (Figure~\ref{fig:ch18_iono}), measurements on two frequencies
+remove it---like judging the thickness of a pane of glass from how differently it bends red and
+blue light. With $\rho_i=r+I_1f_1^2/f_i^2$, the \term{ionosphere-free combination}
 \begin{equation}
 \rho_{\text{IF}}=\frac{f_1^2\rho_1-f_2^2\rho_2}{f_1^2-f_2^2}
 \label{eq:ch18:iflc}
@@ -1959,6 +2538,10 @@ price is noise: for L1 and L2, $\rho_{\text{IF}}=2.546\rho_1-1.546\rho_2$, which
 independent noise by $\sqrt{2.546^2+1.546^2}\approx3.0$; for L1 and L5 the factor is
 about 2.6. This was the reason the military P code was on two frequencies from the start, and
 the reason civil L2C and L5 were added.
+
+\mdcfig[0.55]{ch18_iono}{The ionosphere is dispersive: its delay falls as $1/f^2$, so L2 and L5
+are delayed about 1.6--1.8 times as much as L1. That difference is what dual-frequency receivers
+measure and remove.}
 
 \begin{worked}[Removing the ionosphere]
 A satellite at low elevation sees a slant TEC of 50\,TECU. From~\eqref{eq:ch18:iono} the L1
@@ -1974,6 +2557,12 @@ receivers map the ionosphere worldwide. If each pseudorange has 0.3\,m of indepe
 the iono-free combination has $0.3\times3.0=0.9$\,m: a 20\,m bias traded for a little noise.
 \end{worked}
 
+\mdcpairany{ch18_dgps_ref}{A GNSS reference-station antenna on a fixed pillar. Its position is
+surveyed once, precisely; ever after, the difference between what it measures and what it should
+measure is broadcast as a correction.}{ch18_mcs}{The operations floor of the GPS master control
+station at Schriever Space Force Base, Colorado, where the 2nd Space Operations Squadron computes
+and uploads the satellites' clock and orbit predictions.}
+
 \begin{inpractice}[Dual-frequency phones]
 Until 2018 consumer receivers were L1-only. In that year Broadcom's BCM47755 chip brought
 L1 + L5 (and Galileo E1 + E5a) to smartphones, beginning with the Xiaomi Mi~8, and
@@ -1986,27 +2575,38 @@ to applications since Android~7 (2016), so phones can be used for experiments in
 positioning.
 \end{inpractice}
 
+\mdcfig[0.55]{ch18_tropo}{The troposphere's delay, about 2.3--2.5\,m at the zenith, grows roughly as
+$1/\sin(\text{elevation})$: a satellite 10$^\circ$ above the horizon sees more than five times the
+zenith delay. Most of it is the predictable dry part; the wet part is small but hard to model.}
+
 \paragraph{Troposphere.} The neutral atmosphere delays all frequencies equally, so it cannot be
 removed by dual-frequency combination. The zenith delay is about 2.3--2.5\,m, of which about
 90\% is the predictable ``dry'' part, proportional to surface pressure; the ``wet'' part,
 0.05--0.4\,m, depends on water vapour and is hard to model. Delays scale roughly as
-$1/\sin(\text{elevation})$, which is why receivers use an elevation mask of 5--15$^\circ$.
+$1/\sin(\text{elevation})$ (Figure~\ref{fig:ch18_tropo}), which is why receivers use an elevation
+mask of 5--15$^\circ$.
 Precise users estimate the wet zenith delay as an extra unknown, and meteorologists use the
 estimates from GNSS networks to measure atmospheric water vapour.
 
 \subsection{Differential GNSS and SBAS}
 \label{sec:ch18:augmentation}
 
-Most of the errors in Table~\ref{tab:ch18:errors}---satellite clock and orbit, ionosphere,
-troposphere---are nearly the same for two receivers a few tens of kilometres apart. A
-reference station at a surveyed position can compute the error in each pseudorange and
-broadcast it; a user who applies the corrections removes the common errors. This
-\term{differential GNSS} (DGNSS) reduces errors to about a metre near the reference station,
-degrading slowly with distance as the ionosphere and troposphere decorrelate. The RTCM
-(Radio Technical Commission for Maritime Services) message formats carry corrections over
-radio beacons, cellular links and the internet (the NTRIP protocol).
+Here is a simple, powerful idea: if you and a friend ten kilometres away are both looking through
+the same patch of sky, you suffer almost the same errors. If your friend knows exactly where she
+is, she can tell you how wrong her receiver is, and you can subtract it. Most of the errors in
+Table~\ref{tab:ch18:errors}---satellite clock and orbit, ionosphere, troposphere---are nearly the
+same for two receivers a few tens of kilometres apart. A reference station at a surveyed position
+(Figure~\ref{fig:ch18_dgps_ref}) can compute the error in each pseudorange and broadcast it; a
+user who applies the corrections removes the common errors. This \term{differential GNSS}
+(DGNSS) reduces errors to about a metre near the reference station, degrading slowly with
+distance as the ionosphere and troposphere decorrelate. The RTCM (Radio Technical Commission for
+Maritime Services) message formats carry corrections over radio beacons, cellular links and the
+internet (the NTRIP protocol).
 
-\term{Satellite-based augmentation systems} (SBAS) do this over a continent. A network of
+GPS itself works the same way on a grand scale: monitor stations around the world feed a master
+control station (Figure~\ref{fig:ch18_mcs}) that estimates every satellite's clock and orbit and
+uploads the predictions that the satellites broadcast. \term{Satellite-based augmentation
+systems} (SBAS) do this over a continent. A network of
 reference stations feeds master stations that compute corrections for each satellite's clock and
 orbit and a grid of ionospheric delays, together with integrity bounds, and uplink them to
 geostationary satellites that rebroadcast them on L1 with a GPS-like C/A signal at 250\,b/s
@@ -2020,6 +2620,18 @@ next generation.
 
 \subsection{Carrier phase: RTK and PPP}
 \label{sec:ch18:rtk}
+
+The tracking worked example found the carrier phase a thousand times more precise than the code.
+Think of two rulers. The code is a ruler with no fine markings: you can read the whole length,
+but only to about a metre. The carrier is a ruler covered in fine, identical 19\,cm ticks with no
+numbers on them: you can read where you are within a tick to a millimetre, but not which tick you
+are on (Figure~\ref{fig:ch18_carrier_ruler}). Precise positioning is the art of using the coarse
+ruler to count the ticks of the fine one.
+
+\mdcfig{ch18_carrier_ruler}{Two rulers. The code (bottom) gives an unambiguous range good to about
+a metre; the carrier (top) gives a millimetre-precise reading within a 19\,cm cycle but does not say
+which cycle. RTK and PPP resolve the integer number of cycles $N$, and then enjoy the precision of
+the carrier.}
 
 The carrier-phase measurement, expressed in metres, is
 \begin{equation}
@@ -2042,7 +2654,11 @@ baseline is known to about 1\,cm horizontally and 2\,cm vertically. RTK needs a 
 about 10--20\,km (the ionosphere decorrelates beyond that), or a network of bases that
 interpolates corrections (virtual reference stations); dual-frequency, multi-constellation
 receivers fix the ambiguities in seconds. RTK is how surveying, construction machine guidance,
-precision agriculture and many drones work.
+precision agriculture and many drones work (Figure~\ref{fig:ch18_rtk_rover}).
+
+\mdcphoto[0.62]{ch18_rtk_rover}{A tripod-mounted survey GNSS receiver at work. With a base station
+or a correction network and fixed carrier-phase ambiguities, receivers like this mark positions to
+about a centimetre.}
 
 \term{Precise point positioning} (PPP) does without a local base. It uses precise satellite
 orbits and clocks computed by a global network (such as the International GNSS Service, IGS, or
@@ -2061,18 +2677,23 @@ themselves.
 
 \subsection{GNSS as a time source}
 
-A timing receiver at a known, fixed position needs only one satellite to solve for its clock
-(the position is known, leaving one unknown), and averages over all visible satellites to
-deliver UTC to within about 10--40\,ns. Its one-pulse-per-second output disciplines a
-local oscillator (a GPS-disciplined oscillator, Chapter~\ref{ch:sync}). This free,
-worldwide, traceable time is now built into everything: TDD cellular networks, whose base
-stations must agree on frame timing to within $\pm1.5\,\mu$s (Chapter~\ref{ch:sync}); the
-synchronised CDMA networks of Section~\ref{sec:ch18:3g}; power-grid phasor measurement units,
-which compare voltage phases across a continent to within about a microsecond; financial
-trading systems, which regulators require to timestamp orders to within 100\,$\mu$s of UTC;
-broadcast single-frequency networks; and data-centre clock synchronisation. Several national
-studies have estimated that the loss of GNSS for a few days would cost an economy billions of
-dollars, much of it through loss of timing rather than position.
+Ask most people what GPS is for and they will say maps. Ask the engineers who run the world's
+networks and many will say: time. A timing receiver at a known, fixed position needs only one
+satellite to solve for its clock (the position is known, leaving one unknown), and averages over
+all visible satellites to deliver UTC to within about 10--40\,ns. Its one-pulse-per-second output
+disciplines a local oscillator (a GPS-disciplined oscillator, Chapter~\ref{ch:sync}). This free,
+worldwide, traceable time is now built into everything (Figure~\ref{fig:ch18_timing_users}): TDD
+cellular networks, whose base stations must agree on frame timing to within $\pm1.5\,\mu$s
+(Chapter~\ref{ch:sync}); the synchronised CDMA networks of Section~\ref{sec:ch18:3g}; power-grid
+phasor measurement units, which compare voltage phases across a continent to within about a
+microsecond; financial trading systems, which regulators require to timestamp orders to within
+100\,$\mu$s of UTC; broadcast single-frequency networks; and data-centre clock synchronisation.
+Several national studies have estimated that the loss of GNSS for a few days would cost an
+economy billions of dollars, much of it through loss of timing rather than position.
+
+\mdcfig{ch18_timing_users}{GNSS as the world's clock: the time accuracy some users need
+(approximate), against what a timing receiver delivers. For comparison, the bottom bar is the
+relativistic drift a GPS satellite clock would accumulate in one day if nobody corrected it.}
 
 \subsection{Jamming}
 
@@ -2085,8 +2706,14 @@ effective carrier-to-noise density becomes
 \end{equation}
 where $R_c$ is the chip rate and $Q$ is a spectral-separation factor of order 1 (about 1 for a
 narrowband jammer on the carrier, 1.5 for a jammer with the same spectrum as the signal, 2 for
-broadband noise). This is~\eqref{eq:ch18:ebj0} in GNSS units.
+broadband noise). This is~\eqref{eq:ch18:ebj0} in GNSS units: the jammer-to-signal ratio, cut down
+by the chip rate, acts as extra noise.
 
+\mdcfig[0.55]{ch18_jammer_range}{Effective $C/N_0$ of a receiver at 44\,dB-Hz versus distance from a
+jammer in free space, from~\eqref{eq:ch18:jamcn0} with $Q=1$. A 10\,mW device breaks tracking out
+to about 3\,km; a 1\,W jammer to tens of kilometres.}
+
+\Needspace{10\baselineskip}
 \begin{worked}[How far does a 10\,mW jammer reach?]
 A receiver tracking at $C/N_0=44$\,dB-Hz loses lock at about 28\,dB-Hz. Setting
 $(C/N_0)_{\text{eff}}=28$\,dB-Hz in~\eqref{eq:ch18:jamcn0} with $Q=1$ and $R_c=1.023\times10^6$:
@@ -2101,8 +2728,9 @@ level after a free-space path loss of 106.5\,dB, which at 1575\,MHz is a distanc
 d=10^{(106.5-32.44-20\log_{10}1575.42)/20}\text{ km}\approx3.2\text{ km}.
 \]
 A device costing a few dollars denies GPS over an area of tens of square kilometres in line of
-sight. Real ranges are smaller near the ground because of terrain and clutter, but jammers of
-watts or more, and receivers less robust than the one assumed here, are common.
+sight (Figure~\ref{fig:ch18_jammer_range}). Real ranges are smaller near the ground because of
+terrain and clutter, but jammers of watts or more, and receivers less robust than the one assumed
+here, are common.
 \end{worked}
 
 Jamming is not hypothetical. Truck drivers' jammers, used to defeat fleet tracking, have
@@ -2117,15 +2745,21 @@ before the correlators), and multi-frequency, multi-constellation reception.
 
 \subsection{Spoofing}
 
-A \term{spoofer} transmits counterfeit GNSS signals. Because the civil codes and message formats
-are public, a software radio can generate a self-consistent set of signals for a false
-position or time. The most dangerous attack first matches the authentic signals in code phase
-and Doppler, then raises its power slightly to capture the victim's tracking loops, and then
-slowly drags the solution away, so the receiver notices nothing abrupt. In 2013 a team led by
-Todd Humphreys of the University of Texas demonstrated this at sea, steering a 65\,m yacht (the \emph{White Rose of Drachs}) off
-course with the crew's permission while the bridge displays showed nothing amiss. Simpler
-\emph{meaconing}---rebroadcasting recorded or relayed real signals---is also effective and has
-been reported in several regions.
+\mdcfig[0.92]{ch18_spoof_drag}{How a careful spoofer captures a receiver. (a) Its counterfeit
+correlation peak appears off to one side. (b) It slides into alignment and rises above the true
+signal, so the tracking loop now follows it. (c) It drifts away, dragging the loop---and the
+computed position---with it.}
+
+Jamming is shouting; spoofing is lying. A \term{spoofer} transmits counterfeit GNSS signals.
+Because the civil codes and message formats are public, a software radio can generate a
+self-consistent set of signals for a false position or time. The most dangerous attack first
+matches the authentic signals in code phase and Doppler, then raises its power slightly to capture
+the victim's tracking loops, and then slowly drags the solution away, so the receiver notices
+nothing abrupt (Figure~\ref{fig:ch18_spoof_drag}). In 2013 a team led by Todd Humphreys of the
+University of Texas demonstrated this at sea, steering a 65\,m yacht (the \emph{White Rose of
+Drachs}) off course with the crew's permission while the bridge displays showed nothing amiss.
+Simpler \emph{meaconing}---rebroadcasting recorded or relayed real signals---is also effective and
+has been reported in several regions.
 
 Countermeasures include checking consistency with other sensors and with the receiver's own
 clock; monitoring signal power, $C/N_0$ and correlation-peak shape for signs of a second signal;
@@ -2136,6 +2770,10 @@ message, released with a delay, so the receiver can verify that the data came fr
 GPS is developing a similar scheme (Chimera) and the encrypted military codes already resist
 spoofing. Authentication of the data does not by itself prevent a delayed rebroadcast, which
 is why receivers combine it with timing and consistency checks.
+
+\mdcfig[0.98]{ch18_lab_e8}{Lab~25's \emph{Position fix and DOP} experiment: the sky plot, the cloud
+of 400 noisy fixes, Gauss--Newton converging from the centre of the Earth, and the DOP values for
+the chosen geometry.}
 
 \begin{keyidea}[The invisible utility]
 GNSS was built to tell soldiers where they are. It has become, almost by accident, the world's
@@ -2149,6 +2787,12 @@ as eLoran or LEO-satellite timing signals.
 
 %======================================================================
 \section{Summary}
+\mdcfig[0.98]{ch18_lab_e3}{Lab~25's \emph{Frequency hopping} experiment: Bluetooth hops at 1600 per
+second over the 2.4\,GHz band, with the hops that land on a Wi-Fi network (orange) marked in
+red---about a quarter of them, as Figure~\ref{fig:ch18_fhss} predicted. The lower plots play the
+partial-band jamming game of Figure~\ref{fig:ch18_jam_strategies}b. Switching on adaptive hopping
+drives the hit rate to zero.}
+
 %======================================================================
 
 \begin{itemize}
@@ -2188,21 +2832,41 @@ which reach centimetres. GNSS underpins network timing and is vulnerable to jamm
 spoofing; resilient systems plan for its loss.
 \end{itemize}
 
+\begin{figure}[H]\centering\includegraphics[width=0.72\linewidth]{figs/ch18_lab_e4}
+\caption{Lab~25's \emph{The RAKE receiver} with three resolvable paths and a single finger: the
+searcher sees three peaks, but one finger collects only about half the energy and the error rate
+sits on the single-path Rayleigh line. Add fingers and watch the BER curve steepen.}
+\label{fig:ch18_lab_e4}\end{figure}
+
 \begin{labbox}[Spread spectrum, CDMA and a GPS receiver from scratch]
-The lab for this chapter is
+The lab for this chapter is the interactive app
 \begin{itemize}
-\item \lab{moderncomms-labs/labs/lab25\_spread\_spectrum\_gps.py}
+\item \lab{moderncomms-labs/labs/lab25\_spread\_spectrum\_gps.py} (run it with
+\lab{python labs/lab25\_spread\_spectrum\_gps.py}).
 \end{itemize}
-It builds LFSRs, m-sequences, Gold and Kasami sets and checks their correlation properties;
-spreads and despreads a BPSK signal and measures its error rate against a tone jammer
-(Figures~\ref{fig:ch18_jammer_spectra} and~\ref{fig:ch18_dsss_ber}); builds a Rake receiver for a
-multipath channel and a small CDMA uplink that exhibits the near--far problem and fixes it with
-power control and multiuser detection; and then builds a GPS receiver: it generates C/A codes,
-synthesises a multi-satellite L1 signal buried in noise, acquires it with the FFT search of
-Figure~\ref{fig:ch18_acquisition}, tracks it with a DLL and an FLL-assisted Costas PLL, reads the
-navigation bits and solves for position from pseudoranges. All the tools are in
-\lab{moderncomms-labs/commlib/spread.py}, and \lab{book/figscripts/ch18\_figs.py} generates every
-data figure in the chapter.
+It has eight experiments, each tied to a section of this chapter:
+\begin{itemize}
+\item \textbf{PN, Gold and Kasami codes} (Section~\ref{sec:ch18:pn}): build LFSR, Gold, Kasami and
+GPS C/A codes and check their auto- and cross-correlations against the theory bounds.
+\item \textbf{DSSS against a jammer} (Section~\ref{sec:ch18:jamming}): spread and despread BPSK
+against a tone or narrowband-noise jammer and measure the jamming margin
+(Figures~\ref{fig:ch18_jammer_spectra} and~\ref{fig:ch18_dsss_ber}).
+\item \textbf{Frequency hopping} (Section~\ref{sec:ch18:fhss}, Figure~\ref{fig:ch18_lab_e3}): hop
+around a Wi-Fi network with and without adaptive hopping, and play against a partial-band jammer
+with diversity.
+\item \textbf{The RAKE receiver} (Section~\ref{sec:ch18:rake}, Figure~\ref{fig:ch18_lab_e4}): fingers, maximal-ratio, equal-gain
+and selection combining on a fading multipath channel.
+\item \textbf{CDMA: near--far and multiuser detection} (Section~\ref{sec:ch18:mud}): a small CDMA
+uplink with the near--far problem, power control, and the decorrelator, MMSE and SIC detectors.
+\item \textbf{GPS acquisition} (Section~\ref{sec:ch18:acq}): the delay--Doppler search of
+Figure~\ref{fig:ch18_acquisition} on a synthetic multi-satellite L1 signal buried in noise.
+\item \textbf{DLL and PLL tracking} (Section~\ref{sec:ch18:tracking}): a live tracking channel with
+an FLL-assisted Costas PLL and an early--late DLL that reads the navigation bits.
+\item \textbf{Position fix and DOP} (Section~\ref{sec:ch18:errors}): solve for position and clock
+from pseudoranges by Gauss--Newton and watch geometry stretch the error cloud.
+\end{itemize}
+All the tools are in \lab{moderncomms-labs/commlib/spread.py}, and \lab{book/figscripts/ch18\_figs.py}
+generates every data figure in the chapter.
 \end{labbox}
 
 \problems
