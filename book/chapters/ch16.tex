@@ -2,23 +2,28 @@
 \label{ch:sourcecoding}
 
 \begin{chapterintro}
-Most of this book is about moving bits across a channel as cheaply and reliably as possible.
-This chapter is about the other half of the bargain: making sure there are as few bits to move
-as possible. A telephone call digitised as in Chapter~\ref{ch:pcm} needs 64\,kb/s; a modern
-mobile phone carries it in 13\,kb/s with better quality. An uncompressed high-definition video
-stream needs about 1.5\,Gb/s; a streaming service delivers it in 5\,Mb/s. Those factors of five and
-three hundred are worth more to the economics of communication than any modulation or coding
-advance of the last forty years, and they come from a few ideas applied with great
-ingenuity: remove what is predictable, discard what cannot be perceived, and spend the
-remaining bits where they matter most. The chapter starts with the lossless tools---Huffman,
-arithmetic and Lempel--Ziv coding---that sit at the end of every compressor. It then develops
-the theory of lossy coding in practice: quantisation, transforms, bit allocation and
-prediction. With those tools it takes apart the great families of real codecs: speech coders
-from Dudley's vocoder to CELP, AMR, EVS and Opus; perceptual audio coders from MP3 to AAC;
-image coders from JPEG to AVIF; and the hybrid video codecs from H.261 to VVC and AV1. It
-closes where source coding meets the channel: error resilience, adaptive streaming, the
-separation theorem and the cases where it fails, and the new learned codecs.
+Pick up your phone and call a friend. Your voice leaves the microphone as about 256\,000 bits
+every second; it crosses the radio link as about 13\,000. Open a film on a streaming service: the
+camera produced well over a billion bits per second, and your television receives five million.
+Nobody notices what was thrown away, and that is the whole trick. This chapter is about the
+engineering that makes it possible: removing what is \emph{predictable}, discarding what you
+\emph{cannot perceive}, and spending the remaining bits where your ears and eyes will miss them
+most. We start with the lossless tools that sit at the end of every compressor---Huffman,
+arithmetic and Lempel--Ziv coding---then learn the craft of lossy coding: quantisation,
+transforms, bit allocation and prediction. With those tools we take apart the great codec
+families: speech coders from Dudley's buzzing Voder of 1939 to CELP, AMR, EVS and Opus;
+perceptual audio coders from MP3 to AAC; image coders from JPEG to AVIF; and the video codecs from
+H.261 to VVC and AV1. Along the way we will find out why a phone call sounds ``phone-y'', why
+a 128\,kb/s MP3 sounds fine, and why video turns into blocks in dark scenes. We finish where
+source coding meets the channel: error resilience, adaptive streaming, the separation theorem and
+its fine print, and the new codecs that are learned rather than designed.
 \end{chapterintro}
+
+\mdcfig{ch16_timeline}{Eighty years of squeezing signals (the road map for this chapter), colour-coded by medium. Speech coding
+(orange) came first, driven by the cost of transatlantic telephone bandwidth and by wartime
+secrecy; the lossless tools (navy) arrived in the 1950s--1990s; image, audio and video standards
+exploded once integrated circuits could run a DCT in real time. Every name on this line appears
+later in the chapter.}
 
 %======================================================================
 \section{Why compress?}
@@ -26,16 +31,18 @@ separation theorem and the cases where it fails, and the new learned codecs.
 %======================================================================
 
 Every hertz of licensed spectrum, every watt of satellite transmitter power and every metre of
-fibre is expensive. The capacity of a channel, Chapter~\ref{ch:infotheory} tells us, grows
-only logarithmically with power and linearly with bandwidth. Halving the number of bits a
-service needs is worth exactly as much as doubling the bandwidth or, at typical spectral
-efficiencies, raising the signal-to-noise ratio by several decibels---and, unlike spectrum, it
-can be bought with computation, which has become cheaper by a factor of two every couple of
-years for half a century. That asymmetry explains why source coding is the most economically
-important topic in this book. The mobile networks of Chapter~\ref{ch:cellular} would carry
-only a handful of video streams per cell without video compression; the digital television of
-Chapter~\ref{ch:satellite} replaced analogue precisely because a compressed digital service
-needs a fraction of the spectrum of an analogue one.
+fibre is expensive. The capacity of a channel, Chapter~\ref{ch:infotheory} tells us, grows only
+logarithmically with power and linearly with bandwidth. Halving the number of bits a service
+needs is worth exactly as much as doubling the bandwidth or, at typical spectral efficiencies,
+raising the signal-to-noise ratio by several decibels. And unlike spectrum, it can be bought with
+computation, which has become cheaper by a factor of two every couple of years for half a
+century (Figure~\ref{fig:ch16_timeline} shows how the field grew).
+
+That asymmetry makes source coding, quietly, the most economically important topic in this book.
+The mobile networks of Chapter~\ref{ch:cellular} would carry only a handful of video streams per
+cell without video compression. The digital television of Chapter~\ref{ch:satellite} replaced
+analogue precisely because a compressed digital programme needs a fraction of the spectrum of an
+analogue one. Table~\ref{tab:ch16:rates} shows just how dramatic the savings are.
 
 \begin{table}[htbp]\centering\small
 \caption{Raw and compressed rates of common sources. Raw rates follow from the sampling
@@ -55,38 +62,58 @@ UHD video 2160p60 & 10-bit 4:2:0 & 7.5\,Gb/s & 15--25\,Mb/s (HEVC/AV1) & 300--50
 \end{tabularx}
 \end{table}
 
-Table~\ref{tab:ch16:rates} shows how dramatic the reductions are. Two very different
-mechanisms produce them. The first is the removal of \term{redundancy}: statistical structure
-that lets the receiver predict part of the signal from the rest. The letter \emph{u} after a
-\emph{q}, the similarity of adjacent pixels, the near-repetition of one video frame in the
-next, and the periodicity of voiced speech are all redundancy. Removing it is reversible in
-principle, and the tools that do so are \term{lossless}. The second mechanism is the removal
-of \term{irrelevance}: information that is present in the signal but that the final
-consumer---a human ear or eye---cannot perceive, or does not care about. The high-frequency
-detail in a textured region of an image, the quiet sound a few hertz from a loud one, and the
-exact waveform of a noise-like consonant are irrelevant in this sense. Removing irrelevance is
-irreversible, and the tools that do so are \term{lossy}. Every modern media codec does both,
-and the lossy part accounts for most of the gain.
+\begin{analogy}[Packing a suitcase]
+Think of compression as packing for a trip with a strict baggage allowance. First you
+\emph{pack cleverly}: roll the shirts, stuff socks into shoes, fold everything so that no
+space is wasted. Nothing is left behind, and at the other end you unpack exactly what you
+packed. That is \emph{lossless} coding, and it removes \emph{redundancy}. Then, if the case still
+will not close, you start \emph{leaving things out}: the third pair of shoes, the book you will
+not read. You choose what you will not miss. That is \emph{lossy} coding, and it removes
+\emph{irrelevance}. The limit of the analogy: a suitcase has one owner who decides what matters,
+whereas a codec must guess what \emph{every} listener or viewer will miss---which is why
+perceptual models are the heart of media coding.
+\end{analogy}
+
+Two very different mechanisms, then, produce the ratios of the table. The first is the removal
+of \term{redundancy}: statistical structure that lets the receiver predict part of the signal from
+the rest. The letter \emph{u} after a \emph{q}, the similarity of adjacent pixels, the
+near-repetition of one video frame in the next, and the periodicity of voiced speech are all
+redundancy. Removing it is reversible in principle, and the tools that do so are
+\term{lossless}.
+
+The second mechanism is the removal of \term{irrelevance}: information that is present in the
+signal but that the final consumer---a human ear or eye---cannot perceive, or does not care about.
+The high-frequency detail in a textured region of an image, the quiet sound a few hertz from a
+loud one, and the exact waveform of a noise-like consonant are irrelevant in this sense. Removing
+irrelevance is irreversible, and the tools that do so are \term{lossy}. Every modern media codec
+does both, and, as Figure~\ref{fig:ch16_where_bits_go} shows, the lossy part accounts for most of
+the gain.
+
+\mdcfig{ch16_where_bits_go}{Where the bits go. For the $256\times256$ portrait used throughout this
+chapter, lossless PNG removes about 2.8 of the 8 bits per pixel (navy); a JPEG at quality 50 then
+throws away another 4.3 bits that the eye does not miss (orange), keeping 0.9 bits per pixel
+(green). For CD audio the picture is similar but more extreme: lossless coding typically saves
+around 40\%, while a 128\,kb/s AAC stream keeps only about 1.45 bits of each 16-bit sample.}
 
 \begin{keyidea}[Redundancy and irrelevance]
 Lossless coding removes redundancy and is bounded by the entropy of the source
 (Chapter~\ref{ch:infotheory}). Lossy coding also removes irrelevance and is bounded by the
-rate--distortion function, whose value depends entirely on how distortion is measured. The art
-of media coding is mostly the art of choosing a distortion measure that matches human
-perception and then minimising rate subject to it; the entropy coder at the end is almost an
-afterthought, and yet without it none of the gains would be realised.
+rate--distortion function, whose value depends entirely on how distortion is measured. The art of
+media coding is mostly the art of choosing a distortion measure that matches human perception and
+then minimising rate subject to it; the entropy coder at the end is almost an afterthought, and yet
+without it none of the gains would be realised.
 \end{keyidea}
 
 \subsection{The source coder in the communication chain}
 
-Figure~\ref{fig:ch16_chain} places the source coder in the system of Chapter~\ref{ch:history}.
-The encoder has three stages that recur in almost every codec in this chapter. A
-\emph{decorrelating} stage (a predictor, a transform or a filterbank, often all three) turns the
-signal into a set of numbers whose statistics are simpler: less correlated and with energy
-concentrated in few of them. A \emph{quantiser} discards precision, and it is the only lossy step;
-it is where the perceptual model, if there is one, acts. An \emph{entropy coder} then maps the
-quantised values to a bit string whose length approaches their entropy. The decoder inverts
-the first and third steps exactly and cannot invert the second.
+Almost every codec in this chapter, however exotic, is built from the same three stages
+(Figure~\ref{fig:ch16_chain}). A \emph{decorrelating} stage---a predictor, a transform or a
+filterbank, often all three---turns the signal into numbers whose statistics are simpler: less
+correlated, and with the energy concentrated in a few of them. A \emph{quantiser} then discards
+precision. It is the only lossy step, and it is where the perceptual model, if there is one, does
+its work. Finally an \emph{entropy coder} maps the quantised values to a bit string whose length
+approaches their entropy. The decoder inverts the first and third steps exactly and cannot invert
+the second.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[node distance=0.35cm and 0.38cm,
@@ -117,13 +144,13 @@ subject of the rest of this book.}
 \label{fig:ch16_chain}
 \end{figure}
 
-Two properties of compressed data matter enormously for the communication engineer, and they
-recur throughout the chapter. First, compressed bits are \emph{fragile}: a well-compressed
-stream has little redundancy left, so a single bit error can corrupt a whole block of pixels,
-desynchronise a variable-length code, or propagate through a predictor for seconds.
-Second, compressed bit rates are \emph{variable}: the number of bits a scene or a sentence needs
-depends on its content, while most channels offer a fixed or slowly varying rate. Buffers,
-rate control, unequal error protection and adaptive streaming, all covered in
+Two properties of compressed data matter enormously to the communication engineer, and they will
+follow us through the chapter. First, compressed bits are \emph{fragile}. A well-compressed stream
+has little redundancy left, so a single bit error can corrupt a whole block of pixels,
+desynchronise a variable-length code, or propagate through a predictor for seconds. Second,
+compressed bit rates are \emph{variable}: the number of bits a scene or a sentence needs depends on
+its content, while most channels offer a fixed or slowly varying rate. Buffers, rate control,
+unequal error protection and adaptive streaming, all covered in
 Section~\ref{sec:ch16:transmission}, exist to reconcile the two.
 
 \begin{worked}[The bits in a phone call]
@@ -137,13 +164,15 @@ occupies a 22.8\,kb/s gross channel; but GSM also uses discontinuous transmissio
 occasional comfort-noise description during silence, well under 1\,kb/s on average. In a typical
 conversation each party talks less than half the time, so the source bits for both directions are
 roughly $2\times120\times(0.45\times12.2+0.55\times0.5)\approx1.4$\,Mbit, an eleven-fold saving over
-PCM. A VoLTE call with the AMR-WB codec at 12.65\,kb/s offers wideband (50--7000\,Hz) speech for
-about the same number of source bits. Here, however, the dominant cost is the packet overhead: a
-20\,ms frame of 253 bits carried in RTP/UDP/IPv6 would add 60 bytes (480 bits) of header,
-which is why LTE compresses those headers to a few bytes with RoHC (robust header compression),
-and why VoLTE uses \emph{semi-persistent scheduling} of small, regular radio allocations. The source
-coder took the payload from 1280 to 253 bits per 20\,ms; the network engineer then had to make
-sure that the packaging did not eat the gain.
+PCM.
+
+A VoLTE call with the AMR-WB codec at 12.65\,kb/s offers wideband (50--7000\,Hz) speech for about
+the same number of source bits. Here, however, the dominant cost is the packet overhead: a 20\,ms
+frame of 253 bits carried in RTP/UDP/IPv6 would add 60 bytes (480 bits) of header, which is why LTE
+compresses those headers to a few bytes with RoHC (robust header compression), and why VoLTE uses
+\emph{semi-persistent scheduling} of small, regular radio allocations. The source coder took the
+payload from 1280 to 253 bits per 20\,ms; the network engineer then had to make sure that the
+packaging did not eat the gain.
 \end{worked}
 
 %======================================================================
@@ -152,35 +181,56 @@ sure that the packaging did not eat the gain.
 %======================================================================
 
 Chapter~\ref{ch:infotheory} proved that a discrete memoryless source with entropy $H(X)$ can be
-coded losslessly at any rate above $H(X)$ bits per symbol and at no rate below it. This section is
-about the engineering of codes that come close to that bound: fast enough to run at gigabits per
-second, adaptive to statistics that are not known in advance, and robust enough to use in a
-bitstream that crosses a noisy channel.
+coded losslessly at any rate above $H(X)$ bits per symbol and at no rate below it. That is a
+promise, not a product. This section is about the engineering of codes that keep the promise:
+fast enough to run at gigabits per second, adaptive to statistics that are not known in advance,
+and robust enough to use in a bitstream that crosses a noisy channel.
 
 \subsection{Prefix codes and the Kraft inequality}
 
-A \term{variable-length code} assigns each symbol $a_i$ a binary codeword of length $\ell_i$. For the
-concatenated codewords to be decodable without separators, the code should be a \term{prefix
+Morse code gave the most common letter, \emph{e}, a single dot and the rare \emph{q} four
+symbols. But Morse needed a pause between letters to tell where one ended and the next began,
+and a pause is itself a symbol. Can we do without separators? Yes, if no codeword is the beginning
+of another.
+
+A \term{variable-length code} assigns each symbol $a_i$ a binary codeword of length $\ell_i$. For
+the concatenated codewords to be decodable without separators, the code should be a \term{prefix
 code}: no codeword is the beginning of another, so the decoder recognises the end of each codeword
-as soon as it arrives. The lengths of a prefix code satisfy the \term{Kraft inequality}
+as soon as it arrives. There is a budget on how short the codewords can be. A codeword of length
+$\ell$ ``uses up'' a fraction $2^{-\ell}$ of all possible binary strings, and the fractions cannot
+add to more than one. That is the \term{Kraft inequality},
 \begin{equation}
 \sum_i 2^{-\ell_i}\le1,
 \label{eq:ch16:kraft}
 \end{equation}
 and conversely any set of lengths satisfying it can be realised by a prefix code. Minimising the
-average length $\bar\ell=\sum_ip_i\ell_i$ subject to~\eqref{eq:ch16:kraft} with real-valued lengths
-gives $\ell_i=-\log_2p_i$ and $\bar\ell=H(X)$; rounding up to integers costs less than one bit per
-symbol, so the best prefix code satisfies
+average length $\bar\ell=\sum_ip_i\ell_i$ subject to~\eqref{eq:ch16:kraft} with real-valued
+lengths gives $\ell_i=-\log_2p_i$ and $\bar\ell=H(X)$; rounding up to integers costs less than one
+bit per symbol, so the best prefix code satisfies
 \begin{equation}
 H(X)\le\bar\ell<H(X)+1.
 \label{eq:ch16:prefixbound}
 \end{equation}
-The ``$+1$'' is the price of integer lengths. It is negligible for a source with entropy of
-several bits, and ruinous for a source with entropy much less than one bit, such as the
-mostly-zero outputs of a quantiser at low rate. Much of the history of entropy coding is the
-story of getting rid of it.
+In words: you can always get within one bit of the entropy, never below it. The ``$+1$'' is the
+price of whole-number lengths. It is negligible for a source with entropy of several bits, and
+ruinous for a source with entropy much less than one bit, such as the mostly-zero outputs of a
+quantiser at low rate. Much of the history of entropy coding is the story of getting rid of it.
 
 \subsection{Huffman coding}
+
+\mdcfig[0.5]{ch16_nicknames}{Huffman's idea as a speed-dial list. Seven contacts called with the
+weekly frequencies shown get the Huffman (canonical) codes on the right: the average call needs
+2.15 digits against an entropy of 2.12, while a fixed-length code would need 3.}
+
+\begin{analogy}[Speed-dial for the people you call most]
+Suppose your phone lets you assign speed-dial codes of any length, provided no code is the
+start of another (so the phone knows when you have finished dialling). Common sense says: give
+the shortest codes to the people you call most often and put up with long codes for the dentist.
+Huffman's algorithm is that common sense made exact---it finds the assignment that minimises
+the average number of digits you press (Figure~\ref{fig:ch16_nicknames}). The limit of the
+analogy: the codes must be designed from known calling frequencies; when the frequencies change,
+the code must be rebuilt, a weakness that arithmetic coding removes.
+\end{analogy}
 
 In 1951 David Huffman, a graduate student in Robert Fano's information theory course at MIT,
 found the algorithm that constructs the optimum prefix code for any known distribution. It builds
@@ -197,6 +247,7 @@ short and worth knowing. In an optimum code the two least probable symbols have 
 codewords, and they can be taken to be siblings differing only in the last bit; merging them
 gives a source with one fewer symbol whose optimum code, extended by one bit for the two merged
 symbols, is optimum for the original. Induction does the rest.
+
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[
@@ -236,18 +287,6 @@ against an entropy of 2.153 bits, an efficiency of 97.9\%. The code is not uniqu
 broken either way and the 0/1 labels at each node can be swapped, which is the freedom exploited
 by canonical codes below.
 
-Figure~\ref{fig:ch16_huffman} applies Huffman coding to real English: the text of
-Chapter~\ref{ch:history} of this book, reduced to 26 lower-case letters and the space. The
-Huffman lengths track $-\log_2 p$ closely, from 3 bits for the space and \emph{e} to 10 bits for
-\emph{j}, \emph{q} and \emph{z}, and the average of 4.17 bits per character is within 1\% of the
-zero-order entropy of 4.14 bits. But the zero-order entropy is not the entropy of English. Letters
-are not independent, and the right-hand panel shows what happens when coders exploit the
-dependence: an arithmetic coder driven by the previous two letters needs only 3.07 bits per
-character, and the dictionary and block-sorting coders of Section~\ref{sec:ch16:lz} do better
-still. Shannon's classic experiments with human predictors in 1951 put the entropy of printed
-English at around one bit per character; large language models, which are in effect very good
-context models, now get close to that on long texts.
-
 \mdcfig{ch16_huffman}{Left: letter probabilities in about 34\,000 characters of English prose (the
 text of Chapter~\ref{ch:history}), with the Huffman codeword lengths (red steps) and the ideal
 lengths $-\log_2p$ (dots). Right: bits per character achieved by memoryless and context-based
@@ -255,34 +294,90 @@ coders on the same text. Context modelling, not a better code for independent sy
 the gains are. The order-3 model loses to order 2 because 34\,000 characters are too few to learn
 its $27^3$ contexts: an example of the model cost that adaptive coders pay.}
 
+\begin{history}[Huffman's term paper]
+In 1951 Robert Fano offered the students of his information theory course at MIT a choice: take the
+final exam or write a term paper on finding the most efficient binary code. Fano and Shannon had
+each proposed near-optimal constructions (the Shannon--Fano codes, built top-down by splitting the
+symbol set into halves of nearly equal probability) but no one knew how to find the optimum. David
+Huffman, after months without success, was about to give up and study for the exam when he hit on
+building the tree from the bottom up, merging the two least probable symbols. The idea was so
+simple that it beat his professor's approach, and the resulting paper, ``A method for the
+construction of minimum-redundancy codes'' (\emph{Proceedings of the IRE}, 1952), is one of the
+most implemented algorithms in computing. Huffman codes are inside every JPEG image, every MP3 file,
+every ZIP archive and every PNG, and inside the fax standards that transmitted business documents
+for thirty years.
+\end{history}
+
+How well does it work on something real? Figure~\ref{fig:ch16_huffman} applies Huffman coding to
+English: the text of Chapter~\ref{ch:history} of this book, reduced to 26 lower-case letters and
+the space. The Huffman lengths track $-\log_2 p$ closely, from 3 bits for the space and \emph{e}
+to 10 bits for \emph{j}, \emph{q} and \emph{z}, and the average of 4.17 bits per character is
+within 1\% of the zero-order entropy of 4.14 bits.
+
+But the zero-order entropy is not the entropy of English. Letters are not independent---after
+``th'' an \emph{e} is very likely---and the right-hand panel shows what happens when coders exploit
+the dependence: an arithmetic coder driven by the previous two letters needs only 3.07 bits per
+character, and the dictionary and block-sorting coders of Section~\ref{sec:ch16:lz} do better
+still. Shannon's classic experiments with human predictors in 1951 put the entropy of printed
+English at around one bit per character; large language models, which are in effect very good
+context models, now get close to that on long texts.
+
 \subsubsection{Canonical Huffman codes}
 
 A decoder needs the code table, and sending the tree explicitly is wasteful. A \term{canonical
 Huffman code} is fully determined by the list of codeword lengths. Symbols are sorted by length
 and then by symbol value; the first codeword of the shortest length is all zeros, each subsequent
 codeword is the previous one plus one, and when the length increases the running value is shifted
-left by the difference. The encoder sends only the number of codewords of each length and the
-symbol order. JPEG transmits its Huffman tables exactly this way (sixteen counts followed by the
-symbol values), and DEFLATE sends the code lengths themselves, Huffman coded. Canonical codes
-also allow fast table-driven decoding, since codewords of a given length form a contiguous range
-of integers.
+left by the difference. (The speed-dial codes of Figure~\ref{fig:ch16_nicknames} were assigned
+exactly this way: 0, 10, 110, \dots) The encoder sends only the number of codewords of each length
+and the symbol order. JPEG transmits its Huffman tables exactly this way (sixteen counts followed by
+the symbol values), and DEFLATE sends the code lengths themselves, Huffman coded. Canonical codes
+also allow fast table-driven decoding, since codewords of a given length form a contiguous range of
+integers.
+
+\begin{tryit}[Huffman against arithmetic on your own text]
+Open Lab 24 (\lab{lab24\_source\_coding.py}) and choose \emph{Huffman vs arithmetic coding}. Type a
+sentence into \emph{Your text} and watch the code-length bars and the bits-per-character readouts.
+Now type a long run of one letter (\texttt{aaaaaaaab}): the entropy drops below half a bit, but
+Huffman cannot go below one bit per character. Drag \emph{Arithmetic coder context order} from 0
+to 2 on the \emph{Book} text and see context modelling beat the zero-order entropy.
+\end{tryit}
+
+\mdcfig[0.55]{ch16_huff_redundancy}{The price of whole-number lengths for a binary source. A
+Huffman code on single symbols wastes up to nearly a bit per symbol when one outcome dominates;
+coding blocks of 2 or 4 symbols shrinks the waste, while an arithmetic coder pays only about two bits
+per \emph{message}.}
 
 \subsubsection{Limits of Huffman coding}
 
 Huffman coding is optimal among \emph{symbol-by-symbol} prefix codes for a \emph{known}
 distribution. Both qualifications matter. The integer-length restriction costs up to one bit per
-symbol: a binary source with $p=0.95$ has entropy 0.29 bits, but any code for single symbols
-needs one bit. Coding blocks of $n$ symbols reduces the overhead to $1/n$ bits per symbol but the
-alphabet grows as $K^n$. And a Huffman code designed for the wrong distribution loses $D(p\|q)$
-bits per symbol, the relative entropy between the true and assumed distributions. Adaptive
-Huffman coding (the FGK and Vitter algorithms) updates the tree as symbols arrive, but it is
-clumsy. Arithmetic coding solves both problems at once.
+symbol (Figure~\ref{fig:ch16_huff_redundancy}): a binary source with $p=0.95$ has entropy 0.29
+bits, but any code for single symbols needs one bit. Coding blocks of $n$ symbols reduces the
+overhead to $1/n$ bits per symbol, but the alphabet grows as $K^n$. And a Huffman code designed for
+the wrong distribution loses $D(p\|q)$ bits per symbol, the relative entropy between the true and
+assumed distributions. Adaptive Huffman coding (the FGK and Vitter algorithms) updates the tree as
+symbols arrive, but it is clumsy. Arithmetic coding solves both problems at once.
 
 \subsection{Arithmetic coding}
 
-\term{Arithmetic coding} abandons the idea of a codeword per symbol. It maps an entire message to a
-sub-interval of $[0,1)$ whose width equals the probability of the message, and it sends just enough
-bits of a binary fraction to identify a point inside that interval. Start with the interval
+Here is a different way to think about a message. List every possible message of a given length
+in dictionary order, and give each a slice of a ruler one metre long, the width of each slice
+being the probability of that message. To identify your message you need only name a point inside
+its slice. A likely message has a wide slice, and a point in a wide slice can be named with few
+digits; an unlikely message has a narrow slice and needs many. That is arithmetic coding.
+
+\mdcfig{ch16_arithmetic}{Arithmetic coding of the message \texttt{abac} from the source
+$p(a)=0.6$, $p(b)=0.3$, $p(c)=0.1$. Each symbol selects a sub-interval (red) that becomes the next
+full interval. The final interval has width equal to the message probability, 0.0108, and any
+binary fraction inside it identifies the message. Seven bits suffice here, against
+$-\log_2 0.0108=6.53$ bits of information; a Huffman code for this source would need
+$1+2+1+2=6$ bits for this particular message but 1.4 bits per symbol on average, against an entropy
+of 1.30.}
+
+\term{Arithmetic coding} abandons the idea of a codeword per symbol. It maps an entire message to
+a sub-interval of $[0,1)$ whose width equals the probability of the message, and it sends just
+enough bits of a binary fraction to identify a point inside that interval. Start with the interval
 $[L,H)=[0,1)$. For each symbol, divide the current interval in proportion to the symbol
 probabilities and keep the part that belongs to the symbol that occurred:
 \begin{equation}
@@ -294,13 +389,29 @@ $\prod_kp(s_k)=p(s_1,\dots,s_n)$, and a binary fraction that lies inside the int
 $\lceil-\log_2p(s_1,\dots,s_n)\rceil+1$ bits. The total overhead is therefore at most two bits
 \emph{per message}, not one bit per symbol.
 
-\mdcfig{ch16_arithmetic}{Arithmetic coding of the message \texttt{abac} from the source
-$p(a)=0.6$, $p(b)=0.3$, $p(c)=0.1$. Each symbol selects a sub-interval (red) that becomes the next
-full interval. The final interval has width equal to the message probability, 0.0108, and any
-binary fraction inside it identifies the message. Seven bits suffice here, against
-$-\log_2 0.0108=6.53$ bits of information; a Huffman code for this source would need
-$1+2+1+2=6$ bits for this particular message but 1.4 bits per symbol on average, against an entropy
-of 1.30.}
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.9cm,minimum width=1.9cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[font=\sffamily\scriptsize,align=center] (s) at (0,0) {next symbol\\$s_k$};
+\node[blk,fill=orange!8,draw=orange!70!black] (m) at (2.9,1.1) {MODEL\\predicts $\hat p(\cdot\,|\,\text{context})$};
+\node[blk] (c) at (2.9,-0.4) {CODER\\spends $-\log_2\hat p(s_k)$ bits};
+\node[font=\sffamily\scriptsize] (b) at (5.6,-0.4) {bits};
+\node[blk] (dc) at (8.3,-0.4) {DECODER\\(same coder)};
+\node[blk,fill=orange!8,draw=orange!70!black] (dm) at (8.3,1.1) {identical MODEL\\(same context)};
+\node[font=\sffamily\scriptsize,align=center] (o) at (11.0,-0.4) {$s_k$};
+\draw[arr] (s) -- (c); \draw[arr,orange!70!black] (m) -- node[right,font=\tiny]{probabilities} (c);
+\draw[arr] (c) -- (b); \draw[arr] (b) -- (dc); \draw[arr] (dc) -- (o);
+\draw[arr,orange!70!black] (dm) -- (dc);
+\draw[arr,dashed,navy!60] (s.north) |- node[pos=0.75,above,font=\tiny]{update context} (m.west);
+\draw[arr,dashed,navy!60] (o.north) |- node[pos=0.75,above,font=\tiny]{update context} (dm.east);
+\end{tikzpicture}
+\caption{Modelling and coding separated. Encoder and decoder run identical models on the symbols
+already sent, so the model's probabilities never have to be transmitted; the arithmetic coder turns
+them into bits at essentially the ideal cost. All the intelligence---and all the gain---lives in the
+orange boxes.}
+\label{fig:ch16_model_coder}
+\end{figure}
 
 Figure~\ref{fig:ch16_arithmetic} traces the process. Three engineering problems had to be solved
 before arithmetic coding became practical, and their solutions are what a real implementation
@@ -321,12 +432,25 @@ implemented. The patents have long expired.
 \end{description}
 
 The real power of arithmetic coding is the separation it creates between \emph{modelling} and
-\emph{coding}. The coder can use a different probability distribution for every symbol, computed
+\emph{coding} (Figure~\ref{fig:ch16_model_coder}). The coder can use a different probability distribution for every symbol, computed
 from anything the decoder also knows: the previous symbols, the position in the block, the values
 of neighbouring pixels. The code length is then $\sum_k-\log_2\hat p(s_k\,|\,\text{context}_k)$,
 the ideal adaptive code length, and all the intelligence moves into the model. The green bars of
 Figure~\ref{fig:ch16_huffman} are exactly this: an arithmetic coder with counts accumulated
 adaptively in each context of one, two or three previous letters.
+
+\mdcfig[0.55]{ch16_cabac_adapt}{A context model learning on the fly. The probability estimate
+(navy) chases a binary source whose true $P(1)$ jumps from 0.1 to 0.4 to 0.03, using the update
+$\hat p\leftarrow\hat p+(b-\hat p)/32$. The adaptive coder spends 0.565 bits per bin, within 3\%
+of an oracle that knows the true probability.}
+
+
+\begin{keyidea}[Model, then code]
+Once arithmetic coding exists, compression splits cleanly into two jobs. The \emph{coder} turns
+probabilities into bits at essentially the ideal rate, $-\log_2\hat p$ per symbol, and is a solved
+problem. The \emph{model} predicts the next symbol, and every bit of improvement comes from
+predicting better. Good compressors are good forecasters.
+\end{keyidea}
 
 \subsubsection{Binary arithmetic coding and CABAC}
 
@@ -337,12 +461,19 @@ coefficient level, a flag saying whether a block has any nonzero coefficients) i
 \emph{binarised} by a simple variable-length code such as unary or exp-Golomb. Each bin is then
 coded with a probability taken from one of several hundred \emph{context models}, chosen by the
 syntax element, the bin position and the values of neighbouring blocks. Each context holds a
-probability state that adapts after every bin with a simple finite-state rule. Bins with no useful
-statistics (sign bits, low-order bits of large values) \emph{bypass} the modelling and are coded
-with probability one-half. Compared with the context-adaptive variable-length coding (CAVLC)
-alternative in H.264, CABAC reduces the bit rate by roughly 10--15\% at equal quality, at the cost
-of a strictly serial decoding process that is the throughput bottleneck of every hardware video
-decoder.
+probability state that adapts after every bin with a simple finite-state rule
+(Figure~\ref{fig:ch16_cabac_adapt}).
+
+Bins with no useful statistics (sign bits, low-order bits of large values) \emph{bypass} the
+modelling and are coded with probability one-half. The design is a lesson in engineering
+compromise. The adaptation rule must be fast enough to follow content that changes from one part
+of a picture to the next, yet slow enough not to chase noise; a window of a few tens of bins, as in
+the figure, is the classic choice, and VVC averages two estimators with different speeds to get the
+best of both. Compared with the context-adaptive variable-length coding (CAVLC) alternative in
+H.264, CABAC reduces the bit rate by roughly 10--15\% at equal quality. The price is a strictly
+serial decoding process---each bin's probability depends on the one before---that is the throughput
+bottleneck of every hardware video decoder, and much of the design effort in HEVC went into
+grouping bypass bins so that decoders can process several at once.
 
 \subsubsection{Asymmetric numeral systems}
 
@@ -354,45 +485,63 @@ entropy coder, Apple's LZFSE and the JPEG~XL image format use ANS. Its one quirk
 encoding runs in reverse order (last symbol first), so it suits block-based rather than streaming
 coders.
 
-\begin{history}[Huffman's term paper]
-In 1951 Robert Fano offered the students of his information theory course at MIT a choice: take the
-final exam or write a term paper on finding the most efficient binary code. Fano and Shannon had
-each proposed near-optimal constructions (the Shannon--Fano codes, built top-down by splitting the
-symbol set into halves of nearly equal probability) but no one knew how to find the optimum. David
-Huffman, after months without success, was about to give up and study for the exam when he hit on
-building the tree from the bottom up, merging the two least probable symbols. The idea was so
-simple that it beat his professor's approach, and the resulting paper, ``A method for the
-construction of minimum-redundancy codes'' (\emph{Proceedings of the IRE}, 1952), is one of the
-most implemented algorithms in computing. Huffman codes are inside every JPEG image, every MP3 file,
-every ZIP archive and every PNG, and inside the fax standards that transmitted business documents
-for thirty years.
-\end{history}
+\mdcfig{ch16_bit_error}{One bit error in a Huffman-coded sentence (code built from the English
+statistics of Figure~\ref{fig:ch16_huffman}). The decoder misreads the codeword boundaries and
+prints ten wrong letters before it happens to fall back into step. Huffman codes often
+resynchronise like this by luck; arithmetic and LZ decoders generally do not.}
+
+\begin{pitfall}[Compressed data and bit errors]
+Variable-length codes turn a single bit error into a burst (Figure~\ref{fig:ch16_bit_error}). A
+flipped bit in a Huffman stream changes the length of the decoded codeword, and every subsequent
+codeword boundary is wrong until the decoder happens to resynchronise; an arithmetic decoder is
+worse, since its state depends on every previous bit; an LZ decoder copies the error into every
+later match that references it. A compressed stream must therefore be protected by strong
+error-correcting codes (Chapters~\ref{ch:classiccodes} and~\ref{ch:moderncodes}) and cut into
+independently decodable segments with resynchronisation points: JPEG restart markers, the slices
+of video codecs and the blocks of DEFLATE. Never design a system in which the channel decoder
+passes residual errors to an entropy decoder that has no way to recover. The corollary is equally
+important: compress \emph{before} you encrypt and before you add FEC, never after. Encrypted data
+and already-compressed data look random, and a compressor can only make them larger.
+\end{pitfall}
 
 \subsection{Run-length, Golomb and Rice codes}
 
-Many sources produced inside codecs have a geometric distribution: the length of a run of zeros
-between nonzero coefficients, the magnitude of a prediction residual, the number of white pixels
-before the next black one on a fax line. For such sources simple structured codes are optimal or
-nearly so, and they need no tables.
+Many numbers produced inside codecs have a geometric distribution: small values are common and
+each larger value is a fixed factor less likely. The length of a run of zeros between nonzero
+coefficients, the magnitude of a prediction residual, the number of white pixels before the next
+black one on a fax line---all look like this. For such sources simple structured codes are optimal
+or nearly so, and they need no tables.
 
-\term{Run-length coding} replaces a run of $r$ identical symbols by the pair (symbol, $r$). The
-Group~3 fax standard (ITU-T T.4, 1980) codes alternate runs of white and black pixels along each
-scan line with fixed Huffman tables designed from a set of test documents (the modified Huffman
-code), and its two-dimensional mode codes each line relative to the one above. A page at
-standard resolution, about two million pixels, typically compresses by a factor of ten or more,
-which let a page cross a 9.6\,kb/s fax modem in well under a minute.
+\term{Run-length coding} replaces a run of $r$ identical symbols by the pair (symbol, $r$). Your
+office fax machine was its most famous user (Figure~\ref{fig:ch16_fax}). The Group~3 fax standard (ITU-T T.4, 1980) codes
+alternate runs of white and black pixels along each scan line with fixed Huffman tables designed
+from a set of test documents (the modified Huffman code), and its two-dimensional mode codes each
+line relative to the one above. A page at standard resolution, about two million pixels, typically
+compresses by a factor of ten or more, which let a page cross a 9.6\,kb/s fax modem in well under a
+minute.
+
+\mdcphoto[0.42]{ch16_fax}{An office fax machine. Every page it sends is run-length coded:
+Group~3 fax turns each scan line into alternating white and black run lengths and sends their
+modified-Huffman codes, typically shrinking a page tenfold.}
+
+\mdcpairany{ch16_golomb}{Solomon W.\ Golomb (1932--2016), mathematician and communications engineer at
+JPL and later USC, who proposed his run-length code in 1966. Its descendants sit inside lossless
+audio, lossless images and every H.264 video header.}{ch16_golomb_rice}{Rice codes for a geometric source with $\theta=0.85$
+(entropy 4.07 bits). With the right parameter ($k=2$) the code's lengths hug the ideal
+$-\log_2p(n)$ and its average, 4.09 bits, is within 0.02 bits of the entropy, using nothing but
+shifts and masks.}
 
 A \term{Golomb code} with parameter $m$ codes a non-negative integer $n$ as the quotient
 $\lfloor n/m\rfloor$ in unary followed by the remainder $n\bmod m$ in (truncated) binary. When
 $m=2^k$ it is a \term{Rice code}: the low $k$ bits are sent as they are, the high bits in unary,
-and encoding and decoding need only shifts and masks. Solomon Golomb proposed the code in 1966 for
+and encoding and decoding need only shifts and masks. Solomon Golomb (Figure~\ref{fig:ch16_golomb}) proposed the code in 1966 for
 run lengths, and Gallager and Van Voorhis proved in 1975 that for a geometric source
 $P(n)=(1-\theta)\theta^n$ the choice $m=\lceil-\log(1+\theta)/\log\theta\rceil$ makes it the optimum
-prefix code---an infinite-alphabet Huffman code with a closed form. Rice codes, with $k$
-chosen per block from the mean residual magnitude, are the entropy coder of lossless audio (FLAC,
-Shorten, MPEG-4 ALS), of the lossless image standard JPEG-LS, and of the CCSDS lossless data
-compression standard used on many spacecraft, whose instruments cannot afford a table-driven
-adaptive coder.
+prefix code---an infinite-alphabet Huffman code with a closed form
+(Figure~\ref{fig:ch16_golomb_rice}). Rice codes, with $k$ chosen per block from the mean residual
+magnitude, are the entropy coder of lossless audio (FLAC, Shorten, MPEG-4 ALS), of the lossless
+image standard JPEG-LS, and of the CCSDS lossless data compression standard used on many
+spacecraft, whose instruments cannot afford a table-driven adaptive coder.
 
 The \term{exponential-Golomb} (exp-Golomb) code of order 0 codes $n$ as $\lfloor\log_2(n+1)\rfloor$
 zeros followed by the binary representation of $n+1$: $0\to\texttt{1}$, $1\to\texttt{010}$,
@@ -404,7 +553,26 @@ codes, and CABAC uses them to binarise large values.
 \subsection{Dictionary coding: the Lempel--Ziv family}
 \label{sec:ch16:lz}
 
-Huffman and arithmetic coders need a model of the source. The dictionary coders of Abraham Lempel
+\mdcfig{ch16_lz77_parse}{An LZ77 parse of a familiar sentence. Characters seen for the first time
+are sent as literals (red); anything that has occurred before is sent as a back-reference (blue),
+a pair (distance back, length to copy), drawn here as an arc to its source. The final ``the rain in
+spain'' costs a single pair, (45,\,13). Real coders then Huffman-code the literals and pairs.}
+
+\begin{analogy}[``See above'']
+When you write a report and need to repeat a long sentence, you do not copy it out again; you
+write ``see the second paragraph on page 3''. If the sentence is long and the reference short,
+you have saved space, and the reader loses nothing. Lempel--Ziv coding does exactly this,
+automatically, with ``go back 9 characters and copy 4'' (Figure~\ref{fig:ch16_lz77_parse}). The
+limit of the analogy: the reader must have the earlier text in front of them, so an LZ decoder
+that loses a block also loses every later reference to it.
+\end{analogy}
+
+\mdcpairany{ch16_lempel}{Abraham Lempel (1936--2023) who, with Jacob Ziv at the Technion in Haifa,
+published the universal dictionary coders LZ77 and LZ78.}{ch16_pkzip}{A PKZIP floppy disk from the
+early 1990s. Phil Katz's DEFLATE format, LZ77 plus Huffman coding, became the ZIP file, gzip, PNG
+and the compression of the web.}
+
+Huffman and arithmetic coders need a model of the source. The dictionary coders of Abraham Lempel (Figure~\ref{fig:ch16_lempel})
 and Jacob Ziv need none: they learn the source by building a dictionary of phrases that have
 occurred before, and they are \emph{universal}, achieving the entropy rate of any stationary
 ergodic source asymptotically without knowing its statistics.
@@ -421,7 +589,7 @@ is an existing phrase extended by one symbol, and the encoder emits the index of
 matching phrase. Terry Welch's LZW variant, which starts with all single characters in the table
 and emits only indices, was simple enough for hardware and became the coder of Unix
 \texttt{compress}, the GIF image format and the V.42bis modem compression standard.
-\item[DEFLATE (1993).] Phil Katz's format for PKZIP combines LZ77 with Huffman coding of the
+\item[DEFLATE (1993).] Phil Katz's format for PKZIP (Figure~\ref{fig:ch16_pkzip}) combines LZ77 with Huffman coding of the
 literals, lengths and distances, the Huffman tables being sent at the start of each block. It is
 specified in RFC~1951 and used by gzip, ZIP, PNG and HTTP compression. It is the most widely
 deployed compressor in the world.
@@ -437,10 +605,25 @@ the output has long runs of the same character, followed by move-to-front and en
 On the English text of Figure~\ref{fig:ch16_huffman}, gzip reaches 2.98 bits per character, xz
 2.84 and bzip2 2.66, all better than a simple order-2 context model and with no knowledge of
 English. Two practical remarks complete the picture. LZ coders are asymmetric: decoding is a
-simple copy and runs at gigabytes per second, while encoding requires a search whose depth trades
-speed for ratio (gzip's levels 1--9, Zstandard's levels 1--22). And their gains on media are small,
-because images and sound are not made of repeated byte strings; that is why this chapter's media
-codecs use transform coding with arithmetic or Huffman back ends instead.
+simple copy and runs very fast, while encoding requires a search whose depth trades speed for
+ratio (gzip's levels 1--9, Zstandard's levels 1--22; Figure~\ref{fig:ch16_compress_speed}). And
+their gains on media are small, because images and sound are not made of repeated byte strings;
+that is why this chapter's media codecs use transform coding with arithmetic or Huffman back ends
+instead.
+
+\mdcfig[0.55]{ch16_compress_speed}{Ratio against speed for the standard compressors in Python on
+the 34\,000-character English text (one core of an ordinary PC; absolute speeds vary by machine).
+Filled dots: compression; open triangles: decompression. Working harder at the encoder buys a
+smaller file, while decoding stays fast---the asymmetry that suits ``compress once, decompress a
+million times'' distribution.}
+
+\begin{tryit}[Watch LZ77 think]
+In Lab 24, open \emph{LZ77: the sliding window} and press \emph{Next token} repeatedly: the
+parse fills in token by token, red for literals and navy for copies. Then drag \emph{Window size
+(log$_2$)} down to 3. Matches that lie further back than eight characters vanish, literals take
+over and the \emph{Size} readout climbs. The bottom plot shows the whole trade-off at once: bigger
+windows find more matches, with diminishing returns.
+\end{tryit}
 
 \begin{history}[LZW, GIF and the birth of PNG]
 Welch published LZW in \emph{IEEE Computer} in 1984 without mentioning that Sperry (later Unisys)
@@ -453,25 +636,20 @@ a W3C Recommendation in 1996. The LZW patents expired around 2003--2004, but by 
 everywhere except animation, where GIF survives to this day as a cultural artefact.
 \end{history}
 
-\begin{pitfall}[Compressed data and bit errors]
-Variable-length codes turn a single bit error into a burst. A flipped bit in a Huffman stream
-changes the length of the decoded codeword, and every subsequent codeword boundary is wrong until
-the decoder happens to resynchronise; an arithmetic decoder is worse, since its state depends on
-every previous bit; an LZ decoder copies the error into every later match that references it. A
-compressed stream must therefore be protected by strong error-correcting codes
-(Chapters~\ref{ch:classiccodes} and~\ref{ch:moderncodes}) and cut into independently decodable
-segments with resynchronisation points: JPEG restart markers, the slices of video codecs and the
-blocks of DEFLATE. Never design a system in which the channel decoder passes residual errors to an
-entropy decoder that has no way to recover. The corollary is equally important: compress
-\emph{before} you encrypt and before you add FEC, never after. Encrypted data and
-already-compressed data look random, and a compressor can only make them larger.
-\end{pitfall}
-
-
 %======================================================================
+
+\mdcfig[0.48]{ch16_rounding}{Quantisation as rounding prices. Top: the staircase that maps 5000
+random prices to whole dollars. Bottom: the rounding errors are uniform over $\pm0.5$ and their
+variance, 0.0824, matches $\Delta^2/12=0.0833$.}
+
 \section{Lossy coding: the engineering of rate and distortion}
 \label{sec:ch16:lossy}
 %======================================================================
+
+Lossless coding hits a wall: a photograph will not go much below 5 bits per pixel, a CD track not
+much below 60\% of its size, because camera noise and recording hiss are incompressible. To go
+further we must give something up. The question of this section is how to give up as little as
+possible for each bit we save.
 
 Chapter~\ref{ch:infotheory} defined the rate--distortion function $R(D)$, the smallest rate at
 which a source can be described with average distortion at most $D$, and computed it for the
@@ -480,31 +658,50 @@ memoryless Gaussian source with squared-error distortion:
 D(R)=\sigma^2\,2^{-2R}\qquad\Longleftrightarrow\qquad \mathrm{SNR}=10\log_{10}\frac{\sigma^2}{D}=6.02\,R\ \mathrm{dB}.
 \label{eq:ch16:gaussrd}
 \end{equation}
-Every extra bit per sample buys 6.02\,dB, the same slope as the SQNR of the uniform quantiser in
-Chapter~\ref{ch:pcm}. The Gaussian is also the \emph{hardest} source to code for a given variance:
-any other source with the same variance has a lower $R(D)$ curve. This section asks how close
-practical schemes come to~\eqref{eq:ch16:gaussrd}, and what they must do to get there when the
-source has memory.
+Read it as a price list: every extra bit per sample buys 6.02\,dB, the same slope as the SQNR of
+the uniform quantiser in Chapter~\ref{ch:pcm}. The Gaussian is also the \emph{hardest} source to
+code for a given variance: any other source with the same variance has a lower $R(D)$ curve. This
+section asks how close practical schemes come to~\eqref{eq:ch16:gaussrd}, and what they must do to
+get there when the source has memory.
 
 \subsection{Scalar quantisation revisited}
 
-Chapter~\ref{ch:pcm} introduced the uniform quantiser and the Lloyd--Max conditions for the
-minimum-distortion quantiser with a fixed number of levels. Figure~\ref{fig:ch16_quantizers} (left)
-compares them with the rate--distortion bound for a unit-variance Gaussian. At one bit per sample
-both give 4.40\,dB, against 6.02\,dB for $R(D)$. At higher rates the Lloyd--Max quantiser gives
-9.30, 14.62 and 20.22\,dB at 2, 3 and 4 bits, and the gap to $R(D)$ grows slowly towards the
-high-resolution limit of 4.35\,dB (the Panter--Dite result); the best uniform quantiser falls
-further behind because its fixed step cannot follow the Gaussian's tails. Fixed-rate scalar
-quantisation of a Gaussian costs about 0.7 bits per sample at high rates.
+\begin{analogy}[Rounding prices to the nearest dollar]
+A shopkeeper who rounds every price to the nearest dollar never makes an error bigger than fifty
+cents, and over thousands of sales the errors are spread evenly between $-0.50$ and $+0.50$. Their
+average square is $1/12$ of a dollar squared---the famous $\Delta^2/12$ of a uniform quantiser with
+step $\Delta$ (Figure~\ref{fig:ch16_rounding}). Rounding to the nearest ten cents would cut the
+error power a hundredfold but needs more digits on the receipt. That is the whole bargain of
+quantisation: digits against error. The limit of the analogy: prices are spread evenly, while real
+signals have bell-shaped distributions, so it pays to put the levels closer together where values
+are common---the job of the Lloyd--Max quantiser.
+\end{analogy}
 
-\mdcfig{ch16_quantizers}{Left: signal-to-noise ratio of quantisers for a unit-variance Gaussian
+
+\mdcfig[0.5]{ch16_lloyd_iter}{Lloyd's algorithm moving the 8
+levels of a 3-bit quantiser for a unit Gaussian. Starting from the best uniform quantiser, each
+iteration moves every level to the centroid of its cell; the outer levels drift outwards to cover
+the tails and the SNR rises from 14.27 to the Lloyd--Max value of 14.62\,dB.}
+
+Chapter~\ref{ch:pcm} introduced the uniform quantiser and the Lloyd--Max conditions for the
+minimum-distortion quantiser with a fixed number of levels: each level at the centroid of its cell,
+each boundary halfway between levels. Figure~\ref{fig:ch16_lloyd_iter} shows the iteration that
+satisfies both, and Figure~\ref{fig:ch16_quantizers} (left) compares the results with the
+rate--distortion bound for a unit-variance Gaussian. At one bit per sample both give 4.40\,dB,
+against 6.02\,dB for $R(D)$. At higher rates the Lloyd--Max quantiser gives 9.30, 14.62 and
+20.22\,dB at 2, 3 and 4 bits, and the gap to $R(D)$ grows slowly towards the high-resolution limit
+of 4.35\,dB (the Panter--Dite result); the best uniform quantiser falls further behind because its
+fixed step cannot follow the Gaussian's tails. Fixed-rate scalar quantisation of a Gaussian costs
+about 0.7 bits per sample at high rates.
+
+\begin{figure}[H]\centering\includegraphics[width=0.92\linewidth]{figs/ch16_quantizers}\caption{Left: signal-to-noise ratio of quantisers for a unit-variance Gaussian
 source. Fixed-rate quantisers (squares, circles) fall increasingly behind the rate--distortion
 bound; a uniform quantiser followed by an ideal entropy coder (green) stays within 1.53\,dB
 (0.254\,bit) of it at all rates above about one bit. Right: a 16-cell vector quantiser for pairs of
 samples with correlation 0.9, designed with the Lloyd (k-means) algorithm on 20\,000 training
 vectors. The cells follow the data, which a product of scalar quantisers cannot do; at the same
 4 bits per pair the VQ achieves 13.5\,dB against 9.3\,dB for two independent 2-bit Lloyd--Max
-quantisers.}
+quantisers.}\label{fig:ch16_quantizers}\end{figure}
 
 \subsubsection{Entropy-coded scalar quantisation}
 
@@ -516,25 +713,37 @@ of the quantiser index rather than the logarithm of the number of levels, the SN
 \label{eq:ch16:ecsq}
 \end{equation}
 within $10\log_{10}(\pi e/6)=1.53$\,dB, or $\tfrac12\log_2(\pi e/6)=0.254$ bits per sample, of the
-rate--distortion bound. The derivation takes three lines. A uniform quantiser with small step
-$\Delta$ has distortion $\Delta^2/12$ and output entropy $H\approx h(X)-\log_2\Delta$, where $h(X)$ is
-the differential entropy. Eliminating $\Delta$ gives $D\approx\frac{1}{12}2^{2h(X)}2^{-2H}$, and
-for the Gaussian $2^{2h(X)}=2\pi e\sigma^2$, so $D\approx\frac{\pi e}{6}\sigma^2 2^{-2H}$. The
-remarkable fact is that the same 1.53\,dB gap to the Shannon lower bound holds for \emph{any} smooth
-source density, and that no scalar quantiser of any shape, with or without entropy coding, does
-better at high rate. That is the justification for the architecture of practically every modern
-codec: a \emph{uniform} quantiser (with a slightly widened zero cell, the \term{deadzone}, which helps
-at low rates) followed by a good adaptive entropy coder. The remaining 1.53\,dB is the
-\term{space-filling loss} of the cubic cell: a cube is not a sphere.
+rate--distortion bound. In plain words: the dumbest possible quantiser, evenly spaced rungs on a
+ladder, is within a quarter of a bit of perfection, \emph{provided} an entropy coder makes the
+common rungs cheap and the rare ones expensive.
+
+
+\begin{deeper}[Where the 1.53\,dB comes from]
+A uniform quantiser with small step $\Delta$ has distortion $\Delta^2/12$ and output entropy
+$H\approx h(X)-\log_2\Delta$, where $h(X)$ is the differential entropy (each cell has probability
+about $f(x)\Delta$). Eliminating $\Delta$ gives $D\approx\frac{1}{12}2^{2h(X)}2^{-2H}$, and for the
+Gaussian $2^{2h(X)}=2\pi e\sigma^2$, so $D\approx\frac{\pi e}{6}\sigma^2 2^{-2H}$. Comparing with
+$D(R)=\sigma^22^{-2R}$ gives the factor $\pi e/6=1.42$, or 1.53\,dB. The remarkable fact is that the
+same 1.53\,dB gap to the Shannon lower bound holds for \emph{any} smooth source density, and that no
+scalar quantiser of any shape, with or without entropy coding, does better at high rate. The
+remaining 1.53\,dB is the \term{space-filling loss} of the cubic cell: in many dimensions, a cube
+is a poor approximation to a sphere.
+\end{deeper}
+
+That result is the justification for the architecture of practically every modern codec: a
+\emph{uniform} quantiser (with a slightly widened zero cell, the \term{deadzone}, which helps at low
+rates) followed by a good adaptive entropy coder.
 
 \subsection{Vector quantisation}
 
-A \term{vector quantiser} (VQ) maps a block of $k$ samples to the nearest of $N$ code vectors, sending
-$\log_2N$ bits, or $R=\log_2N/k$ bits per sample. Shannon's source coding theorem is itself a
-statement about vector quantisation in the limit $k\to\infty$, and a VQ has three advantages over
-scalar quantisation, identified by Lookabaugh and Gray in 1989:
+
+A \term{vector quantiser} (VQ) maps a block of $k$ samples to the nearest of $N$ code vectors,
+sending $\log_2N$ bits, or $R=\log_2N/k$ bits per sample. Think of it as rounding not each number
+separately but a whole list at once, to the nearest of a catalogue of typical lists. Shannon's
+source coding theorem is itself a statement about vector quantisation in the limit $k\to\infty$,
+and a VQ has three advantages over scalar quantisation, identified by Lookabaugh and Gray in 1989:
 \begin{itemize}[nosep]
-\item \emph{Space-filling advantage}: cells in $k$ dimensions can be more sphere-like than cubes.
+\item \emph{Space-filling advantage}: cells in $k$ dimensions can be more sphere-like than cubes (Figure~\ref{fig:ch16_vq_cells}).
 This is what closes the 1.53\,dB gap, and only slowly: about 0.17\,dB for the hexagonal lattice in two
 dimensions and about 1.0\,dB for the 24-dimensional Leech lattice.
 \item \emph{Shape advantage}: cells can be concentrated where the probability density is high.
@@ -542,6 +751,11 @@ dimensions and about 1.0\,dB for the 24-dimensional Leech lattice.
 panel of Figure~\ref{fig:ch16_quantizers}, where the cells line up along the diagonal. For
 correlated sources this is by far the largest gain.
 \end{itemize}
+\begin{figure}[H]\centering\includegraphics[width=0.5\linewidth]{figs/ch16_vq_cells}\caption{The space-filling advantage. Quantising two numbers separately tiles
+the plane with squares; a two-dimensional vector quantiser can use hexagons, which are rounder and so
+have a smaller mean-squared error for the same number of cells per unit area---0.17\,dB in two
+dimensions, rising slowly towards 1.53\,dB as the dimension grows.}\label{fig:ch16_vq_cells}\end{figure}
+
 Codebooks are designed with the generalised Lloyd algorithm (the LBG algorithm of Linde, Buzo and
 Gray, 1980, known in machine learning as $k$-means): alternately assign training vectors to their
 nearest code vectors and move each code vector to the centroid of its cell. The difficulty is
@@ -553,29 +767,65 @@ trellis-coded quantisation in JPEG~2000 Part~2, and, most recently, the residual
 codecs (Section~\ref{sec:ch16:neural}). Most sources with memory, however, are handled a different
 way: decorrelate first with a transform or a predictor, then use scalar quantisers.
 
+\mdcfig{ch16_dct_recipe}{The DCT as a recipe. Top: a real $8\times8$ block from the portrait (chin
+and lower lip) equals 222 units of the flat pattern, plus 208 of a vertical gradient, minus 207 of
+a vertical cosine, and so on: five patterns carry almost all of it. Bottom: rebuilding the block
+from the first 1, 3, 6, 10, 21 and 64 coefficients in zig-zag order. With ten coefficients the rms
+error is under 8 grey levels.}
+
+\begin{tryit}[Run Lloyd's algorithm by hand]
+In Lab 24's \emph{Quantisers and Lloyd--Max} experiment, set \emph{Source distribution} to
+Gaussian and \emph{Bits per sample} to 3, then drag \emph{Lloyd iterations} from 0 upwards one
+step at a time. Watch the triangles (levels) slide outwards and the gain climb towards 0.35\,dB.
+Switch to Laplacian---the peaky shape of speech samples and DCT coefficients---and the gain over a
+uniform quantiser grows to well over a decibel. With Uniform, Lloyd has nothing to improve.
+\end{tryit}
+
 \subsection{Transform coding}
 
-Consider a block of $N$ samples $\vect{x}$ with covariance matrix $\vect{R}_x$ and an orthonormal
-transform $\vect{y}=\vect{T}\vect{x}$. The coefficient $y_i$ has variance $\sigma_i^2$, and
-orthonormality preserves both total energy and squared error, so quantisation noise in the
-coefficients appears unchanged in the reconstruction. Suppose each coefficient is quantised with
-$b_i$ bits by a quantiser with distortion $D_i=c\,\sigma_i^2\,2^{-2b_i}$ (the high-rate model; $c$
-is 1 for an ideal coder and $\pi e/6$ for ECSQ). Minimising $\sum_iD_i$ subject to an average rate
-$\bar b=\frac1N\sum_ib_i$ with a Lagrange multiplier gives the classic \term{bit allocation} rule
+\begin{analogy}[A picture as a recipe of checkerboards]
+You can describe an $8\times8$ patch of a photograph pixel by pixel---64 numbers, all about equally
+important. Or you can describe it as a recipe: ``mostly this flat grey, plus a fair amount of a
+dark-at-the-bottom gradient, plus a pinch of horizontal stripes'' (Figure~\ref{fig:ch16_dct_recipe}).
+For natural images the recipe has a few big ingredients and many tiny ones, and you can leave the
+tiny ones out without anyone tasting the difference. The discrete cosine transform finds that
+recipe: it says how much of each of 64 standard checkerboard patterns the block contains. The
+limit of the analogy: the patterns are fixed in advance, so content that is not smooth---text,
+sharp edges, noise---needs many ingredients.
+\end{analogy}
+
+\mdcpairany{ch16_dct_basis}{The 64 basis images of the $8\times8$ two-dimensional DCT, from the
+constant (DC) image at top left to the finest checkerboard at bottom right. Horizontal frequency
+increases to the right, vertical frequency downwards. Every $8\times8$ block of a JPEG image is a
+weighted sum of these patterns, and the weights are what the encoder quantises.}{ch16_compaction}{Energy
+compaction on the portrait: averaged over all 1024 blocks, the first 6 DCT coefficients in zig-zag
+order hold 93\% of the energy. For white noise of the same power (grey) every coefficient holds the
+same share, and the transform buys nothing.}
+
+Here is the mathematics behind the recipe. Consider a block of $N$ samples $\vect{x}$ with
+covariance matrix $\vect{R}_x$ and an orthonormal transform $\vect{y}=\vect{T}\vect{x}$. The
+coefficient $y_i$ has variance $\sigma_i^2$, and orthonormality preserves both total energy and
+squared error, so quantisation noise in the coefficients appears unchanged in the reconstruction.
+Suppose each coefficient is quantised with $b_i$ bits by a quantiser with distortion
+$D_i=c\,\sigma_i^2\,2^{-2b_i}$ (the high-rate model; $c$ is 1 for an ideal coder and $\pi e/6$ for
+ECSQ). Minimising $\sum_iD_i$ subject to an average rate $\bar b=\frac1N\sum_ib_i$ with a Lagrange
+multiplier gives the classic \term{bit allocation} rule
 \begin{equation}
 b_i=\bar b+\frac12\log_2\frac{\sigma_i^2}{\left(\prod_j\sigma_j^2\right)^{1/N}},
 \label{eq:ch16:bitalloc}
 \end{equation}
 with every coefficient getting the same distortion $D_i=c\,2^{-2\bar b}(\prod_j\sigma_j^2)^{1/N}$.
-Coefficients with twice the standard deviation get one more bit. Compared with quantising the
-samples directly at $\bar b$ bits each, the distortion falls by the \term{coding gain}
+Read it as ``spend bits on big coefficients'': a coefficient with twice the standard deviation
+gets one more bit. Compared with quantising the samples directly at $\bar b$ bits each, the
+distortion falls by the \term{coding gain}
 \begin{equation}
 G_{\text{TC}}=\frac{\frac1N\sum_i\sigma_i^2}{\left(\prod_i\sigma_i^2\right)^{1/N}},
 \label{eq:ch16:tcgain}
 \end{equation}
 the ratio of the arithmetic to the geometric mean of the coefficient variances. It is at least one,
 with equality only when all variances are equal, and it is largest when the transform packs the
-energy into as few coefficients as possible.
+energy into as few coefficients as possible---exactly what Figure~\ref{fig:ch16_compaction} shows
+for a real photograph.
 
 The transform that maximises~\eqref{eq:ch16:tcgain} is the \term{Karhunen--Lo\`eve transform}
 (KLT), whose rows are the eigenvectors of $\vect{R}_x$; the coefficients are then uncorrelated and
@@ -607,23 +857,6 @@ implicitly extends the block symmetrically rather than periodically. The eight-p
 become one of the most computed transforms in history: it is inside every JPEG, MPEG and H.26x
 codec, and the integer transforms of H.264, HEVC and VVC are its descendants.
 
-\begin{figure}[htbp]\centering
-\includegraphics[width=0.36\linewidth]{figs/ch16_dct_basis}
-\caption{The 64 basis images of the $8\times8$ two-dimensional DCT, from the constant (DC) image at
-top left to the finest checkerboard at bottom right. Horizontal frequency increases to the right,
-vertical frequency downwards. Every $8\times8$ block of a JPEG image is a weighted sum of these
-patterns, and the weights are what the encoder quantises.}
-\label{fig:ch16_dct_basis}
-\end{figure}
-
-\mdcfig{ch16_coding_gain}{Left: coding gain of the KLT (solid, pale) and the DCT (dashed) for an
-AR(1) source, for block sizes 4, 8 and 16; the dotted curve is the infinite-block limit
-$1/(1-\rho^2)$. The DCT is within a few hundredths of a decibel of the optimum. Right: variances of
-the 64 coefficients of the $8\times8$ DCT measured on the 256$\times$256 portrait of
-Figure~\ref{fig:ch16_jpeg_quality}, sorted, with the reverse water-filling level for an average of
-1 bit per pixel. Only 47 coefficients rise above the water level and receive bits (orange curve);
-the DC coefficient receives almost 6.}
-
 \begin{worked}[The coding gain of a two-point transform]
 Take pairs of samples from an AR(1) source with unit variance and correlation $\rho=0.95$. The
 covariance matrix is $\begin{bsmallmatrix}1&\rho\\ \rho&1\end{bsmallmatrix}$, whose eigenvectors are
@@ -643,46 +876,76 @@ on real images, which are not stationary, larger blocks also spread quantisation
 larger area.
 \end{worked}
 
+\mdcfig{ch16_coding_gain}{Left: coding gain of the KLT (solid, pale) and the DCT (dashed) for an
+AR(1) source, for block sizes 4, 8 and 16; the dotted curve is the infinite-block limit
+$1/(1-\rho^2)$. The DCT is within a few hundredths of a decibel of the optimum. Right: variances of
+the 64 coefficients of the $8\times8$ DCT measured on the 256$\times$256 portrait of
+Figure~\ref{fig:ch16_jpeg_quality}, sorted, with the reverse water-filling level for an average of
+1 bit per pixel. Only 47 coefficients rise above the water level and receive bits (orange curve);
+the DC coefficient receives almost 6.}
+
+\begin{tryit}[Throw away coefficients]
+In Lab 24, open \emph{DCT energy compaction} with the \emph{Photograph}. Move \emph{Block column}
+and \emph{Block row} onto a smooth cheek, then onto an eye, and drag \emph{Coefficients kept}
+from 64 down to 3. On the smooth block three coefficients look perfect; on the eye they do not.
+Then switch \emph{Image} to \emph{White noise}: the coefficient bars flatten out and no amount of
+cleverness lets you drop any.
+\end{tryit}
+
 \subsubsection{Reverse water-filling}
 
 The bit allocation~\eqref{eq:ch16:bitalloc} can produce negative $b_i$ for coefficients with small
 variance, which is meaningless. The exact solution for Gaussian coefficients, from rate--distortion
-theory, is \term{reverse water-filling}. Choose a ``water level'' $\theta$; each coefficient gets
+theory, is \term{reverse water-filling}. Picture the coefficient variances as a row of hills of
+different heights, and flood the landscape to a ``water level'' $\theta$. Each coefficient gets
 \begin{equation}
 D_i=\min(\theta,\sigma_i^2),\qquad R_i=\max\!\Big(0,\tfrac12\log_2\frac{\sigma_i^2}{\theta}\Big),
 \label{eq:ch16:reversewf}
 \end{equation}
-and $\theta$ is adjusted until the total rate matches the budget. Coefficients with variance below
-the water level are not sent at all: the decoder sets them to zero and accepts their whole variance
-as distortion. This is the theoretical basis of the most visible behaviour of every transform codec:
-at low rates, high-frequency coefficients are discarded entirely. On the real image of
-Figure~\ref{fig:ch16_coding_gain}, the 64 DCT coefficients have a coding gain of 12.6\,dB, and at an
-average of 1 bit per pixel reverse water-filling gives bits to 47 of them and nothing to the other 17.
+and $\theta$ is adjusted until the total rate matches the budget. Only the hilltops that stick out
+of the water are described; the submerged ones are not sent at all, and the decoder sets them to
+zero and accepts their whole variance as distortion. This is the theoretical basis of the most
+visible behaviour of every transform codec: at low rates, high-frequency coefficients are discarded
+entirely. On the real image of Figure~\ref{fig:ch16_coding_gain}, the 64 DCT coefficients have a
+coding gain of 12.6\,dB, and at an average of 1 bit per pixel reverse water-filling gives bits to
+47 of them and nothing to the other 17.
+
 Practical codecs use quantisation tables and deadzones rather than explicit bit allocation because,
 with entropy coding, a uniform quantiser with the same step size for every coefficient implements
 \eqref{eq:ch16:reversewf} automatically: equal steps mean equal distortion, the entropy coder spends
 about $\frac12\log_2(\sigma_i^2/\theta)$ bits where the variance is large, and a coefficient smaller
 than half a step quantises to zero and costs almost nothing.
 
+
+\begin{figure}[H]\centering\includegraphics[width=0.92\linewidth]{figs/ch16_dpcm_residual}\caption{Prediction at work on the portrait. Left: one row of pixels (navy)
+and the error of the simplest possible predictor, ``same as the pixel to the left'' (red), which is
+near zero except at edges. Right: over the whole image the errors are sharply peaked at zero, and
+their variance is 9.3\,dB below that of the pixels---a prediction gain worth about 1.5 bits per
+pixel.}\label{fig:ch16_dpcm_residual}\end{figure}
+
 \subsection{Predictive coding and the spectral flatness}
 
-The differential PCM of Chapter~\ref{ch:pcm} is the other route to decorrelation. A linear
-predictor of order $p$ estimates $x_n$ from $x_{n-1},\dots,x_{n-p}$, and only the prediction error,
-with variance $\sigma_e^2$, is quantised. The \term{prediction gain} $G_p=\sigma_x^2/\sigma_e^2$
-increases with order to the limit
+The differential PCM of Chapter~\ref{ch:pcm} is the other route to decorrelation: instead of
+describing each sample, describe how wrong your best guess was. A linear predictor of order $p$
+estimates $x_n$ from $x_{n-1},\dots,x_{n-p}$, and only the prediction error (Figure~\ref{fig:ch16_dpcm_residual}), with variance
+$\sigma_e^2$, is quantised. The \term{prediction gain} $G_p=\sigma_x^2/\sigma_e^2$ increases with
+order to the limit
 \begin{equation}
 G_\infty=\frac{\frac{1}{2\pi}\int_{-\pi}^{\pi}S_x(e^{j\omega})\,d\omega}{\exp\!\left(\frac{1}{2\pi}\int_{-\pi}^{\pi}\ln S_x(e^{j\omega})\,d\omega\right)}
 =\frac{1}{\gamma_x^2},
 \label{eq:ch16:sfm}
 \end{equation}
 where $\gamma_x^2$ is the spectral flatness measure: one for white noise, near zero for a sharply
-peaked spectrum. It is the same quantity that limits the coding gain of an infinitely large
+peaked spectrum. In words: the more ``coloured'' the spectrum, the more predictable the signal and
+the bigger the gain. It is the same quantity that limits the coding gain of an infinitely large
 transform, and for an AR(1) source $G_\infty=1/(1-\rho^2)$, already reached with a first-order
-predictor. The two approaches differ in the details: prediction works sample by sample with no block
-delay and suits low-delay speech coding, while transform coding lets the quantisation noise be
-shaped in frequency, which perceptual coding needs. The predictor must run on reconstructed samples
-(closed loop), or quantisation errors accumulate at the decoder---a lesson re-learned by every
-generation of video coding engineers, who call the resulting divergence \term{drift}.
+predictor.
+
+The two approaches differ in the details: prediction works sample by sample with no block delay and
+suits low-delay speech coding, while transform coding lets the quantisation noise be shaped in
+frequency, which perceptual coding needs. The predictor must run on reconstructed samples (closed
+loop), or quantisation errors accumulate at the decoder---a lesson re-learned by every generation of
+video coding engineers, who call the resulting divergence \term{drift}.
 
 \begin{keyidea}[Decorrelate, quantise uniformly, entropy code]
 For sources with memory, the best practical recipe is to decorrelate the samples with a transform
@@ -694,6 +957,11 @@ simplicity. Perceptual codecs modify only one thing: they make the step size dep
 or visible the error is in each coefficient.
 \end{keyidea}
 
+\mdcfig{ch16_mse_perception}{Same error power, very different pictures. Each image has a PSNR of
+about 23.7\,dB against the original: brightened by a constant (barely noticeable), blurred (clearly
+soft), and JPEG-coded at quality 5 (blocky). A mean-squared-error meter cannot tell them apart; your
+eye ranks them instantly.}
+
 \begin{pitfall}[Mean-squared error is not what people perceive]
 All the theory above minimises mean-squared error because it is tractable, not because it is right.
 A codec tuned only for SNR or PSNR produces blurry images and muffled speech that score well
@@ -702,14 +970,30 @@ PSNR. Speech codecs weight their error spectrally; audio codecs follow a masking
 video codecs are increasingly tuned with perceptual metrics (SSIM, VMAF and learned metrics) and
 with ``psycho-visual'' options that deliberately put energy back into flattened textures. Always
 check a codec's output by looking and listening, and be suspicious of any comparison made at a
-single PSNR value.
+single PSNR value. Figure~\ref{fig:ch16_mse_perception} makes the point with three pictures of
+identical PSNR.
 \end{pitfall}
-
 
 %======================================================================
 \section{Speech coding}
 \label{sec:ch16:speech}
 %======================================================================
+
+Why does a phone call sound like a phone call? Close your eyes while a friend talks to you across
+a table and then over an old landline, and you would never confuse the two. The landline voice is
+thin and a little muffled; ``f'' and ``s'' blur together, which is why people spell names on the
+phone with ``S as in Sugar''. The reason is not the codec at all but the band: the classic
+telephone channel passes only 300--3400\,Hz, and Figure~\ref{fig:ch16_phone_band} shows what that
+does to a hissing /s/. The handset itself (Figure~\ref{fig:ch16_handset}) was built for that band. Today's ``HD voice'' codecs widen the band to 7\,kHz or more, and the
+difference is immediately audible.
+
+
+\mdcpairany[H]{ch16_handset}{Inside a telephone handset: a dynamic microphone capsule at one end and
+an earpiece at the other. For a century the network behind it was engineered around the
+300--3400\,Hz band that these transducers and the loaded cable pairs could carry.}{ch16_phone_band}{Why
+a phone call sounds ``phone-y''. A vowel's energy sits mostly below 3.4\,kHz, but almost all of the
+energy of a fricative /s/ lies above it: in this synthetic example only 1.6\% of it survives the
+telephone band (navy), while a 7\,kHz wideband (``HD voice'') channel keeps 84\% of it (green).}
 
 Speech was the first signal to be compressed and remains the one for which the most specialised
 models exist, because it comes from a single, well-understood instrument. Its codecs span a range
@@ -718,33 +1002,68 @@ without losing quality is the story of linear prediction.
 
 \subsection{How speech is produced}
 
+\mdcpairany{ch16_vocaltract}{The instrument: a mid-sagittal section of the head. The vocal tract
+runs from the vocal folds (black, in the larynx) up through the pharynx and out through the mouth,
+with the nasal cavity as a side branch. Its length, about 17\,cm in an adult man, sets the formant
+frequencies.}{ch16_vocalfolds}{The vocal folds seen from above through a laryngoscope, held open for
+breathing. In voiced speech they snap together and apart about a hundred times a second, chopping
+the airflow into the pulses of the ``buzz''.}
+
+\begin{analogy}[A buzz shaped by a tube]
+Blow a raspberry through your lips and you have a buzz; hum through a cardboard tube and the tube
+colours the buzz. Your voice works the same way. The vocal folds in your larynx chop the airflow
+from your lungs into a buzz of pulses---about 120 a second for a typical man's voice. The throat
+and mouth form a tube about 17\,cm long whose shape, set by your tongue, jaw and lips, makes
+some frequencies ring and others die away (Figure~\ref{fig:ch16_source_filter}). Change the tube's
+shape and the same buzz becomes ``ah'', ``ee'' or ``oo''. The limit of the analogy: for consonants
+like /s/ and /f/ there is no buzz at all, just the hiss of air forced through a narrow gap.
+\end{analogy}
+
 Air from the lungs passes through the larynx, where the vocal folds either vibrate or stay open,
 and then through the \emph{vocal tract}---the pharynx, mouth and, for nasal sounds, the nasal
-cavity---before radiating from the lips. Two kinds of excitation result. In \emph{voiced} sounds
-(vowels, and consonants such as \emph{m}, \emph{l} and \emph{z}) the folds open and close
-periodically, producing a train of airflow pulses at the \term{fundamental frequency} or
-\emph{pitch} $f_0$, typically 80--180\,Hz for adult men, 160--300\,Hz for women and higher for
-children. In \emph{unvoiced} sounds (\emph{s}, \emph{f}, \emph{sh}) the excitation is turbulent
-noise generated at a constriction. Plosives (\emph{p}, \emph{t}, \emph{k}) add a brief burst after
-a closure.
+cavity---before radiating from the lips (Figures~\ref{fig:ch16_vocaltract} and~\ref{fig:ch16_vocalfolds}). Two kinds of excitation
+result. In \emph{voiced} sounds (vowels, and consonants such as \emph{m}, \emph{l} and \emph{z})
+the folds open and close periodically, producing a train of airflow pulses at the
+\term{fundamental frequency} or \emph{pitch} $f_0$, typically 80--180\,Hz for adult men,
+160--300\,Hz for women and higher for children. In \emph{unvoiced} sounds (\emph{s}, \emph{f},
+\emph{sh}) the excitation is turbulent noise generated at a constriction. Plosives (\emph{p},
+\emph{t}, \emph{k}) add a brief burst after a closure.
 
-The vocal tract, an acoustic tube about 17\,cm long in an adult male, shapes the excitation's
-spectrum. Its resonances, the \term{formants}, appear as peaks in the spectral envelope at roughly
-500, 1500 and 2500\,Hz for a uniform tube, and the tongue, jaw and lips move them to make the
-different vowels: /a/ as in \emph{father} has its first two formants near 730 and 1090\,Hz, /i/ as
-in \emph{beet} near 270 and 2290\,Hz. This is the \term{source--filter model}: speech is an
-excitation (periodic pulses or noise) passed through a slowly varying linear filter. The filter
-changes as the articulators move, but slowly---over tens of milliseconds---so it can be treated as
-fixed over a \emph{frame} of 10--30\,ms. The consequence for compression is profound. Instead of
-coding the waveform, a codec can send the filter parameters and a description of the excitation
-once per frame. A 20\,ms frame of 8\,kHz speech has 160 samples, but the filter is described by
-about ten numbers.
+The vocal tract shapes the excitation's spectrum. Its resonances, the \term{formants}, appear as
+peaks in the spectral envelope at roughly 500, 1500 and 2500\,Hz for a uniform tube, and the
+tongue, jaw and lips move them to make the different vowels: /a/ as in \emph{father} has its
+first two formants near 730 and 1090\,Hz, /i/ as in \emph{beet} near 270 and 2290\,Hz
+(Figures~\ref{fig:ch16_vowel_chart} and~\ref{fig:ch16_spectrogram}). This is the \term{source--filter model}: speech is an
+excitation (periodic pulses or noise) passed through a slowly varying linear filter.
+
+\mdcfig{ch16_source_filter}{The source--filter model in three pictures. Left: the glottal buzz is a
+comb of harmonics at multiples of the pitch (here 125\,Hz), falling smoothly with frequency. Centre:
+the vocal tract for /a/ is a filter with resonances---formants---near 730, 1090, 2440 and
+3400\,Hz. Right: the vowel's spectrum is their product: the same harmonics, now with the formant
+envelope (pale) stamped on them.}
+
+The filter changes as the articulators move, but slowly---over tens of milliseconds---so it can be
+treated as fixed over a \emph{frame} of 10--30\,ms. The consequence for compression is profound.
+Instead of coding the waveform, a codec can send the filter parameters and a description of the
+excitation once per frame. A 20\,ms frame of 8\,kHz speech has 160 samples, but the filter is
+described by about ten numbers.
 
 Figure~\ref{fig:ch16_vowel_lpc} shows the model at work on a synthetic vowel /a/, generated by
 passing a train of glottal pulses at 120\,Hz through four formant resonators and a lip-radiation
-differentiator---a classic formant synthesiser in the tradition of Dennis Klatt's.
-The spectrum (panel b) shows the fine structure of the pitch harmonics, 120\,Hz apart, under the
-smooth envelope of the formants.
+differentiator---a classic formant synthesiser in the tradition of Dennis Klatt's. The spectrum
+(panel b) shows the fine structure of the pitch harmonics, 120\,Hz apart, under the smooth envelope
+of the formants.
+
+\mdcpairany{ch16_vowel_chart}{The vowel map: average first and second formant frequencies of
+American English vowels spoken by men, from the classic 1952 measurements of Peterson and Barney.
+Axes are reversed so that the chart resembles the position of the tongue in the
+mouth.}{ch16_spectrogram}{A spectrogram of synthetic speech: /a/, /s/, /i/, /u/. Horizontal
+stripes are the pitch harmonics; the dark bands that move from vowel to vowel are the formants. The
+/s/ is a cloud of noise above 4\,kHz, almost entirely above the telephone cut-off
+(dashed).}
+
+\subsection{Linear prediction}
+\label{sec:ch16:lpc}
 
 \mdcfig{ch16_vowel_lpc}{Linear prediction of a synthetic vowel /a/ (8\,kHz sampling). (a) The
 speech waveform and the prediction residual $e[n]$ of a 10th-order LPC inverse filter: the
@@ -756,8 +1075,10 @@ ten capture the formants, and higher orders add almost nothing. (d) The poles of
 roots of the line-spectral polynomials $P(z)$ and $Q(z)$, which lie on the unit circle and
 interleave; pairs of LSFs cluster around each formant.}
 
-\subsection{Linear prediction}
-\label{sec:ch16:lpc}
+How do we measure the tube from the sound alone? The trick is prediction. If the tube rings,
+each sample is largely an echo of the last few, so we can guess it from them; the part we
+\emph{cannot} guess is the buzz. Fitting the best predictor is therefore the same as measuring the
+tube, and what the predictor misses is the excitation.
 
 \term{Linear predictive coding} (LPC) fits an all-pole filter $1/A(z)$ to each frame, with
 \begin{equation}
@@ -779,8 +1100,7 @@ be solved in $O(p^2)$ operations, and the resulting synthesis filter $1/A(z)$ is
 alternative \emph{covariance method} computes the correlation without windowing; it fits short frames
 better but does not guarantee stability.)
 
-\subsubsection{The Levinson--Durbin recursion}
-
+\begin{deeper}[The Levinson--Durbin recursion]
 The recursion that solves~\eqref{eq:ch16:normal}, found by Norman Levinson in 1947 for Wiener
 filtering and refined by James Durbin in 1960, builds the order-$i$ predictor from the order-$(i-1)$
 one. Start with $E_0=r[0]$ and for $i=1,\dots,p$ compute
@@ -798,6 +1118,12 @@ cross-sectional areas. Equation~\eqref{eq:ch16:leve} shows that the error energy
 and that stability is equivalent to $|k_i|<1$ for all $i$, a condition trivially checked after
 quantisation. The reflection coefficients also define the \emph{lattice filter} structure, which
 implements $A(z)$ or $1/A(z)$ stage by stage and is robust to coefficient quantisation.
+\end{deeper}
+
+\mdcfig{ch16_lpc_orders}{What the predictor order buys, on a frame of the synthetic vowel /a/.
+Order 1 captures only the spectral tilt; orders 2 and 4 find one broad hump; order 10 resolves all
+four formants at 730, 1090, 2440 and 3400\,Hz and ignores the harmonic fine structure, which is left
+for the excitation to describe.}
 
 \begin{worked}[A second-order predictor by hand]
 A voiced frame has normalised autocorrelation $r[0]=1$, $r[1]=0.8$, $r[2]=0.5$. Find the
@@ -814,7 +1140,7 @@ $(1.111,-0.389)$ satisfy~\eqref{eq:ch16:normal}.
 The roots of $z^2-1.111z+0.389$ are $0.556\pm j0.283$, with radius $\sqrt{0.389}=0.624$ and angle
 $27.0^\circ$. At 8\,kHz sampling the angle corresponds to $27.0/360\times8000=600$\,Hz, and the radius
 to a 3\,dB bandwidth of roughly $-f_s\ln(0.624)/\pi=1.2$\,kHz: a single broad resonance, which is all
-two coefficients can describe. With order 10, as in panel (d) of Figure~\ref{fig:ch16_vowel_lpc},
+two coefficients can describe (Figure~\ref{fig:ch16_lpc_orders}). With order 10, as in panel (d) of Figure~\ref{fig:ch16_vowel_lpc},
 the poles of the synthetic /a/ land at 706, 1089, 2443 and 3402\,Hz with radii 0.94--0.97, tracking the
 true formants to within a few per cent.
 \end{worked}
@@ -840,6 +1166,14 @@ immediate stability check, and an error in one LSF affects the spectrum only nea
 Split or multistage vector quantisers code ten LSFs in 18--46 bits per frame with an average spectral
 distortion of about 1\,dB, the accepted threshold of transparency.
 
+\begin{tryit}[Be a vocoder]
+Lab 24's \emph{LPC: a buzz and a filter} analyses a synthetic vowel and resynthesises it. Pick
+\emph{Vowel} /a/ and press both \emph{Listen} buttons. Now drag \emph{LPC order p} down to 2 and
+listen again: the vowel turns into a dull ``uh'' because two coefficients describe one broad
+resonance. Restore $p=10$, then drag \emph{New pitch} from 180 to 300\,Hz---the same tube, a
+different buzz---and finally set \emph{Resynthesis excitation} to \emph{Noise (whisper)}.
+\end{tryit}
+
 \subsection{Vocoders: sending the model, not the wave}
 
 A \term{vocoder} (voice coder) transmits only the model: the filter parameters, a voiced/unvoiced
@@ -848,16 +1182,37 @@ generator and passes it through the synthesis filter. Because no attempt is made
 waveform, the rate can be extremely low, and the speech, though intelligible, sounds synthetic---the
 famous buzzy ``robot'' quality of military radio.
 
+
+\mdcphoto[0.45]{ch16_stu3}{A STU-III secure telephone (introduced 1987), on display at the US
+National Cryptologic Museum. Its 2.4\,kb/s LPC-10 mode let encrypted speech cross an ordinary
+telephone line through a modem.}
+
 The US Federal Standard 1015 \term{LPC-10} vocoder (1984) sends ten reflection coefficients, pitch,
 voicing and gain in 54 bits every 22.5\,ms, a total of 2.4\,kb/s, which fitted the HF radio and secure
-telephone (STU-III) channels of its day. Its successor, the \term{MELP} (mixed-excitation linear
-prediction) coder, selected as the new US federal standard in 1996 (later MIL-STD-3005), mixes pulse and noise excitation in several frequency bands,
-adds aperiodic pulses for transitions and shapes the pulses, and gives much more natural speech at
-the same 2.4\,kb/s. Its enhanced version MELPe is NATO's standard STANAG 4591 at 2.4, 1.2 and
-0.6\,kb/s. Vocoders live on wherever bits are extremely scarce: in military tactical radio, in
-satellite telephony (the IMBE and AMBE family of multiband-excitation vocoders in Iridium, Inmarsat and
-digital land-mobile radio such as P25 and DMR, at 2.4--4.8\,kb/s), and in open-source
-amateur-radio codecs such as Codec~2 at 0.7--3.2\,kb/s.
+telephone (STU-III, Figure~\ref{fig:ch16_stu3}) channels of its day. Its successor, the \term{MELP} (mixed-excitation linear
+prediction) coder, selected as the new US federal standard in 1996 (later MIL-STD-3005), mixes pulse
+and noise excitation in several frequency bands, adds aperiodic pulses for transitions and shapes the
+pulses, and gives much more natural speech at the same 2.4\,kb/s. Its enhanced version MELPe is
+NATO's standard STANAG 4591 at 2.4, 1.2 and 0.6\,kb/s.
+
+Vocoders live on wherever bits are extremely scarce: in military tactical radio, in satellite
+telephony (the IMBE and AMBE family of multiband-excitation vocoders in Iridium, Inmarsat and
+digital land-mobile radio such as P25 and DMR, at 2.4--4.8\,kb/s), and in open-source amateur-radio
+codecs such as Codec~2 at 0.7--3.2\,kb/s. What they all share is the bet that the listener needs to
+understand the words, not to hear the exact waveform. At 2.4\,kb/s, a vocoder sends roughly one bit
+for every three samples of telephone speech; even the earliest digital telephone channel spent
+eight. The cost is naturalness, and the remarkable achievement of the next twenty years of speech
+coding was to buy most of the naturalness back while staying far closer to the vocoder's rate
+than to PCM's.
+
+\mdcpairany{ch16_voder}{The Voder at the 1939 New York World's Fair, at the Bell System exhibit. An
+operator at the console ``played'' speech with keys selecting band-pass filters, a wrist bar
+switching between buzz and hiss, and a foot pedal setting the pitch---a source--filter synthesiser
+built from vacuum tubes. Photograph from Dudley's 1940 \emph{Bell System Technical Journal}
+paper.}{ch16_sigsaly_record}{A SIGSALY key record at the US National Cryptologic Museum. Each
+phonograph disc carried random key values that were added, modulo six, to the quantised vocoder
+channels; only two copies of each record were made, one for each end of the link, and each was used
+once.}
 
 \begin{history}[From the Voder to SIGSALY]
 Homer Dudley of Bell Telephone Laboratories began working on the vocoder in the late 1920s,
@@ -867,45 +1222,20 @@ times per second, not in the kilohertz waveform. His vocoder, patented in the 19
 with a bank of ten band-pass filters, sent the slowly varying energy in each band together with a
 pitch signal, and resynthesised the speech from a buzz or hiss source at the far end. Its manual
 cousin, the \emph{Voder}, was operated by trained women at a keyboard and pedal board and ``spoke''
-to amazed crowds at the 1939 New York World's Fair.
+to amazed crowds at the 1939 New York World's Fair (Figure~\ref{fig:ch16_voder}).
 
 The vocoder's first serious use was secret. In 1943 Bell Labs and the US Army put into service
 SIGSALY, a secure telephone system linking Washington and London (and later other Allied
 headquarters). A vocoder reduced speech to about a dozen slowly varying channels (ten spectral bands
-plus pitch information), each sampled 50 times a second and quantised to six levels; each sample was then added, modulo six, to a random key sample
-from a phonograph record of which exactly two copies existed, one at each end---a one-time pad
-applied to digitised speech. Each terminal filled a room, weighed tens of tonnes and needed its own
-air conditioning. Allied leaders, Churchill among them, and their senior commanders used it for the rest of the war,
-and it was never broken. SIGSALY was one of the first practical systems to transmit speech in digital
-form, and Alan Turing, who visited Bell Labs in 1943, studied it before designing his own speech
-scrambler. The line from SIGSALY runs through LPC-10 and MELP to the vocoder in every modern
-military radio.
+plus pitch information), each sampled 50 times a second and quantised to six levels; each sample was
+then added, modulo six, to a random key sample from a phonograph record (Figure~\ref{fig:ch16_sigsaly_record}) of which exactly two copies
+existed, one at each end---a one-time pad applied to digitised speech. Each terminal filled a room,
+weighed tens of tonnes and needed its own air conditioning. Allied leaders, Churchill among them, and
+their senior commanders used it for the rest of the war, and it was never broken. SIGSALY was one of
+the first practical systems to transmit speech in digital form, and Alan Turing, who visited Bell
+Labs in 1943, studied it before designing his own speech scrambler. The line from SIGSALY runs
+through LPC-10 and MELP to the vocoder in every modern military radio.
 \end{history}
-
-\subsection{Waveform coders: PCM and ADPCM}
-
-At the other extreme, \emph{waveform coders} try to reproduce the waveform sample by sample and
-make no assumption about the signal, so they work for any audio in the band---music, modem tones,
-DTMF signalling---and degrade gracefully. G.711 PCM at 64\,kb/s is the reference
-(Chapter~\ref{ch:pcm}). \term{ADPCM} (adaptive differential PCM) in ITU-T G.726 (1990, merging the
-earlier G.721 and G.723) runs at 16, 24, 32 or 40\,kb/s. It uses a backward-adaptive pole--zero
-predictor (two poles, six zeros) and a backward-adaptive quantiser step, both computed from the
-past decoded signal so that no side information is sent. At 32\,kb/s it gives quality close to G.711
-and it is the codec of DECT cordless telephones. ITU-T G.722 (1988) splits wideband speech into two
-subbands with a quadrature-mirror filterbank and codes each with ADPCM at 48--64\,kb/s total; it was
-the first wideband telephony codec and is still common in DECT and IP phones.
-
-\subsection{Analysis by synthesis: CELP}
-
-Waveform coders are robust but need 16\,kb/s or more; vocoders are efficient but sound synthetic.
-\term{Code-excited linear prediction} (\term{CELP}), published by Manfred Schroeder and Bishnu Atal in
-1985, found the middle ground that has dominated speech coding ever since. It keeps the LPC
-synthesis filter of the vocoder but replaces the crude pulse-or-noise excitation with one chosen
-from a codebook \emph{by trying the candidates and listening to the result}: the encoder contains a
-copy of the decoder and selects the excitation whose synthesised output best matches the input,
-according to a perceptually weighted error. This \term{analysis-by-synthesis} principle
-(Figure~\ref{fig:ch16_celp}) makes the codec a waveform coder of the vocal-tract output while
-sending only a vocoder's worth of parameters.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[
@@ -943,6 +1273,40 @@ that minimise the weighted error. The decoder is the upper-left half of the diag
 \label{fig:ch16_celp}
 \end{figure}
 
+\subsection{Waveform coders: PCM and ADPCM}
+
+At the other extreme, \emph{waveform coders} try to reproduce the waveform sample by sample and
+make no assumption about the signal, so they work for any audio in the band---music, modem tones,
+DTMF signalling---and degrade gracefully. G.711 PCM at 64\,kb/s is the reference
+(Chapter~\ref{ch:pcm}). \term{ADPCM} (adaptive differential PCM) in ITU-T G.726 (1990, merging the
+earlier G.721 and G.723) runs at 16, 24, 32 or 40\,kb/s. It uses a backward-adaptive pole--zero
+predictor (two poles, six zeros) and a backward-adaptive quantiser step (Figure~\ref{fig:ch16_adpcm}), both computed from the
+past decoded signal so that no side information is sent. At 32\,kb/s it gives quality close to G.711
+and it is the codec of DECT cordless telephones. ITU-T G.722 (1988) splits wideband speech into two
+subbands with a quadrature-mirror filterbank and codes each with ADPCM at 48--64\,kb/s total; it was
+the first wideband telephony codec and is still common in DECT and IP phones.
+
+
+\begin{figure}[H]\centering\includegraphics[width=0.92\linewidth]{figs/ch16_adpcm}\caption{Backward adaptation at work in a toy 4-bit ADPCM coder (a fixed first-order
+predictor and a Jayant step-size rule, simpler than G.726). When the loud vowel gives way to a quiet
+one, the step size (bottom) shrinks about tenfold within a few milliseconds, learned from the decoded
+signal alone, so no side information is sent and the quiet vowel is coded as accurately as the loud
+one. Overall SNR: 19.4\,dB at 32\,kb/s.}\label{fig:ch16_adpcm}\end{figure}
+
+\subsection{Analysis by synthesis: CELP}
+
+Waveform coders are robust but need 16\,kb/s or more; vocoders are efficient but sound synthetic.
+\term{Code-excited linear prediction} (\term{CELP}), published by Manfred Schroeder and Bishnu Atal in
+1985, found the middle ground that has dominated speech coding ever since. It keeps the LPC
+synthesis filter of the vocoder but replaces the crude pulse-or-noise excitation with one chosen
+from a codebook \emph{by trying the candidates and listening to the result}: the encoder contains a
+copy of the decoder and selects the excitation whose synthesised output best matches the input,
+according to a perceptually weighted error. Think of a tailor who, instead of measuring you, holds
+up every jacket in the shop and picks the one that looks best in the mirror. This
+\term{analysis-by-synthesis} principle (Figure~\ref{fig:ch16_celp}) makes the codec a waveform coder
+of the vocal-tract output while sending only a vocoder's worth of parameters.
+
+
 A CELP encoder processes each frame (typically 20\,ms) in four steps.
 \begin{enumerate}[nosep]
 \item \textbf{Short-term prediction.} Compute a 10th-order LPC filter from a windowed segment,
@@ -962,6 +1326,15 @@ needs no storage and can be searched quickly with nested loops and pruning.
 \item \textbf{Gains.} The two gains are vector quantised jointly, often with prediction of the
 fixed-codebook gain from past subframes.
 \end{enumerate}
+Figure~\ref{fig:ch16_celp_search} acts out a simplified version of steps 2 and 3 on a real excitation.
+
+\mdcfig{ch16_celp_search}{A toy CELP search on one 5\,ms subframe of the excitation of a slightly
+breathy synthetic vowel (simplified: matched directly in the residual domain, without the
+synthesis and weighting filters). (a) The adaptive codebook copies the past excitation from a lag
+of 134 samples---two pitch periods back, a classic choice when it matches better than one---and
+captures the glottal pulse, giving 8.2\,dB. (b) Four signed pulses on the interleaved tracks of
+G.729 fit the remainder. (c) Together they reach 10.7\,dB.}
+
 The error is weighted by $W(z)=A(z/\gamma_1)/A(z/\gamma_2)$, with $\gamma_1$ and $\gamma_2$ typically
 around 0.9 and 0.6. This filter de-emphasises the formant regions, so that the minimisation lets more
 of the quantisation noise sit under the formant peaks, where the speech masks it, and less in the
@@ -998,6 +1371,12 @@ unequal error protection discussed in Section~\ref{sec:ch16:jscc}.
 
 \subsection{Speech codecs in cellular networks}
 
+
+\begin{figure}[H]\centering\includegraphics[width=0.92\linewidth]{figs/ch16_amr_modes}\caption{AMR's codec mode adaptation in a GSM full-rate channel. The gross rate is
+fixed at 22.8\,kb/s; as the channel worsens the network moves to lower speech rates, and every
+kilobit taken from the speech is given to the convolutional code. Speech quality falls a little, but
+the call survives far deeper into the cell edge.}\label{fig:ch16_amr_modes}\end{figure}
+
 Speech coding in mobile networks is shaped by the channel. The first digital cellular systems had
 narrow, error-prone channels and needed codecs that were robust as well as efficient.
 \begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
@@ -1013,15 +1392,21 @@ approximately wireline quality and was adopted quickly.
 quality: in good conditions 12.2\,kb/s of speech and 10.6\,kb/s of convolutional coding; in poor
 conditions 4.75\,kb/s of speech and the rest spent on stronger channel coding. This \emph{codec mode
 adaptation} is a practical joint source--channel code (Section~\ref{sec:ch16:jscc}), and it extends
-cell-edge coverage by several decibels. The speech bits of each mode are sorted into classes by their
+cell-edge coverage by several decibels (Figure~\ref{fig:ch16_amr_modes}). The speech bits of each mode are sorted into classes by their
 perceptual sensitivity; the most important (class~1a) are protected by a CRC and the strongest code,
 and a frame with a failed CRC is discarded and concealed by extrapolation from the previous one.
 AMR is also the mandatory narrowband codec of UMTS.
+\begin{figure}[H]\centering\includegraphics[width=0.85\linewidth]{figs/ch16_codecs}\caption{Bit rates of speech and audio codecs discussed in this chapter, coloured by
+audio bandwidth, with the year of standardisation. Bars show the range of standard modes; dots mark
+single-rate codecs. Over thirty years, the rate for telephone-quality narrowband speech fell from 64
+to about 8\,kb/s, and then the effort switched to wider bandwidth and robustness rather than lower
+rate.}\label{fig:ch16_codecs}\end{figure}
+
 \item[AMR-WB (2001).] The wideband version (3GPP TS 26.190, identical to ITU-T G.722.2) samples at
 16\,kHz, codes the 50--6400\,Hz band with ACELP and regenerates 6.4--7\,kHz from noise, at nine rates
 from 6.6 to 23.85\,kb/s. It is the ``HD Voice'' of UMTS and LTE, and the improvement from adding the
 band above 3.4\,kHz is dramatic: consonants such as \emph{s} and \emph{f}, which differ mostly above
-3.4\,kHz, become distinguishable, and listening effort falls.
+3.4\,kHz, become distinguishable, and listening effort falls (Figure~\ref{fig:ch16_phone_band}).
 \item[EVS (2014).] The \term{Enhanced Voice Services} codec (3GPP TS 26.441 and TS 26.445), designed
 for VoLTE and carried into 5G voice, switches frame by frame between ACELP for speech and an MDCT
 transform coder for music and noise, covers narrowband to full band (20\,kHz) at 5.9 to 128\,kb/s, and
@@ -1030,6 +1415,7 @@ compact redundant copy of important parameters of an earlier frame inside the cu
 a lost packet can be partially reconstructed from a later one: forward error correction inside the
 codec, tuned to the packet-loss rates of a loaded radio network.
 \end{description}
+
 
 \begin{inpractice}[Opus: the codec of the internet]
 The \term{Opus} codec (IETF RFC~6716, 2012) is the dominant codec of interactive audio on the
@@ -1047,12 +1433,6 @@ second to second. It includes in-band forward error correction (a low-rate copy 
 frame) and packet-loss concealment.
 \end{inpractice}
 
-\mdcfig[0.85]{ch16_codecs}{Bit rates of speech and audio codecs discussed in this chapter, coloured by
-audio bandwidth, with the year of standardisation. Bars show the range of standard modes; dots mark
-single-rate codecs. Over thirty years, the rate for telephone-quality narrowband speech fell from 64
-to about 8\,kb/s, and then the effort switched to wider bandwidth and robustness rather than lower
-rate.}
-
 Figure~\ref{fig:ch16_codecs} summarises the landscape. Two trends stand out. First, below about
 8\,kb/s the quality of narrowband speech no longer improves much with rate; the effort since 2000 has
 gone into bandwidth (wideband, super-wideband and full band) and into robustness to packet loss.
@@ -1060,19 +1440,28 @@ Second, the boundary between speech and audio coding has dissolved: EVS and Opus
 speech coder and an MDCT audio coder and switch between them, and the same is true of the MPEG USAC
 (xHE-AAC) audio codec.
 
+\mdcpairany{ch16_emodel}{The E-model's map from transmission rating $R$ to estimated MOS (ITU-T
+G.107), with the user-satisfaction bands of ITU-T G.109. Each impairment---a low-rate codec, delay,
+echo, packet loss---subtracts from $R$; the default with no impairments is 93.2.}{ch16_tandem}{Generation
+loss, the image analogue of codec tandeming. Re-encoding the portrait with the same JPEG settings on
+the same block grid barely changes it, but re-encoding with the grid shifted by 3 pixels each pass,
+as when different codecs meet, loses about 4.5\,dB in eight passes.}
+
 \subsection{Measuring speech quality}
 
-Speech quality is ultimately a subjective matter, and it is measured subjectively. In the
-\term{mean opinion score} (MOS) test of ITU-T P.800, panels of listeners rate processed sentences on
-the absolute category rating scale---5 excellent, 4 good, 3 fair, 2 poor, 1 bad---and the scores are
-averaged. ``Toll quality,'' the quality of a good wireline call, corresponds roughly to a MOS of 4 on
-this scale, but MOS values depend on the test conditions, the language and the other systems in the
-test, so they should be compared only within one experiment. Formal tests are slow and expensive, so
-objective models that predict MOS from the original and degraded signals were developed and
-standardised: \term{PESQ} (ITU-T P.862, 2001) for narrowband and wideband telephony, and its successor
-\term{POLQA} (ITU-T P.863, 2011), which also handles super-wideband speech, time warping and the
-newer codecs. For network planning, the \emph{E-model} of ITU-T G.107 combines impairments from the
-codec, delay, echo and packet loss into a single transmission rating $R$ that maps to an estimated MOS.
+How good is ``good''? Speech quality is ultimately a subjective matter, and it is measured
+subjectively. In the \term{mean opinion score} (MOS) test of ITU-T P.800, panels of listeners rate
+processed sentences on the absolute category rating scale---5 excellent, 4 good, 3 fair, 2 poor, 1
+bad---and the scores are averaged. ``Toll quality,'' the quality of a good wireline call, corresponds
+roughly to a MOS of 4 on this scale, but MOS values depend on the test conditions, the language and
+the other systems in the test, so they should be compared only within one experiment.
+
+Formal tests are slow and expensive, so objective models that predict MOS from the original and
+degraded signals were developed and standardised: \term{PESQ} (ITU-T P.862, 2001) for narrowband and
+wideband telephony, and its successor \term{POLQA} (ITU-T P.863, 2011), which also handles
+super-wideband speech, time warping and the newer codecs. For network planning, the \emph{E-model} of
+ITU-T G.107 combines impairments from the codec, delay, echo and packet loss into a single
+transmission rating $R$ that maps to an estimated MOS (Figure~\ref{fig:ch16_emodel}).
 
 \begin{pitfall}[Tandeming and non-speech signals]
 A CELP codec models speech, and it does poorly on anything else. Music on hold turns watery;
@@ -1080,22 +1469,42 @@ fax and modem tones are destroyed, which is why networks must detect them and sw
 relay protocol such as T.38; DTMF digits may be distorted enough to fail detection, so they are
 normally carried out of band (RFC~4733 events). Worse is \emph{tandeming}: decoding and re-encoding the
 speech at each network boundary. Each low-rate codec stage adds its own distortion, and two or three
-tandems can lower quality noticeably. Mobile networks therefore avoid transcoding whenever both
-ends support the same codec, with tandem-free and transcoder-free operation (TFO, TrFO), and VoLTE
-calls between compatible handsets are carried end to end without transcoding.
+tandems can lower quality noticeably (Figure~\ref{fig:ch16_tandem} shows the same effect for images).
+Mobile networks therefore avoid transcoding whenever both ends support the same codec, with
+tandem-free and transcoder-free operation (TFO, TrFO), and VoLTE calls between compatible handsets are
+carried end to end without transcoding.
 \end{pitfall}
 
-
 %======================================================================
+\mdcfig{ch16_noise_shaping}{Why a noisy MP3 sounds clean. Two noises of equal power are added to a
+music frame. White noise (dashed) rises above the masking threshold over almost half of the band
+(shaded) and is heard as hiss; the same power shaped to follow the threshold 6\,dB below it (green)
+is completely hidden.}
+
 \section{Perceptual audio coding}
 \label{sec:ch16:audio}
 %======================================================================
+
+Here is a puzzle. A CD delivers 1411\,kb/s. An MP3 at 128\,kb/s keeps fewer than one bit in eleven,
+and its signal-to-noise ratio, measured with a meter, is dreadful---often only a dozen or so
+decibels in parts of the spectrum. Yet most people, on most music, cannot reliably tell the two
+apart. How can a signal with so much noise sound clean?
 
 Music has no source--filter model. A symphony orchestra, a distorted guitar and a rain shower have
 nothing in common except the listener, and it is the listener that general audio codecs model. The
 central fact is that the ear does not hear everything that reaches it: a loud sound hides quieter
 sounds near it in frequency and time. A codec that puts its quantisation noise where it is hidden
-can use far fewer bits than its SNR would suggest.
+can use far fewer bits than its SNR would suggest. That is the answer to the puzzle: the noise is
+there, but it is hiding.
+
+\begin{analogy}[A whisper during a drum hit]
+Someone whispers to you just as the drummer hits the crash cymbal: you hear the cymbal, not the
+whisper. Whisper again in a pause and you hear every word. The whisper did not change; the
+\emph{context} did. A perceptual coder whispers its quantisation noise only where the music is
+loud enough to drown it---next to strong tones, in busy frequency bands, in the instant after a
+loud attack. The limit of the analogy: the hiding works only for sounds close in frequency and
+time, so a loud bass note does nothing to hide a hiss at 10\,kHz.
+\end{analogy}
 
 \subsection{Psychoacoustics for the codec designer}
 
@@ -1113,6 +1522,14 @@ A codec does not know how loud the listener will play the signal, so it assumes,
 full-scale sinusoid is reproduced at about 96\,dB SPL, which places the least significant bit of 16-bit
 audio near the threshold.
 
+\mdcfig{ch16_masking}{(a) The threshold in quiet~\eqref{eq:ch16:ath} and the masking thresholds
+(dashed) of a tone and a narrow band of noise, computed with the Schroeder spreading function on the
+Bark scale (top axis) and the tonal and noise offsets of Johnston's model. Their power sum with the
+threshold in quiet is the global masking threshold (red). Noise masks more than a tone of the same
+level, and masking spreads further towards high frequencies. (b) Temporal masking around a 200\,ms
+masker (schematic, after Zwicker and Fastl): the threshold is raised for up to about 20\,ms before the
+masker starts and 100--200\,ms after it stops.}
+
 \subsubsection{Critical bands}
 
 The cochlea acts as a bank of overlapping band-pass filters. Experiments on the detection of tones in
@@ -1125,8 +1542,13 @@ approximation, due to Zwicker, is
 z(f)=13\arctan(0.00076f)+3.5\arctan\!\big((f/7500)^2\big)\ \text{Bark},\qquad f\text{ in Hz}.
 \label{eq:ch16:bark}
 \end{equation}
-Half the Bark scale lies below about 1.7\,kHz. The ear's frequency resolution is fine at low
-frequencies and coarse at high ones, and a codec's filterbank and bit allocation should follow suit.
+Half the Bark scale lies below about 1.7\,kHz (Figure~\ref{fig:ch16_bark}). The ear's frequency resolution is fine at low
+frequencies and coarse at high ones, like a piano keyboard on which the keys get wider towards the
+treble, and a codec's filterbank and bit allocation should follow suit.
+
+\mdcfig[0.5]{ch16_bark}{The ear's frequency scale. The critical-band rate~\eqref{eq:ch16:bark}
+(solid) rises quickly up to about 1\,kHz and slowly above; the critical bandwidth (dashed) is about
+100\,Hz at low frequencies and grows to several kilohertz at the top of the audible range.}
 
 \subsubsection{Simultaneous masking}
 
@@ -1142,14 +1564,6 @@ a standard spreading function, and their combination with the threshold in quiet
 \term{global masking threshold}. Anything below the red curve is inaudible, even though it may be only
 20\,dB below a signal component and therefore far above the level that an SNR criterion would tolerate.
 
-\mdcfig{ch16_masking}{(a) The threshold in quiet~\eqref{eq:ch16:ath} and the masking thresholds
-(dashed) of a tone and a narrow band of noise, computed with the Schroeder spreading function on the
-Bark scale (top axis) and the tonal and noise offsets of Johnston's model. Their power sum with the
-threshold in quiet is the global masking threshold (red). Noise masks more than a tone of the same
-level, and masking spreads further towards high frequencies. (b) Temporal masking around a 200\,ms
-masker (schematic, after Zwicker and Fastl): the threshold is raised for up to about 20\,ms before the
-masker starts and 100--200\,ms after it stops.}
-
 \subsubsection{Temporal masking}
 
 Masking also extends in time (Figure~\ref{fig:ch16_masking}b). After a loud sound stops, the threshold
@@ -1159,6 +1573,21 @@ because the auditory system takes longer to process a quiet sound than a loud on
 short, a few milliseconds and at most about 20\,ms, and that brevity creates the most notorious artefact
 of transform audio coding, the pre-echo of Section~\ref{sec:ch16:preecho}.
 
+\mdcfig[0.88]{ch16_psycho_frame}{A 46\,ms frame of a synthetic music signal---a harmonic tone at 220\,Hz and a band of noise
+between 6 and 9\,kHz---with the masking threshold computed by a simplified psychoacoustic model
+(tonal maskers identified as spectral peaks, noise maskers summed per critical band, spread with the
+Schroeder function and added to the threshold in quiet). Everything in the shaded area is inaudible.
+Only about 5\% of the spectral lines rise above the threshold, and even those need only enough
+accuracy to keep the noise below the red curve.}
+
+\begin{tryit}[Hide a tone]
+Open Lab 24's \emph{Masking: hide a tone}. Leave the masker at 1\,kHz and 70\,dB SPL, put the
+probe at 1400\,Hz, and lower \emph{Probe level} until the readout says the probe is inaudible;
+press \emph{Listen} to check with your own ears. Now move the probe to 700\,Hz, the same distance
+\emph{below} the masker: you will have to turn it much further down before it disappears. That is
+the upward spread of masking.
+\end{tryit}
+
 \subsection{The perceptual coding principle}
 
 A \term{perceptual audio coder} splits the signal into frequency components with a filterbank,
@@ -1167,14 +1596,7 @@ quantises each band just coarsely enough that the quantisation noise stays below
 The \term{signal-to-mask ratio} (SMR) in each band is the difference between the signal energy and the
 masking threshold; the quantiser in that band must achieve an SNR of at least the SMR, which costs about
 SMR/6.02 bits per sample in the band, and bands whose signal lies entirely below the threshold get
-no bits at all.
-
-\mdcfig[0.88]{ch16_psycho_frame}{A 46\,ms frame of a synthetic music signal---a harmonic tone at 220\,Hz and a band of noise
-between 6 and 9\,kHz---with the masking threshold computed by a simplified psychoacoustic model
-(tonal maskers identified as spectral peaks, noise maskers summed per critical band, spread with the
-Schroeder function and added to the threshold in quiet). Everything in the shaded area is inaudible.
-Only about 5\% of the spectral lines rise above the threshold, and even those need only enough
-accuracy to keep the noise below the red curve.}
+no bits at all (Figure~\ref{fig:ch16_band_bits}).
 
 Figure~\ref{fig:ch16_psycho_frame} shows the idea on a synthetic frame. Only the strongest harmonics
 of the tone rise above the masking threshold; the noise band and the upper harmonics lie entirely
@@ -1186,6 +1608,26 @@ frame of the figure a crude estimate gives about 190 bits, or about 8\,kb/s for 
 signal. For real music, perceptual entropies are typically a small fraction of the 16 bits per sample
 of the CD, which is why coders reach transparency for most material at 1.5--2 bits per sample
 (roughly 128--192\,kb/s for stereo).
+
+\mdcfig[0.9]{ch16_band_bits}{Bit allocation for the frame of Figure~\ref{fig:ch16_psycho_frame},
+band by band. Navy bars: the signal-to-mask ratio in each critical band; red: the bits per spectral
+line needed to keep the quantisation noise under the mask, about SMR/6 at the worst line of the
+band. Eleven of the 25 bands, including the whole noise band at the top, need no bits at all, and
+none needs more than about 3.5---a far cry from the 16 bits of the CD.}
+
+The same accounting explains the puzzle we started with. Figure~\ref{fig:ch16_noise_shaping} adds
+noise of exactly the same total power to the frame in two ways. Spread evenly across the spectrum
+(white), it pokes above the threshold over half the band and is clearly audible. Shaped to sit 6\,dB
+under the threshold everywhere, it is inaudible. Same SNR, opposite verdicts: the meter measures
+power, the ear measures power \emph{relative to the mask}.
+
+\begin{tryit}[Hear the noise you cannot hear]
+In Lab 24's \emph{Noise under the mask}, set \emph{Noise} to \emph{Shaped under the mask} and
+\emph{Noise relative to the threshold} to $-6$\,dB, and listen: music alone, then music plus noise.
+Note the SNR readout. Now switch to \emph{White, same power} without touching anything else and
+listen again---same SNR, audible hiss. Finally raise the shaped noise to $+6$\,dB and watch the
+\emph{Bands with audible noise} readout leave zero.
+\end{tryit}
 
 \subsection{Filterbanks and the MDCT}
 
@@ -1204,23 +1646,9 @@ X[k]=\sum_{n=0}^{2N-1}w[n]\,x[n]\cos\!\Big[\frac{\pi}{N}\Big(n+\frac12+\frac N2\
 \label{eq:ch16:mdct}
 \end{equation}
 and successive blocks overlap by $N$ samples, so the transform is critically sampled: $N$ new samples
-in, $N$ coefficients out. Because it has half as many outputs as inputs, a single block cannot be
-inverted. The inverse transform,
-$y[n]=\frac2N\,w[n]\sum_kX[k]\cos[\cdot]$, returns the windowed input \emph{plus a time-reversed
-alias} of it in each half of the block, with opposite signs in the two halves. When the window
-satisfies the \term{Princen--Bradley condition}
-\begin{equation}
-w^2[n]+w^2[n+N]=1,\qquad n=0,\dots,N-1,
-\label{eq:ch16:pb}
-\end{equation}
-as the sine window $w[n]=\sin[\pi(n+\frac12)/2N]$ does, the alias in the second half of one block
-exactly cancels the alias in the first half of the next when the outputs are overlapped and added.
-This \term{time-domain aliasing cancellation} (TDAC), found by John Princen and Alan Bradley in 1986,
-is the frequency-domain dual of the aliasing cancellation in a quadrature-mirror filterbank
-(Chapter~\ref{ch:dsp}). Figure~\ref{fig:ch16_mdct}(b) shows it happening: each block's output is badly
-distorted, and the sum is exact to machine precision. The MDCT can be computed with an FFT of size
-$N/2$, and it is the transform of AAC, Dolby AC-3, Vorbis, Opus's CELT layer, the transform mode of
-EVS, and the hybrid filterbank of MP3.
+in, $N$ coefficients out. That sounds impossible---half as many outputs as inputs in each block---and
+indeed a single block cannot be inverted. The magic happens between neighbours.
+
 
 \mdcfig{ch16_mdct}{(a) Sine windows overlapped by 50\%, satisfying the Princen--Bradley condition. (b)
 The inverse MDCT of each block (coloured) contains time-reversed aliases; overlap-adding neighbours
@@ -1229,6 +1657,26 @@ followed at 68\,ms by a sharp attack. Coding each block at the same SNR spreads 
 uniformly over the window: with 2048-sample windows (46\,ms) the noise starts some 20\,ms before the
 attack, where nothing masks it; with 256-sample windows it is confined to a few milliseconds and hidden
 by pre-masking.}
+
+\begin{deeper}[How the aliases cancel]
+The inverse transform, $y[n]=\frac2N\,w[n]\sum_kX[k]\cos[\cdot]$, returns the windowed input
+\emph{plus a time-reversed alias} of it in each half of the block, with opposite signs in the two
+halves. When the window satisfies the \term{Princen--Bradley condition}
+\begin{equation}
+w^2[n]+w^2[n+N]=1,\qquad n=0,\dots,N-1,
+\label{eq:ch16:pb}
+\end{equation}
+as the sine window $w[n]=\sin[\pi(n+\frac12)/2N]$ does, the alias in the second half of one block
+exactly cancels the alias in the first half of the next when the outputs are overlapped and added.
+This \term{time-domain aliasing cancellation} (TDAC), found by John Princen and Alan Bradley in 1986,
+is the frequency-domain dual of the aliasing cancellation in a quadrature-mirror filterbank
+(Chapter~\ref{ch:dsp}).
+\end{deeper}
+
+Figure~\ref{fig:ch16_mdct}(b) shows TDAC happening: each block's output is badly distorted, and the
+sum is exact to machine precision. The MDCT can be computed with an FFT of size $N/2$, and it is the
+transform of AAC, Dolby AC-3, Vorbis, Opus's CELT layer, the transform mode of EVS, and the hybrid
+filterbank of MP3.
 
 \subsubsection{Pre-echo and block switching}
 \label{sec:ch16:preecho}
@@ -1245,6 +1693,12 @@ Princen--Bradley condition. AAC adds \term{temporal noise shaping} (TNS), which 
 prediction \emph{across frequency} to the MDCT coefficients; by the duality of time and frequency, this
 shapes the quantisation noise in time to follow the signal envelope within the block. Both tools trade
 a few bits for the removal of a highly objectionable artefact.
+
+\begin{figure}[H]\centering\includegraphics[width=0.9\linewidth]{figs/ch16_bit_reservoir}\caption{The bit reservoir as a savings account (simulated). At 128\,kb/s a
+44.1\,kHz MP3 frame has a budget of 3344 bits (dashed). Quiet frames need less and bank the
+difference, up to 511 bytes (bottom); transients such as frames 14--15 and 51 then draw on the savings
+and get far more than the budget. Only when the reservoir is empty is a frame short-changed (grey
+tops).}\label{fig:ch16_bit_reservoir}\end{figure}
 
 \subsection{MP3 and AAC}
 
@@ -1269,10 +1723,17 @@ stereo, which sends a single channel plus direction information at high frequenc
 \item a \term{bit reservoir}: frames are nominally of fixed size for a constant bit rate, but a frame may
 borrow bits left unused by earlier frames (up to 511 bytes back). Easy frames donate bits to difficult
 ones, so the coder behaves like a variable-rate coder with a small buffer while the channel sees a
-constant rate.
+constant rate (Figure~\ref{fig:ch16_bit_reservoir}).
 \end{itemize}
+
 At 128\,kb/s for stereo---about 11:1 compression from the CD rate---MP3 is good enough for most
 listeners on most material, and at 192--256\,kb/s nearly transparent.
+
+\mdcfig{ch16_sbr}{Spectral band replication. (a) A synthetic chord with harmonics to 19\,kHz. (b) A core
+codec at low rate keeps only the band below 8\,kHz: the result sounds muffled. (c) The SBR decoder copies
+the 4--8\,kHz band upwards and rescales it, band by band, to the original's coarse envelope, sent as a
+few kilobits per second of side information. The harmonics in the rebuilt band are in the wrong places,
+but the ear, judging mostly the envelope up there, rarely notices.}
 
 \subsubsection{AAC and its extensions}
 
@@ -1280,39 +1741,65 @@ listeners on most material, and at 192--256\,kb/s nearly transparent.
 compromises MP3 inherited from its Layer I/II compatibility. It uses a pure MDCT with 2048-sample
 windows (1024 lines) switching to eight 256-sample windows, a choice of sine or Kaiser--Bessel-derived
 window shapes, TNS, flexible mid/side and intensity stereo, better Huffman coding of scale factors and
-spectral data, and up to 48 channels. In formal listening tests AAC generally reached the quality of MP3 at a noticeably lower bit
-rate, and AAC became the codec of the iTunes store, of YouTube and most streaming
-services, of digital television (in DVB and ISDB) and of the soundtrack of nearly every video file.
+spectral data, and up to 48 channels. In formal listening tests AAC generally reached the quality of
+MP3 at a noticeably lower bit rate, and AAC became the codec of the iTunes store, of YouTube and most
+streaming services, of digital television (in DVB and ISDB) and of the soundtrack of nearly every
+video file.
 
 At low rates even AAC runs out of bits for the top octave, and simply low-pass filtering the audio
 makes it sound dull. \term{Spectral band replication} (SBR), developed by Coding Technologies in Sweden
 and standardised as \emph{HE-AAC} (MPEG-4, 2003), codes only the lower half of the spectrum with the core
 AAC coder, at half the sampling rate, and \emph{regenerates} the upper half at the decoder by
 transposing the low band upwards and shaping its envelope with a few kilobits per second of side
-information (spectral envelope, tonality and noise-floor parameters). Because the ear is much less
-sensitive to the fine structure of high frequencies than to their envelope, the result sounds
-full-bandwidth. \emph{Parametric stereo} (PS), added in HE-AAC~v2 (2006), goes further: it sends a mono
-downmix and a few parameters per band (inter-channel level and phase differences and coherence) from
-which the decoder recreates a stereo image. HE-AAC~v2 delivers acceptable stereo at 24--48\,kb/s and is
-the codec of DAB+ digital radio and of Digital Radio Mondiale on the short-wave bands, where every
-kilobit per second is precious. The MPEG-D USAC codec (2012), marketed as xHE-AAC, merges AAC with an
-ACELP speech coder and improved SBR and stereo tools, and works from about 6\,kb/s upwards for both
-speech and music.
+information (spectral envelope, tonality and noise-floor parameters;
+Figure~\ref{fig:ch16_sbr}). Because the ear is much less sensitive to the fine structure of high
+frequencies than to their envelope, the result sounds full-bandwidth.
+
+\emph{Parametric stereo} (PS), added in HE-AAC~v2 (2006), goes further: it sends a mono downmix and a
+few parameters per band (inter-channel level and phase differences and coherence) from which the
+decoder recreates a stereo image. HE-AAC~v2 delivers acceptable stereo at 24--48\,kb/s and is the codec
+of DAB+ digital radio and of Digital Radio Mondiale on the short-wave bands, where every kilobit per
+second is precious. The MPEG-D USAC codec (2012), marketed as xHE-AAC, merges AAC with an ACELP speech
+coder and improved SBR and stereo tools, and works from about 6\,kb/s upwards for both speech and
+music.
+
+\mdcpairany{ch16_brandenburg}{Karlheinz Brandenburg, whose doctoral work at Erlangen and team at
+Fraunhofer IIS produced much of MP3.}{ch16_vega}{Suzanne Vega in concert. Her unaccompanied
+recording of ``Tom's Diner'' (1987) became, by Brandenburg's own account, the test track that
+exposed the early coder's flaws---a lone voice leaves no music to hide the noise under.}
 
 \begin{history}[The MP3 story]
-Karlheinz Brandenburg began working on perceptual audio coding for his doctoral thesis at the
+Karlheinz Brandenburg (Figure~\ref{fig:ch16_brandenburg}) began working on perceptual audio coding for his doctoral thesis at the
 University of Erlangen-Nuremberg in the 1980s, in a project whose original goal was to send music over
 ISDN telephone lines at 64 or 128\,kb/s. With colleagues at the Fraunhofer Institute for Integrated
 Circuits (IIS) in Erlangen and partners at AT\&T Bell Labs, Thomson and elsewhere, his group developed
 the ASPEC coder, which contributed the core of MPEG-1 Layer III. Brandenburg has described tuning the
-coder on Suzanne Vega's a cappella recording of ``Tom's Diner'', whose unaccompanied voice exposed every
+coder on Suzanne Vega's a cappella recording of ``Tom's Diner'' (Figure~\ref{fig:ch16_vega}), whose unaccompanied voice exposed every
 artefact and which he listened to hundreds of times. Layer III was standardised in 1992 but initially
 lost out to the simpler Layer II in broadcasting. Its breakthrough came from personal computers:
-Fraunhofer's encoder and the \texttt{.mp3} file extension (chosen in 1995), a free player, the rise of
+Fraunhofer's encoder and the \texttt{.mp3} file extension (chosen in 1995), a free player, portable players (Figures~\ref{fig:ch16_rio} and~\ref{fig:ch16_ipod}), the rise of
 the internet and then Napster in 1999 turned a telecommunications research project into a force that
 reshaped the recorded-music industry. The MP3 patents expired around 2017, and Fraunhofer ended its
 licensing programme that year, by which time AAC had largely replaced it.
 \end{history}
+
+\mdcpairany{ch16_rio}{The Diamond Rio PMP300 (1998), one of the first portable MP3 players: 32\,MB of
+flash memory, about half an hour of music at 128\,kb/s.}{ch16_ipod}{An Apple iPod classic (2007
+generation). With a hard disk and AAC as well as MP3, players like this put thousands of songs in a
+pocket; compression, not storage, made the music library portable.}
+
+\begin{inpractice}[MiniDisc and ATRAC]
+MP3 was not the first perceptual coder in consumers' hands. Sony's MiniDisc (1992, Figure~\ref{fig:ch16_minidisc}) recorded on a
+small magneto-optical disc in a cartridge, and fitted the 74 minutes of a CD on it with ATRAC
+(Adaptive TRansform Acoustic Coding), a perceptual coder that split the signal into three subbands
+with quadrature-mirror filters and coded each with an MDCT of adaptive length, reducing the
+1.4\,Mb/s of CD audio to about 292\,kb/s---a ratio of roughly five. Later ATRAC versions squeezed two
+and four times as much music onto the same disc. The format's arc---from a dedicated consumer
+format to ubiquitous files on general-purpose players---previewed what would happen to MP3 and AAC.
+\end{inpractice}
+
+\mdcphoto[0.45]{ch16_minidisc}{A MiniDisc with its cartridge opened, showing the 64\,mm
+magneto-optical disc. Its ATRAC coder brought perceptual audio coding to consumers in 1992.}
 
 \begin{inpractice}[Audio codecs in broadcasting]
 Broadcast audio is a catalogue of this section's history. DAB (Eureka-147, 1995) uses MPEG-1 Layer II at
@@ -1336,30 +1823,39 @@ samples is predicted with a fixed polynomial predictor or an LPC filter of order
 quantised coefficients sent in the header), inter-channel correlation is removed with mid/side
 decorrelation, and the integer residual is Rice coded with the parameter adapted per partition of the
 block. Because prediction is done in integer arithmetic on the original samples, decoding is exact.
-Typical CD audio compresses to around 50--70\% of its original size, depending heavily on the music:
-quiet acoustic recordings compress well, dense, loud modern masters much less. Apple's ALAC and MPEG-4
-ALS work the same way. Lossless coding also illustrates the entropy limit of Chapter~\ref{ch:infotheory}
-directly: no lossless coder can remove the noise floor of the recording, which is incompressible, and
-for a 16-bit recording with a noise floor several bits above the least significant bit those noisy bits
-set a hard floor on the compressed size.
 
+\mdcphoto[0.45]{ch16_cd}{A compact disc. Its 1411\,kb/s of 16-bit stereo PCM is the reference
+against which every audio codec is judged; a lossless coder such as FLAC typically halves it, a
+perceptual coder divides it by ten.}
+
+Typical CD audio (Figure~\ref{fig:ch16_cd}) compresses to around 50--70\% of its original size, depending heavily on the music:
+quiet acoustic recordings compress well, dense, loud modern masters much less. Apple's ALAC and MPEG-4
+ALS work the same way. Lossless coding also illustrates the entropy limit of
+Chapter~\ref{ch:infotheory} directly: no lossless coder can remove the noise floor of the recording,
+which is incompressible, and for a 16-bit recording with a noise floor several bits above the least
+significant bit those noisy bits set a hard floor on the compressed size. That is why the lossless
+saving on a CD is a factor of about two and no more, while a perceptual coder, free to discard the
+noise floor because nobody can hear it, gains a factor of ten.
 
 %======================================================================
 \section{Image coding}
 \label{sec:ch16:image}
 %======================================================================
 
-A photograph is a two-dimensional signal with strong local correlation, sharp edges, textures, and a
-consumer---the human visual system---that is more forgiving of some errors than others. Still-image
-coding is also where the transform-coding recipe of Section~\ref{sec:ch16:lossy} was first put into
-mass production, and every video codec reuses its machinery for the pictures it codes without
-reference to others.
+Your phone's camera captures twelve million pixels, three colours each: 36 megabytes of raw data
+per photo. The JPEG it saves is three or four megabytes, and you would struggle to spot the
+difference. A photograph is a two-dimensional signal with strong local correlation, sharp edges,
+textures, and a consumer---the human visual system---that is more forgiving of some errors than
+others. Still-image coding is also where the transform-coding recipe of
+Section~\ref{sec:ch16:lossy} was first put into mass production, and every video codec reuses its
+machinery for the pictures it codes without reference to others.
 
 \subsection{Colour and chroma subsampling}
 
 Cameras and displays work in red, green and blue, but the three RGB planes of a natural image are
 highly correlated, and the eye's sensitivity to fine detail is concentrated in brightness rather than
-colour. Image and video codecs therefore convert to a luma--chroma space. The \term{YCbCr} transform of
+colour. (Look at a colour photo in dim light: you still see every edge, but the colours fade.) Image
+and video codecs therefore convert to a luma--chroma space. The \term{YCbCr} transform of
 ITU-R BT.601, used by JPEG, is
 \begin{equation}
 \begin{aligned}
@@ -1368,19 +1864,44 @@ C_b&=128+0.564\,(B-Y),\qquad C_r=128+0.713\,(R-Y),
 \end{aligned}
 \label{eq:ch16:ycbcr}
 \end{equation}
-where the luma weights follow the eye's spectral sensitivity; high-definition video uses the slightly
-different weights of BT.709 and ultra-high-definition those of BT.2020. The chroma planes are smooth
-and low in energy (Figure~\ref{fig:ch16_chroma}), and the visual system resolves colour detail at
-roughly half or less of the resolution at which it resolves luminance detail. Codecs exploit this with
-\term{chroma subsampling}: in \emph{4:2:2} format the chroma planes have half the horizontal resolution
-of luma, and in \emph{4:2:0}, the format of almost all consumer images and video, half the resolution in
-both directions. 4:2:0 halves the raw data (12 bits per pixel instead of 24) before any coding, at a
-cost that is invisible in natural images and noticeable only in sharp coloured text and graphics.
+where the luma weights follow the eye's spectral sensitivity---green counts most, blue least;
+high-definition video uses the slightly different weights of BT.709 and ultra-high-definition those
+of BT.2020. The chroma planes are smooth and low in energy (Figure~\ref{fig:ch16_chroma}), and the
+visual system resolves colour detail at roughly half or less of the resolution at which it resolves
+luminance detail.
 
 \mdcfig{ch16_chroma}{A colour image and its luma and chroma planes. The chroma planes carry little
 detail. The right-hand image was rebuilt with chroma downsampled by four in each direction---one
 chroma sample per 16 pixels, four times coarser than 4:2:0---and upsampled again; it is hard to tell
 from the original, although its RGB PSNR is only 33\,dB.}
+
+Codecs exploit this with \term{chroma subsampling} (Figure~\ref{fig:ch16_chroma_formats}): in
+\emph{4:2:2} format the chroma planes have half the horizontal resolution of luma, and in
+\emph{4:2:0}, the format of almost all consumer images and video, half the resolution in both
+directions. 4:2:0 halves the raw data (12 bits per pixel instead of 24) before any coding, at a
+cost that is invisible in natural images and noticeable only in sharp coloured text and graphics.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[x=0.42cm,y=0.42cm]
+\foreach \fmt/\xo/\sx/\sy/\name in {0/0/1/1/{4:4:4},1/9.5/2/1/{4:2:2},2/19/2/2/{4:2:0}} {
+  \foreach \i in {0,...,3} \foreach \j in {0,...,3}
+    \draw[navy!60,fill=navy!8] (\xo+\i*1.6,\j*1.6) rectangle ++(1.3,1.3);
+  \foreach \i in {0,...,3} \foreach \j in {0,...,3} {
+    \pgfmathsetmacro{\ok}{(mod(\i,\sx)==0 && mod(\j,\sy)==0) ? 1 : 0}
+    \ifdim\ok pt>0.5pt
+      \fill[accent] (\xo+\i*1.6+0.65+0.8*\sx-0.8,\j*1.6+0.65+0.8*\sy-0.8) circle (0.28);
+    \fi}
+  \node[font=\sffamily\small\bfseries,text=navy] at (\xo+3.0,-1.0) {\name};
+}
+\node[font=\sffamily\scriptsize,anchor=west] at (28.5,4.6) {\textcolor{navy!60}{$\blacksquare$} luma sample (Y)};
+\node[font=\sffamily\scriptsize,anchor=west] at (28.5,3.4) {\textcolor{accent}{$\bullet$} chroma pair (Cb, Cr)};
+\node[font=\sffamily\scriptsize,anchor=west,align=left] at (28.5,1.6) {raw bits per pixel:\\4:4:4 = 24, 4:2:2 = 16,\\4:2:0 = 12};
+\end{tikzpicture}
+\caption{Chroma subsampling formats. Every pixel keeps its own brightness sample (squares), but in
+4:2:2 two horizontally adjacent pixels share one colour sample (dot) and in 4:2:0 a $2\times2$ group
+does. Studio video uses 4:2:2; almost everything you watch or photograph is 4:2:0.}
+\label{fig:ch16_chroma_formats}
+\end{figure}
 
 Colour conversion hides one more subtlety. Pixel values are not proportional to light intensity: they
 are \emph{gamma-encoded}, roughly as the 0.45 power of intensity, which approximates the eye's roughly
@@ -1456,20 +1977,54 @@ per pixel and the PSNR. At $Q=50$ the image is visually indistinguishable from t
 at $Q=15$ smooth areas begin to show blocks; at $Q=4$ most blocks are reduced to their DC value and a
 few AC coefficients, and the $8\times8$ grid is plain to see.}
 
+\begin{tryit}[Turn the quality knob]
+In Lab 24's \emph{A toy JPEG}, start at \emph{Quality} 50 on the \emph{Photograph} and drag it down
+slowly, watching the decoded image, the bits-per-pixel readout and the PSNR. Find the setting at
+which blocks first become visible to you---note its PSNR---then set \emph{Right-hand view} to
+\emph{Error $\times$4} to see where the bits were taken away. Can you get below 1 bit per pixel
+while keeping the PSNR above 32\,dB?
+\end{tryit}
+
 \subsubsection{Artefacts and what JPEG leaves on the table}
 
-At high compression JPEG produces two characteristic artefacts (Figure~\ref{fig:ch16_jpeg_quality},
-right). \term{Blocking} appears because each block is coded independently: when a smooth gradient is
+At high compression JPEG produces two characteristic artefacts (Figure~\ref{fig:ch16_jpeg_zoom}).
+\term{Blocking} appears because each block is coded independently: when a smooth gradient is
 reduced to a single DC value per block, the block boundaries become visible steps. \term{Ringing}
 appears around sharp edges, because the discarded high-frequency coefficients leave Gibbs-like
 oscillations inside the block. Decoders can hide some of both with post-filters, and later codecs
-build a \emph{deblocking filter} into the prediction loop (Section~\ref{sec:ch16:video}). JPEG also
-leaves efficiency on the table: the DC prediction uses only the previous block, the Huffman coding is
-not adaptive and the $8\times8$ block size is fixed. Its arithmetic-coding and progressive modes fix
-some of this but were rarely implemented. Modern JPEG encoders (for example Google's \emph{guetzli}
-and \emph{jpegli}, and Mozilla's \emph{mozjpeg}) wring out substantial savings by optimising the quantisation and
-coefficient decisions while remaining decodable by any standard decoder---an example of the rule that
-a standard defines only the decoder, leaving encoders free to improve for decades.
+build a \emph{deblocking filter} into the prediction loop (Section~\ref{sec:ch16:video}).
+
+\mdcfig{ch16_jpeg_zoom}{JPEG artefacts up close: the portrait at quality 8 (0.28 bits per pixel,
+a 28:1 ratio). The face has become a mosaic of $8\times8$ tiles (blocking), and the error map shows
+the damage concentrated along edges and textures---the eyebrows, the creases, the collar---with
+ringing inside the blocks that straddle them. Flat skin, which needed only its DC value, is almost
+untouched.}
+
+Have you noticed that streaming video looks worst in dark scenes---a night sky or a shadowy room
+breaking into blotchy blocks while bright daylight scenes look fine? The same mechanism is at work
+(Figure~\ref{fig:ch16_dark_scene}). Dark scenes are usually smooth and low in contrast: their gentle
+gradients put almost all of each block's energy into the DC coefficient, the AC coefficients
+quantise to zero, and each block becomes flat. Where the gradient is shallow, the step from one
+block's DC level to the next is larger than the change inside the block, and you see a staircase of
+tiles. Your eyes make matters worse: adapted to a dark room, they are sensitive to small steps in
+dim regions, and the noise that would otherwise dither the steps is often removed by the encoder's
+denoiser because it costs bits. Modern encoders fight back with adaptive quantisation that spends
+extra bits on flat dark areas, with 10-bit coding, and with deliberately added film grain
+(Section~\ref{sec:ch16:video}).
+
+JPEG also leaves efficiency on the table: the DC prediction uses only the previous block, the Huffman
+coding is not adaptive and the $8\times8$ block size is fixed. Its arithmetic-coding and progressive
+modes fix some of this but were rarely implemented. Modern JPEG encoders (for example Google's
+\emph{guetzli} and \emph{jpegli}, and Mozilla's \emph{mozjpeg}) wring out substantial savings by
+optimising the quantisation and coefficient decisions while remaining decodable by any standard
+decoder---an example of the rule that a standard defines only the decoder, leaving encoders free to
+improve for decades.
+
+\mdcfig{ch16_dark_scene}{Why video blocks up in dark scenes. Two gentle gradients, one dark and one
+bright, both coded with the toy JPEG at the same quality. The dark one (shown six times brighter so
+you can see what a dark-adapted eye sees) collapses into flat blocks with visible steps between them;
+the row profile on the right is a staircase. The bright gradient's larger slope survives as
+smaller steps that are hard to see.}
 
 \begin{history}[The JPEG committee]
 In the mid-1980s several groups within ISO and the CCITT (now ITU-T) were studying the compression of
@@ -1488,13 +2043,14 @@ getting the essentials right and keeping them simple.
 \subsection{JPEG 2000 and wavelets}
 
 The block DCT treats an image as a set of independent tiles. The \term{discrete wavelet transform}
-(DWT) treats it as a hierarchy of scales. One level of a 2D wavelet transform filters the image with a
-low-pass/high-pass pair along rows and along columns and downsamples by two in each direction,
-producing a quarter-size approximation (LL) and three detail subbands (LH, HL, HH) that capture
-horizontal, vertical and diagonal edges. Repeating on LL gives a multi-resolution pyramid
-(Figure~\ref{fig:ch16_wavelet}). The filters are short and overlapping, so there are no block
-boundaries and hence no blocking artefacts, and the detail coefficients are sparse: most are near zero,
-with large values only along edges.
+(DWT) treats it as a hierarchy of scales, like a set of maps of the same country at different zoom
+levels. One level of a 2D wavelet transform filters the image with a low-pass/high-pass pair along
+rows and along columns and downsamples by two in each direction, producing a quarter-size
+approximation (LL) and three detail subbands (LH, HL, HH) that capture horizontal, vertical and
+diagonal edges. Repeating on LL gives a multi-resolution pyramid (Figure~\ref{fig:ch16_wavelet}).
+The filters are short and overlapping, so there are no block boundaries and hence no blocking
+artefacts, and the detail coefficients are sparse: most are near zero, with large values only along
+edges.
 
 \mdcfig{ch16_wavelet}{(a) A three-level wavelet decomposition of the portrait with the reversible
 LeGall 5/3 filters of JPEG~2000, implemented by lifting; detail subbands are amplified by four. The
@@ -1527,12 +2083,22 @@ codes every frame of a theatrical feature as a JPEG~2000 image at up to 250\,Mb/
 predictor with DEFLATE. Each row is first transformed by one of five \emph{filters}---None, Sub (predict
 from the left neighbour), Up (from above), Average (of left and above) and Paeth (whichever of left,
 above and upper-left is closest to the linear estimate left${}+{}$above${}-{}$upper-left)---chosen per row
-by the encoder, and the filtered bytes are then DEFLATE-compressed. PNG excels on graphics, screenshots
-and text, where the LZ77 stage finds long repeated strings, and it is poor on photographs: our portrait
-needs 5.2 bits per pixel losslessly, against about 1 bit per pixel for a visually excellent lossy JPEG.
-That factor of five is the cost of insisting on reproducing the camera's noise exactly. JPEG-LS (based on
-HP Labs' LOCO-I predictor with context modelling and Golomb coding) and lossless JPEG~XL do better on
-photographs, but not dramatically: noise is incompressible.
+by the encoder, and the filtered bytes are then DEFLATE-compressed (Figure~\ref{fig:ch16_png_filters}).
+
+PNG excels on graphics, screenshots and text, where the LZ77 stage finds long repeated strings, and
+it is poor on photographs: our portrait needs 5.2 bits per pixel losslessly, against about 1 bit per
+pixel for a visually excellent lossy JPEG. That factor of five is the cost of insisting on
+reproducing the camera's noise exactly. JPEG-LS (based on HP Labs' LOCO-I predictor with context
+modelling and Golomb coding) and lossless JPEG~XL do better on photographs, but not dramatically:
+noise is incompressible. Notice, too, how close the figure's simple order-0 entropy after the Paeth
+filter (5.13 bits) is to what PNG actually achieves (5.18 bits): on a photograph, DEFLATE's
+dictionary finds almost nothing to reuse, and the gain comes almost entirely from the prediction
+filter.
+
+\mdcfig[0.55]{ch16_png_filters}{What PNG's filters do to the portrait. Raw pixel bytes (grey) are
+spread over the whole range, with an order-0 entropy of 7.13 bits; after the Sub filter (orange)
+they pile up around zero at 5.42 bits, and the Paeth filter (navy) does slightly better at 5.13
+bits. DEFLATE then works on the peaked, filtered bytes.}
 
 \subsection{Modern image formats}
 
@@ -1546,6 +2112,13 @@ arithmetic coding. \emph{JPEG~XL} (ISO/IEC 18181, 2022) was designed for images 
 DCTs, ANS entropy coding, a lossless mode and, uniquely, the ability to losslessly recompress existing
 JPEG files about 20\% smaller.
 
+Figure~\ref{fig:ch16_rd_image} measures the progress on our test image. The toy JPEG of this chapter
+tracks the real libjpeg within a few hundredths of a bit per pixel, which confirms that the pipeline above
+is the whole of baseline JPEG. At 0.5 bits per pixel JPEG gives about 28\,dB, JPEG~2000 about 30\,dB and
+WebP and AVIF about 32\,dB---roughly a halving of the bit rate at equal PSNR over thirty years of
+development. Measured with PSNR the progress looks modest; measured by eye at low rates, where JPEG's
+blocks give way to the softer, cleaner artefacts of the modern codecs, it is much larger.
+
 \mdcfig[0.85]{ch16_rd_image}{Rate--distortion curves for the $256\times256$ grey-scale portrait with real codecs
 (Pillow 12 with libjpeg, OpenJPEG, libwebp and libavif at default settings; file sizes include headers)
 and with the chapter's toy JPEG (no headers). At 0.5 bits per pixel, a 16:1 compression ratio, JPEG~2000
@@ -1554,13 +2127,6 @@ codecs depends on the image, the settings and above all on the quality metric: A
 for visual quality rather than PSNR. On a small image, header overhead also penalises JPEG~2000 and AVIF
 at the lowest rates.}
 
-Figure~\ref{fig:ch16_rd_image} measures the progress on our test image. The toy JPEG of this chapter
-tracks the real libjpeg within a few hundredths of a bit per pixel, which confirms that the pipeline above
-is the whole of baseline JPEG. At 0.5 bits per pixel JPEG gives about 28\,dB, JPEG~2000 about 30\,dB and
-WebP and AVIF about 32\,dB---roughly a halving of the bit rate at equal PSNR over thirty years of
-development. Measured with PSNR the progress looks modest; measured by eye at low rates, where JPEG's
-blocks give way to the softer, cleaner artefacts of the modern codecs, it is much larger.
-
 \begin{pitfall}[PSNR is a poor judge of images]
 PSNR, $10\log_{10}(255^2/\text{MSE})$, is convenient and reproducible, but an image that is slightly
 shifted or has a small brightness change can have a terrible PSNR and look identical, while a blurred
@@ -1568,22 +2134,45 @@ image can have a good PSNR and look bad. The \emph{structural similarity index} 
 co-workers, 2004) compares local means, variances and correlations and matches human judgements
 considerably better; Netflix's \emph{VMAF} (2016) fuses several such features with a model trained on
 subjective scores and is now the industry's standard metric for video. When a vendor quotes a single
-number, ask which metric, at what rate, on which content---and look at the images.
+number, ask which metric, at what rate, on which content---and look at the images. The dark gradient of
+Figure~\ref{fig:ch16_dark_scene} is a cautionary example: its PSNR is a splendid 46\,dB, and it is
+blocky.
 \end{pitfall}
-
 
 %======================================================================
 \section{Video coding}
 \label{sec:ch16:video}
 %======================================================================
 
-Video is by far the largest consumer of bits on every network: most of the traffic on the internet
-and on mobile networks is compressed video. It is also where source coding achieves its most
-spectacular ratios, because a video sequence is extremely redundant in time. At 30 or 60 frames per
-second most of each frame is a slightly moved copy of the previous one, and a codec that can describe
-the movement need only code what is new.
+Flip through the pages of a flip-book and a cartoon character walks across the page. Now look at
+two neighbouring pages: they are almost identical. The character has moved a few millimetres, an
+arm has swung a little, and the background has not changed at all. Video is the same. At 30 or 60
+frames per second most of each frame is a slightly moved copy of the previous one, and a codec that
+can describe the movement need only code what is new.
+
+That is why video, by far the largest consumer of bits on every network---most of the traffic on the
+internet and on mobile networks is compressed video---is also where source coding achieves its most
+spectacular ratios. A still image compresses perhaps ten- or twentyfold; a video stream, two or three
+hundredfold, and it starts at cameras and outside-broadcast trucks like those of Figures~\ref{fig:ch16_tv_camera} and~\ref{fig:ch16_ob_van}.
+
 
 \subsection{Motion estimation and compensation}
+
+\mdcpairany[H]{ch16_tv_camera}{A high-definition broadcast camera at a stadium (Euro 2008). Its
+uncompressed HD output, more than a gigabit per second, leaves the venue as a few tens of megabits
+after contribution coding and reaches viewers as a few megabits.}{ch16_ob_van}{An outside-broadcast
+truck. Racks of routers, vision mixers and encoders turn the cameras' raw feeds into compressed
+streams for satellite or fibre contribution links.}
+
+\begin{analogy}[``The old one, moved a bit'']
+Describing a new frame from scratch is like describing a room to someone who has never seen it.
+Describing it relative to the previous frame is like phoning a friend who was in the room a second
+ago: ``same as before, except the cat has moved two feet to the left and the door is half open''.
+A video encoder sends exactly that kind of message: for each block of the new frame, ``take the
+block from \emph{there} in the previous frame'' (a motion vector), plus a small correction (the
+residual). The limit of the analogy: things that were hidden before---the wall behind the cat---have
+no ``before'' to point to and must be described from scratch.
+\end{analogy}
 
 The simplest temporal predictor uses the previous frame as it is and codes the difference. That works
 for a static camera and background, but any motion---a pan, a zoom, a person walking---leaves large
@@ -1611,8 +2200,8 @@ previous frame, and early termination. Several refinements make the prediction m
 \begin{itemize}[nosep]
 \item \emph{Sub-pixel accuracy}: real motion is not an integer number of pixels. MPEG-1 and MPEG-2 use
 half-pixel vectors with bilinear interpolation; H.264 onwards use quarter-pixel vectors with longer
-interpolation filters (6 taps in H.264, 8 in HEVC). Quarter-pixel accuracy alone is worth a noticeable share of the bit rate
-on typical content.
+interpolation filters (6 taps in H.264, 8 in HEVC). Quarter-pixel accuracy alone is worth a noticeable
+share of the bit rate on typical content.
 \item \emph{Variable block sizes}: large blocks for uniform motion, small ones at motion boundaries,
 chosen by rate--distortion optimisation (below).
 \item \emph{Multiple reference frames}, weighted prediction for fades, and \emph{bi-prediction}: the
@@ -1622,6 +2211,14 @@ prediction and handles uncovered background.
 they are predicted from neighbouring vectors and only the difference is coded; HEVC's merge mode lets a
 block simply inherit a neighbour's motion with a single index.
 \end{itemize}
+
+\begin{tryit}[Be the motion estimator]
+In Lab 24's \emph{Motion estimation}, set \emph{Camera pan} to (3, 2) and \emph{Ball moves} to
+(9, $-6$), and compare the plain difference with the motion-compensated residual. Now shrink
+\emph{Search range} below the ball's speed: its vectors go wrong and its residual lights up. Restore
+the range and switch \emph{Block size} to $8\times8$: the blocks along the ball's edge follow its
+outline more closely and the residual shrinks---at the cost of four times as many vectors to send.
+\end{tryit}
 
 \subsection{Frame types and the group of pictures}
 
@@ -1664,7 +2261,8 @@ packet, may wait seconds for the next I-frame. Broadcast television typically us
 0.5--1\,s so that channel changes are quick; streaming uses 2--6\,s segments, each starting with an
 I-frame; video calls avoid B-frames entirely and often avoid periodic I-frames as well, using
 \emph{intra refresh} (a column of intra-coded blocks that sweeps across successive frames) so that the
-bit rate stays smooth.
+bit rate stays smooth. (Ever noticed that changing channels on digital TV takes a moment? Part of that
+pause is the decoder waiting for the next I-frame.)
 
 \subsection{The hybrid video codec}
 
@@ -1727,14 +2325,22 @@ J(m)=D(m)+\lambda\,R(m),
 \label{eq:ch16:rdo}
 \end{equation}
 where $D$ is the distortion (sum of squared errors) and $R$ the number of bits, including side
-information. The multiplier $\lambda$ is the slope of the operating rate--distortion curve, and it must
-be consistent with the quantiser step: for high-rate uniform quantisation, $D\propto\Delta^2$ and $dD/dR$
-gives $\lambda\propto\Delta^2$. The H.264 reference encoder uses
-$\lambda=0.85\times2^{(\mathrm{QP}-12)/3}$, where the quantisation parameter QP indexes a step size that
-doubles every 6 QP steps. RDO is the encoder-side embodiment of the Lagrangian bit allocation of
-Section~\ref{sec:ch16:lossy}: it spends bits where they buy the most distortion reduction, and it is
-responsible for a large part of the gains of each new standard---the syntax of a new standard provides
-more choices, and RDO learns to use them.
+information. Think of $\lambda$ as an exchange rate: how much distortion one bit is allowed to buy.
+
+\mdcfig[0.55]{ch16_rdo_hull}{The operating points of the toy JPEG on the portrait, from quality 3 to
+95, in the rate--distortion plane. The dashed tangent at $Q=50$ has slope $-\lambda$: at that operating
+point one extra bit per pixel buys a reduction of about 68 in the mean squared error. RDO chooses,
+block by block, whichever mode gives the lowest $D+\lambda R$, so every block works at the same
+exchange rate.}
+
+The multiplier $\lambda$ is the slope of the operating rate--distortion curve
+(Figure~\ref{fig:ch16_rdo_hull}), and it must be consistent with the quantiser step: for high-rate
+uniform quantisation, $D\propto\Delta^2$ and $dD/dR$ gives $\lambda\propto\Delta^2$. The H.264
+reference encoder uses $\lambda=0.85\times2^{(\mathrm{QP}-12)/3}$, where the quantisation parameter
+QP indexes a step size that doubles every 6 QP steps. RDO is the encoder-side embodiment of the
+Lagrangian bit allocation of Section~\ref{sec:ch16:lossy}: it spends bits where they buy the most
+distortion reduction, and it is responsible for a large part of the gains of each new standard---the
+syntax of a new standard provides more choices, and RDO learns to use them.
 
 \subsubsection{Rate control}
 
@@ -1779,13 +2385,20 @@ affine motion, adaptive loop filter; broadcast (DVB, Brazil's TV 3.0), 8K\\
 \end{table}
 
 Table~\ref{tab:ch16:video} summarises thirty years of video standards. The pattern is remarkably
-regular: each generation, roughly a decade apart, halves the bit rate for the same subjective quality,
-at the cost of an encoder several to ten times more complex and a decoder about twice as complex. No
-single tool is responsible; each generation adds dozens of refinements---finer partitions, more
-prediction modes, better filters, better entropy coding---each worth a few per cent. The standards
-come from two families: the ITU-T VCEG and ISO/IEC MPEG committees, working jointly since MPEG-2, and
-the royalty-free codecs of Google and the Alliance for Open Media (AOMedia), created in 2015 in large part
-because of the complexity and cost of HEVC patent licensing.
+regular (Figure~\ref{fig:ch16_video_generations}): each generation, roughly a decade apart, halves the
+bit rate for the same subjective quality, at the cost of an encoder several to ten times more complex
+and a decoder about twice as complex. No single tool is responsible; each generation adds dozens of
+refinements---finer partitions, more prediction modes, better filters, better entropy coding---each
+worth a few per cent. The standards come from two families: the ITU-T VCEG and ISO/IEC MPEG
+committees, working jointly since MPEG-2, and the royalty-free codecs of Google and the Alliance for
+Open Media (AOMedia), created in 2015 in large part because of the complexity and cost of HEVC patent
+licensing.
+
+\mdcpairany{ch16_video_generations}{The halving rule of video coding: the approximate bit rate each
+ITU-T/MPEG generation needs for the same subjective quality, relative to MPEG-2. AV1, from the
+royalty-free family, is generally reported to sit between HEVC and VVC.}{ch16_dvd_chip}{A single-chip
+DVD-player processor (MediaTek MT1389). By the mid-2000s one inexpensive chip decoded MPEG-2 video and
+the disc's audio in real time, which is what made the DVD player a mass-market appliance.}
 
 \subsubsection{H.264/AVC}
 
@@ -1808,9 +2421,12 @@ ISO/IEC 14496-10 AVC, approved in 2003. It arrived at exactly the right moment. 
 (alongside MPEG-2 and VC-1); broadcasters used it to launch HDTV on satellite and terrestrial networks
 without new spectrum; and when online video exploded after 2005, H.264 in the MP4 container became the
 format of YouTube, iTunes, the iPhone and Flash video, and later of WebRTC video calls. Hardware decoders
-became so cheap and ubiquitous that the codec outlived two successors. H.264 did for video what JPEG and
+became so cheap and ubiquitous---as MPEG-2 decoders had before them (Figure~\ref{fig:ch16_dvd_chip})---that the codec outlived two successors. H.264 did for video what JPEG and
 MP3 did for pictures and music, and the joint-team model it pioneered produced HEVC and VVC.
 \end{history}
+
+\mdcfig[0.55]{ch16_gop_sizes}{The frame sizes of the worked example: a 2\,s GOP at 5\,Mb/s with one
+I-frame (red), 19 P-frames and 40 B-frames. The single I-frame holds 17\% of the GOP's bits.}
 
 \begin{worked}[Video bit-rate budgets]
 Uncompressed 1080p video at 60 frames per second with 8-bit 4:2:0 sampling needs
@@ -1823,16 +2439,22 @@ How are the bits distributed? Take 30 frames per second with a 2\,s GOP of 60 fr
 structure: one I-frame, 19 P-frames and 40 B-frames. Suppose, as is typical for moderate motion, that an
 I-frame costs eight times a P-frame and a B-frame half a P-frame. Then the GOP costs
 $8P+19P+40\times0.5P=47P$ bits. At 5\,Mb/s the GOP has 10\,Mbit, so $P\approx213$\,kbit,
-$B\approx106$\,kbit and the I-frame $\approx1.7$\,Mbit. Sent at the average rate, that I-frame alone takes
-0.34\,s to transmit, about ten frame periods---which is why the decoder needs a buffer of that order, why
-low-latency applications use intra refresh instead of I-frames, and why a single lost I-frame packet
-is so much more damaging than a lost B-frame.
+$B\approx106$\,kbit and the I-frame $\approx1.7$\,Mbit (Figure~\ref{fig:ch16_gop_sizes}). Sent at the
+average rate, that I-frame alone takes 0.34\,s to transmit, about ten frame periods---which is why the
+decoder needs a buffer of that order, why low-latency applications use intra refresh instead of
+I-frames, and why a single lost I-frame packet is so much more damaging than a lost B-frame.
 
 In broadcasting the budget is the multiplex. An ATSC~1.0 channel carries 19.39\,Mb/s; with MPEG-2 that
 was one HD programme at about 12--15\,Mb/s plus a standard-definition subchannel or two. The same multiplex
 with HEVC could carry roughly three or four HD programmes---which is how broadcasters have used each new
 codec generation: not to cut bits but to add channels or resolution in the same spectrum.
 \end{worked}
+
+\mdcfig{ch16_film_grain}{Film-grain synthesis, simulated with the toy JPEG on a dark grainy
+gradient (shown three times brighter). Coding the grain itself costs 0.14 bits per pixel and still
+turns it into blotchy blocks (centre). Denoising, coding the clean picture at a third of the rate and
+adding synthetic grain of the same statistics at the decoder (right) looks closer to the original,
+although not one grain is in the right place.}
 
 \begin{inpractice}[Film grain and the limits of prediction]
 Film grain and sensor noise are the enemy of video compression: they are random, so they cannot be
@@ -1842,24 +2464,41 @@ large share of the bits. AV1 (and, optionally, H.264, HEVC and VVC through suppl
 statistics (an autoregressive model of its texture and a scaling function of its intensity) and sends
 those few parameters; the decoder generates statistically similar grain and adds it back. The idea is the
 same as spectral band replication in audio and noise substitution in AAC: when a component is noise-like,
-send its statistics, not its waveform. Streaming services report substantial bit-rate savings on grainy
-film content with it.
+send its statistics, not its waveform (Figure~\ref{fig:ch16_film_grain}). Streaming services report substantial bit-rate savings on grainy
+film content with it, and the synthetic grain also dithers the flat dark regions that would otherwise
+break into the blocks of Figure~\ref{fig:ch16_dark_scene}.
 \end{inpractice}
 
 %======================================================================
+
 \section{Sending compressed media over real channels}
 \label{sec:ch16:transmission}
 %======================================================================
 
 A compressed stream is a fragile, variable-rate signal; a real channel is noisy, lossy and
-variable-capacity. This section is about the engineering that joins them.
+variable-capacity. Anyone who has watched a video call freeze into a smear of moving blocks has seen
+the two collide. This section is about the engineering that joins them.
+
+\begin{figure}[H]\centering\includegraphics[width=0.92\linewidth]{figs/ch16_error_prop}\caption{An error that will not go away. A panning sequence loses one slice (16 rows)
+in frame 5. Because every later frame is predicted from the damaged one, the error is copied forward,
+moving with the picture, until something refreshes it. With an I-frame every 30 frames (red) it lasts
+a full second; with an intra-refresh column sweeping across the picture (green) it is cleaned away
+column by column within about 20 frames. Right: the error at frames 6, 12 and 24 for each scheme.}\label{fig:ch16_error_prop}\end{figure}
 
 \subsection{Error resilience}
 
+\mdcfig[0.85]{ch16_abr}{Adaptive streaming over a varying channel (a simulation with 4\,s segments, a
+six-rung ladder from 0.4 to 7.5\,Mb/s and a 30\,s maximum buffer). Top: the available throughput and the
+bit rate of the segments chosen by a player that streams at a fixed 3\,Mb/s and by an adaptive player that
+uses the harmonic mean of recent throughput with a buffer-level safety rule. Bottom: the playback buffer.
+During the deep fade between 150 and 205\,s the fixed-rate player drains its buffer and stalls; the adaptive
+player drops to the lowest rungs, keeps playing, and climbs back when capacity returns.}
+
 Because a video decoder predicts each frame from the previous ones, an error does not stay where it
 lands: a corrupted block is copied into later frames by motion compensation, spreads spatially as vectors
-point into it, and persists until the next intra refresh. Codec designers provide several layers of
-defence.
+point into it, and persists until the next intra refresh (Figure~\ref{fig:ch16_error_prop}). Codec
+designers provide several layers of defence.
+
 \begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
 \item[Resynchronisation.] Frames are divided into \emph{slices}, each decodable independently of the
 others in the same frame (entropy coding and intra prediction do not cross slice boundaries), and each
@@ -1891,14 +2530,9 @@ boundary. A \emph{manifest} file lists the versions and segment URLs. The player
 ordinary HTTP (and hence through every cache and content-delivery network on the way), measures the
 throughput it achieves, watches its playback buffer and chooses the version of the next segment. Apple's
 \term{HTTP Live Streaming} (HLS, 2009, later RFC~8216) and the ISO standard \term{MPEG-DASH} (ISO/IEC
-23009-1, 2012) are the two formats in use, now sharing a common segment format (CMAF).
-
-\mdcfig[0.85]{ch16_abr}{Adaptive streaming over a varying channel (a simulation with 4\,s segments, a
-six-rung ladder from 0.4 to 7.5\,Mb/s and a 30\,s maximum buffer). Top: the available throughput and the
-bit rate of the segments chosen by a player that streams at a fixed 3\,Mb/s and by an adaptive player that
-uses the harmonic mean of recent throughput with a buffer-level safety rule. Bottom: the playback buffer.
-During the deep fade between 150 and 205\,s the fixed-rate player drains its buffer and stalls; the adaptive
-player drops to the lowest rungs, keeps playing, and climbs back when capacity returns.}
+23009-1, 2012) are the two formats in use, now sharing a common segment format (CMAF). When your
+film turns briefly soft as the train enters a tunnel and sharpens again afterwards, you are watching
+the player step down and up its ladder.
 
 The rate-selection algorithm (Figure~\ref{fig:ch16_abr}) is a control problem with conflicting goals:
 maximise average quality, avoid stalls (rebuffering, which viewers hate far more than low quality) and
@@ -1916,6 +2550,7 @@ ABR is joint source--channel coding at the system level: the source coder offers
 points on its rate--distortion curve, and the transport chooses among them according to the channel
 state---precisely the idea behind AMR's codec mode adaptation, at a thousand times the bit rate.
 
+
 \begin{inpractice}[Video over the mobile network]
 Video is the majority of mobile data traffic, and its behaviour shapes the network. ABR players respond to
 the scheduler's allocation, which responds to the players' demand, and operators tune both: some cap
@@ -1929,8 +2564,16 @@ scalability (SVC in VP9, AV1 and H.264 Annex~G) let a conferencing server forwar
 different participants without transcoding.
 \end{inpractice}
 
-
 %======================================================================
+
+\begin{figure}[htbp]\centering\includegraphics[width=0.92\linewidth]{figs/ch16_separation}\caption{Signal-to-distortion ratio of a Gaussian source sent over an AWGN channel.
+(a) With one channel use per source sample, uncoded analogue transmission---scale the sample to the
+power limit and send it; estimate it with a linear MMSE receiver---achieves the optimum $1+\mathrm{SNR}$
+at \emph{every} SNR, while a separated digital system designed for a particular SNR reaches the optimum
+only at its design point: it gains nothing above it and fails completely below it. (b) With two channel
+uses per sample, the optimum rises to $(1+\mathrm{SNR})^2$, repeated analogue transmission achieves only
+$1+2\,\mathrm{SNR}$, and digital coding designed for the right SNR wins by a wide margin.}\label{fig:ch16_separation}\end{figure}
+
 \section{Joint source--channel coding}
 \label{sec:ch16:jscc}
 %======================================================================
@@ -1952,7 +2595,9 @@ using $b$ channel uses per source sample, setting $R(D)=bC$ gives the best achie
 \frac{\sigma^2}{D}=(1+\mathrm{SNR})^{\,b}.
 \label{eq:ch16:opta}
 \end{equation}
-The theorem, however, has fine print, and every clause of it matters in practice.
+
+In words: every extra channel use per sample multiplies the achievable quality by another factor of
+$(1+\mathrm{SNR})$. The theorem, however, has fine print, and every clause of it matters in practice.
 \begin{description}[style=nextline,leftmargin=1.2em,font=\sffamily\bfseries\small\color{navy}]
 \item[Unlimited delay and complexity.] Separation is optimal as block lengths go to infinity. At short
 block lengths---a 20\,ms speech frame, a control message---both coders operate far from their limits, and
@@ -1962,18 +2607,33 @@ separation in 2013.
 actual SNR is higher, the extra quality is wasted, because the source was compressed for the design
 rate; if lower, the channel code fails and the output collapses. This is the \term{cliff effect},
 familiar to anyone who has watched digital television freeze while the analogue picture it replaced
-would merely have become snowy.
+would merely have become snowy (Figure~\ref{fig:ch16_separation}a).
 \item[Point-to-point.] With several receivers of different quality (broadcasting), or several sources
 (sensor networks, the multiple-access channel), separation is no longer optimal in general.
 \end{description}
 
-\mdcfig{ch16_separation}{Signal-to-distortion ratio of a Gaussian source sent over an AWGN channel.
-(a) With one channel use per source sample, uncoded analogue transmission---scale the sample to the
-power limit and send it; estimate it with a linear MMSE receiver---achieves the optimum $1+\mathrm{SNR}$
-at \emph{every} SNR, while a separated digital system designed for a particular SNR reaches the optimum
-only at its design point: it gains nothing above it and fails completely below it. (b) With two channel
-uses per sample, the optimum rises to $(1+\mathrm{SNR})^2$, repeated analogue transmission achieves only
-$1+2\,\mathrm{SNR}$, and digital coding designed for the right SNR wins by a wide margin.}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.8cm,minimum width=1.5cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick}]
+\node[blk] (enc) at (0,0) {scalable\\encoder};
+\node[blk,fill=accent!10,draw=accent] (b) at (2.6,0.9) {base layer\\(robust: QPSK)};
+\node[blk,fill=green!8,draw=green!50!black] (e) at (2.6,-0.9) {enhancement\\(fragile: 64-QAM)};
+\draw[arr,navy] (enc)--(b); \draw[arr,navy] (enc)--(e);
+\foreach \y/\snr/\got/\q in {1.6/{high SNR}/{base + enhancement}/{sharp HD},0/{medium SNR}/{base + part}/{good},-1.6/{low SNR}/{base only}/{soft but watchable}} {
+  \node[blk,minimum width=2.6cm] (r) at (7.4,\y) {receiver at \snr\\decodes \got};
+  \node[font=\sffamily\scriptsize,anchor=west,text=navy] at (8.85,\y) {$\Rightarrow$ \q};
+  \draw[arr,navy!50] (3.9,0) -- (r.west);
+}
+\node[font=\sffamily\scriptsize,text=accent] at (5.0,-2.55) {no cliff: quality steps down gracefully};
+\end{tikzpicture}
+\caption{Layered coding with layered protection, the practical answer to the cliff effect of a single
+digital design point. The base layer is coded and modulated so that every receiver gets it; each
+enhancement layer reaches only the receivers whose channel is good enough. DVB-T hierarchical
+modulation and scalable video (SVC, SHVC) work this way.}
+\label{fig:ch16_layered}
+\end{figure}
 
 \subsection{When analogue is optimal}
 
@@ -1991,6 +2651,7 @@ $1+2\,\mathrm{SNR}$, far below $(1+\mathrm{SNR})^2$ at high SNR, and digital cod
 Shannon--Kotel'nikov mappings (spirals and other space-filling curves) that stretch one dimension into two
 recover much of the gap while degrading gracefully.
 
+
 The lesson is not that analogue beats digital; for sources with memory, perceptual distortion measures and
 bandwidth mismatch, the digital approach wins overwhelmingly, and it allows compression, encryption,
 multiplexing and regeneration that analogue signals do not. The lesson is that the graceful degradation of
@@ -2006,7 +2667,7 @@ appear throughout this chapter:
 \item \emph{Rate adaptation}: move the operating point along the rate--distortion curve as the channel
 changes, as in AMR codec-mode adaptation, EVS channel-aware mode, WebRTC rate control and ABR streaming.
 \item \emph{Layered (scalable) coding with layered transmission}: send a base layer robustly and
-enhancement layers at higher rates, so that each receiver decodes as much as its channel allows. DVB-T's
+enhancement layers at higher rates, so that each receiver decodes as much as its channel allows (Figure~\ref{fig:ch16_layered}). DVB-T's
 hierarchical modulation (a high-priority QPSK stream embedded in a 16- or 64-QAM constellation) and scalable
 video (SVC, SHVC) are the classic examples; the broadcast channel of Chapter~\ref{ch:infotheory} explains
 why superposition beats time-sharing.
@@ -2023,6 +2684,34 @@ of video almost directly as the real and imaginary parts of OFDM symbols, so tha
 with SNR in a multicast group, like the uncoded Gaussian system above.
 \end{itemize}
 
+
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  net/.style={draw=navy,fill=navy!8,thick,trapezium,trapezium angle=70,minimum height=1.0cm,align=center,font=\sffamily\scriptsize,shape border rotate=270},
+  netd/.style={net,shape border rotate=90},
+  blk/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.8cm,minimum width=1.2cm,align=center,font=\sffamily\scriptsize},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[font=\sffamily\scriptsize,align=center] (x) at (0,0) {image\\$x$};
+\node[net] (ga) at (1.9,0) {analysis\\net $g_a$};
+\node[blk,draw=accent,fill=accent!8] (q) at (3.9,0) {quantise\\$\hat y$};
+\node[blk] (ae) at (5.7,0) {arithmetic\\coder};
+\node[blk] (ad) at (7.6,0) {arithmetic\\decoder};
+\node[netd] (gs) at (9.6,0) {synthesis\\net $g_s$};
+\node[font=\sffamily\scriptsize,align=center] (xh) at (11.4,0) {image\\$\hat x$};
+\node[blk,fill=orange!8,draw=orange!70!black] (pm) at (6.65,1.5) {learned probability\\model (hyperprior)};
+\draw[arr] (x)--(ga); \draw[arr] (ga)--node[above,font=\tiny]{latents $y$}(q); \draw[arr] (q)--(ae);
+\draw[arr] (ae)--node[above,font=\tiny]{bits}(ad); \draw[arr] (ad)--(gs); \draw[arr] (gs)--(xh);
+\draw[arr,orange!70!black] (pm)--(ae); \draw[arr,orange!70!black] (pm)--(ad);
+\node[font=\sffamily\scriptsize,text=accent,align=center] at (5.7,-1.25) {trained end to end to minimise $D(x,\hat x)+\lambda R$};
+\end{tikzpicture}
+\caption{A learned image codec. The same three stages as Figure~\ref{fig:ch16_chain}---transform,
+quantise, entropy code---but the transform and its inverse are neural networks and the probability
+model that drives the arithmetic coder is learned too, all trained together on a rate--distortion
+objective.}
+\label{fig:ch16_learned}
+\end{figure}
+
 \begin{keyidea}[Separation is a design principle, not a law of nature]
 Separate source and channel coding is optimal in the limit of infinite delay for a single known channel,
 and it is the right default because it makes systems modular. But real links have finite delay, varying
@@ -2032,27 +2721,32 @@ review hears ``the codec doesn't need to know about the channel,'' someone shoul
 \end{keyidea}
 
 %======================================================================
+
 \section{Learned codecs}
 \label{sec:ch16:neural}
 %======================================================================
 
+
 Every codec in this chapter was designed by hand: engineers chose the transform, the quantiser, the
 contexts and the perceptual model and tuned them on test material. Since about 2016, neural networks have
-been used to learn all of these components end to end. A learned image codec (Ball\'e, Laparra and
-Simoncelli, 2017) replaces the DCT with a convolutional \emph{analysis} network that maps the image to a
-latent representation, quantises the latents uniformly, entropy codes them with an arithmetic coder
-driven by a learned probability model, and reconstructs with a \emph{synthesis} network. The whole system
-is trained to minimise $D+\lambda R$, the Lagrangian of Section~\ref{sec:ch16:video}, with the rate
-estimated differentiably from the learned probability model. Adding a \emph{hyperprior}---a small side
-channel that describes the local scale of the latents so that the entropy model can adapt (Ball\'e et al.,
-2018)---made learned codecs competitive with the best conventional intra coders in PSNR, and they surpass
-them on perceptual metrics, especially at low rates. The JPEG committee's JPEG~AI project (ISO/IEC~6048)
-is the first international standard for a learned image codec.
+been used to learn all of these components end to end (Figure~\ref{fig:ch16_learned}). A learned image
+codec (Ball\'e, Laparra and Simoncelli, 2017) replaces the DCT with a convolutional \emph{analysis}
+network that maps the image to a latent representation, quantises the latents uniformly, entropy codes
+them with an arithmetic coder driven by a learned probability model, and reconstructs with a
+\emph{synthesis} network. The whole system is trained to minimise $D+\lambda R$, the Lagrangian of
+Section~\ref{sec:ch16:video}, with the rate estimated differentiably from the learned probability model.
+
+Adding a \emph{hyperprior}---a small side channel that describes the local scale of the latents so that
+the entropy model can adapt (Ball\'e et al., 2018)---made learned codecs competitive with the best
+conventional intra coders in PSNR, and they surpass them on perceptual metrics, especially at low rates.
+The JPEG committee's JPEG~AI project (ISO/IEC~6048) is the first international standard for a learned
+image codec.
+
 
 In audio, neural codecs such as Google's SoundStream (2021, used in the Lyra v2 codec) and Meta's EnCodec
 (2022) use a convolutional encoder, a \emph{residual vector quantiser}---a cascade of small VQ stages, each
 quantising the error of the previous one, the multistage VQ of Section~\ref{sec:ch16:lossy} reborn---and a
-decoder trained with adversarial and perceptual losses. They code speech at 3--6\,kb/s with quality that, in their
+decoder trained with adversarial and perceptual losses. Figure~\ref{fig:ch16_rvq} shows the quantiser's structure. They code speech at 3--6\,kb/s with quality that, in their
 authors' listening tests, conventional codecs needed several times the rate to match, and their discrete codes have become the
 ``tokens'' with which audio language models listen and speak. Generative decoders go further still: at very
 low rates they do not reproduce the signal so much as synthesise a plausible signal consistent with the
@@ -2064,6 +2758,34 @@ behaviour on content unlike the training data. The same ideas, extended to inclu
 \emph{deep joint source--channel coding} (Bourtsoulatze, Kurka and G\"und\"uz, 2019), in which a network maps
 images directly to channel symbols and degrades gracefully with SNR, and as the ``semantic communication''
 studied for 6G, taken up in Chapter~\ref{ch:sixg}.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!6,thick,rounded corners=2pt,minimum height=0.75cm,minimum width=1.35cm,align=center,font=\sffamily\scriptsize},
+  q/.style={blk,draw=accent,fill=accent!8},
+  sm/.style={draw=navy,circle,thick,minimum size=0.45cm,inner sep=0pt,font=\sffamily\small},
+  arr/.style={-{Stealth[length=2mm]},thick,navy}]
+\node[font=\sffamily\scriptsize,align=center] (x) at (0,0) {latent\\vector};
+\node[q] (q1) at (1.9,0) {VQ stage 1\\(1024 entries)};
+\node[sm] (s1) at (1.9,-1.3) {$-$};
+\node[q] (q2) at (4.3,-1.3) {VQ stage 2};
+\node[sm] (s2) at (4.3,-2.6) {$-$};
+\node[q] (q3) at (6.7,-2.6) {VQ stage 3};
+\node[font=\sffamily\scriptsize] (dots) at (8.6,-2.6) {$\cdots$};
+\node[blk,fill=green!6,draw=green!50!black] (out) at (9.6,0) {indices\\$i_1,i_2,i_3,\dots$};
+\draw[arr] (x)--(q1); \draw[arr] (x) |- (s1);
+\draw[arr] (q1)--(s1);
+\draw[arr] (s1)--node[above,font=\tiny]{residual}(q2); \draw[arr] (s1) |- (s2); \draw[arr] (q2)--(s2);
+\draw[arr] (s2)--node[above,font=\tiny]{residual}(q3); \draw[arr] (q3)--(dots);
+\draw[arr,green!50!black] (q1)--(out); \draw[arr,green!50!black] (q2) |- ([yshift=-4pt]out.west);
+\draw[arr,green!50!black] (q3) |- ([yshift=-9pt]out.south west);
+\end{tikzpicture}
+\caption{The residual vector quantiser of neural audio codecs such as SoundStream and EnCodec. Each
+stage quantises what the previous stages missed, so a few small codebooks act like one enormous one;
+dropping the last stages lowers the bit rate gracefully, which is how one trained model serves several
+rates.}
+\label{fig:ch16_rvq}
+\end{figure}
 
 \begin{pitfall}[A codec that invents plausible content]
 A codec that fills in detail from a learned model can produce output that looks right and is wrong. The
@@ -2080,7 +2802,7 @@ content, and learned codecs must be evaluated for exactly this failure.
 %======================================================================
 
 \begin{itemize}
-\item Compression removes redundancy (reversibly, bounded by entropy) and irrelevance (irreversibly,
+\item Compression removes redundancy (reversibly, bounded by entropy; Figure~\ref{fig:ch16_summary_ratios} sums up the ratios) and irrelevance (irreversibly,
 bounded by the rate--distortion function under a perceptual distortion measure). It is the cheapest way to
 buy capacity, and it produced the factors of 10 to 500 of Table~\ref{tab:ch16:rates}.
 \item Huffman codes are optimal symbol codes but lose up to a bit per symbol; arithmetic coding, range
@@ -2094,14 +2816,22 @@ the KLT for correlated sources; reverse water-filling explains why small coeffic
 \item Speech codecs model the source--filter production mechanism with linear prediction (Levinson--Durbin,
 reflection coefficients, LSFs). CELP's analysis-by-synthesis search with adaptive and algebraic codebooks
 and perceptual weighting underlies G.729, AMR, AMR-WB and EVS; Opus merges LPC and MDCT coding for the
-internet. Quality is measured by MOS, PESQ and POLQA.
+internet. Quality is measured by MOS, PESQ and POLQA. The ``phone-y'' sound is the 3.4\,kHz band, not
+the codec.
+
 \item Audio codecs model the listener: the threshold in quiet, critical bands and simultaneous and temporal
 masking. The MDCT with TDAC gives critically sampled, overlapped filterbanks; block switching and TNS control
 pre-echo; MP3 and AAC add bit reservoirs and joint stereo; SBR and parametric stereo synthesise what is not
-sent.
+sent. A 128\,kb/s MP3 sounds clean because its noise is shaped to hide under the music.
 \item Image codecs use colour transforms and chroma subsampling, then transform coding: JPEG's $8\times8$ DCT,
 quantisation tables, zigzag and run-length Huffman coding; JPEG~2000's wavelets and embedded bit-plane
-coding; and the intra modes of video codecs in WebP, HEIC and AVIF.
+coding; and the intra modes of video codecs in WebP, HEIC and AVIF. Smooth dark gradients are where block
+codecs fail first.
+\begin{figure}[H]\centering\includegraphics[width=0.92\linewidth]{figs/ch16_summary_ratios}\caption{The chapter in one picture: typical compression ratios of the codecs
+of Table~\ref{tab:ch16:rates}, on a logarithmic scale. Speech gains a factor of ten from modelling the
+talker, audio a factor of ten from modelling the listener, and video a factor of several hundred
+from modelling both the viewer and the motion.}\label{fig:ch16_summary_ratios}\end{figure}
+
 \item Video codecs are hybrid: motion-compensated prediction with a decoder in the loop, transform coding of
 the residual, rate--distortion optimised decisions and rate control. Each generation from H.261 to VVC and AV1
 has roughly halved the bit rate.
@@ -2111,18 +2841,31 @@ protection, rate adaptation and layered coding recover the graceful degradation 
 for free. Learned codecs are the newest chapter in the story.
 \end{itemize}
 
-\begin{labbox}[Source coding: from Huffman to JPEG]
-The notebook \lab{moderncomms-labs/labs/lab24\_source\_coding.py} accompanies this chapter. It builds
-Huffman and canonical Huffman codes for the letters of a text and compares them with an adaptive arithmetic
-coder driven by order-0 to order-3 context models (Figure~\ref{fig:ch16_huffman}); performs
-autocorrelation LPC analysis of a synthetic vowel with Levinson--Durbin, plots the envelope, residual and
-LSFs, and resynthesises the vowel from a pulse train at a different pitch (Figure~\ref{fig:ch16_vowel_lpc});
-implements a complete baseline JPEG luma coder with a quality slider, reports the bit rate and PSNR and
-shows the blocking and ringing artefacts (Figures~\ref{fig:ch16_jpeg_block} and~\ref{fig:ch16_jpeg_quality});
-and computes masking thresholds for synthetic audio frames so that you can hear, by adding shaped noise, how
-much of it the model predicts you will not notice (Figure~\ref{fig:ch16_psycho_frame}). The figure script
-\lab{book/figscripts/ch16\_figs.py} generates every data figure in this chapter, including the
-rate--distortion comparison with real codecs, and is a good starting point for further experiments.
+\begin{labbox}[Source coding, live]
+Lab 24, \lab{moderncomms-labs/labs/lab24\_source\_coding.py} (run it with
+\lab{python lab24\_source\_coding.py}), turns this chapter into nine interactive experiments:
+\begin{itemize}
+\item \textbf{Huffman vs arithmetic coding}: type any text (or load the book text) and compare the
+Huffman code lengths and an adaptive order-0 to order-3 arithmetic coder with the entropy and with zlib,
+bzip2 and xz (Figures~\ref{fig:ch16_huffman} and~\ref{fig:ch16_huff_redundancy}).
+\item \textbf{LZ77: the sliding window}: step through a parse token by token and see the effect of the
+window size and maximum match length (Figures~\ref{fig:ch16_lz77_parse} and~\ref{fig:ch16_compress_speed}).
+\item \textbf{Quantisers and Lloyd--Max}: run Lloyd's algorithm one iteration at a time on Gaussian,
+Laplacian and uniform sources (Figures~\ref{fig:ch16_lloyd_iter} and~\ref{fig:ch16_quantizers}).
+\item \textbf{DCT energy compaction}: pick any $8\times8$ block, keep the first $k$ coefficients and watch
+the rebuild (Figures~\ref{fig:ch16_dct_recipe} and~\ref{fig:ch16_compaction}).
+\item \textbf{A toy JPEG}: the complete baseline pipeline with a quality slider, bit rate, PSNR and error
+view (Figures~\ref{fig:ch16_jpeg_block}, \ref{fig:ch16_jpeg_quality} and~\ref{fig:ch16_jpeg_zoom}).
+\item \textbf{LPC: a buzz and a filter}: analyse three vowels, change the predictor order, and resynthesise
+at a new pitch or as a whisper---and listen (Figures~\ref{fig:ch16_vowel_lpc} and~\ref{fig:ch16_source_filter}).
+\item \textbf{Masking: hide a tone} and \textbf{Noise under the mask}: move a masker and a probe, and hear
+shaped and white noise of equal power (Figures~\ref{fig:ch16_masking} and~\ref{fig:ch16_noise_shaping}).
+\item \textbf{Motion estimation}: set a camera pan and a moving ball, then vary the block size and search
+range (Figure~\ref{fig:ch16_motion}).
+\end{itemize}
+The figure script \lab{book/figscripts/ch16\_figs.py} generates every data figure in this chapter,
+including the rate--distortion comparison with real codecs, and is a good starting point for further
+experiments.
 \end{labbox}
 
 \problems
@@ -2173,6 +2916,15 @@ distortion increase. Plot the rate--PSNR curves against the baseline and against
 \item \emph{(Simulation)} Simulate a Gaussian source over an AWGN channel with (a) uncoded linear transmission
 and (b) a scalar quantiser with 8 levels, Gray-mapped onto 8-PAM. Plot the SDR against channel SNR from 0 to
 30\,dB, and compare both with the OPTA. Where does each scheme win?
+\item \emph{(Simulation)} Reproduce Figure~\ref{fig:ch16_dark_scene}: code a smooth gradient whose
+values span 18--32 with JPEG at quality 25 and measure the PSNR and the largest step between adjacent
+blocks. Then add Gaussian noise of standard deviation 1 before coding (dither). Does the PSNR improve
+or worsen? Does the picture? Relate your answer to the film-grain synthesis of
+Figure~\ref{fig:ch16_film_grain}.
+\item In Lab~24's \emph{Noise under the mask}, the SNR readout stays the same when you switch between
+shaped and white noise. Using Figure~\ref{fig:ch16_noise_shaping}, explain why, and estimate how many
+bits per sample a PCM coder would need to make white noise inaudible over the whole band if the
+lowest point of the masking threshold lies 60\,dB below the loudest spectral line.
 \end{enumerate}
 
 \furtherreading

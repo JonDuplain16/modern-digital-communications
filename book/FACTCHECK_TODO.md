@@ -10,3 +10,4 @@
 - ch13: Bell Labs drafting room 1940s caption; Shannon statue by Eugene Daub
 - ch15: CA-SCL vs plain list (lab: plain list beats CA-SCL at FER 1e-1..1e-2 for N=128/256; CA-SCL wins only at floor) -> check ch15 text; EXIT tunnel opens ~0.0 dB in lab vs book -0.1 dB
 - ch14: QR photo shows Wikimedia logo (trademark) -> consider replacing with a generated QR figure; Viterbi portrait CC BY-SA own-work small
+- ch16: MiniDisc/ATRAC ~292 kb/s & 3 subbands+MDCT; AV1 between HEVC and VVC; VVC two-rate CABAC; HEVC bypass-bin grouping
