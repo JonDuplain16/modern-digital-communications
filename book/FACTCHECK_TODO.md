@@ -12,3 +12,4 @@
 - ch14: QR photo shows Wikimedia logo (trademark) -> consider replacing with a generated QR figure; Viterbi portrait CC BY-SA own-work small
 - ch16: MiniDisc/ATRAC ~292 kb/s & 3 subbands+MDCT; AV1 between HEVC and VVC; VVC two-rate CABAC; HEVC bypass-bin grouping
 - ch17: DVB-T2 guard-interval table per FFT size (EN 302 755); DAB Mode I symbol 1.246 ms; Li-Fi 160-180 Mb/s from photo
+- ch22: OBSS-PD 21 dBm reference power (802.11ax); Jelling photo is a replica
