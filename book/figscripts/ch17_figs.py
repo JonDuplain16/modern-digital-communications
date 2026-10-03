@@ -770,10 +770,901 @@ def waterfill():
     print("waterfill rates (Mb/s):", rate_wf / 1e6, rate_flat / 1e6)
 
 
+# ============================================================================
+# Second-edition concept illustrations and extra data figures
+# ============================================================================
+from matplotlib.patches import Rectangle, FancyBboxPatch, Polygon
+
+NARROW = (3.0, 2.4)
+
+
+def _clean_ax(a):
+    a.set_xticks([]); a.set_yticks([]); a.grid(False)
+    for s in a.spines.values():
+        s.set_visible(False)
+
+
+def highway():
+    """Analogy: one fast lane (single carrier) versus many slow lanes (OFDM)."""
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.45), gridspec_kw={"width_ratios": [1, 1.12]})
+    # (a) single carrier: 24 short symbols; an echo delayed by 5 symbols overlaps them
+    a = ax[0]
+    for i in range(24):
+        a.add_patch(Rectangle((i * 0.5, 1.6), 0.46, 0.7, color=NAVY, alpha=0.85, lw=0))
+        a.add_patch(Rectangle((i * 0.5 + 2.6, 0.55), 0.46, 0.7, color=ACCENT, alpha=0.35, lw=0))
+    a.text(0, 2.5, "direct path: 24 short symbols", fontsize=7.5, color=NAVY)
+    a.text(2.6, 0.12, "echo, 5 symbols late", fontsize=7.5, color=ACCENT)
+    a.annotate("", xy=(2.6, 1.42), xytext=(0, 1.42),
+               arrowprops=dict(arrowstyle="<->", color=GRAY, lw=0.8))
+    a.text(1.3, 1.36, "$\\tau$", fontsize=8, ha="center", color=GRAY, va="top")
+    a.text(6.1, -0.55, "every symbol lands on 5 others:\nthe whole road is bumpy", fontsize=7.5,
+           ha="center", color="k")
+    a.set_xlim(-0.2, 12.2); a.set_ylim(-1.1, 2.9); _clean_ax(a)
+    a.set_title("(a) One fast lane (single carrier)", fontsize=9)
+    # (b) OFDM: 12 slow lanes, long symbols with a prefix; a notch hurts two lanes
+    b = ax[1]
+    nl = 12
+    gains = np.array([1.0, 0.95, 0.85, 0.7, 0.45, 0.12, 0.08, 0.4, 0.75, 0.9, 1.0, 0.95])
+    for k in range(nl):
+        y = k * 0.24
+        bad = gains[k] < 0.3
+        for s in range(2):
+            x0 = s * 5.4
+            b.add_patch(Rectangle((x0, y), 0.9, 0.19, color=GREEN, alpha=0.5, lw=0))
+            b.add_patch(Rectangle((x0 + 0.9, y), 4.4, 0.19, color=ACCENT if bad else NAVY,
+                                  alpha=0.85 if bad else 0.7, lw=0))
+    # channel |H| drawn at the right as a vertical curve
+    yy = np.linspace(0, nl * 0.24, 200)
+    gg = np.interp(yy, np.arange(nl) * 0.24 + 0.1, gains)
+    b.plot(11.0 + 1.3 * gg, yy, color=ORANGE, lw=1.5)
+    b.text(11.6, nl * 0.24 + 0.05, "$|H(f)|$", fontsize=7.5, color=ORANGE, ha="center")
+    b.annotate("pothole (fade):\ntwo lanes slow", xy=(11.15, 5.5 * 0.24 + 0.1), xytext=(6.2, -0.75),
+               fontsize=7.2, color=ACCENT, arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.7))
+    b.text(0.45, -0.35, "CP", fontsize=7, color=GREEN, ha="center")
+    b.annotate("", xy=(13.2, nl * 0.24), xytext=(13.2, 0), arrowprops=dict(arrowstyle="->", color=GRAY, lw=0.7))
+    b.text(13.45, nl * 0.12, "frequency", rotation=90, fontsize=7, color=GRAY, va="center")
+    b.set_xlim(-0.2, 13.8); b.set_ylim(-1.1, nl * 0.24 + 0.4); _clean_ax(b)
+    b.set_title("(b) Many slow lanes (OFDM)", fontsize=9)
+    fig.tight_layout(w_pad=0.6); save(fig, "ch17_highway")
+
+
+def orth_products():
+    """Orthogonality as whole cycles: the product of two subcarriers integrates to zero."""
+    t = np.linspace(0, 1, 1000)
+    s2, s3 = np.cos(2 * np.pi * 2 * t), np.cos(2 * np.pi * 3 * t)
+    fig, ax = plt.subplots(2, 1, figsize=(3.0, 2.5), sharex=True, gridspec_kw={"height_ratios": [1, 1.1]})
+    ax[0].plot(t, s2, color=NAVY, lw=1.2, label="subcarrier 2")
+    ax[0].plot(t, s3, color=ACCENT, lw=1.2, label="subcarrier 3")
+    ax[0].set_yticks([]); ax[0].legend(fontsize=6.5, ncol=2, loc="upper center", bbox_to_anchor=(0.5, 1.32),
+                                       frameon=False)
+    p = s2 * s3
+    ax[1].fill_between(t, p, 0, where=p > 0, color=GREEN, alpha=0.45, lw=0)
+    ax[1].fill_between(t, p, 0, where=p < 0, color=ACCENT, alpha=0.35, lw=0)
+    ax[1].plot(t, p, color="k", lw=0.8)
+    ax[1].axhline(0, color="k", lw=0.5)
+    ax[1].text(0.5, 1.12, f"product: average = {abs(np.trapezoid(p, t)):.3f}", ha="center", fontsize=7.5)
+    ax[1].set_ylim(-1.15, 1.35); ax[1].set_yticks([])
+    ax[1].set_xlabel("time ($t/T$)")
+    fig.tight_layout(h_pad=0.3); save(fig, "ch17_orth_products")
+
+
+def fft_bank():
+    """The DFT as a bank of tuned forks: each bin's response is zero at every other bin."""
+    N = 8
+    f = np.linspace(-0.45, N - 0.55, 1500)
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for k in range(N):
+        d = f - k
+        with np.errstate(invalid="ignore", divide="ignore"):
+            g = np.where(np.abs(d) < 1e-9, 1.0, np.abs(np.sin(np.pi * d) / (N * np.sin(np.pi * d / N))))
+        ax.plot(f, g, color=CYCLE[k % 6], lw=1.0, alpha=0.9)
+    ax.axvline(3, color="k", lw=0.6, ls=":")
+    ax.plot(np.arange(N), [0] * 3 + [1] + [0] * 4, "o", color="k", ms=3.2)
+    ax.text(3.15, 1.04, "a tone at bin 3\nrings fork 3 only", fontsize=7, va="bottom")
+    ax.set_xlabel("frequency (bins, $\\Delta f$)"); ax.set_ylabel("response of each bin")
+    ax.set_ylim(0, 1.3); ax.set_xticks(range(N))
+    fig.tight_layout(); save(fig, "ch17_fft_bank")
+
+
+def symbol_build():
+    """Four subcarriers with random QPSK phases add up to a noise-like OFDM waveform."""
+    r = rng(4)
+    t = np.linspace(0, 1, 800)
+    ph = r.choice([np.pi / 4, 3 * np.pi / 4, -np.pi / 4, -3 * np.pi / 4], 16)
+    fig, ax = plt.subplots(figsize=(3.0, 2.5))
+    tot = np.zeros_like(t)
+    for k in range(1, 17):
+        tot += np.cos(2 * np.pi * k * t + ph[k - 1])
+    for i, k in enumerate([1, 2, 3, 4]):
+        ax.plot(t, 0.42 * np.cos(2 * np.pi * k * t + ph[k - 1]) + 4.2 - 0.95 * i, color=CYCLE[i], lw=1.0)
+        ax.text(1.02, 4.2 - 0.95 * i, f"$k={k}$", fontsize=7, va="center", color=CYCLE[i])
+    ax.text(1.02, 0.55, "$\\vdots$", fontsize=8, va="center")
+    ax.plot(t, 0.18 * tot - 0.7, color="k", lw=0.9)
+    ax.text(1.02, -0.7, "sum of\n16", fontsize=7, va="center")
+    ax.set_xlim(0, 1.17); _clean_ax(ax)
+    ax.set_xticks([0, 0.5, 1]); ax.set_xlabel("time ($t/T$)")
+    ax.spines["bottom"].set_visible(True)
+    fig.tight_layout(); save(fig, "ch17_symbol_build")
+
+
+def fft_cost():
+    """Complex multiplies per OFDM symbol: direct DFT versus FFT."""
+    N = 2 ** np.arange(4, 16)
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    ax.loglog(N, N.astype(float) ** 2, "o-", ms=2.5, color=ACCENT, label="direct DFT, $N^2$")
+    ax.loglog(N, N / 2 * np.log2(N), "s-", ms=2.5, color=NAVY, label="FFT, $\\frac{N}{2}\\log_2N$")
+    for n, lab in [(64, "802.11a"), (2048, "LTE"), (32768, "DVB-T2")]:
+        ax.annotate(lab, xy=(n, n / 2 * np.log2(n)), xytext=(n, n / 2 * np.log2(n) / 25), fontsize=7,
+                    ha="center", arrowprops=dict(arrowstyle="->", lw=0.5, color=GRAY))
+    r = 32768 ** 2 / (32768 / 2 * 15)
+    ax.text(30000, 3, f"at $N=32768$: {r:.0f}$\\times$ fewer", fontsize=7.5, ha="right")
+    ax.set_xlabel("FFT size $N$"); ax.set_ylabel("multiplies per symbol")
+    ax.legend(loc="upper left", fontsize=7)
+    ax.set_ylim(1, 3e10)
+    fig.tight_layout(); save(fig, "ch17_fft_cost")
+
+
+def timeline():
+    """Milestones of multicarrier transmission."""
+    ev = [(1958, "Kineplex HF\nmodem (late 1950s)", 1), (1966, "Chang: orthogonal\nsubchannels", -1),
+          (1971, "Weinstein & Ebert:\nthe DFT", 1), (1980, "Peled & Ruiz:\ncyclic prefix", -1),
+          (1985, "Cimini: OFDM\nfor mobile radio", 1), (1990, "Bingham: 'an idea\nwhose time has come'", -1),
+          (1993, "ADSL Olympics:\nDMT wins", 1), (1995, "DAB on air", -1), (1998, "DVB-T\nservices", 1),
+          (1999, "802.11a", -1), (2005, "3GPP picks\nOFDMA / SC-FDMA", 1), (2009, "first LTE\nnetworks", -1),
+          (2013, "DOCSIS 3.1", 1), (2019, "5G NR,\nWi-Fi 6", -1), (2024, "Wi-Fi 7", 1)]
+    fig, ax = plt.subplots(figsize=(W2, 2.3))
+    ax.axhline(0, color=NAVY, lw=2)
+    for yr, lab, s in ev:
+        c = ACCENT if yr < 1993 else NAVY
+        h = s * (0.55 if (ev.index((yr, lab, s)) // 2) % 2 == 0 else 1.15)
+        ax.plot([yr, yr], [0, h * 0.82], color=c, lw=0.7)
+        ax.plot(yr, 0, "o", color=c, ms=4)
+        ax.text(yr, h, lab, ha="center", va="bottom" if s > 0 else "top", fontsize=6.6, color=c)
+    for y in range(1960, 2030, 10):
+        ax.text(y, -0.12 if y not in (1990,) else -0.12, str(y), ha="center", va="top", fontsize=7, color=GRAY)
+    ax.set_xlim(1953, 2029); ax.set_ylim(-1.75, 1.75); _clean_ax(ax)
+    fig.tight_layout(); save(fig, "ch17_timeline")
+
+
+def circulant():
+    """Circulant channel matrices are diagonalised by the DFT; Toeplitz ones are not."""
+    N = 16
+    h = np.array([1.0, 0.6 - 0.3j, 0.35j, -0.2])
+    Hc = np.zeros((N, N), complex)
+    for n in range(N):
+        for m, hm in enumerate(h):
+            Hc[n, (n - m) % N] += hm
+    T = np.tril(Hc) * (np.abs(np.subtract.outer(np.arange(N), np.arange(N))) < len(h))  # no wrap-around
+    F = np.fft.fft(np.eye(N)) / np.sqrt(N)
+    D1 = F @ Hc @ F.conj().T
+    D2 = F @ T @ F.conj().T
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 2.3))
+    ttl = ["(a) channel with CP: circulant", "(b) $\\mathbf{F}\\mathbf{H}_c\\mathbf{F}^H$: diagonal",
+           "(c) no CP: leakage (ICI)"]
+    for a, M, tl in zip(ax, [Hc, D1, D2], ttl):
+        im = a.imshow(20 * np.log10(np.abs(M) + 1e-6), cmap="Blues", vmin=-40, vmax=6)
+        a.set_title(tl, fontsize=8.5); a.set_xticks([]); a.set_yticks([]); a.grid(False)
+    off = np.sum(np.abs(D2 - np.diag(np.diag(D2))) ** 2) / np.sum(np.abs(np.diag(D2)) ** 2)
+    ax[2].set_xlabel(f"off-diagonal energy {10 * np.log10(off):.0f} dB", fontsize=8)
+    off1 = np.sum(np.abs(D1 - np.diag(np.diag(D1))) ** 2)
+    ax[1].set_xlabel("off-diagonal energy: zero", fontsize=8)
+    ax[0].set_xlabel("each row = previous, shifted", fontsize=8)
+    cb = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02); cb.set_label("dB", fontsize=7.5)
+    cb.ax.tick_params(labelsize=7)
+    save(fig, "ch17_circulant")
+
+
+def papr_crowd():
+    """Distribution of instantaneous power: mostly near the mean, rarely huge."""
+    r = rng(21)
+    N, L, ns = 256, 4, 4000
+    X = np.zeros((ns, N * L), complex)
+    idx = np.r_[1:101, N * L - 100:N * L]
+    X[:, idx] = _qam(200 * ns, QPSK, r).reshape(ns, 200)
+    x = np.fft.ifft(X, axis=1).ravel()
+    p = np.abs(x) ** 2 / np.mean(np.abs(x) ** 2)
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    g = np.linspace(0, 13, 200)
+    cc = np.array([np.mean(p > 10 ** (gi / 10)) for gi in g])
+    ax.semilogy(g, cc, color=NAVY, lw=1.8, label="simulated, 200 subcarriers")
+    ax.semilogy(g, np.exp(-10 ** (g / 10)), "--", color=ACCENT, lw=1.0, label="$e^{-\\gamma}$ (Gaussian)")
+    ax.axvline(10, color=GRAY, ls=":", lw=0.8)
+    ax.text(10.2, 0.05, "10 dB:\n1 sample\nin $\\approx$ 22 000", fontsize=7, color=GRAY)
+    ax.set_xlabel("instantaneous power above mean (dB)")
+    ax.set_ylabel("fraction of samples above")
+    ax.set_ylim(1e-6, 1.5); ax.set_xlim(0, 13); ax.legend(fontsize=6.6, loc="lower left")
+    fig.tight_layout(); save(fig, "ch17_papr_crowd")
+
+
+def hft_grid():
+    """The channel as a landscape |H(f,t)|, sampled by a scattered pilot lattice."""
+    r = rng(7)
+    dl, pdb = cl.TDL_PROFILES["EVA"]
+    p = 10 ** (np.asarray(pdb) / 10); p /= p.sum()
+    nsc, nsym = 96, 28
+    df, Ts, fD = 15e3, 1e-3 / 14, 300.0
+    k = np.arange(nsc) - nsc / 2
+    t = np.arange(nsym) * Ts
+    H = np.zeros((nsc, nsym), complex)
+    for tau, pi in zip(np.asarray(dl) * 1e-9, p):
+        th = r.uniform(0, 2 * np.pi, 24); ph = r.uniform(0, 2 * np.pi, 24)
+        a = np.sqrt(pi / 24) * np.exp(1j * (2 * np.pi * fD * np.outer(t, np.cos(th)) + ph)).sum(axis=1)
+        H += np.exp(-2j * np.pi * np.outer(k * df, [tau]))[:, :1] * a[None, :]
+    fig, ax = plt.subplots(figsize=(W1 * 0.82, 2.5))
+    im = ax.imshow(20 * np.log10(np.abs(H)), origin="lower", aspect="auto", cmap="viridis", vmin=-20, vmax=8,
+                   extent=(-0.5, nsym - 0.5, -0.5, nsc - 0.5))
+    for s in range(nsym):
+        if s % 7 in (0, 4):
+            off = 0 if s % 7 == 0 else 3
+            kk = np.arange(off, nsc, 6)
+            ax.plot(np.full(len(kk), s), kk, "o", ms=2.6, mfc="white", mec="k", mew=0.4)
+    ax.set_xlabel("OFDM symbol (time)"); ax.set_ylabel("subcarrier (frequency)")
+    cb = fig.colorbar(im, ax=ax, pad=0.02); cb.set_label("$|H(f,t)|^2$ (dB)", fontsize=8)
+    cb.ax.tick_params(labelsize=7)
+    ax.grid(False)
+    fig.tight_layout(); save(fig, "ch17_hft_grid")
+
+
+def waterfill_cartoon():
+    """Water-filling as water poured over an uneven floor."""
+    floor = np.array([0.35, 0.2, 0.3, 0.55, 0.9, 1.45, 0.75, 0.4, 0.25, 0.5, 1.1, 1.7])
+    P = 4.0
+    lo, hi = 0, 4
+    for _ in range(60):
+        mu = (lo + hi) / 2
+        if np.sum(np.maximum(mu - floor, 0)) > P:
+            hi = mu
+        else:
+            lo = mu
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for i, fl in enumerate(floor):
+        ax.add_patch(Rectangle((i, 0), 1, fl, color=GRAY, alpha=0.75, lw=0))
+        if mu > fl:
+            ax.add_patch(Rectangle((i, fl), 1, mu - fl, color="#2E86C1", alpha=0.45, lw=0))
+    ax.axhline(mu, color="#2E86C1", lw=1.2, ls="--")
+    ax.text(0.1, mu + 0.06, "water level $\\mu$", fontsize=7.5, color="#2E86C1")
+    ax.annotate("too high:\nno power", xy=(11.5, 1.72), xytext=(8.0, 1.85), fontsize=7, color=ACCENT,
+                arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.6))
+    ax.text(5.5, 0.12, "floor $\\Gamma/g_k$\n(noise / gain)", fontsize=6.8, color="white", ha="center")
+    ax.set_xlim(0, 12); ax.set_ylim(0, 2.25)
+    ax.set_xlabel("subcarrier (tone)"); ax.set_ylabel("power")
+    ax.set_xticks([]); ax.set_yticks([]); ax.grid(False)
+    fig.tight_layout(); save(fig, "ch17_waterfill_cartoon")
+
+
+def spacing_span():
+    """Subcarrier spacings of real systems span more than three decades."""
+    sysl = [("DVB-T2 32k", 279), ("DAB mode I", 1e3), ("DVB-T 8k", 1116), ("ADSL", 4312.5),
+            ("LTE / NR $\\mu$=0", 15e3), ("HomePlug AV", 24414), ("DOCSIS 3.1", 50e3), ("NR $\\mu$=1", 30e3),
+            ("Wi-Fi 6/7", 78125), ("NR $\\mu$=3 (FR2)", 120e3), ("Wi-Fi 4/5 (11a)", 312.5e3), ("NR $\\mu$=6", 960e3)]
+    sysl.sort(key=lambda s: s[1])
+    fig, ax = plt.subplots(figsize=(W2, 2.5))
+    for i, (n, d) in enumerate(sysl):
+        c = ACCENT if "NR" in n or "LTE" in n else (GREEN if n.startswith(("DVB", "DAB")) else
+                                                     (ORANGE if n.startswith(("ADSL", "DOCSIS", "HomePlug")) else NAVY))
+        ax.plot(d, i, "o", color=c, ms=5)
+        ax.plot([100, d], [i, i], color=c, lw=0.6, alpha=0.5)
+        ax.text(d * 1.25, i, f"{n}: {d / 1e3:g} kHz;  $T$ = {1e6 / d:.1f} $\\mu$s",
+                fontsize=6.8, va="center", color=c)
+    ax.set_xscale("log"); ax.set_xlim(150, 3e7); ax.set_ylim(-0.8, len(sysl) - 0.2)
+    ax.set_yticks([]); ax.set_xlabel("subcarrier spacing $\\Delta f$ (Hz)")
+    ax.set_xticks([1e3, 1e4, 1e5, 1e6]); ax.set_xticklabels(["1 kHz", "10 kHz", "100 kHz", "1 MHz"])
+    ax.text(2e6, 1.0, "broadcast (green)\nwireline (orange)\ncellular (red)\nWi-Fi (blue)", fontsize=7,
+            color=GRAY, va="bottom")
+    fig.tight_layout(); save(fig, "ch17_spacing_span")
+
+
+def ofdma_sched():
+    """Multiuser diversity: a proportional-fair scheduler gives each RB to a user on a peak."""
+    r = rng(12)
+    U, nrb, ns = 3, 25, 40
+    snr0 = np.array([12.0, 8.0, 4.0])
+    # frequency/time correlated Rayleigh: smooth complex Gaussian fields
+    g = np.zeros((U, nrb, ns))
+    for u in range(U):
+        w = r.standard_normal((nrb + 8, ns + 8)) + 1j * r.standard_normal((nrb + 8, ns + 8))
+        ker = np.outer(np.hanning(7), np.hanning(7))
+        from scipy.signal import fftconvolve
+        f = fftconvolve(w, ker, mode="same")[4:-4, 4:-4]
+        f /= np.sqrt(np.mean(np.abs(f) ** 2))
+        g[u] = np.abs(f) ** 2
+    snr = 10 ** (snr0[:, None, None] / 10) * g
+    rate = np.log2(1 + snr)
+    avg = np.ones(U) * 1.0
+    alloc = np.zeros((nrb, ns), int)
+    tp_pf = np.zeros(U); tp_rr = np.zeros(U)
+    for s in range(ns):
+        served = np.zeros(U)
+        for b in range(nrb):
+            u = np.argmax(rate[:, b, s] / avg)
+            alloc[b, s] = u; served[u] += rate[u, b, s]
+            tp_rr[(b + s) % U] += rate[(b + s) % U, b, s]
+        tp_pf += served
+        avg = 0.9 * avg + 0.1 * served / nrb + 1e-9
+    gain = tp_pf.sum() / tp_rr.sum()
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.3), gridspec_kw={"width_ratios": [1.1, 1]})
+    cols = [NAVY, ACCENT, GREEN]
+    for u in range(U):
+        ax[0].plot(np.arange(nrb), 10 * np.log10(snr[u, :, 10]), "o-", ms=2.4, color=cols[u], lw=1.1,
+                   label=f"user {u + 1}")
+    ax[0].set_xlabel("resource block"); ax[0].set_ylabel("SNR (dB)")
+    ax[0].legend(fontsize=6.8, ncol=3, loc="lower center"); ax[0].set_ylim(-25, 25)
+    ax[0].set_title("(a) Three users' channels, one slot", fontsize=9)
+    from matplotlib.colors import ListedColormap
+    ax[1].imshow(alloc, origin="lower", aspect="auto", cmap=ListedColormap(cols), interpolation="nearest")
+    ax[1].set_xlabel("slot"); ax[1].set_ylabel("resource block"); ax[1].grid(False)
+    ax[1].set_title(f"(b) PF schedule: {100 * (gain - 1):.0f}% over round robin", fontsize=9)
+    fig.tight_layout(w_pad=0.8); save(fig, "ch17_ofdma_sched")
+    print("PF gain over RR:", gain)
+
+
+def sfn_map():
+    """Self-interference zones of a two-transmitter SFN with a short guard interval."""
+    x = np.linspace(-60, 120, 600); y = np.linspace(-80, 80, 500)
+    Xg, Yg = np.meshgrid(x, y)
+    d1 = np.hypot(Xg, Yg) + 0.5; d2 = np.hypot(Xg - 60, Yg) + 0.5
+    dd = np.abs(d1 - d2) / 0.3          # microseconds
+    pr = 35 * np.abs(np.log10(d2 / d1))   # dB between the two signals (path-loss exponent 3.5)
+    fig, ax = plt.subplots(figsize=(3.4, 2.6))
+    bad = (dd > 112) & (pr < 15)
+    ax.contourf(Xg, Yg, bad.astype(float), levels=[0.5, 1.5], colors=[ACCENT], alpha=0.35)
+    cs = ax.contour(Xg, Yg, dd, levels=[50, 100, 150], colors=[GRAY], linewidths=0.6)
+    ax.clabel(cs, fmt="%d $\\mu$s", fontsize=6.5)
+    ax.plot([0, 60], [0, 0], "^", color=NAVY, ms=7)
+    ax.text(0, 6, "Tx A", ha="center", fontsize=7.5, color=NAVY); ax.text(60, 6, "Tx B", ha="center", fontsize=7.5,
+                                                                          color=NAVY)
+    ax.set_xlabel("km"); ax.set_ylabel("km"); ax.set_aspect("equal")
+    fig.tight_layout(); save(fig, "ch17_sfn_map")
+
+
+def mimo_sv():
+    """MIMO-OFDM: a 4x4 frequency-selective channel is a flat 4x4 matrix on every subcarrier."""
+    r = rng(9)
+    dl, pdb = cl.TDL_PROFILES["EVA"]
+    p = 10 ** (np.asarray(pdb) / 10); p /= p.sum()
+    d = np.round(np.asarray(dl) * 1e-9 * FS_LTE).astype(int)
+    hmat = np.zeros((d.max() + 1, 4, 4), complex)
+    for di, pi in zip(d, p):
+        hmat[di] += np.sqrt(pi / 2) * (r.standard_normal((4, 4)) + 1j * r.standard_normal((4, 4)))
+    Hf = np.fft.fft(hmat, 1024, axis=0)
+    k = np.r_[1:301, 724:1024]
+    sv = np.array([np.linalg.svd(Hf[i], compute_uv=False) for i in k])
+    order = np.argsort(np.where(k > 512, k - 1024, k))
+    fk = np.where(k > 512, k - 1024, k)[order] * 15e-3
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for i in range(4):
+        ax.plot(fk, 20 * np.log10(sv[order, i]), color=CYCLE[i], lw=1.0, label=f"$\\sigma_{i + 1}$")
+    ax.set_xlabel("frequency (MHz)"); ax.set_ylabel("singular value (dB)")
+    ax.legend(fontsize=6.6, ncol=4, loc="lower center"); ax.set_ylim(-35, 15)
+    fig.tight_layout(); save(fig, "ch17_mimo_sv")
+
+
+def radar_map():
+    """OFDM radar: range-Doppler map from dividing out the known data and a 2-D FFT."""
+    r = rng(14)
+    c0, fc, df = 3e8, 3.5e9, 30e3
+    nsc, nsym = 1024, 128
+    Ts = 1 / df * (1 + 144 / 2048)
+    lam = c0 / fc
+    tg = [(40.0, 12.0, 1.0), (95.0, -25.0, 0.5)]
+    k = np.arange(nsc)[:, None]; l = np.arange(nsym)[None, :]
+    X = _qam(nsc * nsym, QPSK, r).reshape(nsc, nsym)
+    Y = np.zeros_like(X)
+    for R, v, a in tg:
+        Y += a * X * np.exp(-2j * np.pi * k * df * 2 * R / c0) * np.exp(2j * np.pi * (2 * v / lam) * l * Ts)
+    Y += 10 ** (-10 / 20) * (r.standard_normal(X.shape) + 1j * r.standard_normal(X.shape)) / np.sqrt(2)
+    D = Y / X
+    D = D * np.hanning(nsc)[:, None] * np.hanning(nsym)[None, :]
+    RD = np.fft.fftshift(np.fft.fft(np.fft.ifft(D, 4 * nsc, axis=0), 4 * nsym, axis=1), axes=1)
+    P = 20 * np.log10(np.abs(RD) + 1e-12); P -= P.max()
+    rng_ax = np.arange(4 * nsc) * c0 / (2 * 4 * nsc * df)
+    vel = (np.arange(4 * nsym) - 2 * nsym) / (4 * nsym * Ts) * lam / 2
+    sel = rng_ax < 160
+    fig, ax = plt.subplots(figsize=(3.4, 2.6))
+    im = ax.imshow(P[sel].T, origin="lower", aspect="auto", cmap="magma", vmin=-50, vmax=0,
+                   extent=(rng_ax[0], rng_ax[sel][-1], vel[0], vel[-1]))
+    ax.set_ylim(-60, 60)
+    ax.set_xlabel("range (m)"); ax.set_ylabel("radial velocity (m/s)"); ax.grid(False)
+    cb = fig.colorbar(im, ax=ax, pad=0.02); cb.set_label("dB", fontsize=7.5); cb.ax.tick_params(labelsize=7)
+    fig.tight_layout(); save(fig, "ch17_radar_map")
+
+
+def wifi_rates():
+    """Peak PHY rates of Wi-Fi generations, and the knobs that were turned."""
+    gens = [("802.11a\n1999", 54e6, "20 MHz, 1 stream\n64-QAM"),
+            ("802.11n\n2009", 600e6, "40 MHz, 4 streams"),
+            ("802.11ac\n2013", 6.93e9, "160 MHz, 8 str.\n256-QAM"),
+            ("802.11ax\n2021", 9.6e9, "1024-QAM,\n78 kHz spacing"),
+            ("802.11be\n2024", 23e9, "320 MHz,\n4096-QAM")]
+    fig, ax = plt.subplots(figsize=(3.2, 2.6))
+    for i, (g, rt, kn) in enumerate(gens):
+        ax.bar(i, rt, color=NAVY if i < 4 else ACCENT, width=0.65)
+        lab = f"{rt / 1e9:.1f} Gb/s" if rt >= 1e9 else f"{rt / 1e6:.0f} Mb/s"
+        ax.text(i, rt * 1.25, lab, ha="center", fontsize=6.8)
+    ax.set_yscale("log"); ax.set_ylim(1.5e7, 1e11)
+    ax.set_xticks(range(5)); ax.set_xticklabels([g[0] for g in gens], fontsize=6.6)
+    ax.set_ylabel("peak PHY rate (b/s)")
+    fig.tight_layout(); save(fig, "ch17_wifi_rates")
+
+
+def dfts_env():
+    """Envelope of CP-OFDM versus DFT-spread OFDM with the same 300 subcarriers (QPSK)."""
+    r = rng(18)
+    N, M, L, ns = 1024, 300, 4, 1500
+    d = _qam(M * ns, QPSK, r).reshape(ns, M)
+    X1 = np.zeros((ns, N * L), complex); X1[:, :M] = d
+    X2 = np.zeros((ns, N * L), complex); X2[:, :M] = np.fft.fft(d, axis=1) / np.sqrt(M)
+    x1 = np.fft.ifft(X1, axis=1); x2 = np.fft.ifft(X2, axis=1)
+    x1 /= np.sqrt(np.mean(np.abs(x1) ** 2)); x2 /= np.sqrt(np.mean(np.abs(x2) ** 2))
+    t = np.arange(3 * N * L) / (N * L)
+    fig, ax = plt.subplots(2, 1, figsize=(3.0, 2.5), sharex=True)
+    for a, x, c, n in [(ax[0], x1, ACCENT, "CP-OFDM"), (ax[1], x2, NAVY, "DFT-s-OFDM")]:
+        pw = np.abs(x) ** 2
+        papr = 10 * np.log10(pw.max(axis=1))
+        q = np.quantile(papr, 1 - 1e-3 * 1.5)
+        a.plot(t, pw[:3].ravel(), color=c, lw=0.6)
+        a.axhline(1, color=GRAY, ls="--", lw=0.6)
+        a.set_ylim(0, 11); a.set_yticks([0, 5, 10])
+        a.set_title(f"{n}: 0.1% of symbols exceed {q:.1f} dB", fontsize=7.5, color=c, pad=2)
+    ax[1].set_xlabel("time (three QPSK symbols, 300 subcarriers)")
+    fig.text(0.01, 0.5, "power / mean", rotation=90, va="center", fontsize=8)
+    fig.tight_layout(rect=(0.03, 0, 1, 1), h_pad=0.3); save(fig, "ch17_dfts_env")
+
+
+def pa_curve():
+    """A power amplifier's compression curve and where OFDM amplitudes fall on it."""
+    r = rng(19)
+    a_in = np.linspace(0, 2.0, 400)
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for p, c, n in [(2, ORANGE, "Rapp $p=2$"), (10, NAVY, "with DPD ($p=10$)")]:
+        ax.plot(a_in, np.abs(cl.rapp_pa(a_in.astype(complex), 1.0, p)), color=c, lw=1.5, label=n)
+    ax.plot(a_in, a_in, ":", color=GRAY, lw=0.8)
+    rms = 10 ** (-8 / 20)
+    x = (r.standard_normal(200000) + 1j * r.standard_normal(200000)) / np.sqrt(2) * rms
+    h, e = np.histogram(np.abs(x), bins=120, range=(0, 2), density=True)
+    ax.fill_between(0.5 * (e[1:] + e[:-1]), 0, h / h.max() * 0.45, color=ACCENT, alpha=0.3, lw=0,
+                    label="OFDM amplitudes")
+    ax.axvline(rms, color=ACCENT, ls="--", lw=0.8)
+    ax.text(rms + 0.03, 1.15, "RMS, 8 dB\nback-off", fontsize=7, color=ACCENT)
+    ax.set_xlabel("input amplitude (saturation = 1)"); ax.set_ylabel("output amplitude")
+    ax.set_ylim(0, 1.45); ax.set_xlim(0, 2); ax.legend(fontsize=6.6, loc="lower right")
+    fig.tight_layout(); save(fig, "ch17_pa_curve")
+
+
+def optical_ofdm():
+    """Real, non-negative OFDM for light: DC-biased and asymmetrically clipped."""
+    r = rng(23)
+    N, L = 64, 8
+    X = np.zeros(N * L, complex)
+    k = np.arange(1, 28)
+    X[k] = _qam(len(k), QPSK, r); X[-k] = np.conj(X[k])
+    x = np.fft.ifft(X).real; x /= x.std()
+    Xa = np.zeros(N * L, complex)
+    ko = np.arange(1, 28, 2)
+    Xa[ko] = _qam(len(ko), QPSK, r); Xa[-ko] = np.conj(Xa[ko])
+    xa = np.fft.ifft(Xa).real; xa /= xa.std()
+    t = np.arange(N * L) / (N * L)
+    fig, ax = plt.subplots(2, 1, figsize=(3.0, 2.5), sharex=True)
+    dco = np.maximum(x + 2.0, 0)
+    ax[0].plot(t, x + 2.0, color=GRAY, lw=0.6, ls=":")
+    ax[0].plot(t, dco, color=ORANGE, lw=1.0)
+    ax[0].axhline(2.0, color=GRAY, lw=0.5, ls="--")
+    ax[0].set_title("DCO-OFDM: real signal + DC bias (dashed)", fontsize=8)
+    ax[1].plot(t, xa, color=GRAY, lw=0.6, ls=":")
+    ax[1].plot(t, np.maximum(xa, 0), color=PURPLE, lw=1.0)
+    ax[1].set_title("ACO-OFDM: odd subcarriers, negatives clipped", fontsize=8)
+    for a in ax:
+        a.axhline(0, color="k", lw=0.5); a.set_yticks([0])
+    ax[1].set_xlabel("time (one symbol)")
+    fig.tight_layout(h_pad=0.2); save(fig, "ch17_optical_ofdm")
+
+
+def fbmc_proto():
+    """The FBMC (PHYDYAS, K=4) prototype pulse versus the rectangular OFDM window."""
+    K = 4
+    Hk = [1.0, 0.97195983, 1 / np.sqrt(2), 0.23514695]
+    t = np.linspace(0, K, 4000)
+    p = Hk[0] + 2 * sum((-1) ** k * Hk[k] * np.cos(2 * np.pi * k * t / K) for k in range(1, K))
+    p /= np.sqrt(np.trapezoid(p ** 2, t))
+    fig, ax = plt.subplots(1, 2, figsize=(W1 * 0.95, 2.1))
+    ax[0].plot(t - K / 2, p, color=NAVY, lw=1.4, label="FBMC prototype")
+    ax[0].plot([-0.5, -0.5, 0.5, 0.5], [0, 1, 1, 0], color=ACCENT, lw=1.2, label="OFDM rectangle")
+    ax[0].set_xlabel("time (symbols)"); ax[0].legend(fontsize=6.6, loc="upper right")
+    ax[0].set_title("(a) Pulses", fontsize=9)
+    nf = 2 ** 16; dt = t[1] - t[0]
+    Pf = np.abs(np.fft.fftshift(np.fft.fft(p, nf))) * dt
+    f = np.fft.fftshift(np.fft.fftfreq(nf, dt))
+    tr = np.linspace(-0.5, 0.5, 1000); Rf = np.abs(np.sinc(f))
+    ax[1].plot(f, 20 * np.log10(Pf / Pf.max() + 1e-9), color=NAVY, lw=1.2)
+    ax[1].plot(f, 20 * np.log10(Rf + 1e-9), color=ACCENT, lw=1.0)
+    ax[1].set_xlim(0, 8); ax[1].set_ylim(-80, 3)
+    ax[1].set_xlabel("frequency (subcarrier spacings)"); ax[1].set_ylabel("dB")
+    ax[1].set_title("(b) Spectra of one subcarrier", fontsize=9)
+    fig.tight_layout(w_pad=0.8); save(fig, "ch17_fbmc_proto")
+
+
+def eq_cost():
+    """Complex multiplies per data symbol: time-domain equaliser versus OFDM, 20 MHz."""
+    fs = 20e6
+    tau = np.logspace(-7, np.log10(2e-5), 80)
+    nu = tau * fs
+    tde = 4 * nu + 1
+    cost_ofdm = []
+    for n_ in nu:
+        N = 64
+        while N < 8 * max(n_, 2):
+            N *= 2
+        cost_ofdm.append((N / 2 * np.log2(N) + N) / N)
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    ax.loglog(tau * 1e6, tde, color=ACCENT, lw=1.6, label="time-domain FIR\n($\\approx4\\nu$ taps)")
+    ax.loglog(tau * 1e6, cost_ofdm, color=NAVY, lw=1.6, label="OFDM: FFT + one tap")
+    ax.axvline(5, color=GRAY, ls=":", lw=0.8); ax.text(5.4, 2.0, "urban\nmacro", fontsize=7, color=GRAY)
+    ax.set_xlabel("channel delay spread ($\\mu$s)"); ax.set_ylabel("multiplies per symbol")
+    ax.legend(fontsize=6.6, loc="upper left"); ax.set_ylim(1, 3000)
+    fig.tight_layout(); save(fig, "ch17_eq_cost")
+
+
+def plc_mask():
+    """An illustrative power-line OFDM tone map: amateur bands notched, bits loaded per tone."""
+    r = rng(31)
+    df = 24.414e3
+    f = np.arange(1.8e6, 30e6, df)
+    ham = [(1.8, 2.0), (3.5, 4.0), (7.0, 7.3), (10.1, 10.15), (14.0, 14.35), (18.068, 18.168),
+           (21.0, 21.45), (24.89, 24.99), (28.0, 29.7)]
+    on = np.ones(len(f), bool)
+    for a, b in ham:
+        on &= ~((f >= a * 1e6) & (f <= b * 1e6))
+    # a frequency-selective power-line channel: a few echoes plus loss rising with frequency
+    tau = np.array([0, 0.18, 0.41, 0.77, 1.2]) * 1e-6
+    g = np.array([1.0, -0.55, 0.38, -0.25, 0.15])
+    H = np.abs(np.sum(g[:, None] * np.exp(-2j * np.pi * tau[:, None] * f[None, :]), axis=0))
+    snr = 45 + 20 * np.log10(H + 1e-3) - 0.6 * f / 1e6 + 2 * r.standard_normal(len(f))
+    bits = np.clip(np.floor(np.log2(1 + 10 ** ((snr - 9) / 10))), 0, 10) * on
+    fig, ax = plt.subplots(figsize=(W1 * 0.95, 2.2))
+    ax.bar(f / 1e6, bits, width=df / 1e6, color=NAVY, lw=0)
+    for a, b in ham:
+        ax.axvspan(a, b, color=ACCENT, alpha=0.25, lw=0)
+    ax.text(7.15, 10.3, "amateur bands\nnotched", fontsize=7, color=ACCENT, ha="center")
+    ax.set_xlabel("frequency (MHz)"); ax.set_ylabel("bits per subcarrier")
+    ax.set_xlim(1.5, 30.2); ax.set_ylim(0, 12.5)
+    fig.tight_layout(); save(fig, "ch17_plc_mask")
+
+
+def rayleigh_lanes():
+    """Uncoded OFDM on a fading channel: a few weak subcarriers make nearly all the errors."""
+    r = rng(41)
+    nsc, ntr = 600, 400
+    snr_avg = 20.0
+    allsnr = []
+    for _ in range(ntr):
+        h = _static_taps("ETU", FS_LTE, r); h /= np.sqrt(np.sum(np.abs(h) ** 2))
+        H = np.fft.fft(h, 1024)[np.r_[1:301, 724:1024]]
+        allsnr.append(snr_avg + 20 * np.log10(np.abs(H)))
+    s = np.concatenate(allsnr)
+    from scipy.special import erfc
+    ser = erfc(np.sqrt(10 ** (s / 10) / 10 * 1.0)) * 1.5      # 16-QAM approximate SER
+    ser = np.minimum(ser, 0.75)
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    bins = np.linspace(-15, 30, 46)
+    h, e = np.histogram(s, bins=bins)
+    errs, _ = np.histogram(s, bins=bins, weights=ser)
+    ax.bar(e[:-1], h / h.sum() * 100, width=1.0, align="edge", color=NAVY, alpha=0.7, label="share of subcarriers")
+    ax.bar(e[:-1], errs / errs.sum() * 100, width=1.0, align="edge", color=ACCENT, alpha=0.6,
+           label="share of symbol errors")
+    weak = s < 10
+    ax.text(-14, 23, f"{100 * weak.mean():.0f}% of subcarriers below 10 dB\nmake {100 * ser[weak].sum() / ser.sum():.0f}% of the errors",
+            fontsize=6.8)
+    ax.set_xlabel("subcarrier SNR (dB), average 20 dB"); ax.set_ylabel("percent")
+    ax.legend(fontsize=6.4, loc="center right"); ax.set_ylim(0, 30)
+    fig.tight_layout(); save(fig, "ch17_rayleigh_lanes")
+
+
+def cfo_rotation():
+    """A frequency offset rotates and blurs the constellation (CPE + ICI)."""
+    r = rng(51)
+    cfg = co.OFDMConfig(64, 52, 16)
+    fig, ax = plt.subplots(1, 2, figsize=(3.2, 1.75))
+    for a, eps in zip(ax, [0.04, 0.15]):
+        Ys = []
+        for rep_ in range(6):   # six independent first symbols: same rotation, fresh ICI
+            g = _qam(52, Q16, r).reshape(1, 52)
+            x = co.ofdm_modulate(g, cfg)
+            n = np.arange(len(x))
+            Ys.append(co.ofdm_demodulate(x * np.exp(2j * np.pi * eps * n / 64), cfg)[0])
+        Y = np.concatenate(Ys)
+        a.plot(Y.real, Y.imag, ".", color=NAVY, ms=2.5)
+        a.plot(Q16.points.real, Q16.points.imag, "+", color=ACCENT, ms=4, mew=0.7)
+        a.set_xlim(-1.5, 1.5); a.set_ylim(-1.5, 1.5); a.set_aspect("equal")
+        a.set_xticks([]); a.set_yticks([])
+        a.set_title(f"$\\epsilon$ = {eps}", fontsize=8.5)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch17_cfo_rotation")
+
+
+def doppler_speed():
+    """Doppler signal-to-ICI ratio versus speed for three numerologies (Clarke spectrum)."""
+    v = np.linspace(1, 500, 300) / 3.6
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for fc, scs, c, ls in [(3.5e9, 15e3, ACCENT, "-"), (3.5e9, 30e3, NAVY, "-"), (28e9, 120e3, GREEN, "--"),
+                           (28e9, 30e3, GREEN, ":")]:
+        fd = v * fc / 3e8
+        sir = 6 / (np.pi * fd / scs) ** 2
+        ax.plot(v * 3.6, 10 * np.log10(sir), color=c, ls=ls, lw=1.4,
+                label=f"{fc / 1e9:g} GHz, {scs / 1e3:g} kHz")
+    ax.axhline(25, color=GRAY, ls="--", lw=0.7); ax.text(10, 26, "64-QAM comfort zone", fontsize=6.8, color=GRAY)
+    ax.set_xlabel("speed (km/h)"); ax.set_ylabel("Doppler SIR (dB)")
+    ax.set_ylim(5, 60); ax.legend(fontsize=6.2, loc="upper right")
+    fig.tight_layout(); save(fig, "ch17_doppler_speed")
+
+
+def dmrs_types():
+    """NR DMRS configurations on one slot of one resource block."""
+    fig, ax = plt.subplots(1, 3, figsize=(W1 * 0.95, 2.0))
+    cfgs = [("(a) Type 1, front-loaded", [2], "t1"), ("(b) Type 1 + 1 additional", [2, 11], "t1"),
+            ("(c) Type 2 + 2 additional", [2, 7, 11], "t2")]
+    for a, (tt, syms, typ) in zip(ax, cfgs):
+        a.add_patch(Rectangle((2, 0), 12, 12, color=GREEN, alpha=0.12, lw=0))
+        a.add_patch(Rectangle((0, 0), 2, 12, color=NAVY, alpha=0.2, lw=0))
+        for s in syms:
+            for k in range(12):
+                on = (k % 2 == 0) if typ == "t1" else (k % 6 in (0, 1))
+                if on:
+                    a.add_patch(Rectangle((s, k), 1, 1, color=ACCENT, alpha=0.85, lw=0))
+                elif typ == "t1":
+                    a.add_patch(Rectangle((s, k), 1, 1, color=ORANGE, alpha=0.35, lw=0))
+                elif k % 6 in (2, 3):
+                    a.add_patch(Rectangle((s, k), 1, 1, color=ORANGE, alpha=0.35, lw=0))
+                else:
+                    a.add_patch(Rectangle((s, k), 1, 1, color=PURPLE, alpha=0.3, lw=0))
+        for x in range(15):
+            a.plot([x, x], [0, 12], color="white", lw=0.5)
+        for y in range(13):
+            a.plot([0, 14], [y, y], color="white", lw=0.5)
+        a.add_patch(Rectangle((0, 0), 14, 12, fill=False, ec=GRAY, lw=0.6))
+        a.set_xlim(-0.2, 14.2); a.set_ylim(-0.3, 12.3); a.set_aspect("equal")
+        a.set_title(tt, fontsize=8); _clean_ax(a)
+        a.set_xlabel("symbol", fontsize=7)
+    ax[0].set_ylabel("subcarrier", fontsize=7)
+    fig.text(0.5, -0.02, "red: DMRS of one CDM group; orange/purple: other CDM groups (more antenna ports); "
+             "blue: control; green: data", ha="center", fontsize=6.8, color=GRAY)
+    fig.tight_layout(w_pad=0.4); save(fig, "ch17_dmrs_types")
+
+
+def sco_ramp():
+    """Sampling-clock offset: a phase ramp across the subcarriers that grows symbol by symbol."""
+    k = np.arange(-26, 27); k = k[k != 0]
+    delta, N, L = 20e-6, 64, 80
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for nsym, c in [(50, GREEN), (150, NAVY), (300, ACCENT)]:
+        ph = np.degrees(2 * np.pi * k * delta * L / N * nsym)
+        ax.plot(k, ph, "o", ms=1.8, color=c, label=f"after {nsym} symbols")
+    for kp in (-21, -7, 7, 21):
+        ax.axvline(kp, color=GRAY, ls=":", lw=0.7)
+    ax.text(7.6, -72, "pilots", fontsize=7, color=GRAY)
+    ax.set_xlabel("subcarrier index $k$"); ax.set_ylabel("phase rotation (degrees)")
+    ax.legend(fontsize=6.5, loc="upper left")
+    fig.tight_layout(); save(fig, "ch17_sco_ramp")
+
+
+def coverage_gain():
+    """Cell-radius gain from saving back-off, for an uplink-limited cell."""
+    db = np.linspace(0, 5, 100)
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for n, c in [(3.0, GREEN), (3.5, NAVY), (4.0, ACCENT)]:
+        ax.plot(db, 100 * (10 ** (db / (10 * n)) - 1), color=c, lw=1.5, label=f"path-loss exponent {n:g}")
+    ax.axvspan(2, 3, color=GRAY, alpha=0.15, lw=0)
+    ax.text(2.05, 2, "SC-FDMA\nvs OFDMA\n(QPSK)", fontsize=6.8, color=GRAY)
+    ax.set_xlabel("back-off saved (dB)"); ax.set_ylabel("cell radius gain (%)")
+    ax.legend(fontsize=6.5, loc="upper left"); ax.set_xlim(0, 5); ax.set_ylim(0, 50)
+    fig.tight_layout(); save(fig, "ch17_coverage_gain")
+
+
+def cp_overhead():
+    """Prefix length and overhead of real systems."""
+    sy = [("802.11a/g/n/ac", 0.8, 3.2), ("Wi-Fi 6/7 (0.8 GI)", 0.8, 12.8), ("LTE normal", 4.69, 66.67),
+          ("LTE extended", 16.67, 66.67), ("NR $\\mu$=1", 2.34, 33.33), ("DVB-T2 32k, 1/16", 224, 3584)]
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for i, (n, tcp, T) in enumerate(sy):
+        ov = 100 * tcp / (tcp + T)
+        ax.barh(i, ov, color=ACCENT if ov > 15 else NAVY, height=0.6)
+        ax.text(ov + 0.5, i, f"{ov:.1f}%  ($T_{{cp}}$={tcp:g} $\\mu$s)", va="center", fontsize=6.6)
+    ax.set_yticks(range(len(sy))); ax.set_yticklabels([s[0] for s in sy], fontsize=7)
+    ax.invert_yaxis(); ax.set_xlim(0, 40); ax.set_xlabel("prefix overhead (% of air time)")
+    fig.tight_layout(); save(fig, "ch17_cp_overhead")
+
+
+def guard_layout():
+    """802.11a: what each of the 64 FFT bins carries."""
+    fig, ax = plt.subplots(figsize=(W1, 1.25))
+    for k in range(-32, 32):
+        if k == 0:
+            c, h = GRAY, 0.25
+        elif abs(k) > 26:
+            c, h = "#DDDDDD", 0.25
+        elif abs(k) in (7, 21):
+            c, h = ACCENT, 0.8
+        else:
+            c, h = NAVY, 0.6
+        ax.bar(k, h, width=0.8, color=c)
+    ax.set_xlim(-33, 33); ax.set_ylim(0, 1.15); ax.set_yticks([])
+    ax.set_xticks([-32, -26, -21, -7, 0, 7, 21, 26, 31])
+    ax.set_xlabel("subcarrier index $k$ (312.5 kHz apart)")
+    ax.text(-29.5, 0.4, "guard", ha="center", fontsize=7, color=GRAY)
+    ax.text(29.5, 0.4, "guard", ha="center", fontsize=7, color=GRAY)
+    ax.text(0, 0.3, "DC", ha="center", fontsize=7, color=GRAY)
+    ax.text(-14, 0.88, "48 data subcarriers", ha="center", fontsize=7.5, color=NAVY)
+    ax.text(14, 0.88, "4 pilots (red)", ha="center", fontsize=7.5, color=ACCENT)
+    ax.grid(False)
+    fig.tight_layout(); save(fig, "ch17_guard_layout")
+
+
+def delay_vs_cp():
+    """Typical maximum excess delays by environment against the prefixes of real systems."""
+    env = [("indoor (Wi-Fi)", 0.05, 0.8), ("urban macro-cell", 1.0, 5.0), ("hilly terrain", 10, 20),
+           ("broadcast SFN", 50, 500)]
+    cps = [("802.11a 0.8", 0.8, NAVY), ("LTE 4.69", 4.69, ACCENT), ("LTE ext. 16.7", 16.7, ORANGE),
+           ("DVB-T2 224", 224, GREEN)]
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for i, (n, a, b) in enumerate(env):
+        ax.plot([a, b], [i, i], color=GRAY, lw=7, solid_capstyle="butt", alpha=0.6)
+        ax.text(a, i + 0.32, n, fontsize=7)
+    for n, v, c in cps:
+        ax.axvline(v, color=c, ls="--", lw=0.9)
+        ax.text(v * 1.08, -0.75, n, rotation=90, fontsize=6.3, color=c, va="bottom")
+    ax.set_xscale("log"); ax.set_xlim(0.03, 1500); ax.set_ylim(-0.8, 3.7)
+    ax.set_yticks([]); ax.set_xlabel("maximum excess delay / prefix ($\\mu$s)")
+    fig.tight_layout(); save(fig, "ch17_delay_vs_cp")
+
+
+def dvbt2_guards():
+    """DVB-T2 guard intervals: duration and overhead for the 8k and 32k modes (8 MHz)."""
+    fr = [1 / 128, 1 / 32, 1 / 16, 19 / 256, 1 / 8, 19 / 128, 1 / 4]
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for T, c, n, ok in [(896, ACCENT, "8k ($T$ = 896 $\\mu$s)", (1 / 128, 1 / 32, 1 / 16, 19 / 256, 1 / 8, 19 / 128, 1 / 4)),
+                        (3584, NAVY, "32k ($T$ = 3584 $\\mu$s)", (1 / 128, 1 / 32, 1 / 16, 19 / 256, 1 / 8, 19 / 128))]:
+        g =[f for f in fr if f in ok]
+        ax.plot([f * T for f in g], [100 * f / (1 + f) for f in g], "o-", color=c, ms=3.5, label=n)
+    ax.axvline(200, color=GRAY, ls=":", lw=0.9)
+    ax.text(215, 1.0, "60 km SFN\nneeds 200 $\\mu$s", fontsize=7, color=GRAY)
+    ax.set_xscale("log"); ax.set_xlabel("guard interval ($\\mu$s)"); ax.set_ylabel("overhead (%)")
+    ax.legend(fontsize=6.6, loc="upper left")
+    fig.tight_layout(); save(fig, "ch17_dvbt2_guards")
+
+
+def pilot_limits():
+    """Largest pilot spacing in time allowed by the Doppler, NR at 30 kHz, against speed."""
+    v = np.linspace(5, 500, 300) / 3.6
+    Ts = 1 / 30e3 * (1 + 144 / 2048)
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    for fc, c in [(2.0e9, GREEN), (3.5e9, NAVY), (28e9, ACCENT)]:
+        fd = v * fc / 3e8
+        ax.semilogy(v * 3.6, 1 / (2 * fd * Ts), color=c, lw=1.5, label=f"{fc / 1e9:g} GHz")
+    for d, n in [(14, "1 DMRS / slot"), (7, "2 DMRS"), (4, "4 DMRS")]:
+        ax.axhline(d, color=GRAY, ls=":", lw=0.8); ax.text(150, d * 1.08, n, fontsize=6.6, color=GRAY)
+    ax.set_xlabel("speed (km/h)"); ax.set_ylabel("max. pilot spacing $D_t$ (symbols)")
+    ax.set_ylim(1, 1000); ax.legend(fontsize=6.6, loc="upper right", title="30 kHz, carrier", title_fontsize=6.6)
+    fig.tight_layout(); save(fig, "ch17_pilot_limits")
+
+
+def adsl_bandplan():
+    """ADSL2+ over POTS (Annex A): voice, upstream tones and downstream tones on one copper pair."""
+    fig, ax = plt.subplots(figsize=(W1, 1.45))
+    df = 4.3125
+    ax.add_patch(Rectangle((0, 0), 4, 1.0, color=GREEN, alpha=0.6, lw=0))
+    ax.add_patch(Rectangle((6 * df, 0), (32 - 6) * df, 0.7, color=ORANGE, alpha=0.7, lw=0))
+    ax.add_patch(Rectangle((33 * df, 0), (511 - 33) * df, 0.55, color=NAVY, alpha=0.7, lw=0))
+    ax.set_xscale("symlog", linthresh=20); ax.set_xlim(0, 2400); ax.set_ylim(0, 1.25)
+    ax.text(2, 1.05, "voice\n0–4 kHz", fontsize=7, color=GREEN, ha="center", va="bottom")
+    ax.text(60, 0.75, "upstream\ntones 6–32", fontsize=7, color=ORANGE, ha="center", va="bottom")
+    ax.text(600, 0.6, "downstream: tones 33–511 (138 kHz–2.2 MHz)", fontsize=7, color=NAVY, ha="center",
+            va="bottom")
+    ax.set_xticks([0, 4, 25, 138, 1104, 2208]); ax.set_xticklabels(["0", "4", "25", "138", "1104", "2208"])
+    ax.set_xlabel("frequency (kHz), 4.3125 kHz per tone"); ax.set_yticks([]); ax.grid(False)
+    fig.tight_layout(); save(fig, "ch17_adsl_bandplan")
+
+
+def dft_est():
+    """DFT-based estimation: in the delay domain the channel is a few taps and the rest is noise."""
+    r = rng(61)
+    npil = 100
+    h = np.zeros(npil, complex)
+    taps = [0, 1, 3, 5, 9, 14, 22]
+    for i, t in enumerate(taps):
+        h[t] = np.exp(-i / 2.5) * np.exp(2j * np.pi * r.random())
+    noise = (r.standard_normal(npil) + 1j * r.standard_normal(npil)) * 0.07
+    hh = h + noise
+    fig, ax = plt.subplots(figsize=(3.0, 2.4))
+    n = np.arange(npil)
+    keep = n < 42
+    ax.vlines(n[keep], 0, np.abs(hh[keep]), color=NAVY, lw=1.0)
+    ax.vlines(n[~keep], 0, np.abs(hh[~keep]), color=ACCENT, lw=1.0, alpha=0.7)
+    ax.axvspan(-0.5, 41.5, color=GREEN, alpha=0.08, lw=0)
+    ax.text(20, 1.05, "keep: the channel lives here\n(within the prefix)", ha="center", fontsize=6.8, color=GREEN)
+    ax.text(71, 0.35, "discard:\nnoise only", ha="center", fontsize=7, color=ACCENT)
+    ax.set_xlabel("delay tap (IDFT of the pilot estimates)"); ax.set_ylabel("magnitude")
+    ax.set_ylim(0, 1.3); ax.set_xlim(-1, 100)
+    fig.tight_layout(); save(fig, "ch17_dft_est")
+
+
+def lte_slot():
+    """One 0.5 ms LTE slot (normal CP) at 30.72 MS/s: 7 symbols, prefixes of 160 and 144 samples."""
+    fig, ax = plt.subplots(figsize=(W1 * 0.9, 0.95))
+    x = 0
+    for s in range(7):
+        cp = 160 if s == 0 else 144
+        ax.add_patch(Rectangle((x, 0), cp, 1, color=GREEN, alpha=0.7, lw=0))
+        ax.add_patch(Rectangle((x + cp, 0), 2048, 1, color=NAVY, alpha=0.75 - 0.05 * (s % 2), lw=0))
+        ax.text(x + cp + 1024, 0.5, f"symbol {s}", ha="center", va="center", fontsize=6.8, color="white")
+        x += cp + 2048
+    ax.text(80, 1.12, "CP 160", fontsize=6.5, color=GREEN, ha="center")
+    ax.text(160 + 2048 + 72, 1.12, "144", fontsize=6.5, color=GREEN, ha="center")
+    ax.set_xlim(0, x); ax.set_ylim(0, 1.35); ax.set_yticks([])
+    ax.set_xticks([0, x / 2, x]); ax.set_xticklabels(["0", "0.25 ms", "0.5 ms = 15 360 samples"], fontsize=7)
+    ax.grid(False)
+    for sp in ("left",):
+        ax.spines[sp].set_visible(False)
+    fig.tight_layout(); save(fig, "ch17_lte_slot")
+
+
+def cpe_track():
+    """Common phase error from Wiener phase noise, symbol by symbol, and its pilot estimate."""
+    r = rng(71)
+    N, ns = 256, 60
+    beta = 0.004
+    ph = np.cumsum(r.standard_normal(N * ns) * np.sqrt(2 * np.pi * beta / N))
+    cpe = np.angle(np.exp(1j * ph).reshape(ns, N).mean(axis=1))
+    est = cpe + r.standard_normal(ns) * 0.01
+    t = np.arange(N * ns) / N
+    fig, ax = plt.subplots(figsize=(3.0, 2.0))
+    ax.plot(t, np.degrees(ph), color=GRAY, lw=0.6, label="oscillator phase")
+    ax.step(np.arange(ns) + 0.5, np.degrees(cpe), where="mid", color=NAVY, lw=1.3, label="CPE per symbol")
+    ax.plot(np.arange(ns) + 0.5, np.degrees(est), "o", ms=2.2, color=ACCENT, label="pilot estimate")
+    ax.set_xlabel("OFDM symbol"); ax.set_ylabel("phase (degrees)")
+    ax.legend(fontsize=6.3, loc="best")
+    fig.tight_layout(); save(fig, "ch17_cpe_track")
+
+
+def dfts_samples():
+    """DFT-s-OFDM: every Q-th output sample is a data symbol; the rest is sinc interpolation."""
+    r = rng(81)
+    M, Q = 12, 8
+    N = M * Q
+    d = r.choice([-1.0, 1.0], M) + 1j * r.choice([-1.0, 1.0], M)
+    X = np.zeros(N, complex); X[:M] = np.fft.fft(d) / np.sqrt(M)
+    x = np.fft.ifft(X) * np.sqrt(N)
+    n = np.arange(N)
+    x = x * np.sqrt(Q)
+    fig, ax = plt.subplots(figsize=(3.0, 1.7))
+    ax.plot(n / Q, x.real, color=NAVY, lw=1.0, label="transmitted (real part)")
+    ax.plot(np.arange(M), d.real, "o", color=ACCENT, ms=3.5, label="data symbols $d_m$")
+    ax.axhline(0, color="k", lw=0.4)
+    ax.set_xlabel("time (data-symbol periods)"); ax.set_yticks([-1, 0, 1])
+    ax.legend(fontsize=6.3, loc="upper right", ncol=2); ax.set_ylim(-1.8, 2.8)
+    fig.tight_layout(); save(fig, "ch17_dfts_samples")
+
+
+def interleaver_map():
+    """802.11a first interleaver permutation for 48 subcarriers (BPSK): code bit k -> position i."""
+    Ncbps = 48
+    k = np.arange(Ncbps)
+    i = (Ncbps // 16) * (k % 16) + k // 16
+    fig, ax = plt.subplots(figsize=(3.0, 1.9))
+    ax.plot(k, i, "o", ms=2.6, color=NAVY)
+    ax.plot(k[:6], i[:6], "-", color=ACCENT, lw=1.0)
+    ax.set_xlabel("coded bit index $k$"); ax.set_ylabel("subcarrier slot $i$")
+    ax.text(0.5, 38, "adjacent bits land\n3 slots apart", fontsize=6.8, color=ACCENT)
+    fig.tight_layout(); save(fig, "ch17_interleaver_map")
+
+
+NEW_FIGS = [lte_slot, cpe_track, dfts_samples, interleaver_map, dft_est, adsl_bandplan, guard_layout, delay_vs_cp, dvbt2_guards, pilot_limits, cp_overhead, dmrs_types, sco_ramp, coverage_gain, highway, orth_products, fft_bank, symbol_build, fft_cost, timeline, circulant, papr_crowd,
+            hft_grid, waterfill_cartoon, spacing_span, ofdma_sched, sfn_map, mimo_sv, radar_map, wifi_rates,
+            dfts_env, pa_curve, optical_ofdm, fbmc_proto, eq_cost, plc_mask, rayleigh_lanes, cfo_rotation,
+            doppler_speed]
+
+
 if __name__ == "__main__":
     import sys as _s
     fns = [fdm_vs_ofdm, ofdm_symbol, one_tap, cp_length, timing_window, ici, phase_noise,
-           design_space, numerology, pilots, chest, papr, clipping, oob, coded, waterfill]
+           design_space, numerology, pilots, chest, papr, clipping, oob, coded, waterfill] + NEW_FIGS
     sel = _s.argv[1:]
     for fn in fns:
         if not sel or fn.__name__ in sel:

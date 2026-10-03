@@ -21,3 +21,4 @@ titles strip `$…$`; book link opens the PDF at the page; catalog descriptions 
   anchor (0, 1) sits partly above the view top: pass anchor=(…, 0) for labels pinned to the top
 - retire notebook tooling: delete labs/lab00_index.py, labs/lab00_index.ipynb,
   tests/build_notebooks.py, tests/build_all.sh, tests/dump_figs.py (deletion needs the owner's OK)
+- lab28 OFDM radar range-profile legend truncated 'at +14 m…' may mislabel ~40 m target
