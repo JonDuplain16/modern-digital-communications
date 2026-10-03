@@ -601,10 +601,1388 @@ def latency():
     print("budgets", dict(zip(names, left)))
 
 
+
+
+# ############################################################################
+# Second edition: concept illustrations, infographics and small simulations
+# ############################################################################
+from matplotlib.patches import FancyBboxPatch, Polygon, Circle, FancyArrowPatch, Wedge
+
+SOFT = {"1G": "#E5E7E9", "2G": "#D6E4F0", "3G": "#D4EFDF", "4G": "#FAE5D3", "5G": "#F5D5D0"}
+
+
+def _box(ax, x, y, w, h, txt, fc, ec=None, fs=7, color="#222222", weight="normal", r=0.04, ha="center"):
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle=f"round,pad=0,rounding_size={r}",
+                                fc=fc, ec=ec or fc, lw=0.8))
+    tx = x + w / 2 if ha == "center" else x + 0.03
+    ax.text(tx, y + h / 2, txt, ha=ha, va="center", fontsize=fs, color=color, weight=weight,
+            linespacing=1.15)
+
+
+def _arrow(ax, p, q, color=GRAY, lw=1.0, style="-|>", ms=8, ls="-", rad=0.0):
+    ax.add_patch(FancyArrowPatch(p, q, arrowstyle=style, mutation_scale=ms, color=color, lw=lw,
+                                 linestyle=ls, connectionstyle=f"arc3,rad={rad}"))
+
+
+def _hexagon(ax, cx, cy, R, fc, ec="white", lw=0.8, alpha=1.0, z=1):
+    ang = np.deg2rad(np.arange(6) * 60 + 30)
+    ax.add_patch(Polygon(np.c_[cx + R * np.cos(ang), cy + R * np.sin(ang)], closed=True, fc=fc,
+                         ec=ec, lw=lw, alpha=alpha, zorder=z))
+
+
+def _hexcenter(q, r_, R=1.0):
+    return np.sqrt(3) * R * (q + r_ / 2), 1.5 * R * r_
+
+
+def _erlang_b(A, C):
+    b = 1.0
+    for k in range(1, C + 1):
+        b = A * b / (k + A * b)
+    return b
+
+
+def _erlang_capacity(C, B=0.02):
+    lo, hi = 0.0, 2.0 * C + 10
+    for _ in range(80):
+        m = 0.5 * (lo + hi)
+        if _erlang_b(m, C) > B:
+            hi = m
+        else:
+            lo = m
+    return lo
+
+
+# ---------------------------------------------------------------------------- by the numbers
+def by_numbers():
+    tiles = [("8.8 billion", "mobile subscriptions\nworldwide, 2025 (approx.)"),
+             ("12", "channels for New York's\nmobile phones in 1976"),
+             ("270.833 kb/s", "GSM bit rate:\n13 MHz / 48"),
+             ("160", "characters in an SMS:\n140 octets of 7-bit text"),
+             ("1500 Hz", "WCDMA power-control\ncommands per second"),
+             ("1 ms", "LTE subframe: the\nscheduler's heartbeat"),
+             ("2.34 Gb/s", "NR peak, 100 MHz, 4 layers,\n256QAM (TS 38.306)"),
+             ("x10 / 5 yr", "growth of peak rates,\n1990s to 2020s")]
+    fig, ax = plt.subplots(figsize=(W1, 1.75))
+    ax.set_xlim(0, 4); ax.set_ylim(0, 2); ax.axis("off")
+    cols = [NAVY, GRAY, NAVY, PURPLE, GREEN, ORANGE, ACCENT, BLUE2]
+    for k, (big, small) in enumerate(tiles):
+        x = k % 4; y = 1 - k // 4
+        ax.add_patch(FancyBboxPatch((x + 0.04, y + 0.06), 0.92, 0.88, boxstyle="round,pad=0,rounding_size=0.06",
+                                    fc=cols[k], ec="none", alpha=0.10))
+        ax.text(x + 0.5, y + 0.63, big, ha="center", va="center", fontsize=12.5, color=cols[k], weight="bold")
+        ax.text(x + 0.5, y + 0.27, small, ha="center", va="center", fontsize=6.9, color="#333333", linespacing=1.1)
+    save(fig, "ch21_by_numbers")
+
+
+# ---------------------------------------------------------------------------- timeline
+def timeline():
+    ev = [(1946, "MTS, St. Louis", "0G", 1), (1965, "IMTS", "0G", -1), (1973, "Cooper's call", "1G", 2),
+          (1979, "NTT Tokyo", "1G", -2), (1981, "NMT", "1G", 1), (1983, "AMPS Chicago", "1G", -3),
+          (1987, "GSM MoU", "2G", 3), (1991, "first GSM call", "2G", -1), (1992, "first SMS", "2G", 2),
+          (1995, "IS-95 CDMA", "2G", -2), (1999, "i-mode", "2G", 1), (2001, "FOMA (3G)", "3G", -3),
+          (2005, "HSDPA", "3G", 2), (2007, "iPhone", "3G", -1), (2009, "first LTE", "4G", 3),
+          (2012, "VoLTE", "4G", -2), (2017, "Gigabit LTE", "4G", 1), (2019, "first 5G", "5G", -3),
+          (2024, "5G-Advanced", "5G", 2), (2030, "6G?", "6G", -1)]
+    col = {"0G": GRAY, "1G": "#566573", "2G": NAVY, "3G": GREEN, "4G": ORANGE, "5G": ACCENT, "6G": PURPLE}
+    fig, ax = plt.subplots(figsize=(W1, 2.35))
+    spans = [("0G", 1946, 1979), ("1G", 1979, 1991), ("2G", 1991, 2001), ("3G", 2001, 2009),
+             ("4G", 2009, 2019), ("5G", 2019, 2030)]
+    for g, a, b in spans:
+        ax.add_patch(Rectangle((a, -0.12), b - a, 0.24, fc=col[g], alpha=0.85, lw=0, zorder=2))
+        ax.text((a + b) / 2, 0, g, ha="center", va="center", fontsize=7.5, color="white", weight="bold", zorder=3)
+    for yr, nm, c, lev in ev:
+        up = 1 if lev > 0 else -1
+        h = up * (0.42 + 0.48 * (abs(lev) - 1))
+        ax.plot([yr, yr], [0.12 * up, h], color=col[c], lw=0.7)
+        ax.text(yr, h + 0.05 * up, f"{nm}\n{yr}" if up > 0 else f"{yr}\n{nm}", ha="center",
+                va="bottom" if up > 0 else "top", fontsize=6.0, color=col[c], linespacing=1.0)
+    ax.set_xlim(1942, 2034); ax.set_ylim(-2.05, 1.85); ax.axis("off")
+    save(fig, "ch21_timeline")
+
+
+# ---------------------------------------------------------------------------- five road systems
+def _car(ax, x, y, w, h, c, alpha=1.0):
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=0.05", fc=c, ec="none",
+                                alpha=alpha, zorder=4))
+
+
+def roads():
+    fig, axs = plt.subplots(1, 5, figsize=(W1, 2.35))
+    r = rng(11)
+    titles = ["1G: one lane\nper car (FDMA)", "2G: traffic lights\n(TDMA)", "3G: shared motorway,\ncode lanes (CDMA)",
+              "4G: all-IP highway\ngrid (OFDMA)", "5G: express lanes\nand slices"]
+    for k, ax in enumerate(axs):
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1.25); ax.axis("off")
+        ax.set_title(titles[k], fontsize=7.2, color=list(GEN_COL.values())[k] if k else "#566573", pad=2)
+    # 1G: separate thin roads, one car each, many empty
+    a = axs[0]
+    for i in range(7):
+        y = 0.08 + i * 0.155
+        a.add_patch(Rectangle((0.05, y), 0.9, 0.1, fc="#D5D8DC", lw=0))
+        if i in (1, 4, 5):
+            _car(a, 0.15 + 0.5 * r.random(), y + 0.015, 0.2, 0.07, GRAY)
+    # 2G: one wide road split in 8 time segments with lights
+    a = axs[1]
+    a.add_patch(Rectangle((0.05, 0.2), 0.9, 0.5, fc="#D5D8DC", lw=0))
+    cols8 = [NAVY, BLUE2, GREEN, ORANGE, ACCENT, PURPLE, GRAY, "#117A65"]
+    for i in range(8):
+        _car(a, 0.07 + i * 0.11, 0.38, 0.09, 0.14, cols8[i])
+    for i in range(3):
+        x = 0.2 + i * 0.3
+        a.add_patch(Rectangle((x, 0.78), 0.07, 0.25, fc="#333333", lw=0))
+        for j, c in enumerate([ACCENT, ORANGE, GREEN]):
+            a.add_patch(Circle((x + 0.035, 0.82 + j * 0.075), 0.026, fc=c if j == (i % 3) else "#777777", lw=0))
+    a.text(0.5, 0.1, "8 users take turns\non one 200 kHz road", ha="center", fontsize=6.2)
+    # 3G: wide motorway, overlapping translucent cars (codes)
+    a = axs[2]
+    a.add_patch(Rectangle((0.05, 0.12), 0.9, 0.95, fc="#D5D8DC", lw=0))
+    for i in range(14):
+        _car(a, 0.08 + 0.7 * r.random(), 0.17 + 0.78 * r.random(), 0.2, 0.09, cols8[i % 8], alpha=0.45)
+    a.text(0.5, 0.03, "everyone at once,\ntold apart by code", ha="center", fontsize=6.2, va="bottom")
+    # 4G: grid of blocks
+    a = axs[3]
+    for i in range(6):
+        for j in range(6):
+            a.add_patch(Rectangle((0.06 + i * 0.148, 0.12 + j * 0.155), 0.13, 0.135, fc="#D5D8DC", lw=0))
+            if r.random() < 0.55:
+                _car(a, 0.075 + i * 0.148, 0.145 + j * 0.155, 0.10, 0.085, cols8[int(r.integers(0, 6))])
+    a.text(0.5, 0.03, "scheduler fills a\ntime-frequency grid", ha="center", fontsize=6.2, va="bottom")
+    # 5G: lanes of different widths (numerologies) + slice colours
+    a = axs[4]
+    lanes = [(0.12, 0.33, "#F5D5D0", "eMBB"), (0.47, 0.14, "#D4EFDF", "URLLC"), (0.63, 0.1, "#E8DAEF", "IoT"),
+             (0.75, 0.3, "#D6E4F0", "private")]
+    for y, h, c, nm in lanes:
+        a.add_patch(Rectangle((0.05, y), 0.9, h, fc=c, lw=0))
+        a.text(0.92, y + h / 2, nm, ha="right", va="center", fontsize=5.8, color="#333333")
+    for i in range(4):
+        _car(a, 0.08 + i * 0.16, 0.2, 0.12, 0.17, ACCENT)
+    _car(a, 0.1, 0.5, 0.3, 0.08, GREEN)
+    for i in range(6):
+        _car(a, 0.08 + i * 0.1, 0.66, 0.05, 0.04, PURPLE)
+    _car(a, 0.12, 0.85, 0.22, 0.12, NAVY)
+    a.text(0.5, 0.03, "lanes sized and\nreserved per service", ha="center", fontsize=6.2, va="bottom")
+    fig.tight_layout(w_pad=0.3); save(fig, "ch21_roads")
+
+
+# ---------------------------------------------------------------------------- what each generation fixed
+def what_fixed():
+    gens = ["1G", "2G", "3G", "4G", "5G"]
+    fixed = ["mobility itself:\ncells, reuse,\nhandoff",
+             "capacity, privacy,\ncloning, roaming:\ndigital + SIM",
+             "data, wideband\naccess: CDMA +\npacket core",
+             "slow, deep\nnetworks: flat\nall-IP + OFDMA",
+             "one-size LTE:\nnumerology, beams,\ncloud core"]
+    left = ["capacity,\neavesdropping,\ncloning", "circuit-only;\ndata a retrofit",
+            "RNC far from\nradio; sluggish\npacket data", "fixed numerology,\nalways-on CRS,\nmonolithic core",
+            "cost per bit,\nenergy, sensing...\n(6G)"]
+    fig, ax = plt.subplots(figsize=(W1, 2.45))
+    ax.set_xlim(0, 5); ax.set_ylim(0, 2.45); ax.axis("off")
+    for i, g in enumerate(gens):
+        c = list(GEN_COL.values())[i]
+        _box(ax, i + 0.08, 1.95, 0.84, 0.38, g, c, fs=10, color="white", weight="bold")
+        _box(ax, i + 0.08, 1.02, 0.84, 0.82, "fixed:\n" + fixed[i], SOFT[g], fs=6.6)
+        _box(ax, i + 0.08, 0.06, 0.84, 0.8, "left behind:\n" + left[i], "#F2F3F4", fs=6.4, color="#555555")
+        if i < 4:
+            _arrow(ax, (i + 0.86, 0.5), (i + 1.12, 1.35), color=ACCENT, lw=1.2, rad=-0.25)
+    save(fig, "ch21_what_fixed")
+
+
+# ---------------------------------------------------------------------------- one tower versus cells
+def imts_vs_cells():
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.6))
+    for a in axs:
+        a.set_aspect("equal"); a.axis("off"); a.set_xlim(-6.2, 6.2); a.set_ylim(-6.6, 5.9)
+    a = axs[0]
+    a.add_patch(Circle((0, 0), 5.3, fc="#D6E4F0", ec=NAVY, lw=1.0))
+    a.plot([0, 0], [0, 1.6], color="#333333", lw=2); a.plot([-0.35, 0, 0.35], [0, 1.6, 0], color="#333333", lw=1)
+    a.text(0, 2.0, "one high-power\ntransmitter", ha="center", fontsize=7)
+    a.text(0, -2.6, "~12 channels for the\nwhole city: 12 calls", ha="center", fontsize=7.5, color=NAVY, weight="bold")
+    a.set_title("(a) IMTS: one big cell", fontsize=8.5)
+    a = axs[1]
+    cols7 = [NAVY, BLUE2, GREEN, ORANGE, ACCENT, PURPLE, GRAY]
+    n = 0
+    for q in range(-4, 5):
+        for r_ in range(-4, 5):
+            x, y = _hexcenter(q, r_, 1.0)
+            if x * x + y * y < 5.3 ** 2:
+                _hexagon(a, x, y, 1.0, cols7[(q + 3 * r_) % 7], alpha=0.35)
+                n += 1
+    a.add_patch(Circle((0, 0), 5.3, fc="none", ec=NAVY, lw=1.0, ls="--"))
+    a.set_title(f"(b) cellular: {n} small cells, reuse N = 7", fontsize=8.5)
+    a.text(0, -6.3, f"each channel used ~{n / 7:.0f} times: ~{n / 7:.0f}x the calls", ha="center", fontsize=7.2,
+           color=NAVY, weight="bold")
+    fig.tight_layout(w_pad=0.5); save(fig, "ch21_imts_vs_cells")
+    print("cells in (b):", n)
+
+
+# ---------------------------------------------------------------------------- hexagonal reuse
+def hex_reuse():
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.7), gridspec_kw=dict(width_ratios=[1, 1.15]))
+    a = axs[0]; a.set_aspect("equal"); a.axis("off")
+    cols7 = [NAVY, BLUE2, GREEN, ORANGE, ACCENT, PURPLE, GRAY]
+    for q in range(-5, 6):
+        for r_ in range(-5, 6):
+            x, y = _hexcenter(q, r_)
+            if x * x + y * y < 4.9 ** 2:
+                g = (q + 3 * r_) % 7
+                _hexagon(a, x, y, 1.0, cols7[g], alpha=0.85 if g == 0 else 0.22)
+                a.text(x, y, chr(65 + g), ha="center", va="center", fontsize=5.5,
+                       color="white" if g == 0 else "#333333")
+    x1, y1 = _hexcenter(1, 2)
+    a.annotate("", (x1, y1), (0, 0), arrowprops=dict(arrowstyle="<->", color="k", lw=0.9))
+    a.text(x1 / 2 + 0.25, y1 / 2 - 0.35, r"$D=R\sqrt{3N}$", fontsize=7.5, bbox=dict(fc="white", ec="none", pad=0.5))
+    a.set_xlim(-5, 5); a.set_ylim(-5, 5)
+    a.set_title("(a) N = 7: co-channel cells (A)", fontsize=8.5)
+    a = axs[1]
+    Ns = np.array([1, 3, 4, 7, 9, 12, 13, 19])
+    for nexp, c in [(3.0, GRAY), (3.5, BLUE2), (4.0, NAVY)]:
+        sir = 10 * np.log10((3 * Ns) ** (nexp / 2) / 6)
+        a.plot(Ns, sir, "o-", color=c, ms=3.5, label=f"n = {nexp}")
+    a.axhline(18, color=ACCENT, ls="--", lw=0.8); a.text(1.0, 19.2, "analog FM (AMPS) ~18 dB", fontsize=6.5,
+                                                        color=ACCENT, ha="left")
+    a.axhline(9, color=GREEN, ls="--", lw=0.8); a.text(19.3, 7.0, "GSM ~9 dB", fontsize=6.5, color=GREEN, ha="right")
+    a.set_xlabel("cluster size N"); a.set_ylabel("cell-edge SIR (dB)")
+    a.set_xticks(Ns); a.legend(fontsize=6.5, loc="lower right"); a.set_ylim(-10, 30)
+    a.set_title(r"(b) SIR $\approx (3N)^{n/2}/6$", fontsize=8.5)
+    fig.tight_layout(w_pad=0.6); save(fig, "ch21_hex_reuse")
+
+
+# ---------------------------------------------------------------------------- AMPS baseband and RF
+def amps_baseband():
+    r = rng(5)
+    fs = 480e3
+    N = int(fs * 4)
+    sos = sps.butter(6, [300, 3000], btype="band", fs=fs, output="sos")
+    v = sps.sosfilt(sos, r.standard_normal(N))
+    v = v / (3 * v.std()); v = np.clip(v, -1, 1)
+    t = np.arange(N) / fs
+    sat = np.cos(2 * np.pi * 6000 * t)
+    m = 12e3 * 0.75 * v + 2e3 * sat           # peak deviation about 12 kHz, SAT +-2 kHz
+    x = np.exp(1j * 2 * np.pi * np.cumsum(m) / fs)
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.45))
+    a = axs[0]
+    f = np.linspace(0, 12, 1200)
+    voice = np.where((f > 0.3) & (f < 3.0), -10 - 4 * (f - 0.3), -70)
+    voice = np.convolve(np.r_[np.full(20, -70.0), voice, np.full(20, -70.0)], np.ones(15) / 15, "same")[20:-20]
+    a.fill_between(f, -70, voice, color=BLUE2, alpha=0.4, lw=0)
+    a.plot(f, voice, color=NAVY, lw=0.9)
+    for ft, nm, c, h in [(6.0, "SAT\n5970/6000/6030 Hz", GREEN, -12), (10.0, "ST\n10 kHz", ORANGE, -14)]:
+        a.plot([ft, ft], [-70, h], color=c, lw=2); a.text(ft, h + 3, nm, ha="center", fontsize=6.5, color=c)
+    a.text(1.6, -6, "voice\n0.3-3 kHz", ha="center", fontsize=6.8, color=NAVY)
+    a.set_xlim(0, 12); a.set_ylim(-70, 12); a.set_xlabel("audio frequency (kHz)"); a.set_ylabel("level (dB)")
+    a.set_title("(a) what the FM modulator sees", fontsize=8.5)
+    a = axs[1]
+    ff, p = sps.welch(x, fs=fs, nperseg=8192, return_onesided=False)
+    i = np.argsort(ff); ff, p = ff[i] / 1e3, 10 * np.log10(p[i] / p.max())
+    for off, c, lab in [(-30, GRAY, "neighbour"), (0, NAVY, "this channel"), (30, GRAY, None)]:
+        a.plot(ff + off, p - (0 if off == 0 else 3), color=c, lw=1.0 if off == 0 else 0.7,
+               ls="-" if off == 0 else ":", label=lab)
+    for e in (-15, 15):
+        a.axvline(e, color=ACCENT, lw=0.7, ls="--")
+    a.text(0, 3, "30 kHz", ha="center", fontsize=7, color=ACCENT)
+    a.set_xlim(-60, 60); a.set_ylim(-60, 8); a.set_xlabel("offset from carrier (kHz)")
+    a.set_ylabel("PSD (dB)"); a.legend(fontsize=6.3, loc="lower right")
+    a.set_title("(b) simulated FM spectrum, 12 kHz dev.", fontsize=8.5)
+    fig.tight_layout(w_pad=0.8); save(fig, "ch21_amps_baseband")
+
+
+# ---------------------------------------------------------------------------- trunking
+def trunking():
+    Cs = np.arange(1, 401)
+    A = np.array([_erlang_capacity(int(c)) for c in Cs])
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    ax.semilogx(Cs, 100 * A / Cs, color=NAVY)
+    a19, a395 = _erlang_capacity(19), _erlang_capacity(395)
+    ax.plot(19, 100 * a19 / 19, "o", color=ACCENT, ms=5)
+    ax.annotate(f"AMPS sector: 19 ch.\n{a19:.1f} E ({100 * a19 / 19:.0f}% busy)", (19, 100 * a19 / 19),
+                xytext=(1.6, 80), fontsize=6.6, arrowprops=dict(arrowstyle="-", color=GRAY, lw=0.6))
+    ax.plot(395, 100 * a395 / 395, "o", color=GREEN, ms=5)
+    ax.annotate(f"one pool: 395 ch.\n{a395:.0f} E ({100 * a395 / 395:.0f}%)", (395, 100 * a395 / 395),
+                xytext=(25, 40), fontsize=6.6, arrowprops=dict(arrowstyle="-", color=GRAY, lw=0.6))
+    ax.set_xlabel("channels in the group"); ax.set_ylabel("utilisation at 2% blocking (%)")
+    ax.set_ylim(0, 100); ax.set_xlim(1, 400)
+    fig.tight_layout(); save(fig, "ch21_trunking")
+    print("Erlang 19:", a19, " 21x19:", 21 * a19, " 395:", a395)
+
+
+# ---------------------------------------------------------------------------- identity vs authentication
+def _phone(ax, x, y, s=1.0, c=NAVY):
+    ax.add_patch(FancyBboxPatch((x - 0.12 * s, y - 0.25 * s), 0.24 * s, 0.5 * s,
+                                boxstyle="round,pad=0,rounding_size=0.04", fc=c, ec="none", zorder=3))
+    ax.add_patch(Rectangle((x - 0.09 * s, y - 0.08 * s), 0.18 * s, 0.26 * s, fc="white", alpha=0.85, zorder=4))
+
+
+def cloning():
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.35))
+    for a in axs:
+        a.set_xlim(0, 4); a.set_ylim(0, 2.6); a.axis("off")
+    a = axs[0]
+    a.set_title("(a) AMPS: the phone shouts its identity", fontsize=8.5, color=ACCENT)
+    _phone(a, 0.5, 1.5); a.text(0.5, 0.95, "your phone", ha="center", fontsize=6.5)
+    a.plot([3.4, 3.4], [1.0, 2.2], color="#333333", lw=2); a.text(3.4, 0.75, "base station", ha="center", fontsize=6.5)
+    _box(a, 1.0, 1.7, 2.0, 0.5, "MIN 312-555-0100\nESN 8A3F...  (in the clear)", "#FADBD8", fs=6.4)
+    _arrow(a, (0.75, 1.55), (3.3, 1.55), color=NAVY)
+    _phone(a, 2.1, 0.62, 0.8, GRAY); a.text(2.1, 0.3, "eavesdropper\ncopies it", fontsize=6.3, color=GRAY, ha="center", va="top")
+    _arrow(a, (2.1, 1.5), (2.1, 0.88), color=ACCENT, ls="--")
+    _phone(a, 3.1, 0.62, 0.8, ACCENT); a.text(3.1, 0.3, "clone: same MIN/ESN,\nyour bill", fontsize=6.3, color=ACCENT, ha="center", va="top")
+    _arrow(a, (2.3, 0.62), (2.9, 0.62), color=ACCENT)
+    a = axs[1]
+    a.set_title("(b) GSM: answer a fresh challenge", fontsize=8.5, color=GREEN)
+    _phone(a, 0.5, 1.5); a.text(0.5, 0.95, "phone + SIM\n(holds secret $K_i$)", ha="center", fontsize=6.2, va="top")
+    a.plot([3.4, 3.4], [1.0, 2.2], color="#333333", lw=2); a.text(3.4, 0.75, "network\n(also knows $K_i$)",
+                                                                  ha="center", fontsize=6.2, va="top")
+    _arrow(a, (3.3, 2.0), (0.75, 2.0), color=NAVY); a.text(2.0, 2.1, "1. RAND (random, 128 bits)", ha="center", fontsize=6.4)
+    _arrow(a, (0.75, 1.45), (3.3, 1.45), color=GREEN)
+    a.text(2.0, 1.55, "2. SRES = A3($K_i$, RAND)", ha="center", fontsize=6.4)
+    _box(a, 1.0, 0.25, 2.1, 0.5, "a recorded SRES is useless:\nnext time RAND is different", "#D4EFDF", fs=6.4)
+    fig.tight_layout(w_pad=0.6); save(fig, "ch21_cloning")
+
+
+# ---------------------------------------------------------------------------- TDMA: 8 users take turns
+def tdma_lights():
+    fig, ax = plt.subplots(figsize=(W1, 1.85))
+    cols8 = [NAVY, BLUE2, GREEN, ORANGE, ACCENT, PURPLE, GRAY, "#117A65"]
+    for fr in range(3):
+        for s in range(8):
+            x = fr * 8 + s
+            ax.add_patch(Rectangle((x, 1.2), 0.94, 0.55, fc=cols8[s], alpha=0.9 if s == 2 else 0.3, lw=0))
+            ax.add_patch(Rectangle((x + 3, 0.2), 0.94, 0.55, fc=cols8[s], alpha=0.9 if s == 2 else 0.3, lw=0))
+            ax.text(x + 0.47, 1.47, str(s), ha="center", va="center", fontsize=6, color="white" if s == 2 else "#333")
+            ax.text(x + 3.47, 0.47, str(s), ha="center", va="center", fontsize=6, color="white" if s == 2 else "#333")
+    ax.text(-0.3, 1.47, "downlink\n(BTS sends)", ha="right", va="center", fontsize=7)
+    ax.text(-0.3, 0.47, "uplink\n(phone sends)", ha="right", va="center", fontsize=7)
+    for fr in range(3):
+        ax.annotate("", (2.5 + fr * 8 + 3.0, 0.8), (2.5 + fr * 8, 1.18),
+                    arrowprops=dict(arrowstyle="-|>", color=ACCENT, lw=0.8))
+    ax.text(5.6, 0.92, "3 slots later", fontsize=6.5, color=ACCENT)
+    for fr in range(4):
+        ax.axvline(fr * 8, color="#333", lw=0.6, ymin=0.55, ymax=0.95)
+    ax.text(4, 1.95, "TDMA frame 4.615 ms", ha="center", fontsize=7, color=NAVY)
+    ax.set_xlim(-4.2, 27.2); ax.set_ylim(0, 2.2); ax.axis("off")
+    save(fig, "ch21_tdma_lights")
+
+
+# ---------------------------------------------------------------------------- midamble
+TSC0 = np.array([0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1])
+
+
+def midamble():
+    s = 1 - 2 * TSC0.astype(float)
+    core = s[5:21]
+    lags = np.arange(-5, 6)
+    ac = [np.dot(s[5 + l:21 + l], core) for l in lags]
+    r = rng(8)
+    h = np.array([0.0, 0.9, 0.0, -0.45 + 0.3j, 0.0, 0.25j])
+    h = np.r_[h, np.zeros(0)]
+    y = np.convolve(s, h)[:26] + 0.15 * (r.standard_normal(26) + 1j * r.standard_normal(26))
+    est = np.array([np.dot(y[5 + l:21 + l], core) / 16 for l in range(0, 6)])
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.3))
+    a = axs[0]
+    a.stem(lags, ac, basefmt=" ", linefmt=NAVY, markerfmt="o")
+    a.set_xlabel("lag (bits)"); a.set_ylabel("correlation")
+    a.set_title("(a) TSC 0: ideal within $\\pm$5 bits", fontsize=8.5); a.set_ylim(-3, 18)
+    a.text(0.5, 16.3, "16", fontsize=7)
+    a = axs[1]
+    k = np.arange(6)
+    a.bar(k - 0.18, np.abs(h), width=0.34, color=GRAY, label="true channel")
+    a.bar(k + 0.18, np.abs(est), width=0.34, color=NAVY, label="estimate from midamble")
+    a.set_xlabel("delay (bits, 3.69 $\\mu$s each)"); a.set_ylabel("|tap|")
+    a.set_title("(b) one correlation = channel estimate", fontsize=8.5); a.legend(fontsize=6.5)
+    fig.tight_layout(w_pad=0.8); save(fig, "ch21_midamble")
+    print("TSC0 autocorr", ac)
+
+
+# ---------------------------------------------------------------------------- timing advance
+def timing_advance():
+    fig, ax = plt.subplots(figsize=(W1, 2.0))
+    Tb = 48 / 13
+    slot = 156.25 * Tb
+    rows = [("BTS receive window", 0, None), ("near phone (1 km), no TA", 2 * 1e3 / 3e8 * 1e6, None),
+            ("far phone (30 km), no TA", 2 * 30e3 / 3e8 * 1e6, None),
+            ("far phone (30 km), TA = 54 bits", 2 * 30e3 / 3e8 * 1e6 - 54 * Tb, None)]
+    for i, (nm, d, _) in enumerate(rows):
+        y = 3 - i
+        for s in range(3):
+            x0 = s * slot + (d if i else 0)
+            c = NAVY if s == 1 else "#D5D8DC"
+            if i == 0:
+                c = "#D6E4F0" if s != 1 else BLUE2
+            ax.add_patch(Rectangle((x0, y + 0.15), (slot - 8.25 * Tb) if i else slot, 0.6,
+                                   fc=c if i == 0 or s == 1 else "none", ec=GRAY if s != 1 else "none", lw=0.6,
+                                   alpha=0.9))
+        ax.text(-15, y + 0.45, nm, ha="right", va="center", fontsize=6.8)
+    ax.axvline(2 * slot, color=ACCENT, lw=0.8, ls="--"); ax.text(2 * slot + 8, 3.95, "next user's slot starts",
+                                                                 fontsize=6.5, color=ACCENT)
+    ax.text(3 * slot + 230, 1.45, "overlaps the next\nslot by ~170 $\\mu$s!", fontsize=6.5, color=ACCENT, va="center")
+    ax.set_xlim(-560, 3 * slot + 560); ax.set_ylim(-0.1, 4.2); ax.axis("off")
+    ax.text(slot * 1.5, -0.05, r"one slot = 577 $\mu$s; TA step = 1 bit = 3.69 $\mu$s round trip = 553 m",
+            ha="center", fontsize=6.8, color=NAVY)
+    save(fig, "ch21_timing_advance")
+
+
+# ---------------------------------------------------------------------------- call set-up message chart
+def call_flow():
+    msgs = [("MS", "BSS", "Channel request (access burst)", "RACH"),
+            ("BSS", "MS", "Immediate assignment: SDCCH + timing advance", "AGCH"),
+            ("MS", "MSC", "CM service request (TMSI)", "SDCCH"),
+            ("MSC", "MS", "Authentication request (RAND)", "SDCCH"),
+            ("MS", "MSC", "Authentication response (SRES)", "SDCCH"),
+            ("MSC", "MS", "Ciphering mode command: start A5", "SDCCH"),
+            ("MS", "MSC", "Setup (called number)", "SDCCH"),
+            ("MSC", "MS", "Call proceeding", "SDCCH"),
+            ("BSS", "MS", "Assignment command: go to TCH", "SDCCH"),
+            ("MS", "BSS", "Assignment complete", "FACCH"),
+            ("MSC", "MS", "Alerting ... Connect", "FACCH"),
+            ("MS", "MSC", "conversation (TCH) + measurements every 480 ms", "TCH+SACCH")]
+    xs = {"MS": 0.6, "BSS": 2.6, "MSC": 4.6}
+    fig, ax = plt.subplots(figsize=(W1, 3.5))
+    n = len(msgs)
+    for k, x in xs.items():
+        _box(ax, x - 0.45, n + 0.25, 0.9, 0.45, {"MS": "phone (MS)", "BSS": "BTS + BSC", "MSC": "MSC/VLR"}[k],
+             NAVY, fs=7, color="white", weight="bold")
+        ax.plot([x, x], [0.2, n + 0.25], color=GRAY, lw=0.8, ls=":")
+    for i, (a, b, txt, ch) in enumerate(msgs):
+        y = n - 0.35 - i
+        c = ACCENT if "uthent" in txt or "iphering" in txt else (GREEN if "conversation" in txt else NAVY)
+        _arrow(ax, (xs[a], y), (xs[b], y), color=c, lw=0.9, ms=7)
+        ax.text((xs[a] + xs[b]) / 2, y + 0.07, txt, ha="center", va="bottom", fontsize=6.0, color=c)
+        ax.text(5.3, y, ch, ha="left", va="center", fontsize=6.0, color=GRAY)
+    ax.text(5.3, n + 0.47, "logical\nchannel", fontsize=6.3, color=GRAY, va="center")
+    ax.set_xlim(0, 6.0); ax.set_ylim(0, n + 0.8); ax.axis("off")
+    save(fig, "ch21_call_flow")
+
+
+# ---------------------------------------------------------------------------- speech bits and interleaving
+def speech_bits():
+    fig, axs = plt.subplots(2, 1, figsize=(W1, 2.9), gridspec_kw=dict(height_ratios=[1, 1.15]))
+    a = axs[0]
+    segs1 = [(50, ACCENT, "50 class 1a"), (132, ORANGE, "132 class 1b"), (78, GRAY, "78 class 2")]
+    x = 0
+    for n, c, nm in segs1:
+        a.add_patch(Rectangle((x, 1.2), n, 0.6, fc=c, alpha=0.8, lw=0)); a.text(x + n / 2, 1.5, nm, ha="center",
+                                                                               va="center", fontsize=6.5, color="white")
+        x += n
+    a.text(-6, 1.5, "260 speech bits\n(20 ms)", ha="right", va="center", fontsize=6.8)
+    x = 0
+    segs2 = [(2 * 189, NAVY, "378 = 2 x (182 + 3 CRC + 4 tail), rate-1/2 convolutional code"), (78, GRAY, "78")]
+    for n, c, nm in segs2:
+        a.add_patch(Rectangle((x, 0.2), n, 0.6, fc=c, alpha=0.8, lw=0)); a.text(x + n / 2, 0.5, nm, ha="center",
+                                                                               va="center", fontsize=6.5, color="white")
+        x += n
+    a.text(-6, 0.5, "456 coded bits\n(22.8 kb/s)", ha="right", va="center", fontsize=6.8)
+    for xa, xb in [(0, 0), (182, 378)]:
+        a.plot([xa, xb], [1.2, 0.8], color=GRAY, lw=0.6, ls=":")
+    a.set_xlim(-95, 460); a.set_ylim(0, 2); a.axis("off")
+    a.set_title("(a) unequal error protection of a full-rate speech frame", fontsize=8.5, loc="left")
+    a = axs[1]
+    cA, cB, cC = NAVY, BLUE2, GREEN
+    for bidx in range(12):
+        x = bidx * 1.0
+        # each burst: even bits from frame k, odd bits from frame k-1 (diagonal over 8 bursts)
+        fa = bidx // 4
+        top = [cA, cB, cC, ORANGE][fa % 4]
+        bot = [GRAY, cA, cB, cC][fa % 4]
+        lost = bidx == 6
+        a.add_patch(Rectangle((x + 0.05, 0.75), 0.9, 0.5, fc=top, alpha=0.25 if lost else 0.85, lw=0))
+        a.add_patch(Rectangle((x + 0.05, 0.2), 0.9, 0.5, fc=bot, alpha=0.25 if lost else 0.85, lw=0))
+        if lost:
+            a.plot([x + 0.05, x + 0.95], [0.2, 1.25], color=ACCENT, lw=1.5)
+            a.plot([x + 0.05, x + 0.95], [1.25, 0.2], color=ACCENT, lw=1.5)
+            a.text(x + 0.5, 1.33, "burst lost in a fade", ha="center", fontsize=6.3, color=ACCENT)
+        a.text(x + 0.5, 0.05, f"{bidx}", ha="center", fontsize=6, color="#333")
+    a.text(-0.1, 1.0, "57 bits\n57 bits", ha="right", va="center", fontsize=6.3)
+    a.set_xlim(-1.2, 12.1); a.set_ylim(-0.1, 1.55); a.axis("off")
+    a.set_title("(b) each speech frame is spread over 8 bursts (colours); a lost burst costs each frame only 1/8",
+                fontsize=8.0, loc="left")
+    fig.tight_layout(h_pad=0.4); save(fig, "ch21_speech_bits")
+
+
+# ---------------------------------------------------------------------------- AMR modes
+def amr_modes():
+    modes = [12.2, 10.2, 7.95, 7.4, 6.7, 5.9, 5.15, 4.75]
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    y = np.arange(len(modes))
+    ax.barh(y, modes, color=NAVY, label="speech")
+    ax.barh(y, [22.8 - m for m in modes], left=modes, color=ORANGE, alpha=0.75, label="error protection")
+    ax.set_yticks(y); ax.set_yticklabels([f"{m}" for m in modes], fontsize=7)
+    ax.invert_yaxis(); ax.set_xlabel("kb/s in a 22.8 kb/s full-rate channel")
+    ax.set_ylabel("AMR mode (kb/s)"); ax.set_xlim(0, 22.8)
+    ax.legend(fontsize=6.5, loc="lower right", framealpha=0.9)
+    ax.text(0.3, -0.85, "near the site", fontsize=6.5, color=NAVY)
+    ax.text(0.3, 7.8, "cell edge", fontsize=6.5, color=ORANGE, va="top")
+    fig.tight_layout(); save(fig, "ch21_amr_modes")
+
+
+# ---------------------------------------------------------------------------- frequency hopping
+def _rayleigh_tf(r, ncar, nfr, fd, Tf, M=24):
+    t = np.arange(nfr) * Tf
+    out = np.zeros((ncar, nfr), complex)
+    for c in range(ncar):
+        th = r.uniform(0, 2 * np.pi, M); ph = r.uniform(0, 2 * np.pi, M)
+        out[c] = np.exp(1j * (2 * np.pi * fd * np.cos(th)[:, None] * t[None, :] + ph[:, None])).sum(0) / np.sqrt(M)
+    return out
+
+
+def hopping():
+    r = rng(21)
+    Tf = 60 / 13 * 1e-3
+    fd = 3 / 3.6 / 3e8 * 900e6              # 3 km/h at 900 MHz -> 2.5 Hz
+    ncar = 8
+    thr = -12.0
+    # statistics over a long run
+    nfr = int(120 / Tf)
+    h = _rayleigh_tf(r, ncar, nfr, fd, Tf)
+    p = 20 * np.log10(np.abs(h))
+    bad = p < thr
+    nfrm = (nfr - 8) // 4
+    fixed_loss = hop_loss = 0
+    for k in range(nfrm):
+        idx = np.arange(4 * k, 4 * k + 8)
+        fixed_loss += bad[0, idx].sum() > 2
+        hop_loss += bad[idx % ncar, idx].sum() > 2
+    fer_f, fer_h = fixed_loss / nfrm, hop_loss / nfrm
+    fig, ax = plt.subplots(figsize=(W1, 2.3))
+    show = 110
+    im = ax.imshow(np.clip(p[:, :show], -25, 8), aspect="auto", origin="lower", cmap="Blues_r",
+                   extent=[0, show * Tf * 1e3, -0.5, ncar - 0.5], vmin=-25, vmax=8)
+    tt = (np.arange(show) + 0.5) * Tf * 1e3
+    ax.plot(tt, np.zeros(show), "s", color=ACCENT, ms=2.6, label=f"fixed carrier: {100 * fer_f:.1f}% speech frames lost")
+    ax.plot(tt, np.arange(show) % ncar, "o", color=GREEN, ms=2.6, label=f"hopping: {100 * fer_h:.2f}% lost")
+    ax.set_xlabel("time (ms), one dot per TDMA frame"); ax.set_ylabel("carrier")
+    cb = fig.colorbar(im, ax=ax, pad=0.01); cb.set_label("fade (dB)", fontsize=7); cb.ax.tick_params(labelsize=6.5)
+    ax.legend(fontsize=6.5, loc="upper right", framealpha=0.9)
+    ax.set_title("A walker at 3 km/h, 900 MHz: deep fades last ~100 ms (statistics from a 2-minute run)",
+                 fontsize=8)
+    fig.tight_layout(); save(fig, "ch21_hopping")
+    print("FER fixed/hop", fer_f, fer_h)
+
+
+# ---------------------------------------------------------------------------- 217 Hz buzz
+def buzz217():
+    Tf = 60 / 13 * 1e-3
+    d = 1 / 8
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.1))
+    t = np.linspace(0, 20e-3, 4000)
+    env = ((t % Tf) < d * Tf).astype(float)
+    axs[0].fill_between(t * 1e3, 0, env * 2, color=NAVY, alpha=0.8, lw=0)
+    axs[0].set_xlabel("time (ms)"); axs[0].set_ylabel("transmit power (W)")
+    axs[0].set_title("(a) one burst every 4.615 ms", fontsize=8.5); axs[0].set_ylim(0, 2.4)
+    f0 = 1 / Tf
+    k = np.arange(1, 20)
+    c = 2 * d * np.abs(np.sinc(k * d))
+    axs[1].stem(k * f0, 20 * np.log10(c / c[0]), basefmt=" ", linefmt=ACCENT, markerfmt="o", bottom=-40)
+    axs[1].set_xlabel("audio frequency (Hz)"); axs[1].set_ylabel("relative level (dB)")
+    axs[1].set_title(f"(b) envelope harmonics of {f0:.1f} Hz", fontsize=8.5)
+    axs[1].set_ylim(-40, 3); axs[1].set_xlim(0, 4200)
+    fig.tight_layout(w_pad=0.8); save(fig, "ch21_buzz217")
+
+
+# ---------------------------------------------------------------------------- SMS packing
+def sms_packing():
+    fig, ax = plt.subplots(figsize=(W1, 1.55))
+    txt = "MERRY CH"
+    cols = [NAVY, BLUE2, GREEN, ORANGE, ACCENT, PURPLE, GRAY, "#117A65"]
+    bits = []
+    for i, ch in enumerate(txt):
+        for b in range(7):
+            bits.append(i)
+    for j, ci in enumerate(bits):
+        octet, pos = divmod(j, 8)
+        x = octet * 8.6 + pos
+        ax.add_patch(Rectangle((x, 0.3), 0.92, 0.7, fc=cols[ci], alpha=0.85, lw=0))
+    for o in range(7):
+        ax.text(o * 8.6 + 4, 1.15, f"octet {o + 1}", ha="center", fontsize=6.5)
+    for i, ch in enumerate(txt):
+        j = i * 7 + 3
+        octet, pos = divmod(j, 8)
+        ax.text(octet * 8.6 + pos + 0.46, 0.65, ch if ch != " " else "_", ha="center", va="center", fontsize=7,
+                color="white", weight="bold")
+    ax.text(30, -0.15, "8 characters x 7 bits = 56 bits = 7 octets;  160 characters x 7 bits = 1120 bits = 140 octets",
+            ha="center", fontsize=7, color=NAVY)
+    ax.set_xlim(-0.5, 60.5); ax.set_ylim(-0.35, 1.35); ax.axis("off")
+    save(fig, "ch21_sms_packing")
+
+
+# ---------------------------------------------------------------------------- near-far
+def near_far():
+    d = np.array([0.1, 0.5, 1.0, 2.0, 5.0])
+    pl = 128.1 + 37.6 * np.log10(d)          # a common macro-cell model at 2 GHz (3GPP TR 25.942 style)
+    rx = 21 - pl                              # every phone at +21 dBm
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    x = np.arange(len(d))
+    ax.bar(x - 0.2, rx + 140, bottom=-140, width=0.38, color=ACCENT, label="all at full power")
+    ax.bar(x + 0.2, rx.min() + 140, bottom=-140, width=0.38, color=GREEN, label="with power control")
+    for i in range(len(d)):
+        ax.text(i - 0.2, rx[i] + 1.5, f"+{rx[i] - rx.min():.0f}", ha="center", fontsize=6.5, color=ACCENT)
+    ax.set_xticks(x); ax.set_xticklabels([f"{v:g} km" for v in d])
+    ax.set_ylabel("received power at the base (dBm)"); ax.set_ylim(-140, -40)
+    ax.legend(fontsize=6.5, loc="upper right")
+    fig.tight_layout(); save(fig, "ch21_near_far")
+
+
+# ---------------------------------------------------------------------------- EDGE 8-PSK
+def edge_8psk():
+    r = rng(2)
+    n = 400; sp = 16
+    k = r.integers(0, 8, n)
+    tt = np.arange(-2 * sp, 2 * sp + 1) / sp
+    g = np.exp(-tt ** 2 / (2 * 0.45 ** 2))        # approximate linearised-GMSK pulse
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.6))
+    for a, rot, title in [(axs[0], 0.0, "(a) plain 8-PSK"), (axs[1], 3 * np.pi / 8, r"(b) EDGE: rotate by $3\pi/8$ per symbol")]:
+        s = np.exp(1j * (2 * np.pi * k / 8 + rot * np.arange(n)))
+        up = np.zeros(n * sp, complex); up[::sp] = s
+        x = np.convolve(up, g)[2 * sp:-2 * sp]
+        x = x / np.sqrt(np.mean(np.abs(x) ** 2))
+        a.plot(x.real, x.imag, color=NAVY, lw=0.3, alpha=0.6)
+        a.add_patch(Circle((0, 0), np.min(np.abs(x[4 * sp:-4 * sp])), fc=ACCENT, alpha=0.25, lw=0))
+        mn = 20 * np.log10(np.min(np.abs(x[4 * sp:-4 * sp])) / np.sqrt(np.mean(np.abs(x) ** 2)))
+        a.set_aspect("equal"); a.set_xlim(-1.9, 1.9); a.set_ylim(-1.9, 1.9)
+        a.set_title(title, fontsize=8.5)
+        a.text(0, -1.75, "passes through zero" if mn < -40 else f"never below {mn:.0f} dB re rms", ha="center", fontsize=6.8, color=ACCENT)
+        a.axis("off")
+    fig.tight_layout(w_pad=0.5); save(fig, "ch21_edge_8psk")
+
+
+# ---------------------------------------------------------------------------- 3GPP releases
+def releases():
+    rel = [("R99", 2000.2, "3G", "first UMTS"), ("Rel-4", 2001.2, "3G", ""), ("Rel-5", 2002.5, "3G", "HSDPA"),
+           ("Rel-6", 2005.2, "3G", "HSUPA"), ("Rel-7", 2007.9, "3G", "HSPA+"), ("Rel-8", 2008.95, "4G", "first LTE"),
+           ("Rel-9", 2009.95, "4G", ""), ("Rel-10", 2011.3, "4G", "LTE-Advanced"), ("Rel-11", 2013.2, "4G", "CoMP"),
+           ("Rel-12", 2015.2, "4G", "dual conn."), ("Rel-13", 2016.2, "4G", "NB-IoT, LTE-A Pro"),
+           ("Rel-14", 2017.4, "4G", "V2X"), ("Rel-15", 2018.5, "5G", "first NR"), ("Rel-16", 2020.5, "5G", "URLLC, IIoT"),
+           ("Rel-17", 2022.4, "5G", "RedCap, NTN"), ("Rel-18", 2024.3, "5G", "5G-Advanced"),
+           ("Rel-19", 2025.9, "5G", ""), ("Rel-20", 2027.5, "5G", "6G studies")]
+    fig, ax = plt.subplots(figsize=(W1, 2.0))
+    for i, (nm, yr, g, note) in enumerate(rel):
+        c = GEN_COL[g]
+        y = (i % 3)
+        ax.plot(yr, 0, "o", color=c, ms=5, zorder=3)
+        ax.plot([yr, yr], [0, 0.35 + 0.45 * y], color=c, lw=0.6)
+        ax.text(yr, 0.38 + 0.45 * y, nm + ("\n" + note if note else ""), ha="center", va="bottom", fontsize=5.8,
+                color=c, linespacing=1.0)
+    ax.axhline(0, color=GRAY, lw=1)
+    for yr in range(2000, 2029, 4):
+        ax.text(yr, -0.18, str(yr), ha="center", va="top", fontsize=6.5, color=GRAY)
+    ax.set_xlim(1998.8, 2028.8); ax.set_ylim(-0.45, 2.3); ax.axis("off")
+    save(fig, "ch21_releases")
+
+
+# ---------------------------------------------------------------------------- OVSF tree
+def ovsf_tree():
+    fig, ax = plt.subplots(figsize=(3.1, 2.5))
+    ax.axis("off")
+
+    def node(code, depth, y0, y1, used=None):
+        y = (y0 + y1) / 2
+        x = depth * 1.0
+        return x, y
+
+    pos = {}
+    codes = {(0, 0): [1]}
+    for d in range(1, 4):
+        for i in range(2 ** d):
+            parent = codes[(d - 1, i // 2)]
+            codes[(d, i)] = parent + parent if i % 2 == 0 else parent + [-v for v in parent]
+    for d in range(4):
+        n = 2 ** d
+        for i in range(n):
+            pos[(d, i)] = (d * 1.25, (i + 0.5) / n * 8)
+    used = (2, 1)
+    blocked = {(1, 0), (0, 0), (3, 2), (3, 3)}
+    for (d, i), (x, y) in pos.items():
+        if d < 3:
+            for j in (2 * i, 2 * i + 1):
+                x2, y2 = pos[(d + 1, j)]
+                ax.plot([x, x2], [y, y2], color=GRAY, lw=0.6)
+    for (d, i), (x, y) in pos.items():
+        c = ACCENT if (d, i) == used else (GRAY if (d, i) in blocked else NAVY)
+        ax.plot(x, y, "o", color=c, ms=5)
+        if d == 3 or (d, i) == used:
+            s = "".join("+" if v > 0 else "-" for v in codes[(d, i)])
+            ax.text(x + 0.12, y, s, va="center", fontsize=6.5, color=c, family="monospace")
+    for d in range(4):
+        ax.text(d * 1.25, 8.5, f"SF {2 ** d}", ha="center", fontsize=7, color=NAVY)
+    ax.text(0, -0.6, "red: in use (SF 4); grey: blocked\n(its parents and children)", fontsize=6.6, color="#333")
+    ax.set_xlim(-0.3, 5.3); ax.set_ylim(-1.2, 9)
+    fig.tight_layout(); save(fig, "ch21_ovsf_tree")
+
+
+# ---------------------------------------------------------------------------- hard handover with hysteresis
+def handover_hyst():
+    r = rng(31)
+    dx = 5.0
+    x = np.arange(250, 3750 + dx, dx)
+    def shad(sig=6.0, dcorr=50.0):
+        a = np.exp(-dx / dcorr)
+        s = np.zeros_like(x); s[0] = r.normal(0, sig)
+        for i in range(1, len(x)):
+            s[i] = a * s[i - 1] + np.sqrt(1 - a * a) * r.normal(0, sig)
+        return s
+    pA = 46 - (128.1 + 37.6 * np.log10(np.maximum(x, 30) / 1e3)) + shad()
+    pB = 46 - (128.1 + 37.6 * np.log10(np.maximum(4000 - x, 30) / 1e3)) + shad()
+    def run(hyst, ttt):
+        serv = 0; cnt = 0; s = np.zeros(len(x), int); timer = 0
+        for i in range(len(x)):
+            other = pB[i] if serv == 0 else pA[i]; me = pA[i] if serv == 0 else pB[i]
+            if other > me + hyst:
+                timer += 1
+                if timer * dx >= ttt:
+                    serv = 1 - serv; cnt += 1; timer = 0
+            else:
+                timer = 0
+            s[i] = serv
+        return s, cnt
+    s0, c0 = run(0.0, 0.0)
+    s3, c3 = run(3.0, 40.0)
+    fig, ax = plt.subplots(figsize=(W1, 2.4))
+    ax.plot(x / 1e3, pA, color=NAVY, lw=0.9, label="cell A")
+    ax.plot(x / 1e3, pB, color=ORANGE, lw=0.9, label="cell B")
+    ax.fill_between(x / 1e3, -125, -125 + 4 * s0, color=ACCENT, alpha=0.6, lw=0, step="mid",
+                    label=f"no hysteresis: {c0} handovers")
+    ax.fill_between(x / 1e3, -132, -132 + 4 * s3, color=GREEN, alpha=0.7, lw=0, step="mid",
+                    label=f"3 dB hysteresis + 40 m trigger: {c3}")
+    ax.set_xlabel("position along the road (km)"); ax.set_ylabel("received power (dBm)")
+    ax.set_ylim(-134, -40); ax.legend(fontsize=6.4, loc="upper center", ncol=2)
+    ax.text(4.0, -126, "bars: serving cell B", ha="right", fontsize=6.3, color=GRAY)
+    fig.tight_layout(); save(fig, "ch21_handover_hyst")
+    print("handovers", c0, c3)
+
+
+# ---------------------------------------------------------------------------- cell breathing
+def cell_breathing():
+    eta = np.linspace(0, 0.9, 200)
+    nr = -10 * np.log10(1 - eta)
+    rr = 10 ** (-nr / (10 * 3.5))
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    ax.plot(100 * eta, 100 * rr, color=NAVY, label="cell radius")
+    ax.plot(100 * eta, 100 * rr ** 2, color=ACCENT, label="cell area")
+    ax2 = ax.twinx(); ax2.plot(100 * eta, nr, color=GRAY, ls="--", lw=1); ax2.set_ylabel("noise rise (dB)", color=GRAY)
+    ax2.spines["right"].set_visible(True); ax2.grid(False); ax2.tick_params(labelsize=7.5)
+    for e in (0.5, 0.75):
+        ax.axvline(100 * e, color=GRAY, lw=0.5, ls=":")
+    ax.text(51, 30, "3 dB", fontsize=6.5, color=GRAY); ax.text(76, 30, "6 dB", fontsize=6.5, color=GRAY)
+    ax.set_xlabel("uplink load (% of pole capacity)"); ax.set_ylabel("% of empty-cell value")
+    ax.legend(fontsize=6.5, loc="lower left"); ax.set_ylim(0, 105)
+    fig.tight_layout(); save(fig, "ch21_cell_breathing")
+
+
+# ---------------------------------------------------------------------------- RRC states
+def rrc_states():
+    fig, axs = plt.subplots(1, 3, figsize=(W1, 2.3), gridspec_kw=dict(width_ratios=[1.35, 0.8, 1]))
+    sets = [("UMTS (5 states)", ["CELL_DCH", "CELL_FACH", "CELL_PCH", "URA_PCH", "IDLE"], GREEN),
+            ("LTE (2 states)", ["CONNECTED", "IDLE"], ORANGE),
+            ("NR (3 states)", ["CONNECTED", "INACTIVE", "IDLE"], ACCENT)]
+    for a, (t, st, c) in zip(axs, sets):
+        a.set_xlim(0, 1); a.set_ylim(-0.22, 1.1); a.axis("off"); a.set_title(t, fontsize=8.5, color=c)
+        n = len(st)
+        ys = np.linspace(0.85, 0.08, n)
+        for i, (s, y) in enumerate(zip(st, ys)):
+            _box(a, 0.12, y - 0.065, 0.76, 0.13, s, c if i == 0 else SOFT["3G" if c == GREEN else "4G" if c == ORANGE else "5G"],
+                 fs=6.6, color="white" if i == 0 else "#222")
+            if i:
+                _arrow(a, (0.42, y + 0.065), (0.42, ys[i - 1] - 0.065), color=GRAY, lw=0.7, ms=6)
+                _arrow(a, (0.58, ys[i - 1] - 0.065), (0.58, y + 0.065), color=GRAY, lw=0.7, ms=6)
+    axs[0].text(0.5, -0.06, "moving up can take\nhundreds of ms to seconds", ha="center", fontsize=6.2, color=GRAY)
+    axs[1].text(0.5, -0.06, "idle to connected\n< 100 ms target", ha="center", fontsize=6.2, color=GRAY)
+    axs[2].text(0.5, -0.06, "INACTIVE keeps context:\nresume quickly", ha="center", fontsize=6.2, color=GRAY)
+    fig.tight_layout(w_pad=0.3); save(fig, "ch21_rrc_states")
+
+
+# ---------------------------------------------------------------------------- proportional fair
+def pf_sched():
+    r = rng(41)
+    Tslot = 1.67e-3; fd = 10.0
+    nsl = 3000
+    def fade(n):
+        return _rayleigh_tf(r, n, nsl, fd, Tslot)
+    means = np.array([10, 6, 3, 0.0])
+    h = fade(4)
+    snr = 10 ** (means[:, None] / 10) * np.abs(h) ** 2
+    rate = np.log2(1 + snr)
+    avg = np.ones(4) * 0.5; serv = np.zeros(nsl, int); tc = 50.0
+    for t in range(nsl):
+        k = np.argmax(rate[:, t] / avg); serv[t] = k
+        got = np.zeros(4); got[k] = rate[k, t]
+        avg = (1 - 1 / tc) * avg + got / tc
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.45), gridspec_kw=dict(width_ratios=[1.3, 1]))
+    a = axs[0]
+    cols = [NAVY, GREEN, ORANGE, PURPLE]
+    sh = slice(0, 240)
+    tt = np.arange(nsl)[sh] * Tslot * 1e3
+    for k in range(4):
+        a.plot(tt, 10 * np.log10(snr[k, sh]), color=cols[k], lw=0.7, label=f"user {k + 1} (mean {means[k]:.0f} dB)")
+        m = serv[sh] == k
+        a.plot(tt[m], 10 * np.log10(snr[k, sh][m]), "o", color=cols[k], ms=2.2)
+    a.set_xlabel("time (ms)"); a.set_ylabel("SNR (dB)"); a.set_ylim(-20, 22)
+    a.legend(fontsize=5.8, loc="lower left", ncol=2); a.set_title("(a) dots: who the PF scheduler serves", fontsize=8.5)
+    a = axs[1]
+    Us = [1, 2, 4, 8, 16, 32]
+    rr_, pf_ = [], []
+    for U in Us:
+        hh = _rayleigh_tf(r, U, 1500, fd, Tslot)
+        rt = np.log2(1 + 10 ** 0.5 * np.abs(hh) ** 2)
+        rr_.append(rt.mean())
+        av = np.ones(U) * 0.5; tot = 0
+        for t in range(1500):
+            k = np.argmax(rt[:, t] / av); tot += rt[k, t]
+            g = np.zeros(U); g[k] = rt[k, t]; av = (1 - 1 / tc) * av + g / tc
+        pf_.append(tot / 1500)
+    a.plot(Us, rr_, "s-", color=GRAY, ms=3.5, label="round robin")
+    a.plot(Us, pf_, "o-", color=NAVY, ms=3.5, label="proportional fair")
+    a.set_xscale("log", base=2); a.set_xticks(Us); a.set_xticklabels(Us)
+    a.set_xlabel("users in the cell (all 5 dB mean)"); a.set_ylabel("cell throughput (b/s/Hz)")
+    a.legend(fontsize=6.5); a.set_title("(b) multi-user diversity gain", fontsize=8.5)
+    fig.tight_layout(w_pad=0.6); save(fig, "ch21_pf_sched")
+    print("PF gain at 32 users", pf_[-1] / rr_[-1])
+
+
+# ---------------------------------------------------------------------------- equaliser complexity
+def eq_complexity():
+    B = np.logspace(0, 2, 60) * 1e6
+    tau = 5e-6
+    td = B * (B * tau)                       # taps x sample rate (complex MACs/s)
+    Nfft = 2 ** np.ceil(np.log2(B / 15e3 * 1.3))
+    ofdm = B * (np.log2(Nfft) / 2 + 1) * 1.15
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    ax.loglog(B / 1e6, td, color=ACCENT, label="time-domain equaliser")
+    ax.loglog(B / 1e6, ofdm, color=NAVY, label="OFDM: FFT + 1 tap/subcarrier")
+    for b in (5, 20, 100):
+        ax.axvline(b, color=GRAY, lw=0.5, ls=":")
+    ax.text(5, 3e10, "WCDMA", fontsize=6.3, rotation=90, color=GRAY); ax.text(20, 3e10, "LTE", fontsize=6.3, rotation=90, color=GRAY)
+    ax.text(100, 3e10, "NR", fontsize=6.3, rotation=90, color=GRAY, ha="right")
+    ax.set_xlabel("bandwidth (MHz)"); ax.set_ylabel("complex MACs per second")
+    ax.legend(fontsize=6.5, loc="lower right"); ax.set_title(r"5 $\mu$s delay spread, one antenna", fontsize=8)
+    fig.tight_layout(); save(fig, "ch21_eq_complexity")
+
+
+# ---------------------------------------------------------------------------- PAPR
+def papr():
+    r = rng(51)
+    M, Nfft, os_ = 300, 512, 4
+    nsym = 3000
+    def ccdf(x):
+        p = np.abs(x) ** 2
+        pp = 10 * np.log10(p.max(1) / p.mean(1))
+        g = np.linspace(2, 12, 101)
+        return g, [(pp > v).mean() for v in g]
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    for mod, ls in [(4, "-"), (16, "--")]:
+        if mod == 4:
+            d = (r.choice([-1, 1], (nsym, M)) + 1j * r.choice([-1, 1], (nsym, M))) / np.sqrt(2)
+        else:
+            lv = np.array([-3, -1, 1, 3])
+            d = (r.choice(lv, (nsym, M)) + 1j * r.choice(lv, (nsym, M))) / np.sqrt(10)
+        X = np.zeros((nsym, Nfft * os_), complex)
+        X[:, 1:M + 1] = d
+        g, c = ccdf(np.fft.ifft(X, axis=1))
+        ax.semilogy(g, np.maximum(c, 1e-4), color=ACCENT, ls=ls, label=f"OFDMA, {'QPSK' if mod == 4 else '16QAM'}")
+        Xs = np.zeros((nsym, Nfft * os_), complex)
+        Xs[:, 1:M + 1] = np.fft.fft(d, axis=1) / np.sqrt(M)
+        g, c = ccdf(np.fft.ifft(Xs, axis=1))
+        ax.semilogy(g, np.maximum(c, 1e-4), color=NAVY, ls=ls, label=f"SC-FDMA, {'QPSK' if mod == 4 else '16QAM'}")
+    ax.set_xlabel("PAPR threshold (dB)"); ax.set_ylabel("P(PAPR > threshold)")
+    ax.set_ylim(1e-3, 1.1); ax.legend(fontsize=6.2, loc="lower left")
+    fig.tight_layout(); save(fig, "ch21_papr")
+
+
+# ---------------------------------------------------------------------------- HARQ processes
+def harq_processes():
+    cols = [NAVY, BLUE2, GREEN, ORANGE, ACCENT, PURPLE, GRAY, "#117A65"]
+    fig, ax = plt.subplots(figsize=(W1, 1.9))
+    n = 20
+    for sf in range(n):
+        p = sf % 8
+        retx = (sf == 8)
+        ax.add_patch(Rectangle((sf, 1.2), 0.94, 0.6, fc=cols[p], alpha=1.0 if p == 0 else 0.35, lw=0))
+        ax.text(sf + 0.47, 1.5, ("P0\nretx" if retx else f"P{p}") if p == 0 else f"P{p}", ha="center",
+                va="center", fontsize=5.6, color="white" if p == 0 else "#333", linespacing=0.9)
+        ax.text(sf + 0.47, 2.0, str(sf), ha="center", fontsize=6, color=GRAY)
+    ax.add_patch(Rectangle((4, 0.25), 0.94, 0.5, fc=ACCENT, lw=0)); ax.text(4.47, 0.5, "NACK", ha="center",
+                                                                            va="center", fontsize=5.8, color="white")
+    ax.add_patch(Rectangle((12, 0.25), 0.94, 0.5, fc=GREEN, lw=0)); ax.text(12.47, 0.5, "ACK", ha="center",
+                                                                            va="center", fontsize=5.8, color="white")
+    _arrow(ax, (0.5, 1.18), (4.3, 0.78), color=ACCENT, lw=0.8, ms=6)
+    _arrow(ax, (4.7, 0.78), (8.4, 1.18), color=ACCENT, lw=0.8, ms=6)
+    _arrow(ax, (8.5, 1.18), (12.3, 0.78), color=GREEN, lw=0.8, ms=6)
+    ax.text(-0.3, 1.5, "downlink\ndata", ha="right", va="center", fontsize=6.8)
+    ax.text(-0.3, 0.5, "uplink\nfeedback", ha="right", va="center", fontsize=6.8)
+    ax.text(10, 2.35, "subframe (1 ms): data in n, feedback in n+4, retransmission from n+8", ha="center",
+            fontsize=6.8, color=NAVY)
+    ax.set_xlim(-2.8, 20.2); ax.set_ylim(0.1, 2.6); ax.axis("off")
+    save(fig, "ch21_harq_processes")
+
+
+# ---------------------------------------------------------------------------- LTE peak-rate waterfall
+def lte_waterfall():
+    fig, axs = plt.subplots(1, 2, figsize=(W1, 2.4), gridspec_kw=dict(width_ratios=[1, 1.1]))
+    a = axs[0]
+    steps = [("all REs", 16800, NAVY), ("control\n(1 symbol)", -1200, ACCENT), ("CRS\n(4 ports)", -2000, ACCENT),
+             ("PDSCH", 13600, GREEN)]
+    base = 0
+    for i, (nm, v, c) in enumerate(steps):
+        if v > 0:
+            a.bar(i, v, color=c, width=0.6); base = v
+        else:
+            a.bar(i, -v, bottom=base + v, color=c, width=0.6); base += v
+        a.text(i, (base if v < 0 else v) + 300, f"{abs(v):,}", ha="center", fontsize=6.5)
+    a.set_xticks(range(4)); a.set_xticklabels([s[0] for s in steps], fontsize=6.5)
+    a.set_ylabel("resource elements per ms"); a.set_ylim(0, 19000); a.set_title("(a) 20 MHz: 100 RBs x 14 symbols", fontsize=8.5)
+    a = axs[1]
+    vals = [13.6, 13.6 * 6, 13.6 * 6 * 4, 13.6 * 6 * 4 * 0.92]
+    nms = ["x1 bit\n(per RE)", "x6 bits\n64QAM", "x4 layers", "x0.92\ncode rate"]
+    a.bar(range(4), vals, color=[GRAY, BLUE2, NAVY, GREEN], width=0.6)
+    for i, v in enumerate(vals):
+        a.text(i, v + 6, f"{v:.0f}", ha="center", fontsize=6.8)
+    a.set_xticks(range(4)); a.set_xticklabels(nms, fontsize=6.5); a.set_ylabel("Mb/s"); a.set_ylim(0, 360)
+    a.set_title("(b) from REs to ~300 Mb/s", fontsize=8.5)
+    fig.tight_layout(w_pad=0.6); save(fig, "ch21_lte_waterfall")
+
+
+# ---------------------------------------------------------------------------- carrier aggregation
+def carrier_agg():
+    fig, ax = plt.subplots(figsize=(W1, 1.95))
+    hold = [(800, 10, "800\n10 MHz"), (1800, 20, "1800\n20 MHz"), (2100, 15, "2100\n15 MHz"), (2600, 20, "2600\n20 MHz")]
+    cols = [NAVY, GREEN, ORANGE, ACCENT]
+    for i, (f, bw, nm) in enumerate(hold):
+        x = np.log10(f)
+        ax.add_patch(Rectangle((x - 0.012 * bw / 10, 1.3), 0.024 * bw / 10, 0.5, fc=cols[i], lw=0))
+        ax.text(x + (-0.025 if i == 1 else 0.025 if i == 2 else 0), 1.9, nm, ha="center", fontsize=6.5, color=cols[i])
+        xe = 3.05 + sum(h[1] for h in hold[:i]) * 0.0085
+        ax.add_patch(Rectangle((xe, 0.2), bw * 0.0085, 0.45, fc=cols[i], lw=0))
+        _arrow(ax, (x, 1.28), (xe + bw * 0.0085 / 2, 0.68), color=cols[i], lw=0.6, ms=6, ls=":")
+    ax.text(3.05 + 65 * 0.0085 + 0.02, 0.42, "one 65 MHz pipe\nto the phone (PCell + 3 SCells)", fontsize=6.7,
+            va="center", color="#333")
+    ax.text(2.88, 1.55, "operator's\nspectrum (MHz)", fontsize=6.6, ha="right", va="center")
+    ax.set_xlim(2.7, 3.75); ax.set_ylim(0, 2.3); ax.axis("off")
+    save(fig, "ch21_carrier_agg")
+
+
+# ---------------------------------------------------------------------------- VoLTE capacity
+def volte_capacity():
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    nm = ["GSM\nfull rate", "GSM\nhalf rate", "VoLTE\ndynamic", "VoLTE\nSPS"]
+    lo = [30, 60, 200, 500]; hi = [30, 60, 400, 900]
+    c = [NAVY, NAVY, ORANGE, ORANGE]
+    for i in range(4):
+        ax.bar(i, lo[i], color=c[i], alpha=0.9, width=0.6)
+        if hi[i] > lo[i]:
+            ax.bar(i, hi[i] - lo[i], bottom=lo[i], color=c[i], alpha=0.35, width=0.6)
+        ax.text(i, hi[i] + 15, f"{lo[i]}" + (f"-{hi[i]}" if hi[i] > lo[i] else ""), ha="center", fontsize=6.8)
+    ax.set_xticks(range(4)); ax.set_xticklabels(nm, fontsize=6.8)
+    ax.set_ylabel("voice calls per sector in 10 MHz"); ax.set_ylim(0, 1000)
+    ax.text(-0.4, 960, "rough estimates\n(see worked example)", fontsize=6, color=GRAY, ha="left", va="top")
+    fig.tight_layout(); save(fig, "ch21_volte_capacity")
+
+
+# ---------------------------------------------------------------------------- IMT-2020 usage triangle
+def usage_triangle():
+    fig, ax = plt.subplots(figsize=(3.1, 2.6))
+    P = np.array([[0.5, 0.95], [0.03, 0.08], [0.97, 0.08]])
+    ax.add_patch(Polygon(P, closed=True, fc="#FBEEE6", ec=ACCENT, lw=1.0))
+    ax.text(0.5, 1.0, "eMBB\nGb/s, capacity", ha="center", va="bottom", fontsize=7.5, color=ACCENT, weight="bold")
+    ax.text(0.0, 0.0, "mMTC\n10$^6$ devices/km$^2$", ha="left", va="top", fontsize=7, color=PURPLE, weight="bold")
+    ax.text(1.0, 0.0, "URLLC\n1 ms, $1-10^{-5}$", ha="right", va="top", fontsize=7, color=GREEN, weight="bold")
+    apps = [(0.5, 0.68, "4K/8K video,\nfixed wireless"), (0.5, 0.52, "AR/VR"), (0.25, 0.22, "smart meters,\nsensors"),
+            (0.75, 0.22, "factory control,\nremote surgery"), (0.62, 0.38, "vehicles"), (0.38, 0.38, "smart city")]
+    for x, y, t in apps:
+        ax.text(x, y, t, ha="center", va="center", fontsize=6.2, color="#333")
+    ax.set_xlim(-0.05, 1.05); ax.set_ylim(-0.18, 1.18); ax.axis("off")
+    save(fig, "ch21_usage_triangle")
+
+
+# ---------------------------------------------------------------------------- NR numerology
+def numerology():
+    fig, ax = plt.subplots(figsize=(W1, 2.1))
+    for mu in range(4):
+        scs = 15 * 2 ** mu
+        ns = 2 ** mu
+        y = 3 - mu
+        for s in range(ns):
+            w = 1.0 / ns
+            ax.add_patch(Rectangle((s * w, y + 0.15), w * 0.97, 0.6, fc=list(GEN_COL.values())[mu + 1], alpha=0.25 + 0.15 * (s % 2),
+                                   lw=0))
+            if ns <= 2:
+                for k in range(14):
+                    ax.plot([s * w + k * w / 14] * 2, [y + 0.15, y + 0.75], color="white", lw=0.4)
+        ax.text(-0.02, y + 0.45, f"$\\mu$={mu}: {scs} kHz", ha="right", va="center", fontsize=7)
+        ax.text(1.02, y + 0.45, f"slot {1000 / ns:g} $\\mu$s, symbol {66.7 / ns:.1f} $\\mu$s", ha="left",
+                va="center", fontsize=6.6, color="#333")
+    ax.text(0.5, 4.0, "one 1 ms subframe (each block = one 14-symbol slot)", ha="center", fontsize=7, color=NAVY)
+    ax.set_xlim(-0.28, 1.45); ax.set_ylim(-0.05, 4.25); ax.axis("off")
+    save(fig, "ch21_numerology")
+
+
+# ---------------------------------------------------------------------------- bandwidth part
+def bwp():
+    fig, ax = plt.subplots(figsize=(3.1, 2.4))
+    ax.add_patch(Rectangle((0, 0), 10, 100, fc="#F2F3F4", lw=0))
+    segs = [(0, 3, 40, 20), (3, 6, 0, 100), (6, 10, 40, 20)]
+    for t0, t1, f0, bw in segs:
+        ax.add_patch(Rectangle((t0, f0), t1 - t0, bw, fc=NAVY if bw > 50 else BLUE2, alpha=0.75, lw=0))
+    for t in (3, 6):
+        ax.plot(t, 30, "v", color=ACCENT, ms=6); ax.text(t, 26, "DCI\nswitch", ha="center", va="top", fontsize=6, color=ACCENT, bbox=dict(fc="white", ec="none", pad=0.6))
+    ax.text(1.5, 50, "browsing:\n20 MHz BWP", ha="center", va="center", fontsize=6.3, color="white")
+    ax.text(4.5, 85, "download:\nfull 100 MHz", ha="center", fontsize=6.3, color="white", va="center")
+    ax.set_xlabel("time"); ax.set_ylabel("frequency in the carrier (MHz)")
+    ax.set_xticks([]); ax.set_xlim(0, 10); ax.set_ylim(0, 100)
+    fig.tight_layout(); save(fig, "ch21_bwp")
+
+
+# ---------------------------------------------------------------------------- SSB beam sweep
+def beam_sweep():
+    Nel = 16
+    th = np.linspace(-90, 90, 721)
+    steer = np.linspace(-52.5, 52.5, 8)
+    fig = plt.figure(figsize=(3.2, 2.5))
+    ax = fig.add_subplot(111, projection="polar")
+    ue = 22.0
+    best, bg = None, -99
+    cols = [NAVY, BLUE2, GREEN, ORANGE, ACCENT, PURPLE, GRAY, "#117A65"]
+    for i, s in enumerate(steer):
+        n = np.arange(Nel)
+        w = np.exp(1j * np.pi * n * np.sin(np.deg2rad(s)))
+        af = np.abs(np.exp(1j * np.pi * np.outer(np.sin(np.deg2rad(th)), n)) @ w.conj()) / Nel
+        g = 20 * np.log10(af + 1e-6)
+        ax.plot(np.deg2rad(th), np.clip(g + 20, 0, 20), color=cols[i], lw=0.9)
+        gu = np.interp(ue, th, g)
+        if gu > bg:
+            bg, best = gu, i
+    ax.plot(np.deg2rad(ue), 21, "*", color="k", ms=8)
+    ax.set_thetamin(-90); ax.set_thetamax(90); ax.set_theta_zero_location("N"); ax.set_theta_direction(-1)
+    ax.set_rticks([10, 20]); ax.set_yticklabels(["-10", "0 dB"], fontsize=6)
+    ax.tick_params(axis="x", labelsize=6.5)
+    ax.set_title(f"8 SSB beams; phone (star) at {ue:.0f}$^\\circ$ picks SSB {best}", fontsize=7.5)
+    fig.tight_layout(); save(fig, "ch21_beam_sweep")
+
+
+# ---------------------------------------------------------------------------- network slicing
+def slicing():
+    fig, ax = plt.subplots(figsize=(W1, 1.9))
+    lanes = [("eMBB slice: video, browsing (best effort, wide)", ACCENT, 0.9),
+             ("URLLC slice: factory robots (reserved, short delay)", GREEN, 0.45),
+             ("mMTC slice: meters, sensors (many tiny cars)", PURPLE, 0.45),
+             ("private slice: emergency services (guaranteed)", NAVY, 0.55)]
+    y = 0.2
+    ax.add_patch(Rectangle((0, 0.1), 10, 2.55, fc="#D5D8DC", lw=0))
+    r = rng(3)
+    for nm, c, h in lanes:
+        ax.add_patch(Rectangle((0.0, y), 10, h, fc=c, alpha=0.15, lw=0))
+        ax.plot([0, 10], [y + h, y + h], color="white", lw=1.5, ls=(0, (6, 4)))
+        if c == PURPLE:
+            for k in range(22):
+                _car(ax, 0.2 + k * 0.45, y + 0.12, 0.25, 0.2, c, 0.8)
+        elif c == GREEN:
+            for k in range(3):
+                _car(ax, 0.6 + 3.1 * k, y + 0.1, 0.7, 0.25, c)
+        elif c == ACCENT:
+            for k in range(5):
+                _car(ax, 0.3 + 2.0 * k + 0.4 * r.random(), y + 0.15 + 0.3 * r.random(), 1.1, 0.35, c, 0.85)
+        else:
+            _car(ax, 4.0, y + 0.12, 1.4, 0.3, c)
+        ax.text(10.1, y + h / 2, nm, fontsize=6.5, va="center", color=c)
+        y += h + 0.05
+    ax.text(5, 2.75, "one physical network (spectrum, sites, core) -- four logically separate networks", ha="center",
+            fontsize=7, color="#333")
+    ax.set_xlim(-0.1, 17.5); ax.set_ylim(0, 2.95); ax.axis("off")
+    save(fig, "ch21_slicing")
+
+
+# ---------------------------------------------------------------------------- edge latency
+def mec_latency():
+    cases = [("edge server\n(10 km, local UPF)", 10), ("regional DC\n(300 km)", 300), ("distant DC\n(1500 km)", 1500)]
+    radio, core, server = 4.0, 0.5, 1.0
+    fig, ax = plt.subplots(figsize=(W1, 1.9))
+    for i, (nm, km) in enumerate(cases):
+        fib = 2 * km * 5e-3 * 1.0 + 0.2 * (km / 100) ** 0.5
+        parts = [(radio, NAVY, "NR radio (both ways)"), (fib, ORANGE, "fibre + switching"), (core, GRAY, "core (UPF)"),
+                 (server, GREEN, "server")]
+        x = 0
+        for v, c, lab in parts:
+            ax.barh(i, v, left=x, color=c, height=0.55, label=lab if i == 0 else None); x += v
+        ax.text(x + 0.2, i, f"{x:.1f} ms", va="center", fontsize=7)
+    ax.set_yticks(range(3)); ax.set_yticklabels([c[0] for c in cases], fontsize=6.8); ax.invert_yaxis()
+    ax.set_xlabel("illustrative round-trip time (ms)"); ax.set_xlim(0, 26)
+    ax.legend(fontsize=6.3, ncol=4, loc="lower center", bbox_to_anchor=(0.5, 1.0), frameon=False)
+    fig.tight_layout(); save(fig, "ch21_mec_latency")
+
+
+# ---------------------------------------------------------------------------- growth decomposition
+def growth_decomp():
+    fig, ax = plt.subplots(figsize=(W1, 1.9))
+    f = [("bandwidth: 200 kHz to ~400 MHz aggregated", 2000, NAVY),
+         ("MIMO layers: 1 to 8", 8, GREEN), ("modulation: 1 to 8 bits/symbol", 8, ORANGE),
+         ("coding, overhead, slots per user", 9.4, PURPLE)]
+    x = 0
+    for nm, v, c in f:
+        ax.barh(0, np.log10(v), left=x, color=c, height=0.5)
+        ax.text(x + np.log10(v) / 2, 0, f"x{v:g}", ha="center", va="center", fontsize=7.5, color="white", weight="bold")
+        k_ = [i_ for i_, ff in enumerate(f) if ff[0] == nm][0]
+        yl = 0.42 if k_ % 2 == 0 else -0.42
+        ax.text(x + np.log10(v) / 2 + (0.3 if k_ == 3 else 0), yl, nm, ha="center", va="bottom" if yl > 0 else "top", fontsize=6.2, color=c)
+        x += np.log10(v)
+    ax.set_xlim(0, 6.6); ax.set_ylim(-0.75, 0.75)
+    ax.set_xticks(range(7)); ax.set_xticklabels(["1", "10", "100", "$10^3$", "$10^4$", "$10^5$", "$10^6$"])
+    ax.set_yticks([]); ax.set_xlabel("growth factor of peak rate, GSM data slot to 5G (log scale; approximate)")
+    ax.spines["left"].set_visible(False)
+    fig.tight_layout(); save(fig, "ch21_growth_decomp")
+
+
+# ---------------------------------------------------------------------------- economics
+def economics():
+    yrs = np.arange(2010, 2025)
+    traffic = 1.6 ** (yrs - 2010)
+    revenue = np.ones_like(traffic, dtype=float)
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    ax.semilogy(yrs, traffic, color=NAVY, label="traffic (x1.6 per year)")
+    ax.semilogy(yrs, revenue, color=GREEN, label="revenue (roughly flat)")
+    ax.semilogy(yrs, revenue / traffic, color=ACCENT, ls="--", label="allowed cost per bit")
+    ax.set_ylabel("index (2010 = 1)"); ax.set_xlabel("year")
+    ax.legend(fontsize=6.4, loc="lower left"); ax.set_title("schematic", fontsize=7.5, color=GRAY)
+    fig.tight_layout(); save(fig, "ch21_economics")
+
+
+# ---------------------------------------------------------------------------- flattening
+def flattening():
+    rows = [("GPRS (2.5G)", ["BTS", "BSC/PCU", "SGSN", "GGSN"], NAVY),
+            ("UMTS R99 (3G)", ["Node B", "RNC", "SGSN", "GGSN"], GREEN),
+            ("LTE (4G)", ["eNB", "S-GW", "P-GW"], ORANGE),
+            ("NR SA (5G)", ["gNB\n(CU+DU)", "UPF"], ACCENT)]
+    fig, ax = plt.subplots(figsize=(W1, 2.0))
+    for i, (nm, nodes, c) in enumerate(rows):
+        y = 3 - i
+        ax.text(-0.15, y, nm, ha="right", va="center", fontsize=7, color=c, weight="bold")
+        _phone(ax, 0.15, y, 0.55, GRAY)
+        for k, n in enumerate(nodes):
+            x = 0.6 + k * 1.25
+            _box(ax, x, y - 0.22, 1.0, 0.44, n, SOFT[["2G", "3G", "4G", "5G"][i]], ec=c, fs=6.5)
+            _arrow(ax, (x - 0.25 if k else 0.3, y), (x, y), color=c, lw=0.8, ms=6)
+        ax.text(0.6 + len(nodes) * 1.25, y, "internet", va="center", fontsize=6.5, color=GRAY)
+        _arrow(ax, (0.6 + (len(nodes) - 1) * 1.25 + 1.0, y), (0.6 + len(nodes) * 1.25 - 0.05, y), color=c, lw=0.8, ms=6)
+        hq = {0: "ARQ in BSC", 1: "ARQ in RNC", 2: "HARQ in eNB", 3: "HARQ in DU"}[i]
+        ax.text(6.95, y, hq, va="center", fontsize=6.3, color="#555")
+    ax.text(6.95, 3.6, "retransmission", fontsize=6.5, color=GRAY, weight="bold")
+    ax.set_xlim(-2.0, 8.2); ax.set_ylim(-0.4, 3.8); ax.axis("off")
+    save(fig, "ch21_flattening")
+
+
+# ---------------------------------------------------------------------------- cell splitting
+def cell_splitting():
+    fig, axs = plt.subplots(1, 3, figsize=(W1, 2.2))
+    for k, a in enumerate(axs):
+        a.set_aspect("equal"); a.axis("off"); a.set_xlim(-5.2, 5.2); a.set_ylim(-5.0, 5.4)
+    cols7 = [NAVY, BLUE2, GREEN, ORANGE, ACCENT, PURPLE, GRAY]
+    titles = ["(a) R = 2 km: 7 cells", "(b) hot spot split: R/2", "(c) whole area at R/2: 4x the cells"]
+    for k, a in enumerate(axs):
+        a.set_title(titles[k], fontsize=8)
+        R = 2.0
+        for q in range(-2, 3):
+            for r_ in range(-2, 3):
+                x, y = _hexcenter(q, r_, R)
+                if x * x + y * y > 3.6 ** 2:
+                    continue
+                if k == 0 or (k == 1 and (q, r_) != (0, 0)):
+                    _hexagon(a, x, y, R, cols7[(q + 3 * r_) % 7], alpha=0.35)
+        if k >= 1:
+            n = 0
+            for q in range(-6, 7):
+                for r_ in range(-6, 7):
+                    x, y = _hexcenter(q, r_, 1.0)
+                    inside = (x * x + y * y < 2.0 ** 2) if k == 1 else (x * x + y * y < 4.6 ** 2)
+                    if inside:
+                        _hexagon(a, x, y, 1.0, cols7[(q + 3 * r_) % 7], alpha=0.5)
+                        n += 1
+    axs[0].text(0, -4.9, "capacity: 1x", ha="center", fontsize=7.5, color=NAVY, weight="bold")
+    axs[1].text(0, -4.9, "extra capacity only where needed", ha="center", fontsize=7.0, color=NAVY, weight="bold")
+    axs[2].text(0, -4.9, "capacity: ~4x, sites: ~4x", ha="center", fontsize=7.5, color=NAVY, weight="bold")
+    fig.tight_layout(w_pad=0.2); save(fig, "ch21_cell_splitting")
+
+
+# ---------------------------------------------------------------------------- GSM 900 band plan
+def gsm_band():
+    fig, ax = plt.subplots(figsize=(W1, 1.7))
+    for lo, hi, nm, c in [(890, 915, "uplink (phone transmits)\n890-915 MHz", NAVY), (935, 960, "downlink (base transmits)\n935-960 MHz", ACCENT)]:
+        for k in range(125):
+            f = lo + 0.2 * k
+            ax.add_patch(Rectangle((f, 0.3), 0.18, 0.5 + 0.25 * (k % 2), fc=c, alpha=0.75, lw=0))
+        ax.text((lo + hi) / 2, 1.25, nm, ha="center", va="bottom", fontsize=7, color=c)
+    ax.annotate("", (935, 0.12), (890, 0.12), arrowprops=dict(arrowstyle="<->", color="#333", lw=0.8))
+    ax.text(912.5, -0.05, "45 MHz duplex spacing: carrier n up pairs with carrier n down", ha="center", va="top", fontsize=6.8)
+    ax.add_patch(Rectangle((915, 0.3), 20, 0.75, fc="#F2F3F4", lw=0))
+    ax.text(925, 0.67, "guard\n20 MHz", ha="center", va="center", fontsize=6.5, color=GRAY)
+    ax.text(962, 0.55, "124 carriers x 200 kHz\neach direction,\n8 timeslots each", fontsize=6.6, va="center", color="#333")
+    ax.set_xlim(886, 985); ax.set_ylim(-0.55, 1.75); ax.axis("off")
+    save(fig, "ch21_gsm_band")
+
+
+# ---------------------------------------------------------------------------- CDMA capacity
+def cdma_capacity():
+    eta = np.linspace(0, 0.95, 200)
+    nr = -10 * np.log10(1 - eta)
+    fig, ax = plt.subplots(figsize=(3.1, 2.45))
+    for nu, ls, lab in [(1.0, "--", "no voice activity gain"), (0.4, "-", "voice activity 0.4")]:
+        N = 1 + 128 / 10 ** 0.7 * eta / (nu * 1.6)
+        ax.plot(nr, N, color=NAVY, ls=ls, label=lab)
+    ax.axvline(6, color=ACCENT, lw=0.7, ls=":"); ax.text(6.2, 3, "6 dB noise rise", fontsize=6.5, color=ACCENT)
+    ax.axhline(2, color=GRAY, lw=0.8); ax.text(0.2, 3.2, "AMPS: ~2 channels per sector\nin 1.25 MHz", fontsize=6.3, color=GRAY)
+    ax.set_xlabel("noise rise (dB)"); ax.set_ylabel("users per carrier per sector")
+    ax.set_xlim(0, 13); ax.set_ylim(0, 45); ax.legend(fontsize=6.4, loc="upper left")
+    fig.tight_layout(); save(fig, "ch21_cdma_capacity")
+
+
+# ---------------------------------------------------------------------------- NR peak rates (TS 38.306)
+def nr_peak_bars():
+    def rate(nl, qm, nprb, mu, oh, f=1.0):
+        Ts = 1e-3 / (14 * 2 ** mu)
+        return nl * qm * f * 948 / 1024 * 12 * nprb / Ts * (1 - oh) / 1e9
+    cases = [("FR1 100 MHz, 30 kHz\n2 layers, 256QAM", rate(2, 8, 273, 1, 0.14)),
+             ("FR1 100 MHz, 30 kHz\n4 layers, 256QAM", rate(4, 8, 273, 1, 0.14)),
+             ("same, DDDSU TDD\n(~74% downlink)", 0.74 * rate(4, 8, 273, 1, 0.14)),
+             ("FR2 400 MHz, 120 kHz\n2 layers, 64QAM", rate(2, 6, 264, 3, 0.18)),
+             ("2 x FR2 + 1 x FR1\n(aggregated)", 2 * rate(2, 6, 264, 3, 0.18) + 0.74 * rate(4, 8, 273, 1, 0.14))]
+    fig, ax = plt.subplots(figsize=(W1, 2.0))
+    y = np.arange(len(cases))
+    v = [c[1] for c in cases]
+    ax.barh(y, v, color=[BLUE2, NAVY, NAVY, ACCENT, PURPLE], height=0.6)
+    for i, x in enumerate(v):
+        ax.text(x + 0.1, i, f"{x:.2f} Gb/s", va="center", fontsize=7)
+    ax.set_yticks(y); ax.set_yticklabels([c[0] for c in cases], fontsize=6.6); ax.invert_yaxis()
+    ax.set_xlabel("approximate peak downlink rate from TS 38.306 (Gb/s)"); ax.set_xlim(0, 10)
+    fig.tight_layout(); save(fig, "ch21_nr_peak_bars")
+    print([round(x, 3) for x in v])
+
+
+# ---------------------------------------------------------------------------- VoLTE header compression
+def rohc():
+    fig, ax = plt.subplots(figsize=(3.1, 2.2))
+    rows = [("IPv4/UDP/RTP", 40), ("IPv6/UDP/RTP", 60), ("after ROHC", 3)]
+    pay = 253 / 8 + 1
+    for i, (nm, h) in enumerate(rows):
+        ax.barh(i, h, color=ACCENT, height=0.55, label="headers" if i == 0 else None)
+        ax.barh(i, pay, left=h, color=NAVY, height=0.55, label="AMR-WB speech (12.65 kb/s)" if i == 0 else None)
+        ax.text(h + pay + 1.5, i, f"{100 * h / (h + pay):.0f}% overhead", va="center", fontsize=6.6)
+    ax.set_yticks(range(3)); ax.set_yticklabels([r[0] for r in rows], fontsize=7); ax.invert_yaxis()
+    ax.set_xlabel("bytes per 20 ms voice packet"); ax.set_xlim(0, 130)
+    ax.legend(fontsize=6.3, loc="lower right")
+    fig.tight_layout(); save(fig, "ch21_rohc")
+
+
+# ---------------------------------------------------------------------------- LTE uplink resources
+def lte_uplink():
+    fig, ax = plt.subplots(figsize=(W1, 2.1))
+    nrb, nsym = 25, 14
+    for t in range(nsym):
+        for f in range(nrb):
+            ax.add_patch(Rectangle((t, f), 0.95, 0.9, fc="#F2F3F4", lw=0))
+    # PUCCH: edges, hopping at slot boundary
+    for t in range(nsym):
+        top = t < 7
+        for f in ([0, 1] if top else [23, 24]):
+            ax.add_patch(Rectangle((t, f), 0.95, 0.9, fc=ORANGE, lw=0))
+        for f in ([23, 24] if top else [0, 1]):
+            ax.add_patch(Rectangle((t, f), 0.95, 0.9, fc="#F5CBA7", lw=0))
+    # PUSCH for two users
+    for t in range(nsym):
+        for f in range(3, 12):
+            ax.add_patch(Rectangle((t, f), 0.95, 0.9, fc=NAVY if t not in (3, 10) else GREEN, alpha=0.85, lw=0))
+        for f in range(13, 21):
+            ax.add_patch(Rectangle((t, f), 0.95, 0.9, fc=BLUE2 if t not in (3, 10) else GREEN, alpha=0.85, lw=0))
+    for f in range(2, 23):
+        ax.add_patch(Rectangle((13, f), 0.95, 0.9, fc=PURPLE, lw=0))
+    ax.axvline(7 - 0.025, color="k", lw=0.8)
+    leg = [(ORANGE, "PUCCH (control), hopping between band edges"), (NAVY, "PUSCH user 1"), (BLUE2, "PUSCH user 2"),
+           (GREEN, "DMRS: the midamble of each slot"), (PURPLE, "SRS: sounding in the last symbol")]
+    for k, (c, t) in enumerate(leg):
+        ax.add_patch(Rectangle((15.2, 21 - 4.5 * k), 0.8, 2.5, fc=c, lw=0))
+        ax.text(16.3, 22.2 - 4.5 * k, t, fontsize=6.8, va="center")
+    ax.set_xlim(0, 30); ax.set_ylim(0, 25); ax.set_xticks([3.5, 10.5]); ax.set_xticklabels(["slot 0", "slot 1"])
+    ax.set_yticks([0.5, 24.5]); ax.set_yticklabels(["RB 0", "RB 24"]); ax.grid(False)
+    for sp in ("left", "bottom"):
+        ax.spines[sp].set_visible(False)
+    ax.tick_params(length=0, labelsize=7)
+    ax.set_title("LTE uplink subframe, 5 MHz (illustrative allocation)", fontsize=8, loc="left")
+    save(fig, "ch21_lte_uplink")
+
+
+# ---------------------------------------------------------------------------- lessons scorecard
+def scorecard():
+    cols = ["radio", "architecture", "security", "ecosystem\n& scale", "timing &\nbusiness"]
+    rows = ["1G", "2G", "3G", "4G", "5G"]
+    # 2 = got it right, 1 = mixed, 0 = got it wrong (summary of the lessons section)
+    v = [[2, 1, 0, 0, 2],
+         [2, 0, 1, 2, 2],
+         [2, 0, 2, 1, 0],
+         [2, 2, 2, 2, 2],
+         [2, 2, 2, 2, 1]]
+    notes = [["FM + reuse", "analog switch", "cloning", "national\nsystems", "people paid"],
+             ["GMSK, hopping", "circuit only", "secret A5,\none-way", "MoU, SIM,\nroaming", "SMS, prepaid"],
+             ["WCDMA,\nturbo", "RNC far\nfrom radio", "mutual\nAKA", "WCDMA vs\nCDMA2000", "auction debt,\ndata late"],
+             ["OFDMA, MIMO\n(CRS regret)", "flat all-IP", "AKA kept", "one global\nstandard", "met the\nsmartphone"],
+             ["numerology,\nbeams", "cloud core,\nslicing", "SUCI", "global", "weak business\ncase"]]
+    cmap = {2: "#D4EFDF", 1: "#FCF3CF", 0: "#FADBD8"}
+    edge = {2: GREEN, 1: ORANGE, 0: ACCENT}
+    fig, ax = plt.subplots(figsize=(W1, 2.6))
+    for i, g in enumerate(rows):
+        ax.text(-0.15, 4.5 - i, g, ha="right", va="center", fontsize=10, weight="bold", color=list(GEN_COL.values())[i])
+        for j in range(5):
+            ax.add_patch(FancyBboxPatch((j + 0.04, 4.06 - i), 0.92, 0.88, boxstyle="round,pad=0,rounding_size=0.06",
+                                        fc=cmap[v[i][j]], ec=edge[v[i][j]], lw=0.8))
+            ax.text(j + 0.5, 4.5 - i, notes[i][j], ha="center", va="center", fontsize=6.2, linespacing=1.05)
+    for j, c in enumerate(cols):
+        ax.text(j + 0.5, 5.1, c, ha="center", va="bottom", fontsize=7.2, color=NAVY, weight="bold")
+    for k, (lab, key) in enumerate([("got it right", 2), ("mixed", 1), ("got it wrong", 0)]):
+        ax.add_patch(Rectangle((5.25, 3.9 - 0.6 * k), 0.25, 0.3, fc=cmap[key], ec=edge[key], lw=0.8))
+        ax.text(5.6, 4.05 - 0.6 * k, lab, fontsize=6.8, va="center")
+    ax.set_xlim(-0.6, 6.5); ax.set_ylim(-0.05, 5.7); ax.axis("off")
+    save(fig, "ch21_scorecard")
+
+
+# ---------------------------------------------------------------------------- WCDMA power-control loops
+def tpc_loop():
+    fig, ax = plt.subplots(figsize=(W1, 1.9))
+    ax.set_xlim(0, 10); ax.set_ylim(-0.3, 3.2); ax.axis("off")
+    _phone(ax, 0.6, 1.4, 1.4, NAVY)
+    ax.text(0.6, 0.6, "phone: step power\nup or down 1 dB", ha="center", va="top", fontsize=6.6)
+    _box(ax, 2.6, 1.85, 1.9, 0.6, "Node B: measure\nreceived SIR", "#D6E4F0", ec=NAVY, fs=6.8)
+    _box(ax, 5.2, 1.85, 1.9, 0.6, "compare with\nSIR target", "#D6E4F0", ec=NAVY, fs=6.8)
+    _box(ax, 5.2, 0.45, 1.9, 0.6, "send 1 TPC bit\nevery slot (1500 Hz)", "#FADBD8", ec=ACCENT, fs=6.8)
+    _box(ax, 7.9, 1.85, 1.9, 0.6, "RNC outer loop:\nBLER vs 1% target", "#D4EFDF", ec=GREEN, fs=6.8)
+    _arrow(ax, (0.95, 1.9), (2.55, 2.15), color=NAVY, lw=1.0)
+    ax.text(1.75, 2.25, "uplink signal\n(through fading)", ha="center", fontsize=6.2, color=NAVY)
+    _arrow(ax, (4.5, 2.15), (5.15, 2.15), color=NAVY)
+    _arrow(ax, (6.15, 1.83), (6.15, 1.08), color=ACCENT)
+    _arrow(ax, (5.15, 0.75), (0.95, 1.1), color=ACCENT)
+    ax.text(2.4, 0.42, "downlink TPC command\n(inner loop, every 0.67 ms)", fontsize=6.4, color=ACCENT,
+            ha="center", va="top")
+    _arrow(ax, (8.85, 2.47), (6.6, 2.47), color=GREEN, rad=0.35)
+    ax.text(7.7, 3.0, "adjusts the target slowly (tens of ms to s)", ha="center", fontsize=6.4, color=GREEN)
+    save(fig, "ch21_tpc_loop")
+
+
+# ---------------------------------------------------------------------------- IMT-2000 family
+def imt2000_family():
+    fig, ax = plt.subplots(figsize=(3.1, 2.5))
+    ax.set_xlim(0, 10); ax.set_ylim(0, 10); ax.axis("off")
+    _box(ax, 0.6, 8.4, 9.1, 1.2, "IMT-2000 (ITU-R M.1457)\none family, five radio interfaces", NAVY,
+         fs=6.8, color="white", weight="bold")
+    items = [("IMT-DS: WCDMA\n(3GPP, UTRA FDD)", GREEN, True), ("IMT-MC: CDMA2000\n(3GPP2)", ORANGE, True),
+             ("IMT-TC: UTRA TDD,\nTD-SCDMA (3GPP)", PURPLE, True), ("IMT-SC: UWC-136\n(EDGE-based)", GRAY, False),
+             ("IMT-FT: DECT", GRAY, False)]
+    for k, (t, c, big) in enumerate(items):
+        y = 6.6 - 1.55 * k
+        _box(ax, 3.3, y, 6.4, 1.25, t, SOFT["3G"] if c == GREEN else ("#FAE5D3" if c == ORANGE else
+             ("#E8DAEF" if c == PURPLE else "#F2F3F4")), ec=c, fs=6.4, color="#222" if big else "#666")
+        ax.plot([2.0, 3.3], [y + 0.62, y + 0.62], color=GRAY, lw=0.8)
+    ax.plot([2.0, 2.0], [8.4, 6.6 - 1.55 * 4 + 0.62], color=GRAY, lw=0.8)
+    ax.text(0.1, 3.5, "commercially\nimportant:\nthe first three", fontsize=6.0, color=NAVY, va="center")
+    save(fig, "ch21_imt2000_family")
+
+
 if __name__ == "__main__":
     import sys as _s
     fns = [growth, spectrum_bands, gsm_frames, gmsk, power_control, soft_handover, cqi_harq,
-           lte_grid, nr_frame, peak_rates, imt_capabilities, latency]
+           lte_grid, nr_frame, peak_rates, imt_capabilities, latency,
+           by_numbers, timeline, roads, what_fixed, imts_vs_cells, hex_reuse, amps_baseband, trunking, cloning, tdma_lights, midamble, timing_advance, call_flow, speech_bits, amr_modes, hopping, buzz217, sms_packing, near_far, edge_8psk, releases, ovsf_tree, handover_hyst, cell_breathing, rrc_states, pf_sched, eq_complexity, papr, harq_processes, lte_waterfall, carrier_agg, volte_capacity, usage_triangle, numerology, bwp, beam_sweep, slicing, mec_latency, growth_decomp, economics, flattening,
+           cell_splitting, gsm_band, cdma_capacity, nr_peak_bars, rohc, lte_uplink, scorecard, tpc_loop, imt2000_family]
     sel = _s.argv[1:]
     for fn in fns:
         if not sel or fn.__name__ in sel:

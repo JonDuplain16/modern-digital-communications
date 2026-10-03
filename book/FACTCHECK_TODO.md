@@ -13,3 +13,4 @@
 - ch16: MiniDisc/ATRAC ~292 kb/s & 3 subbands+MDCT; AV1 between HEVC and VVC; VVC two-rate CABAC; HEVC bypass-bin grouping
 - ch17: DVB-T2 guard-interval table per FFT size (EN 302 755); DAB Mode I symbol 1.246 ms; Li-Fi 160-180 Mb/s from photo
 - ch22: OBSS-PD 21 dBm reference power (802.11ax); Jelling photo is a replica
+- ch21: Holkeri first GSM call; Papworth first SMS; IMT-2000 five interface names; 3GPP freeze years; LAB REQUEST: add DFT-s-OFDM vs OFDMA PAPR CCDF experiment (lab11 or lab27); ch21 lab screenshots copied from tests/screens -> re-copy if labs change
