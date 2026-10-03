@@ -1048,11 +1048,846 @@ def nr_basegraph():
     save(fig, "ch15_nr_basegraph")
 
 
+# ============================================================================ 2nd-edition concept figures
+# Light computations only (seconds each); none of them touches the Monte Carlo cache except
+# fig_anatomy, which re-reads one cached curve.
+SW, SH = 3.0, 2.4          # narrow single-panel figures for side-by-side pairs
+
+
+def fig_timeline():
+    """Seventy years of coding in one strip."""
+    ev = [(1948, "Shannon:|capacity", ACCENT, 0.55), (1960, "Gallager's|LDPC thesis", GREEN, -0.55),
+          (1967, "Viterbi|algorithm", NAVY, 0.55), (1974, "BCJR|algorithm", NAVY, -0.55),
+          (1981, "Tanner|graphs", GREEN, 0.55), (1993, "turbo codes|(Berrou et al.)", ORANGE, -0.55),
+          (1996, "MacKay & Neal|rediscover LDPC", GREEN, 1.15), (2001, "density evolution,|EXIT charts", PURPLE, -1.15),
+          (2005, "DVB-S2|LDPC", GREEN, 0.55), (2009, "Arıkan:|polar codes", "#2E86C1", -0.55),
+          (2011, "Tal & Vardy:|list decoding", "#2E86C1", 1.15), (2016, "3GPP: LDPC + polar|for 5G", ACCENT, -1.15)]
+    ev = [(y, f"{y}|{l}".replace("|", chr(10)), c, h) for y, l, c, h in ev]
+    fig, ax = plt.subplots(figsize=(W2, 2.3))
+    ax.axhline(0, color=NAVY, lw=2.0, zorder=1)
+    for x0, x1, lab, c in [(1948, 1993, "the long chase: 2-3 dB short of the limit", GRAY),
+                           (1993, 2018, "the iterative era: within ~1 dB", ACCENT)]:
+        ax.add_patch(plt.Rectangle((x0, -0.08), x1 - x0, 0.16, color=c, alpha=0.18, lw=0))
+        ax.text((x0 + x1) / 2, 1.62, lab, ha="center", va="center", fontsize=7.2, color=c, style="italic")
+        ax.annotate("", xy=(x0, 1.45), xytext=(x1, 1.45), arrowprops=dict(arrowstyle="<->", color=c, lw=0.8))
+    for yr, lab, c, h in ev:
+        s = np.sign(h)
+        ax.plot([yr, yr], [0.08 * s, h - 0.36 * s], color=c, lw=0.9)
+        ax.plot(yr, 0, "o", color=c, ms=4.5, zorder=3)
+        ax.text(yr, h, lab, ha="center", va="center", fontsize=6.4, color=c)
+    ax.set_xlim(1942, 2022); ax.set_ylim(-1.55, 1.8)
+    ax.axis("off")
+    save(fig, "ch15_timeline")
+
+
+def fig_gap_chase():
+    """Required Eb/N0 at BER 1e-5 for landmark schemes (values of Table 15.1)."""
+    pts = [(1948, 9.6, "uncoded"), (1950, 9.2, "Hamming\n(7,4)"), (1972, 4.4, "K = 7\nViterbi"),
+           (1977, 2.5, "RS + conv.\n(Voyager)"), (1993, 0.7, "turbo"), (2001, 0.23, "irregular\nLDPC")]
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    x = [p[0] for p in pts]; y = [p[1] for p in pts]
+    ax.step(x + [2010], y + [y[-1]], where="post", color=NAVY, lw=1.6)
+    ax.plot(x, y, "o", color=NAVY, ms=4)
+    for (xx, yy, lab), dx, dy in zip(pts, [-1, 3, 2, 2, -2, 1], [-1.0, 0.9, 1.0, 1.0, 1.2, 1.5]):
+        ax.text(xx + dx, yy + dy, lab, fontsize=6.5, color=NAVY, va="center", ha="left" if dx > 0 else "center")
+    ax.axhline(0.19, color=ACCENT, ls="--", lw=1.0)
+    ax.text(1950, -0.9, "Shannon limit, rate 1/2 (0.19 dB)", fontsize=6.5, color=ACCENT)
+    ax.set_xlim(1945, 2010); ax.set_ylim(-1.5, 11)
+    ax.set_xlabel("year"); ax.set_ylabel(r"$E_b/N_0$ for BER $10^{-5}$ (dB)")
+    save(fig, "ch15_gap_chase")
+
+
+def fig_llr():
+    """(a) LLR as a confidence dial; (b) channel LLR densities obey consistency."""
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 2.5))
+    a = ax[0]
+    L = np.linspace(-8, 8, 400)
+    a.plot(L, 1 / (1 + np.exp(-L)), color=NAVY, lw=1.8)
+    for Lv, txt in [(0, "L = 0: a coin toss"), (4.6, "L = 4.6: 99 % sure it is 0"), (-2.2, "L = -2.2: 90 % sure it is 1")]:
+        p = 1 / (1 + np.exp(-Lv))
+        a.plot(Lv, p, "o", color=ACCENT, ms=4)
+        a.annotate(txt, (Lv, p), xytext=(Lv + (0.7 if Lv < 3 else -7.5), p + (0.13 if Lv <= 0 else -0.14)),
+                   fontsize=6.8, color=ACCENT, arrowprops=dict(arrowstyle="-", color=ACCENT, lw=0.6))
+    a.set_xlabel("LLR $L$"); a.set_ylabel("$P(c=0)$")
+    a.set_title("(a) sign = decision, size = confidence", fontsize=8.5)
+    a = ax[1]
+    r = np.random.default_rng(1)
+    for eb, c in [(-1.0, ORANGE), (2.0, GREEN), (5.0, NAVY)]:
+        Lc = awgn_llr(np.zeros(200000, int), eb, 0.5, r)
+        mu = Lc.mean(); var = Lc.var()
+        a.hist(Lc, bins=150, density=True, histtype="stepfilled", alpha=0.25, color=c)
+        a.hist(Lc, bins=150, density=True, histtype="step", color=c,
+               label=f"{eb:+.0f} dB: mean {mu:.1f}, var {var:.1f}")
+    a.axvline(0, color=GRAY, lw=0.8)
+    a.text(-9, 0.12, "wrong\nsign", fontsize=7, color=GRAY)
+    a.set_xlim(-12, 35); a.set_xlabel("channel LLR given $x=+1$"); a.set_ylabel("density")
+    a.set_title("(b) variance = twice the mean", fontsize=8.5)
+    a.legend(fontsize=6.3, loc="upper right")
+    fig.tight_layout(w_pad=1.2)
+    save(fig, "ch15_llr")
+
+
+def fig_boxplus():
+    """Box-plus: the XOR is as weak as its weakest input."""
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    L2 = np.linspace(0, 8, 300)
+    for L1, c in [(0.5, ORANGE), (1.5, GREEN), (3.0, PURPLE), (6.0, NAVY)]:
+        bp = 2 * np.arctanh(np.tanh(L1 / 2) * np.tanh(L2 / 2))
+        ax.plot(L2, bp, color=c, lw=1.6, label=f"$L_1$ = {L1}")
+        ax.plot(L2, np.minimum(L1, L2), color=c, lw=0.9, ls="--")
+    ax.set_xlabel("$L_2$"); ax.set_ylabel(r"$L_1 \boxplus L_2$")
+    ax.text(3.6, 2.15, "dashed: min-sum\n(always too confident)", fontsize=6.6, color=GRAY)
+    ax.legend(fontsize=6.6, loc="upper left")
+    ax.set_xlim(0, 8); ax.set_ylim(0, 6.5)
+    save(fig, "ch15_boxplus")
+
+
+def fig_maxstar():
+    """The Jacobian-log correction and an 8-entry lookup table."""
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    d = np.linspace(0, 5, 400)
+    ax.plot(d, np.log1p(np.exp(-d)), color=NAVY, lw=1.8, label=r"$\ln(1+e^{-|a-b|})$")
+    edges = np.arange(0, 4.01, 0.5)
+    lut = np.log1p(np.exp(-(edges[:-1] + 0.25)))
+    ax.step(np.r_[edges[:-1], 5], np.r_[lut, 0], where="post", color=ACCENT, lw=1.2, label="8-entry table")
+    ax.axhline(np.log(2), color=GRAY, ls=":", lw=0.8)
+    ax.text(2.6, 0.62, r"at most $\ln 2$ = 0.69", fontsize=6.8, color=GRAY)
+    ax.set_xlabel("$|a-b|$"); ax.set_ylabel("correction")
+    ax.legend(fontsize=7, loc="center right"); ax.set_xlim(0, 5); ax.set_ylim(0, 0.75)
+    save(fig, "ch15_maxstar")
+
+
+def _bcjr_ab(code, Lu, Lp):
+    """Single-block BCJR returning normalised state probabilities (alpha, beta) and APP LLRs."""
+    T, S = len(Lu), code.S
+    xs = np.array([1.0, -1.0]); xp = 1.0 - 2.0 * code.parity
+    g = 0.5 * (Lu[:, None, None] * xs[None, None, :] + Lp[:, None, None] * xp[None, :, :])
+    A = np.full((T + 1, S), -1e30); A[0, 0] = 0
+    ps, pu, ns = code.prev_s, code.prev_u, code.next_state
+    for k in range(T):
+        c0 = A[k, ps[:, 0]] + g[k, ps[:, 0], pu[:, 0]]
+        c1 = A[k, ps[:, 1]] + g[k, ps[:, 1], pu[:, 1]]
+        an = np.logaddexp(c0, c1); A[k + 1] = an - an.max()
+    Bm = np.full((T + 1, S), -1e30); Bm[T, 0] = 0
+    Lo = np.empty(T)
+    for k in range(T - 1, -1, -1):
+        m0 = A[k] + g[k, :, 0] + Bm[k + 1, ns[:, 0]]
+        m1 = A[k] + g[k, :, 1] + Bm[k + 1, ns[:, 1]]
+        Lo[k] = np.logaddexp.reduce(m0) - np.logaddexp.reduce(m1)
+        bn = np.logaddexp(g[k, :, 0] + Bm[k + 1, ns[:, 0]], g[k, :, 1] + Bm[k + 1, ns[:, 1]])
+        Bm[k] = bn - bn.max()
+    pa = np.exp(A - A.max(1, keepdims=True)); pa /= pa.sum(1, keepdims=True)
+    pb = np.exp(Bm - Bm.max(1, keepdims=True)); pb /= pb.sum(1, keepdims=True)
+    return pa, pb, Lo
+
+
+def fig_bcjr_heat():
+    """Forward and backward state probabilities of a real BCJR run, and its output LLRs."""
+    rsc = tb.RSC()
+    K = 40
+    r = np.random.default_rng(12)
+    u = r.integers(0, 2, K)
+    s, p = rsc.encode(u[None])
+    s, p = s[0], p[0]
+    eb, R = 1.0, 0.5
+    Ls = awgn_llr(s, eb, R, r); Lp = awgn_llr(p, eb, R, r)
+    pa, pb, Lo = _bcjr_ab(rsc, Ls, Lp)
+    T = len(Ls)
+    fig, ax = plt.subplots(3, 1, figsize=(W2, 4.3), sharex=True,
+                           gridspec_kw=dict(height_ratios=[1, 1, 1.25]))
+    for a, P, ttl in [(ax[0], pa[1:], r"forward $\alpha_k(s)$: what the past says about the state"),
+                      (ax[1], pb[1:], r"backward $\beta_k(s)$: what the future says about the state")]:
+        a.imshow(P.T, aspect="auto", cmap="Blues", origin="lower", extent=(-0.5, T - 0.5, -0.5, 7.5),
+                 vmin=0, vmax=1, interpolation="nearest")
+        a.set_ylabel("state"); a.set_yticks([0, 7]); a.grid(False)
+        a.set_title(ttl, fontsize=8.2, loc="left")
+    a = ax[2]
+    k = np.arange(T)
+    xk = 1 - 2 * s
+    a.bar(k - 0.2, Ls * xk, width=0.4, color=GRAY, label="channel LLR alone")
+    a.bar(k + 0.2, Lo * xk, width=0.4, color=NAVY, label="BCJR output")
+    a.axhline(0, color="k", lw=0.6)
+    a.set_ylabel("LLR $\\times$ true sign"); a.set_xlabel("time $k$ (last 3 steps: tail)")
+    a.legend(fontsize=6.8, loc="upper left", ncol=2)
+    a.set_title("below zero = wrong decision", fontsize=8.2, loc="left")
+    nwc = int(np.sum(Ls * xk < 0)); nwo = int(np.sum(Lo * xk < 0))
+    print(f"  bcjr_heat: channel wrong {nwc}, BCJR wrong {nwo}")
+    fig.tight_layout(h_pad=0.4)
+    save(fig, "ch15_bcjr_heat")
+
+
+def _turbo_loop(tc, Lch, iters, mode="extrinsic", scale=1.0):
+    """Turbo decoding returning APP LLRs (natural order) after each iteration.
+    mode='echo' feeds back the full APP instead of the extrinsic part (the classic bug)."""
+    c = tc.unflatten(np.atleast_2d(Lch))
+    K, pi = tc.K, tc.pi
+    inv = np.argsort(pi)
+    Ls = c["sys"]; La = np.zeros_like(Ls)
+    out = []
+    for it in range(iters):
+        L1 = tb.bcjr(tc.rsc, np.concatenate([Ls + La, c["t1s"]], 1), np.concatenate([c["p1"], c["t1p"]], 1))[:, :K]
+        E1 = (L1 - Ls - La) if mode == "extrinsic" else (L1 - Ls)
+        La2 = scale * E1[:, pi]
+        L2 = tb.bcjr(tc.rsc, np.concatenate([Ls[:, pi] + La2, c["t2s"]], 1), np.concatenate([c["p2"], c["t2p"]], 1))[:, :K]
+        E2 = (L2 - Ls[:, pi] - La2) if mode == "extrinsic" else (L2 - Ls[:, pi])
+        La = scale * E2[:, inv]
+        out.append(L2[:, inv])
+    return out
+
+
+def fig_turbo_inside():
+    """(pair) double counting vs extrinsic; LLR clouds separating over iterations."""
+    K = 1024
+    tc = tb.TurboCode(K, tb.qpp_interleaver(K, *QPP[K]))
+    r = np.random.default_rng(31)
+    B = 120
+    u = r.integers(0, 2, (B, K))
+    x = tc.flatten(tc.encode(u))
+    eb = 0.8
+    Lch = awgn_llr(x, eb, tc.rate, r)
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    for mode, c, lab in [("extrinsic", NAVY, "pass extrinsic only"), ("echo", ACCENT, "pass full APP (echo)")]:
+        outs = _turbo_loop(tc, Lch, 10, mode)
+        ber = [np.mean((o < 0) != u) for o in outs]
+        ax.semilogy(np.arange(1, 11), np.maximum(ber, 1e-6), "o-", ms=3, color=c, label=lab)
+        print(f"  {mode}: {np.round(ber, 5)}")
+    ax.set_xlabel("iteration"); ax.set_ylabel("bit error rate")
+    ax.set_title(f"K = 1024, rate 1/3, {eb} dB", fontsize=8.2)
+    ax.legend(fontsize=6.8, loc="lower left"); ax.set_ylim(1e-6, 0.3)
+    save(fig, "ch15_doublecount")
+    # LLR clouds
+    K = 6144
+    tc = tb.TurboCode(K, tb.qpp_interleaver(K, *QPP[K]))
+    B = 6
+    u = r.integers(0, 2, (B, K))
+    x = tc.flatten(tc.encode(u))
+    Lch = awgn_llr(x, 0.4, tc.rate, r)
+    outs = _turbo_loop(tc, Lch, 8)
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    xk = (1 - 2 * u).ravel()
+    for it, c in [(0, ORANGE), (1, GREEN), (3, PURPLE), (7, NAVY)]:
+        v = np.clip(outs[it].ravel() * xk, -20, 159)
+        ax.hist(v, bins=np.linspace(-20, 160, 120), density=True, histtype="step", color=c, lw=1.3,
+                label=f"after {it + 1} iteration" + ("s" if it else ""))
+        print(f"  it {it+1}: wrong {np.mean(v < 0):.2e}, median {np.median(v):.1f}")
+    ax.axvline(0, color=GRAY, lw=0.8)
+    ax.set_xlabel("APP LLR $\\times$ true sign"); ax.set_ylabel("density")
+    ax.set_title("K = 6144, 0.4 dB", fontsize=8.2)
+    ax.legend(fontsize=6.6, loc="upper right"); ax.set_xlim(-20, 160)
+    save(fig, "ch15_llr_clouds")
+
+
+def fig_rsc_impulse():
+    """Feed-forward vs recursive encoder responses to weight-1 and weight-2 inputs."""
+    T = 30
+    ff = _octal_taps_local(0o15)
+    rsc = tb.RSC()
+    def ffenc(u):
+        return np.array([sum(ff[i] * (u[k - i] if k - i >= 0 else 0) for i in range(4)) % 2 for k in range(T)])
+    def rscenc(u):
+        _, p = rsc.encode(np.array(u)[None], terminate=False)
+        return p[0]
+    u1 = np.zeros(T, int); u1[3] = 1
+    u2 = u1.copy(); u2[10] = 1
+    rows = [("feed-forward encoder, a single 1", u1, ffenc(u1), GRAY),
+            ("recursive encoder, a single 1: parity never stops", u1, rscenc(u1), ACCENT),
+            ("recursive encoder, two 1s seven apart: back to zero", u2, rscenc(u2), NAVY)]
+    fig, ax = plt.subplots(3, 1, figsize=(W2, 3.2), sharex=True)
+    for a, (ttl, u, p, c) in zip(ax, rows):
+        k = np.arange(T)
+        a.bar(k[u == 1], 0.45, bottom=0.55, width=0.7, color=ORANGE)
+        a.bar(k[p == 1], 0.45, bottom=0.0, width=0.7, color=c)
+        a.set_yticks([0.22, 0.77]); a.set_yticklabels(["parity", "input"], fontsize=7)
+        a.set_ylim(-0.05, 1.05); a.grid(False)
+        a.set_title(f"{ttl}   (parity weight {int(p.sum())}{'+' if (c == ACCENT) else ''})", fontsize=8, loc="left")
+    ax[-1].set_xlabel("time $k$")
+    fig.tight_layout(h_pad=0.3)
+    save(fig, "ch15_rsc_impulse")
+
+
+def _octal_taps_local(g, m=3):
+    return np.array([(g >> (m - i)) & 1 for i in range(m + 1)], dtype=int)
+
+
+def fig_interleavers():
+    """Identity, random and QPP permutations of K = 256 positions."""
+    K = 256
+    perms = [("no interleaver", np.arange(K), GRAY), ("random", np.random.default_rng(5).permutation(K), ACCENT),
+             ("QPP (LTE), $f_1$=15, $f_2$=32", tb.qpp_interleaver(K, 15, 32), NAVY)]
+    fig, ax = plt.subplots(1, 3, figsize=(W2, 2.2), sharey=True)
+    for a, (ttl, p, c) in zip(ax, perms):
+        a.plot(np.arange(K), p, ".", ms=1.6, color=c)
+        a.set_title(ttl, fontsize=8); a.set_xlabel("input position $i$")
+        a.set_xlim(0, K); a.set_ylim(0, K); a.set_aspect("equal")
+    ax[0].set_ylabel(r"output position $\pi(i)$")
+    fig.tight_layout(w_pad=0.6)
+    save(fig, "ch15_interleavers")
+
+
+def fig_anatomy():
+    """Annotated anatomy of an iterative-code error curve (cached random-interleaver run)."""
+    K = 1024
+    tc = tb.TurboCode(K, np.random.default_rng(5).permutation(K))
+    eb = np.arange(0.0, 2.01, 0.25)
+    ber, _ = simulate_turbo(tc, eb, iters=8, max_frames=1200, min_berr=200, min_ferr=40, seed=21)
+    b = ber[-1]; ok = b > 0
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    ax.semilogy(eb[ok], b[ok], "o-", ms=3, color=NAVY)
+    ebf = np.linspace(0, 2.5, 100)
+    ax.semilogy(ebf, cl.ber_bpsk(ebf), color=GRAY, lw=0.9)
+    ax.text(1.55, 4e-2, "uncoded", fontsize=6.5, color=GRAY)
+    ax.axvspan(0.0, 0.25, color=ORANGE, alpha=0.12)
+    ax.text(0.125, 3e-6, "decoder lost", fontsize=6.3, color=ORANGE, rotation=90, ha="center")
+    ax.axvspan(0.25, 1.0, color=ACCENT, alpha=0.10)
+    ax.text(0.62, 2e-7, "the cliff\n(waterfall)", fontsize=6.5, color=ACCENT, ha="center")
+    ax.axvspan(1.0, 2.5, color=PURPLE, alpha=0.08)
+    ax.text(1.75, 2e-7, "the stubborn few\n(error floor)", fontsize=6.5, color=PURPLE, ha="center")
+    ax.set_xlim(0, 2.5); ax.set_ylim(1e-7, 0.2)
+    ax.set_xlabel(r"$E_b/N_0$ (dB)"); ax.set_ylabel("bit error rate")
+    save(fig, "ch15_anatomy")
+
+
+# ---------------------------------------------------------------- small Tanner graph used by two figures
+_HSMALL = np.array([[1, 1, 1, 0, 0, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 1, 1, 0, 0, 1, 0, 0],
+                    [0, 1, 0, 1, 0, 1, 0, 0, 1, 0],
+                    [0, 0, 1, 0, 1, 1, 0, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]])
+
+
+def _draw_tanner(a, H, vcol, vtxt=None, ccol=None, ctxt=None, ehl=None, title=None):
+    m, n = H.shape
+    vx = np.linspace(0, 1, n); cx = np.linspace(0.1, 0.9, m)
+    for i in range(m):
+        for j in range(n):
+            if H[i, j]:
+                hl = ehl is not None and (i, j) in ehl
+                a.plot([cx[i], vx[j]], [1, 0], color=ACCENT if hl else "#B0BEC5", lw=1.6 if hl else 0.6, zorder=1)
+    for j in range(n):
+        a.scatter(vx[j], 0, s=150, color=vcol[j], edgecolors=NAVY, linewidths=0.6, zorder=3)
+        if vtxt is not None:
+            a.text(vx[j], -0.2, vtxt[j], ha="center", va="top", fontsize=5.8)
+    for i in range(m):
+        a.scatter(cx[i], 1, s=110, marker="s", color=(ccol[i] if ccol is not None else "#FBE3D6"),
+                  edgecolors=ACCENT, linewidths=0.6, zorder=3)
+        if ctxt is not None:
+            a.text(cx[i], 1.17, ctxt[i], ha="center", va="bottom", fontsize=6)
+    a.set_xlim(-0.07, 1.07); a.set_ylim(-0.42, 1.38); a.axis("off")
+    if title:
+        a.set_title(title, fontsize=7.8)
+
+
+def _llr_colour(L):
+    """green for confident-and-right (all-zero codeword => positive is right), red for wrong."""
+    t = np.tanh(np.abs(L) / 4)
+    base = np.array([0.12, 0.48, 0.31]) if L > 0 else np.array([0.75, 0.22, 0.17])
+    return tuple(1 - t * (1 - base))
+
+
+def fig_gossip():
+    """Belief propagation on a small graph, iteration by iteration (all-zero codeword)."""
+    H = _HSMALL
+    m, n = H.shape
+    L0 = np.array([2.4, 1.9, -0.8, 2.2, 1.5, 2.8, 1.7, -0.6, 2.3, 1.6])
+    r = np.zeros((m, n))
+    snaps = [L0.copy()]
+    for it in range(3):
+        q = np.where(H, (L0 + r.sum(0))[None, :] - r, 0)
+        t = np.where(H, np.tanh(np.clip(q, -30, 30) / 2), 1.0)
+        for i in range(m):
+            for j in range(n):
+                if H[i, j]:
+                    pr = np.prod(np.delete(t[i], j))
+                    r[i, j] = 2 * np.arctanh(np.clip(pr, -0.999999, 0.999999))
+        snaps.append(L0 + r.sum(0))
+    fig, ax = plt.subplots(2, 2, figsize=(W2, 3.3))
+    ax = ax.ravel()
+    syn = lambda L: (H @ (L < 0).astype(int)) % 2
+    for k, (a, L) in enumerate(zip(ax, snaps)):
+        s = syn(L)
+        _draw_tanner(a, H, [_llr_colour(v) for v in L], [f"{v:+.1f}" for v in L],
+                     ccol=["#F5B7B1" if x else "#D5F5E3" for x in s],
+                     title=("channel only" if k == 0 else f"after {k} iteration" + ("s" if k > 1 else "")) +
+                     f": {int(np.sum(L < 0))} wrong")
+        print("  gossip", k, np.round(L, 2))
+    fig.tight_layout(w_pad=0.2)
+    save(fig, "ch15_gossip")
+
+
+def _peel(H, erased):
+    steps, hls = [erased.copy()], []
+    e = erased.copy()
+    while e.any():
+        ready = np.where(H[:, e].sum(1) == 1)[0]
+        if len(ready) == 0:
+            break
+        hl, newe = set(), e.copy()
+        for i in ready:
+            newe[np.where((H[i] == 1) & e)[0][0]] = False
+            for jj in np.where(H[i])[0]:
+                hl.add((i, jj))
+        hls.append(hl); e = newe; steps.append(e.copy())
+    return steps, hls
+
+
+def fig_peeling():
+    """Peeling decoder on the BEC: checks with one unknown neighbour resolve it; a stopping set."""
+    H = _HSMALL
+    m, n = H.shape
+    er = np.zeros(n, bool); er[[0, 4, 9]] = True
+    steps, hls = _peel(H, er)
+    er2 = np.zeros(n, bool); er2[[1, 4, 7, 9]] = True
+    st2, _ = _peel(H, er2)
+    stuck = st2[-1]
+    fig, ax = plt.subplots(2, 2, figsize=(W2, 3.3))
+    ax = ax.ravel()
+    titles = ["(a) 3 erased; the yellow checks see just one '?'", "(b) after round 1: one '?' left, one check ready",
+              "(c) after round 2: every bit recovered"]
+    for k in range(3):
+        e = steps[k]
+        ccol = None
+        if k < len(hls):
+            act = {i for (i, j) in hls[k]}
+            ccol = ["#F9E79F" if i in act else "#FBE3D6" for i in range(m)]
+        _draw_tanner(ax[k], H, ["#ECEFF1" if x else "#D5F5E3" for x in e], ["?" if x else "ok" for x in e],
+                     ccol=ccol, ehl=hls[k] if k < len(hls) else None, title=titles[k])
+    sh = {(i, j) for i in range(m) for j in range(n) if H[i, j] and stuck[j]}
+    _draw_tanner(ax[3], H, ["#F5B7B1" if x else "#D5F5E3" for x in stuck], ["?" if x else "ok" for x in stuck],
+                 ehl=sh, title=f"(d) a stopping set: {int(stuck.sum())} bits no check can resolve")
+    print("  stopping set", np.where(stuck)[0])
+    fig.tight_layout(h_pad=0.6, w_pad=0.4)
+    save(fig, "ch15_peeling")
+
+
+def fig_degrees():
+    """Edge vs node perspective of the worked-example ensemble."""
+    deg = np.array([2, 3, 8]); lam = np.array([0.3, 0.3, 0.4])
+    node = (lam / deg) / np.sum(lam / deg)
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    xx = np.arange(3)
+    ax.bar(xx - 0.18, lam, width=0.36, color=NAVY, label=r"fraction of edges $\lambda_i$")
+    ax.bar(xx + 0.18, node, width=0.36, color=ORANGE, label="fraction of nodes")
+    for i in range(3):
+        ax.text(xx[i] - 0.18, lam[i] + 0.01, f"{lam[i]:.0%}", ha="center", fontsize=6.8, color=NAVY)
+        ax.text(xx[i] + 0.18, node[i] + 0.01, f"{node[i]:.0%}", ha="center", fontsize=6.8, color=ORANGE)
+    ax.set_xticks(xx); ax.set_xticklabels([f"degree {d}" for d in deg])
+    ax.set_ylim(0, 0.62); ax.set_ylabel("fraction")
+    ax.legend(fontsize=6.8, loc="upper right")
+    save(fig, "ch15_degrees")
+
+
+def fig_spy():
+    """A random sparse H vs a quasi-cyclic H of the same size."""
+    r = np.random.default_rng(2)
+    Hr = cl.LDPCCode._peg(192, 96, 3, r)
+    S = qc_girth8_shifts(3, 6, 32, np.random.default_rng(4))
+    Hq = qc_expand(S, 32)
+    fig, ax = plt.subplots(1, 2, figsize=(W2, 1.95))
+    for a, H, ttl in [(ax[0], Hr, "PEG (unstructured): 576 ones scattered"),
+                      (ax[1], Hq, "quasi-cyclic, Z = 32: 18 shifted identities")]:
+        a.spy(H, markersize=1.1, color=NAVY)
+        a.set_title(ttl, fontsize=8); a.set_xticks([]); a.set_yticks([])
+    for k in range(1, 6):
+        ax[1].axvline(k * 32 - 0.5, color=ACCENT, lw=0.4)
+    for k in range(1, 3):
+        ax[1].axhline(k * 32 - 0.5, color=ACCENT, lw=0.4)
+    fig.tight_layout(w_pad=1.0)
+    save(fig, "ch15_spy")
+
+
+def fig_flash():
+    """TLC NAND: eight threshold-voltage states, hard read references and extra soft reads."""
+    fig, ax = plt.subplots(figsize=(W1, 2.2))
+    v = np.linspace(-1, 8.2, 1200)
+    mus = np.arange(8) * 1.0 + 0.2
+    sig = [0.32] + [0.2] * 7
+    gray = ["111", "110", "100", "000", "010", "011", "001", "101"]
+    for k in range(8):
+        y = np.exp(-(v - mus[k]) ** 2 / (2 * sig[k] ** 2))
+        ax.fill_between(v, y, color=CYCLE[k % 6], alpha=0.25)
+        ax.plot(v, y, color=CYCLE[k % 6], lw=1.0)
+        ax.text(mus[k], 1.05, gray[k], ha="center", fontsize=7, family="monospace")
+    for k in range(7):
+        ref = (mus[k] + mus[k + 1]) / 2
+        ax.axvline(ref, color="k", lw=0.9)
+        if k == 3:
+            for d in (-0.18, 0.18):
+                ax.axvline(ref + d, color=ACCENT, lw=0.8, ls="--")
+    ax.annotate("extra soft reads\n(refine the LLR)", xy=(3.88, 0.55), xytext=(4.9, 0.72), fontsize=7,
+                color=ACCENT, arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.7))
+    ax.set_yticks([]); ax.set_ylim(0, 1.2); ax.set_xlim(-0.8, 7.9)
+    ax.set_xlabel("cell threshold voltage (arbitrary units)")
+    ax.grid(False)
+    save(fig, "ch15_flash")
+
+
+def fig_polar_step():
+    """One polarization step on the BEC: capacity is conserved but split."""
+    I = np.linspace(0, 1, 200)
+    e = 1 - I
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    ax.plot(I, 1 - e ** 2, color=GREEN, lw=1.8, label=r"$I(W^+)$: the lucky bit")
+    ax.plot(I, 1 - (2 * e - e ** 2), color=ACCENT, lw=1.8, label=r"$I(W^-)$: the unlucky bit")
+    ax.plot(I, I, color=GRAY, ls=":", lw=1.0, label="no transform")
+    ax.plot([0.5, 0.5], [0.25, 0.75], color=NAVY, lw=0.8)
+    ax.plot(0.5, 0.75, "o", color=GREEN, ms=4); ax.plot(0.5, 0.25, "o", color=ACCENT, ms=4)
+    ax.text(0.53, 0.47, "BEC(0.5):\n0.25 + 0.75\n= 2 x 0.5", fontsize=6.5, color=NAVY)
+    ax.set_xlabel("capacity of the channel $I(W)$"); ax.set_ylabel("capacity after one step")
+    ax.legend(fontsize=6.5, loc="upper left"); ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+    save(fig, "ch15_polar_step")
+
+
+def _bec_z(N, eps):
+    z = np.array([eps])
+    while len(z) < N:
+        z = np.concatenate([2 * z - z ** 2, z ** 2])
+    return z
+
+
+def _bec_z_ordered(N, eps):
+    """Erasure probabilities in commlib / F^{(x)n} order (index bits: MSB = first split)."""
+    if N == 1:
+        return np.array([eps])
+    return np.concatenate([_bec_z_ordered(N // 2, 2 * eps - eps ** 2), _bec_z_ordered(N // 2, eps ** 2)])
+
+
+def fig_polar_class():
+    """N = 16 bit-channels of BEC(0.5): teach only the brilliant ones."""
+    N, K = 16, 8
+    z = _bec_z_ordered(N, 0.5)
+    info = np.argsort(z)[:K]
+    fig, ax = plt.subplots(figsize=(W1, 2.1))
+    cap = 1 - z
+    cols = [NAVY if i in info else "#BDC3C7" for i in range(N)]
+    ax.bar(np.arange(N), cap, color=cols, width=0.75)
+    for i in range(N):
+        ax.text(i, cap[i] + 0.02, f"{cap[i]:.2f}", ha="center", fontsize=5.8, rotation=90)
+    ax.axhline(0.5, color=ACCENT, ls=":", lw=0.9)
+    ax.text(8, 0.54, "original channel", fontsize=6.5, color=ACCENT, ha="center")
+    ax.set_xticks(np.arange(N)); ax.set_xticklabels([f"$u_{{{i}}}$" for i in range(N)], fontsize=7)
+    ax.set_ylabel("capacity of bit-channel"); ax.set_ylim(0, 1.18)
+    ax.bar([0], [0], color=NAVY, label="information (the 8 best)")
+    ax.bar([0], [0], color="#BDC3C7", label="frozen to 0")
+    ax.legend(fontsize=6.8, loc="upper left", ncol=2)
+    print("  info set", sorted(info.tolist()))
+    save(fig, "ch15_polar_class")
+
+
+def _polar_enc(u):
+    u = np.array(u, int) % 2
+    N = len(u)
+    if N == 1:
+        return u
+    h = N // 2
+    return np.concatenate([_polar_enc((u[:h] + u[h:]) % 2), _polar_enc(u[h:])])
+
+
+def _polar_llr(L, prefix, i):
+    N = len(L)
+    if N == 1:
+        return L[0]
+    h = N // 2
+    a, b = L[:h], L[h:]
+    if i < h:
+        f = np.sign(a) * np.sign(b) * np.minimum(np.abs(a), np.abs(b))
+        return _polar_llr(f, prefix[:i], i)
+    s = _polar_enc(prefix[:h])
+    return _polar_llr(b + (1 - 2 * s) * a, prefix[h:i], i - h)
+
+
+def fig_scl_tree():
+    """SC list decoding (L = 4) of an N = 16 polar code: a shortlist of suspects."""
+    N, K, Lmax = 16, 8, 4
+    z = _bec_z_ordered(N, 0.5)
+    info = set(np.argsort(z)[:K].tolist())
+    best = None
+    for seed in range(400):
+        r = np.random.default_rng(seed)
+        u = np.zeros(N, int)
+        for i in sorted(info):
+            u[i] = r.integers(0, 2)
+        x = _polar_enc(u)
+        L = awgn_llr(x, 1.5, K / N, r)
+        # SC
+        pre = []
+        scm, scpm = [], 0.0
+        for i in range(N):
+            l = _polar_llr(L, np.array(pre, int), i)
+            pre.append(0 if i not in info else int(l < 0))
+            if i not in info and l < 0:
+                scpm += abs(l)
+            if i in info:
+                scm.append(scpm)
+        sc_ok = np.array_equal(pre, u)
+        # SCL with history
+        paths = [([], 0.0, 0)]          # (prefix, metric, id)
+        nid = 1
+        hist = []                       # (i, parent_id, id, bit, metric, survived)
+        for i in range(N):
+            new = []
+            for pre_, pm, pid in paths:
+                l = _polar_llr(L, np.array(pre_, int), i)
+                if i not in info:
+                    new.append((pre_ + [0], pm + (abs(l) if l < 0 else 0), pid, 0))
+                else:
+                    for bit in (0, 1):
+                        pen = abs(l) if (bit == 1) != (l < 0) else 0
+                        new.append((pre_ + [bit], pm + pen, pid, bit))
+            new.sort(key=lambda t: t[1])
+            keep = new[:Lmax]
+            paths2 = []
+            for k_, (p_, pm, pid, bit) in enumerate(new):
+                if i in info:
+                    hist.append((i, pid, nid, bit, pm, k_ < Lmax, p_))
+                if k_ < Lmax:
+                    paths2.append((p_, pm, nid if i in info else pid))
+                if i in info:
+                    nid += 1
+            paths = paths2
+        win_ok = np.array_equal(paths[0][0], u)
+        inlist = any(np.array_equal(p[0], u) for p in paths)
+        if (not sc_ok) and win_ok:
+            best = (seed, u, hist, paths, scm, pre)
+            break
+    seed, u, hist, paths, scm, scdec = best
+    print("  scl seed", seed)
+    infol = sorted(info)
+    col = {i: k + 1 for k, i in enumerate(infol)}
+    fig, ax = plt.subplots(figsize=(W2, 2.9))
+    pos = {0: (0, 0.0)}
+    # place nodes: x = column, y = metric (log-ish)
+    for (i, pid, myid, bit, pm, surv, p_) in hist:
+        pos[myid] = (col[i], pm)
+    truth_ids = set()
+    for (i, pid, myid, bit, pm, surv, p_) in hist:
+        if np.array_equal(p_, u[:i + 1]):
+            truth_ids.add(myid)
+    for (i, pid, myid, bit, pm, surv, p_) in hist:
+        x0, y0 = pos.get(pid, (0, 0)); x1, y1 = pos[myid]
+        tr = myid in truth_ids
+        ax.plot([x0, x1], [y0, y1], color=GREEN if tr else (NAVY if surv else "#D5D8DC"),
+                lw=2.0 if tr else (0.9 if surv else 0.6), zorder=2 if tr else 1)
+        ax.plot(x1, y1, "o" if surv else "x", color=GREEN if tr else (NAVY if surv else "#ABB2B9"),
+                ms=4 if surv else 3.5, zorder=3)
+    xs = np.arange(1, K + 1)
+    scm = np.array(scm)
+    tm = [h[4] for h in hist if h[2] in truth_ids][-1]
+    ax.plot(np.r_[0, xs], np.r_[0, scm], "--", color=ACCENT, lw=1.5, zorder=4)
+    first_bad = next(k for k, i in enumerate(infol) if scdec[i] != u[i])
+    ax.annotate(f"SC's greedy path: wrong at $u_{{{infol[first_bad]}}}$ by a whisker; the frozen bit after it\n"
+                f"charges a penalty, but SC can never go back (final metric {scm[-1]:.2f} vs {tm:.2f})",
+                xy=(first_bad + 2, scm[first_bad + 1]), xytext=(1.3, 5.2), fontsize=6.6, color=ACCENT,
+                arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.7))
+    ax.set_ylim(4.9, 12.5); ax.set_xlim(0.7, K + 0.3)
+    ax.text(K + 0.2, 12.0, "pruned paths run off the top", fontsize=6.3, color=GRAY, ha="right")
+    print("  SC metrics", np.round(scm, 2), "first wrong info index", infol[first_bad])
+    ax.set_xticks(range(0, K + 1)); ax.set_xticklabels(["start"] + [f"$u_{{{i}}}$" for i in infol], fontsize=7)
+    ax.set_ylabel("path metric (penalty)")
+    ax.set_xlabel("information bits, decided in order")
+    ax.plot([], [], color=GREEN, lw=2, label="the true message")
+    ax.plot([], [], "o-", color=NAVY, ms=3, lw=0.9, label="kept on the list (L = 4)")
+    ax.plot([], [], "x", color="#ABB2B9", label="pruned")
+    ax.legend(fontsize=6.8, loc="upper left")
+    ax.set_title("N = 16, K = 8 at 1.5 dB: SC alone fails here, the list keeps the right path", fontsize=8)
+    save(fig, "ch15_scl_tree")
+
+
+def fig_reliability():
+    """GA reliability order vs the simple polarization-weight rule (N = 256)."""
+    N = 256
+    mu = ga_construction(N, 1.0, 0.5)
+    ga_rank = np.argsort(np.argsort(mu))
+    n = int(np.log2(N))
+    # commlib order: index bit (n-1-j) set means the 'plus' branch at level j
+    pw = np.array([sum(((i >> (n - 1 - j)) & 1) * 2 ** ((n - 1 - j) / 4) for j in range(n)) for i in range(N)])
+    pw_rank = np.argsort(np.argsort(pw))
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    ax.plot(pw_rank, ga_rank, ".", ms=2.5, color=NAVY)
+    ax.plot([0, N], [0, N], color=GRAY, lw=0.6, ls=":")
+    ax.axhline(N / 2, color=ACCENT, lw=0.6); ax.axvline(N / 2, color=ACCENT, lw=0.6)
+    agree = np.mean((ga_rank >= N / 2) == (pw_rank >= N / 2))
+    ax.text(5, 220, f"same K = 128 set:\n{agree:.0%} agreement", fontsize=6.8, color=ACCENT)
+    ax.set_xlabel("rank by polarization weight"); ax.set_ylabel("rank by GA at 1 dB")
+    ax.set_xlim(0, N); ax.set_ylim(0, N)
+    print("  pw/ga agreement", agree)
+    save(fig, "ch15_reliability")
+
+
+def fig_5g_codes():
+    """Which 5G NR code protects which payload (TS 38.212)."""
+    fig, ax = plt.subplots(figsize=(W2, 2.0))
+    bars = [(1, 2.95, "rep./\nsimplex", GRAY, 3), (3, 11.9, "Reed-\nMuller", PURPLE, 3),
+            (12, 1706, "polar (+ PC bits or CRC-11)", "#2E86C1", 3),
+            (1, 140, "polar + CRC-24 (downlink control, DCI)", NAVY, 2),
+            (32, 33, "PBCH: 32 bits, polar", NAVY, 1),
+            (24, 1.3e6, "LDPC BG2 / BG1 (data, PDSCH/PUSCH), segmented into code blocks of up to 8448 bits", GREEN, 0)]
+    for lo, hi, lab, c, row in bars:
+        ax.add_patch(plt.Rectangle((lo, row - 0.35), hi - lo, 0.7, color=c, alpha=0.75, lw=0.5, ec="white"))
+        inside = hi / lo > 2
+        xm = np.sqrt(lo * hi) if inside else hi * 1.15
+        ax.text(xm, row, lab, ha="center" if inside else "left", va="center",
+                fontsize=5.6 if hi / lo < 5 else 6.3, color="white" if inside else c, fontweight="bold")
+    ax.set_xscale("log"); ax.set_xlim(0.8, 2e6); ax.set_ylim(-0.6, 3.6)
+    ax.set_yticks([0, 1, 2, 3]); ax.set_yticklabels(["data", "broadcast", "downlink\ncontrol", "uplink\ncontrol"], fontsize=7)
+    ax.set_xlabel("payload (bits)")
+    ax.grid(axis="y", visible=False)
+    save(fig, "ch15_5g_codes")
+
+
+def fig_rv_ring():
+    """The NR circular buffer (BG1) and the four redundancy-version starting points."""
+    fig, ax = plt.subplots(figsize=(SW, SH + 0.3), subplot_kw=dict(projection="polar"))
+    tot = 66.0
+    th = lambda f: np.pi / 2 - 2 * np.pi * f
+    ax.bar(th(np.array([10 / tot])), 0.4, width=2 * np.pi * 20 / tot, bottom=0.8, color=NAVY, alpha=0.8)
+    ax.bar(th(np.array([(20 + 23) / tot])), 0.4, width=2 * np.pi * 46 / tot, bottom=0.8, color=ORANGE, alpha=0.6)
+    for rv, f in [(0, 0), (1, 17 / 66), (2, 33 / 66), (3, 56 / 66)]:
+        ax.plot([th(f), th(f)], [0.7, 1.32], color=ACCENT, lw=1.3)
+        ax.text(th(f), 1.58, f"RV{rv}", ha="center", va="center", fontsize=7.5, color=ACCENT, fontweight="bold")
+    fs = np.linspace(0, 0.47, 50)
+    ax.plot(th(fs), np.full(50, 0.6), color=GREEN, lw=1.6)
+    ax.annotate("", xy=(th(0.47), 0.6), xytext=(th(0.45), 0.6), arrowprops=dict(arrowstyle="->", color=GREEN))
+    ax.text(0, 0, "1st transmission\nat rate 1/2", ha="center", va="center", fontsize=6.3, color=GREEN)
+    ax.text(th(9 / 66), 1.0, "systematic", ha="center", va="center", fontsize=5.8, color="white",
+            rotation=np.degrees(th(9 / 66)) - 90)
+    ax.text(th(45 / 66), 0.98, "parity", ha="center", va="center", fontsize=6.5, color="k")
+    ax.set_ylim(0, 1.72); ax.axis("off")
+    save(fig, "ch15_rv_ring")
+
+
+def fig_optical_ncg():
+    """Net coding gain of optical FEC generations at 1e-15 (values quoted in the text)."""
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    labs = ["RS(255,239)\nG.709", "G.975.1\nconcatenated", "staircase\nG.709.2"]
+    vals = [6.0, 8.5, 9.4]
+    err = [0, 0.5, 0]
+    ax.bar(range(3), vals, color=[GRAY, ORANGE, NAVY], width=0.6)
+    ax.errorbar([1], [8.5], yerr=[0.5], color="k", capsize=3, lw=0.8)
+    for i, v_ in enumerate(vals):
+        ax.text(i, v_ + 0.6, ("8-9" if i == 1 else f"{v_:.1f}") + " dB", ha="center", fontsize=7)
+    ax.set_xticks(range(3)); ax.set_xticklabels(labs, fontsize=7)
+    ax.set_ylabel("net coding gain at $10^{-15}$ (dB)"); ax.set_ylim(0, 11.5)
+    ax.set_title("all at 6.7 % overhead, hard decisions", fontsize=7.8)
+    save(fig, "ch15_optical_ncg")
+
+
+def fig_grand():
+    """Hard-decision GRAND on a random (32, 26) code: guesses needed per block."""
+    r = np.random.default_rng(3)
+    n, k = 32, 26
+    P = r.integers(0, 2, (k, n - k))
+    Hm = np.concatenate([P.T, np.eye(n - k, dtype=int)], 1)
+    from itertools import combinations
+    pats = [()]
+    for w in (1, 2, 3):
+        pats += list(combinations(range(n), w))
+    synd_of = lambda e: tuple((Hm[:, list(e)].sum(1) % 2) if e else np.zeros(n - k, int))
+    S = np.array([synd_of(e) for e in pats])
+    guesses = {}
+    for p, c in [(0.01, GREEN), (0.03, ORANGE)]:
+        g = []
+        for _ in range(3000):
+            e = r.random(n) < p
+            s = (Hm @ e.astype(int)) % 2
+            hit = np.where(np.all(S == s, 1))[0]
+            g.append(hit[0] + 1 if len(hit) else len(pats) + 1)
+        guesses[p] = (np.array(g), c)
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    bins = np.logspace(0, np.log10(len(pats) + 2), 30)
+    for p, (g, c) in guesses.items():
+        ax.hist(g, bins=bins, color=c, alpha=0.55, label=f"BSC p = {p}: mean {g.mean():.0f} guesses")
+        print(f"  grand p={p}: mean {g.mean():.1f}, median {np.median(g)}")
+    ax.set_xscale("log"); ax.set_xlabel("guesses until a codeword appears")
+    ax.set_ylabel("blocks"); ax.legend(fontsize=6.4, loc="upper right")
+    ax.axvline(1 + n, color=GRAY, lw=0.6, ls=":"); ax.axvline(1 + n + n * (n - 1) / 2, color=GRAY, lw=0.6, ls=":")
+    ax.text(1 + n, ax.get_ylim()[1] * 0.55, " all 1-bit\n patterns", fontsize=6, color=GRAY)
+    ax.text(1 + n + n * (n - 1) / 2, ax.get_ylim()[1] * 0.4, " all 2-bit\n patterns", fontsize=6, color=GRAY)
+    save(fig, "ch15_grand")
+
+
+def fig_deployments():
+    """Where the three families went, by first standard (approximate years)."""
+    rows = [("UMTS / HSPA (turbo)", 1999, ORANGE), ("CCSDS deep space (turbo)", 1999, ORANGE),
+            ("WiMAX 802.16e (turbo, LDPC)", 2005, ORANGE), ("DVB-S2 (LDPC + BCH)", 2005, GREEN),
+            ("10GBASE-T (LDPC)", 2006, GREEN), ("LTE (turbo)", 2008, ORANGE),
+            ("Wi-Fi 802.11n (LDPC)", 2009, GREEN), ("SSD controllers (LDPC)", 2012, GREEN),
+            ("5G NR data (LDPC)", 2018, GREEN), ("5G NR control (polar)", 2018, "#2E86C1")]
+    fig, ax = plt.subplots(figsize=(W1, 2.5))
+    for i, (lab, y0, c) in enumerate(rows[::-1]):
+        ax.barh(i, 2026 - y0, left=y0, color=c, alpha=0.75, height=0.62)
+        ax.text(y0 - 0.4, i, lab, ha="right", va="center", fontsize=6.8)
+    ax.set_yticks([]); ax.set_xlim(1983, 2026); ax.set_xlabel("year of first standard (approximate)")
+    for lab, c in [("turbo", ORANGE), ("LDPC", GREEN), ("polar", "#2E86C1")]:
+        ax.barh([-5], [0], color=c, label=lab)
+    ax.set_ylim(-0.6, len(rows) - 0.4)
+    ax.legend(fontsize=7, loc="lower left")
+    ax.grid(axis="y", visible=False)
+    save(fig, "ch15_deployments")
+
+
+def fig_thresholds():
+    """How far from capacity: BP thresholds of LDPC ensembles quoted in the text (rate 1/2, BI-AWGN)."""
+    labs = ["(3,6) regular", "practical\nirregular", "optimised,\nmax degree 100", "Chung et al.,\nmax degree 8000"]
+    gaps = [1.10 - 0.19, 0.35, 0.06, 0.0045]
+    fig, ax = plt.subplots(figsize=(SW, SH))
+    cols = [GRAY, ORANGE, GREEN, NAVY]
+    ax.barh(range(4), gaps, color=cols, height=0.6)
+    ax.errorbar([0.35], [1], xerr=[0.15], color="k", capsize=3, lw=0.8)
+    for i, g in enumerate(gaps):
+        ax.text(g + 0.03 + (0.2 if i == 1 else 0), i, ("0.2-0.5" if i == 1 else f"{g:g}") + " dB", va="center", fontsize=7)
+    ax.set_yticks(range(4)); ax.set_yticklabels(labs, fontsize=7); ax.invert_yaxis()
+    ax.set_xlabel("BP threshold minus capacity limit (dB)"); ax.set_xlim(0, 1.2)
+    ax.grid(axis="y", visible=False)
+    save(fig, "ch15_thresholds")
+
+
+def fig_qpp40():
+    """The K = 40 LTE QPP interleaver drawn as a wiring diagram."""
+    K = 40
+    p = tb.qpp_interleaver(K, 3, 10)
+    fig, ax = plt.subplots(figsize=(W1, 1.25))
+    for i in range(K):
+        c = ACCENT if i < 6 else "#B0BEC5"
+        ax.plot([i, p[i]], [1, 0], color=c, lw=1.1 if i < 6 else 0.6, zorder=2 if i < 6 else 1)
+    ax.scatter(range(K), np.ones(K), s=9, color=NAVY, zorder=3)
+    ax.scatter(range(K), np.zeros(K), s=9, color=NAVY, zorder=3)
+    ax.text(-1.2, 1, "$i$", ha="right", va="center", fontsize=8)
+    ax.text(-1.2, 0, r"$\pi(i)$", ha="right", va="center", fontsize=8)
+    ax.text(41, 0.5, "first six inputs (red):\n0, 1, 2, 3, 4, 5 go to\n0, 13, 6, 19, 12, 25", fontsize=6.8,
+            va="center", color=ACCENT)
+    ax.set_xlim(-3, 50); ax.set_ylim(-0.15, 1.15); ax.axis("off")
+    save(fig, "ch15_qpp40")
+
+
+def fig_witnesses():
+    """Independent evidence adds in the LLR domain."""
+    fig, ax = plt.subplots(figsize=(SW, 1.7))
+    vals = [np.log(3), np.log(3), 2 * np.log(3)]
+    labs = ["witness 1\n(3 : 1)", "witness 2\n(3 : 1)", "together\n(9 : 1)"]
+    ax.barh([2, 1, 0], vals, color=[ORANGE, GREEN, NAVY], height=0.6)
+    for y, v in zip([2, 1, 0], vals):
+        ax.text(v + 0.05, y, f"L = {v:.2f}", va="center", fontsize=7)
+    ax.set_yticks([2, 1, 0]); ax.set_yticklabels(labs, fontsize=7)
+    ax.set_xlim(0, 3.0); ax.set_xlabel("LLR (evidence that the bit is 0)", fontsize=8)
+    ax.grid(axis="y", visible=False)
+    save(fig, "ch15_witnesses")
+
+
+CONCEPTS = [fig_qpp40, fig_witnesses, fig_thresholds, fig_timeline, fig_gap_chase, fig_llr, fig_boxplus, fig_maxstar, fig_bcjr_heat, fig_turbo_inside,
+            fig_rsc_impulse, fig_interleavers, fig_anatomy, fig_gossip, fig_peeling, fig_degrees, fig_spy,
+            fig_flash, fig_polar_step, fig_polar_class, fig_scl_tree, fig_reliability, fig_5g_codes,
+            fig_rv_ring, fig_optical_ncg, fig_grand, fig_deployments]
+
+
 if __name__ == "__main__":
     todo = sys.argv[1:]
+    if todo == ["concepts"]:
+        for f in CONCEPTS:
+            t0 = time.time(); f(); print(f"[{f.__name__}] {time.time() - t0:.0f}s")
+        sys.exit(0)
     fns = [checknode, polarization, harq, nr_basegraph, de_bec, de_awgn, spatial_coupling,
            exit_chart, turbo_iters, turbo_length, turbo_floor, ldpc_decoders, polar_decoders,
-           short_compare, gap_length]
+           short_compare, gap_length] + CONCEPTS
     for f in fns:
         if not todo or f.__name__ in todo:
             t0 = time.time()
