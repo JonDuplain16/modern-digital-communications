@@ -702,6 +702,897 @@ def fig_noma():
     save(fig, "ch20_noma")
 
 
+# ======================================================================================
+# Second-edition concept illustrations and extra data figures
+# ======================================================================================
+from matplotlib.patches import Circle, FancyBboxPatch, Polygon, Wedge, FancyArrowPatch
+
+
+def _person(a, x, y, c=NAVY, s=1.0, talk=None, tc=None, side=1, fs=6.5):
+    """A tiny stick person (head + body) with an optional speech bubble."""
+    a.add_patch(Circle((x, y + 0.32 * s), 0.12 * s, color=c, zorder=4))
+    a.add_patch(FancyBboxPatch((x - 0.11 * s, y - 0.12 * s), 0.22 * s, 0.32 * s,
+                               boxstyle="round,pad=0.02", color=c, zorder=4, lw=0))
+    if talk:
+        bx, by = x + side * 0.42 * s, y + 0.62 * s
+        a.text(bx, by, talk, ha="center", va="center", fontsize=fs, color=tc or c, zorder=6,
+               bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=tc or c, lw=0.7))
+
+
+def fig_timeline():
+    ev = [(1946, "MTS, St. Louis:\none big transmitter", 1),
+          (1947, "Ring's memo:\nhexagonal cells", -1),
+          (1964, "IMTS: automatic\nchannel selection", 1),
+          (1971, "ALOHAnet,\nHawaii", -1),
+          (1973, "Cooper's call;\nEthernet memo", 1),
+          (1978, "AMPS trial,\nChicago", -1),
+          (1983, "AMPS service\n(FDMA)", 1),
+          (1991, "GSM (TDMA)", -1),
+          (1995, "IS-95 (CDMA)", 1),
+          (1997, "802.11 (CSMA/CA)", -1),
+          (2009, "LTE (OFDMA)", 1),
+          (2018, "O-RAN Alliance", -1),
+          (2019, "5G NR (OFDMA +\nmassive MIMO)", 1)]
+    fig, a = plt.subplots(figsize=(W2, 2.15))
+    a.plot([1942, 2023], [0, 0], color=NAVY, lw=2, solid_capstyle="round")
+    for k, (yr, txt, s) in enumerate(ev):
+        h = s * (0.55 + 0.42 * (k % 2 == 0) * 0 + 0.38 * ((k // 2) % 2))
+        a.plot([yr, yr], [0, h], color=GRAY, lw=0.7)
+        a.plot(yr, 0, "o", ms=4.5, color=ACCENT if s > 0 else GREEN, zorder=5)
+        a.text(yr, h + 0.06 * s, f"{yr}\n{txt}" if s > 0 else f"{txt}\n{yr}",
+               ha="center", va="bottom" if s > 0 else "top", fontsize=6.2, linespacing=1.05)
+    for d in range(1950, 2021, 10):
+        a.text(d, -0.09, f"{d}", ha="center", va="top", fontsize=6, color=GRAY)
+    a.set_xlim(1940, 2025); a.set_ylim(-1.75, 1.75); a.axis("off")
+    fig.tight_layout()
+    save(fig, "ch20_timeline")
+
+
+def fig_dinner():
+    fig, axs = plt.subplots(1, 3, figsize=(W2, 2.2))
+    cols = [NAVY, ACCENT, GREEN, ORANGE]
+    # TDMA: one table, people take turns
+    a = axs[0]
+    a.add_patch(Circle((0, 0), 0.55, fc="#E8DCC8", ec=GRAY, lw=0.8))
+    pos = [(-0.95, 0.35), (0.95, 0.35), (-0.95, -0.75), (0.95, -0.75)]
+    for k, (x, y) in enumerate(pos):
+        _person(a, x, y, cols[k], 0.9, talk="now me!" if k == 1 else None, side=-1 if x > 0 else 1)
+    for k in range(4):
+        a.add_patch(Rectangle((-1.2 + 0.6 * k, -1.55), 0.56, 0.25, color=cols[k], alpha=0.85, lw=0))
+        a.text(-0.92 + 0.6 * k, -1.425, f"{k + 1}", color="white", ha="center", va="center", fontsize=6.5)
+    a.text(0, -1.78, "time slots", ha="center", fontsize=6.5, color=GRAY)
+    a.set_title("take turns  (TDMA)", fontsize=8.5)
+    # FDMA: separate tables
+    a = axs[1]
+    for k, (x, y) in enumerate([(-0.65, 0.45), (0.65, 0.45), (-0.65, -0.85), (0.65, -0.85)]):
+        a.add_patch(Circle((x, y), 0.25, fc="#E8DCC8", ec=GRAY, lw=0.8))
+        _person(a, x - 0.42, y - 0.15, cols[k], 0.75)
+        _person(a, x + 0.42, y - 0.15, cols[k], 0.75, talk="hi", side=-1, fs=5.5)
+    a.set_title("separate tables  (FDMA)", fontsize=8.5)
+    # CDMA: one table, different languages
+    a = axs[2]
+    a.add_patch(Circle((0, -0.2), 0.55, fc="#E8DCC8", ec=GRAY, lw=0.8))
+    words = ["hello", "bonjour", "hola", "ciao"]
+    for k, (x, y) in enumerate(pos):
+        _person(a, x, y, cols[k], 0.9, talk=words[k], side=-1 if x > 0 else 1, fs=6)
+    a.set_title("different languages  (CDMA)", fontsize=8.5)
+    for a in axs:
+        a.set_xlim(-1.6, 1.6); a.set_ylim(-1.9, 1.4); a.set_aspect("equal"); a.axis("off")
+    fig.tight_layout(w_pad=0.2)
+    save(fig, "ch20_dinner")
+
+
+def fig_one_tower():
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.6))
+    a = axs[0]
+    a.add_patch(Circle((0, 0), 4.3, fc="#DCE6F2", ec=NAVY, lw=1.0))
+    a.plot([0, 0], [0, 0.9], color=NAVY, lw=2); a.plot(0, 0.95, "^", ms=8, color=ACCENT)
+    a.text(0, -1.0, "one tall tower\n12 channels\n= 12 calls for the\nwhole city", ha="center", va="top",
+           fontsize=7.5, color=NAVY)
+    a.set_title("(a) mobile telephony before cells", fontsize=8.5)
+    a = axs[1]
+    q, r = cel.hex_axial_grid(2)
+    x, y = cel.axial_to_xy(q, r)
+    lab = cel.reuse_labels(q, r, 1, 1)     # N = 3
+    sc = 4.3 / 4.0
+    cols = ["#C9D6E8", "#F2C9C4", "#C8E3D3"]
+    for xx, yy, L in zip(x * sc, y * sc, lab):
+        hexpatch(a, xx, yy, R=sc, facecolor=cols[L], edgecolor="white", lw=1.0)
+        a.plot(xx, yy, "^", ms=4, color=NAVY)
+        a.text(xx, yy - 0.42, "ABC"[L], ha="center", fontsize=6.5, color="#333333")
+    ncells = len(q)
+    a.text(0, -5.0, f"{ncells} small cells, channel sets A, B, C (4 channels each)\n"
+                    f"= {ncells * 4} simultaneous calls from the same 12 channels",
+           ha="center", va="top", fontsize=7.0, color=NAVY)
+    a.set_title("(b) the cellular idea: reuse", fontsize=8.5)
+    for a in axs:
+        a.set_xlim(-5.2, 5.2); a.set_ylim(-6.4, 4.8); a.set_aspect("equal"); a.axis("off")
+    fig.tight_layout()
+    save(fig, "ch20_one_tower")
+
+
+def fig_isolation():
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.5), gridspec_kw=dict(width_ratios=[1.1, 1]))
+    a = axs[0]
+    lv = [(23, "own transmitter, +23 dBm", ACCENT), (-100, "wanted signal, $-100$ dBm", GREEN),
+          (-104, "", GRAY)]
+    a.barh([0], [23 + 125], left=-125, color=ACCENT, alpha=0.25, height=0.5)
+    a.barh([1], [-100 + 125], left=-125, color=GREEN, alpha=0.35, height=0.5)
+    a.axvline(-104, color=GRAY, ls=":", lw=0.9)
+    a.text(-102, -0.32, "thermal noise, 10 MHz", fontsize=6, color=GRAY, va="center")
+    a.annotate("", (23, 0.62), (-100, 0.62), arrowprops=dict(arrowstyle="<->", color=NAVY, lw=1.1))
+    a.text(-38, 0.70, "123 dB", ha="center", fontsize=8, color=NAVY, weight="bold")
+    a.set_yticks([0, 1]); a.set_yticklabels(["transmit", "receive"], fontsize=7)
+    a.set_xlim(-125, 40); a.set_ylim(-0.5, 1.6); a.set_xlabel("power at the antenna port (dBm)")
+    a.set_title("(a) a handset hears itself", fontsize=8.5)
+    a = axs[1]
+    parts = [("antenna /\ncirculator", 20, NAVY), ("analog\ncanceller", 50, GREEN), ("digital\ncanceller", 40, ORANGE)]
+    b = 0
+    for name, v, c in parts:
+        a.bar([0], [v], bottom=b, color=c, alpha=0.8, width=0.5)
+        a.text(0.33, b + v / 2, f"{name}: {v} dB", va="center", fontsize=6.5, color=c)
+        b += v
+    a.axhline(110, color=ACCENT, ls="--", lw=0.9)
+    a.text(-0.3, 112, "about 110 dB needed", fontsize=6.5, color=ACCENT)
+    a.set_xlim(-0.4, 1.4); a.set_ylim(0, 125); a.set_xticks([]); a.set_ylabel("suppression (dB)")
+    a.set_title("(b) full duplex: one illustrative split", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_isolation")
+
+
+def fig_tdd_range():
+    fig, a = plt.subplots(figsize=(3.1, 2.35))
+    g = np.arange(1, 9)
+    for scs, c in [(15, NAVY), (30, ACCENT), (120, GREEN)]:
+        sym = 1e-3 / 14 * 15 / scs     # symbol incl. CP, normal CP average
+        d = 3e8 * (g * sym - 10e-6) / 2 / 1e3
+        a.plot(g, d, "o-", ms=3, color=c, label=f"{scs} kHz SCS")
+    a.axhline(9.2, color=GRAY, ls=":", lw=0.8)
+    a.text(3.3, 6.2, "2 symbols at 30 kHz: 9.2 km", fontsize=6, color=GRAY)
+    a.set_yscale("log"); a.set_xlabel("guard symbols"); a.set_ylabel("max. cell range (km)")
+    a.legend(fontsize=6.3, loc="lower right"); a.set_title("TDD guard vs cell size", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_tdd_range")
+
+
+def fig_gsm_frame():
+    fig, a = plt.subplots(figsize=(W2, 1.9))
+    cols = [NAVY, ACCENT, GREEN, ORANGE, PURPLE, "#2E86C1", GRAY, "#8E6C3A"]
+    for s in range(8):
+        a.add_patch(Rectangle((s, 1.6), 0.94, 0.5, color=cols[s], alpha=0.85, lw=0))
+        a.text(s + 0.47, 1.85, f"TS{s}", color="white", ha="center", va="center", fontsize=7)
+    a.text(4, 2.35, "one TDMA frame = 8 timeslots = 4.615 ms (each slot 577 $\\mu$s, one user)",
+           ha="center", fontsize=7.5)
+    fields = [("3", 3, GRAY), ("57 data bits", 57, NAVY), ("1", 1, GRAY), ("26 training", 26, ACCENT),
+              ("1", 1, GRAY), ("57 data bits", 57, NAVY), ("3", 3, GRAY), ("8.25 guard", 8.25, "#BBBBBB")]
+    x0, sc = 0.0, 8.0 / 156.25
+    for name, nb, c in fields:
+        a.add_patch(Rectangle((x0, 0.35), nb * sc, 0.5, color=c, alpha=0.85 if c != "#BBBBBB" else 0.5,
+                              lw=0.4, ec="white"))
+        if nb > 5:
+            a.text(x0 + nb * sc / 2, 0.6, name, color="white" if c not in ("#BBBBBB",) else "black",
+                   ha="center", va="center", fontsize=6.5)
+        x0 += nb * sc
+    a.plot([2, 0], [1.6, 0.85], color=GRAY, lw=0.6, ls="--"); a.plot([2.94, 8], [1.6, 0.85], color=GRAY, lw=0.6, ls="--")
+    a.text(4, 0.1, "normal burst: 156.25 bit periods; the training sequence in the middle lets the receiver "
+                   "equalize multipath; the guard absorbs timing error", ha="center", fontsize=6.5, color="#333333")
+    a.set_xlim(-0.1, 8.1); a.set_ylim(0, 2.6); a.axis("off")
+    fig.tight_layout()
+    save(fig, "ch20_gsm_frame")
+
+
+def fig_near_far():
+    fig, a = plt.subplots(figsize=(3.1, 2.35))
+    d = np.array([0.1, 0.25, 0.5, 0.8, 1.0])
+    rx = -10 * 3.5 * np.log10(d / 1.0)       # relative to edge user (dB)
+    x = np.arange(len(d))
+    a.bar(x - 0.2, rx, width=0.38, color=ACCENT, alpha=0.8, label="all at full power")
+    a.bar(x + 0.2, np.zeros_like(rx) + 0.6, width=0.38, color=GREEN, alpha=0.8, label="with power control")
+    a.set_xticks(x); a.set_xticklabels([f"{v:g}" for v in d])
+    a.set_xlabel("user distance (km)"); a.set_ylabel("received power re edge user (dB)")
+    a.legend(fontsize=6.3, loc="upper right"); a.set_title("the near--far problem, $n=3.5$", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_near_far")
+
+
+def _aloha_rows(ax, slotted, G, n_st=8, Tend=30, seed=2):
+    r = rng(seed)
+    nt = r.poisson(G * Tend)
+    t = np.sort(r.uniform(0, Tend - 1, nt))
+    if slotted:
+        t = np.floor(t)
+    st = (np.arange(nt) + r.integers(0, n_st)) % n_st     # consecutive packets from different stations
+    ok = np.ones(nt, bool)
+    for i in range(nt):
+        for j in range(nt):
+            if i != j and abs(t[i] - t[j]) < 1.0 - 1e-9:
+                ok[i] = False
+    for i in range(nt):
+        ax.add_patch(Rectangle((t[i], st[i] + 0.15), 1.0, 0.7, color=GREEN if ok[i] else ACCENT,
+                               alpha=0.85, lw=0.3, ec="white"))
+    if slotted:
+        for s in range(Tend + 1):
+            ax.axvline(s, color=GRAY, lw=0.3, alpha=0.5)
+    ax.set_xlim(0, Tend); ax.set_ylim(0, n_st); ax.set_yticks([])
+    ax.set_ylabel("station", fontsize=7)
+    return ok.sum(), nt
+
+
+def _aloha_count(slotted, G, seed, Tend=40):
+    r = rng(seed)
+    nt = r.poisson(G * Tend)
+    t = np.sort(r.uniform(0, Tend - 1, nt))
+    if slotted:
+        t = np.floor(t)
+    dt = np.abs(t[:, None] - t[None, :]) < 1 - 1e-9
+    return (dt.sum(1) == 1).sum(), nt
+
+
+def fig_meeting():
+    fig, axs = plt.subplots(2, 1, figsize=(W2, 2.9), sharex=True)
+    G = 0.5
+    # pick a sample whose outcome is typical of both protocols (honest illustration)
+    best = min(range(200), key=lambda sd: abs(_aloha_count(False, G, sd)[0] / max(_aloha_count(False, G, sd)[1], 1)
+                                                - np.exp(-2 * G)) +
+               abs(_aloha_count(True, G, sd)[0] / max(_aloha_count(True, G, sd)[1], 1) - np.exp(-G))
+               + (0 if _aloha_count(False, G, sd)[1] >= 18 else 1))
+    s1, n1 = _aloha_rows(axs[0], False, G, Tend=40, seed=best)
+    s2, n2 = _aloha_rows(axs[1], True, G, Tend=40, seed=best)
+    axs[0].set_title(f"(a) pure ALOHA, $G={G}$: {s1} of {n1} packets survive (green); "
+                     f"theory $e^{{-2G}}$ = {np.exp(-2 * G):.0%}", fontsize=8)
+    axs[1].set_title(f"(b) slotted ALOHA, same traffic: {s2} of {n2} survive; theory $e^{{-G}}$ = "
+                     f"{np.exp(-G):.0%}", fontsize=8)
+    axs[1].set_xlabel("time (packet durations)")
+    for a in axs:
+        a.grid(False)
+    fig.tight_layout(h_pad=0.4)
+    save(fig, "ch20_meeting")
+
+
+def fig_slot_fractions():
+    fig, a = plt.subplots(figsize=(3.1, 2.35))
+    G = np.linspace(0, 4, 300)
+    idle = np.exp(-G); succ = G * np.exp(-G); coll = 1 - idle - succ
+    a.stackplot(G, idle, succ, coll, colors=[GRAY, GREEN, ACCENT], alpha=0.7,
+                labels=["idle", "success", "collision"])
+    a.axvline(1, color=NAVY, lw=0.8, ls=":")
+    a.text(1.05, 0.52, "$G=1$:\n37% / 37% / 26%", fontsize=6.3, color=NAVY)
+    a.set_xlim(0, 4); a.set_ylim(0, 1); a.set_xlabel("offered load $G$"); a.set_ylabel("fraction of slots")
+    a.legend(fontsize=6.3, loc="upper right"); a.set_title("where the slots go", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_slot_fractions")
+
+
+def fig_vulnerable():
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 1.55))
+    for a, slotted in zip(axs, [False, True]):
+        a.add_patch(Rectangle((0, 0.9), 1, 0.45, color=NAVY, alpha=0.85))
+        a.text(0.5, 1.12, "my packet", color="white", ha="center", va="center", fontsize=7)
+        if not slotted:
+            a.add_patch(Rectangle((-0.75, 0.25), 1, 0.45, color=ACCENT, alpha=0.6))
+            a.add_patch(Rectangle((0.7, 0.25), 1, 0.45, color=ACCENT, alpha=0.6))
+            a.text(-0.25, 0.47, "starts $<T$ before", fontsize=6, ha="center", va="center", color="white")
+            a.text(1.2, 0.47, "starts $<T$ after", fontsize=6, ha="center", va="center", color="white")
+            a.annotate("", (1, 0.05), (-1, 0.05), arrowprops=dict(arrowstyle="<->", color=ACCENT))
+            a.text(0, -0.2, "vulnerable period $2T$", ha="center", fontsize=7, color=ACCENT)
+            a.set_title("(a) pure ALOHA", fontsize=8.5)
+        else:
+            for s in range(-2, 3):
+                a.axvline(s, color=GRAY, lw=0.5, ls=":")
+            a.add_patch(Rectangle((0, 0.25), 1, 0.45, color=ACCENT, alpha=0.6))
+            a.text(0.5, 0.47, "same slot", fontsize=6, ha="center", va="center", color="white")
+            a.annotate("", (1, 0.05), (0, 0.05), arrowprops=dict(arrowstyle="<->", color=ACCENT))
+            a.text(0.5, -0.2, "vulnerable period $T$", ha="center", fontsize=7, color=ACCENT)
+            a.set_title("(b) slotted ALOHA", fontsize=8.5)
+        a.set_xlim(-1.5, 2.3); a.set_ylim(-0.4, 1.5); a.axis("off")
+    fig.tight_layout()
+    save(fig, "ch20_vulnerable")
+
+
+def fig_csma_window():
+    fig, a = plt.subplots(figsize=(W2, 1.7))
+    a.plot([0, 10], [1, 1], color=GRAY, lw=0.6); a.plot([0, 10], [0, 0], color=GRAY, lw=0.6)
+    a.text(-0.1, 1, "A", ha="right", va="center", fontsize=8, weight="bold")
+    a.text(-0.1, 0, "B", ha="right", va="center", fontsize=8, weight="bold")
+    a.add_patch(Rectangle((1, 1.05), 6, 0.3, color=NAVY, alpha=0.85))
+    a.text(4, 1.2, "A transmits (sensed idle)", color="white", ha="center", va="center", fontsize=6.8)
+    a.annotate("", (2.2, 0.05), (1, 0.95), arrowprops=dict(arrowstyle="->", color=NAVY, lw=0.8))
+    a.text(1.9, 0.62, "signal needs $\\tau$\nto reach B", fontsize=6.3, color=NAVY)
+    a.add_patch(Rectangle((1.6, -0.35), 6, 0.3, color=ACCENT, alpha=0.6))
+    a.text(4.6, -0.2, "B senses idle at $t<\\tau$ and also transmits: collision", color="white",
+           ha="center", va="center", fontsize=6.8)
+    a.add_patch(Rectangle((1, -0.55), 1.2, 1.95, color=ORANGE, alpha=0.12, lw=0))
+    a.text(1.6, -0.75, "collision window $\\tau$", ha="center", fontsize=6.5, color=ORANGE)
+    a.text(8.4, 0.58, "any station that senses after $\\tau$\nhears A and defers", fontsize=6.5, color=GREEN,
+           ha="center", va="center")
+    a.set_xlim(-0.5, 10.3); a.set_ylim(-0.95, 1.5); a.axis("off")
+    fig.tight_layout()
+    save(fig, "ch20_csma_window")
+
+
+def fig_backoff():
+    fig, a = plt.subplots(figsize=(3.1, 2.35))
+    i = np.arange(0, 11)
+    win = 2 ** i
+    a.bar(i, win, color=NAVY, alpha=0.75)
+    r = rng(12)
+    pick = [r.integers(0, w) for w in win]
+    a.plot(i, np.maximum(pick, 0.6), "o", ms=3.5, color=ACCENT, label="one random draw")
+    a.set_yscale("log"); a.set_xlabel("collisions so far, $i$"); a.set_ylabel("backoff window (slots)")
+    a.text(0.2, 400, "window $2^{\\min(i,10)}$:\neach collision halves\nthe attempt rate", fontsize=6.3)
+    a.legend(fontsize=6.3, loc="center left"); a.set_title("binary exponential backoff", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_backoff")
+
+
+def fig_wall():
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.25))
+    a = axs[0]
+    a.add_patch(Rectangle((-0.06, -0.15), 0.12, 1.4, color="#8E6C3A", alpha=0.8))
+    a.text(0, 1.32, "wall", ha="center", fontsize=6.5, color="#8E6C3A")
+    _person(a, -1.3, 0.2, ACCENT, 1.0, talk="Hi B...", side=1)
+    _person(a, 1.3, 0.2, GREEN, 1.0, talk="Hey B...", side=-1)
+    _person(a, 0.0, -0.95, NAVY, 0.9)
+    a.annotate("", (-0.2, -0.75), (-1.1, 0.05), arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.8))
+    a.annotate("", (0.2, -0.75), (1.1, 0.05), arrowprops=dict(arrowstyle="->", color=GREEN, lw=0.8))
+    a.text(-1.3, -0.25, "A", ha="center", fontsize=8, weight="bold", color=ACCENT)
+    a.text(1.3, -0.25, "C", ha="center", fontsize=8, weight="bold", color=GREEN)
+    a.text(0.25, -0.95, "B: ?!", fontsize=7, color=NAVY, weight="bold")
+    a.set_title("(a) hidden terminal: A and C can't hear\neach other; both reach B, who hears a jumble", fontsize=7.8)
+    a = axs[1]
+    _person(a, -1.65, 0.0, NAVY, 0.85)
+    _person(a, -0.55, 0.0, ACCENT, 0.85, talk="to A", side=-1, fs=6)
+    _person(a, 0.55, 0.0, GREEN, 0.85, talk="(silent)", side=1, fs=6)
+    _person(a, 1.65, 0.0, GRAY, 0.85)
+    for x, l in [(-1.65, "A"), (-0.55, "B"), (0.55, "C"), (1.65, "D")]:
+        a.text(x, -0.45, l, ha="center", fontsize=8, weight="bold")
+    a.add_patch(Circle((-0.55, 0.15), 1.25, fc="none", ec=ACCENT, ls="--", lw=0.8))
+    a.text(-0.55, -1.3, "range of B", ha="center", fontsize=6.3, color=ACCENT)
+    a.set_title("(b) exposed terminal: C hears B and keeps quiet,\nalthough talking to D would harm nobody",
+                fontsize=7.8)
+    for a in axs:
+        a.set_xlim(-2.2, 2.2); a.set_ylim(-1.6, 1.4); a.set_aspect("equal"); a.axis("off")
+    fig.tight_layout()
+    save(fig, "ch20_wall")
+
+
+def fig_dcf_timeline():
+    fig, a = plt.subplots(figsize=(W2, 2.3))
+    slot = 1.0
+    rows = {"STA 1": 2.0, "STA 2": 1.0, "STA 3": 0.0}
+    for nm, y in rows.items():
+        a.plot([0, 30], [y, y], color=GRAY, lw=0.5)
+        a.text(-0.3, y + 0.2, nm, ha="right", va="center", fontsize=7)
+    a.text(-0.3, 2.97, "medium", ha="right", va="center", fontsize=7, color=GRAY)
+    # medium busy at start
+    a.add_patch(Rectangle((0, 2.8), 4, 0.35, color=GRAY, alpha=0.6))
+    a.text(2, 2.97, "medium busy", ha="center", va="center", fontsize=6.5)
+    a.add_patch(Rectangle((4, 2.8), 2, 0.35, color="#DDDDDD"))
+    a.text(5, 2.97, "DIFS", ha="center", va="center", fontsize=6.5)
+    cnt = {"STA 1": 5, "STA 2": 3, "STA 3": 7}
+    x0 = 6
+    for nm, y in rows.items():
+        for k in range(3):
+            a.add_patch(Rectangle((x0 + k, y + 0.05), 0.95, 0.3, fc="white", ec=NAVY, lw=0.6))
+            a.text(x0 + k + 0.47, y + 0.2, str(cnt[nm] - k), ha="center", va="center", fontsize=6)
+    # STA2 transmits at x0+3
+    t = x0 + 3
+    a.add_patch(Rectangle((t, 1.05), 7, 0.3, color=NAVY, alpha=0.85))
+    a.text(t + 3.5, 1.2, "DATA", color="white", ha="center", va="center", fontsize=7)
+    a.add_patch(Rectangle((t + 7, 2.8), 1, 0.35, color="#DDDDDD")); a.text(t + 7.5, 2.97, "SIFS", ha="center", va="center", fontsize=5.8)
+    a.add_patch(Rectangle((t + 8, 2.8), 2, 0.35, color=ACCENT, alpha=0.8)); a.text(t + 9, 2.97, "ACK", color="white", ha="center", va="center", fontsize=6.5)
+    a.add_patch(Rectangle((t + 10, 2.8), 2, 0.35, color="#DDDDDD")); a.text(t + 11, 2.97, "DIFS", ha="center", va="center", fontsize=6.5)
+    for nm, y in [("STA 1", 2.0), ("STA 3", 0.0)]:
+        a.add_patch(Rectangle((t, y + 0.05), 12, 0.3, color=GRAY, alpha=0.25))
+        a.text(t + 6, y + 0.2, f"counter frozen at {cnt[nm] - 3}", ha="center", va="center", fontsize=6.3)
+        x1 = t + 12
+        for k in range(2):
+            a.add_patch(Rectangle((x1 + k, y + 0.05), 0.95, 0.3, fc="white", ec=NAVY, lw=0.6))
+            a.text(x1 + k + 0.47, y + 0.2, str(cnt[nm] - 3 - k), ha="center", va="center", fontsize=6)
+    a.add_patch(Rectangle((t + 14, 2.05), 6, 0.3, color=GREEN, alpha=0.85))
+    a.text(t + 17, 2.2, "STA 1 DATA", color="white", ha="center", va="center", fontsize=6.5)
+    a.add_patch(Rectangle((t + 14, 0.05), 6, 0.3, color=GRAY, alpha=0.25))
+    a.text(t + 17, 0.2, "frozen again at 2", ha="center", va="center", fontsize=6.3)
+    a.text(t + 4, 3.45, "ACK from the receiver", fontsize=6.3, color=ACCENT)
+    a.set_xlim(-2.2, 30); a.set_ylim(-0.3, 3.6); a.axis("off")
+    fig.tight_layout()
+    save(fig, "ch20_dcf_timeline")
+
+
+def fig_airtime():
+    fig, a = plt.subplots(figsize=(3.3, 2.7))
+    slot, sifs = 9.0, 16.0
+    difs = sifs + 2 * slot
+    rows = []
+    for rate in [6, 24, 54]:
+        ack = ofdm_ppdu_us(14, min(rate, 24))
+        data = ofdm_ppdu_us(1534, rate)
+        pl = 1500 * 8 / rate
+        parts = [("DIFS", difs, "#CCCCCC"), ("mean backoff", 7.5 * slot, GRAY),
+                 ("PHY preamble + MAC header", data - pl, ORANGE), ("payload", pl, GREEN),
+                 ("SIFS", sifs, "#CCCCCC"), ("ACK", ack, ACCENT)]
+        rows.append((rate, parts))
+    for k, (rate, parts) in enumerate(rows):
+        tot = sum(p[1] for p in parts)
+        x = 0
+        for name, v, c in parts:
+            a.barh(k, v / tot * 100, left=x, color=c, height=0.6, alpha=0.85,
+                   label=name if k == 0 else None)
+            x += v / tot * 100
+        eff = [p[1] for p in parts if p[0] == "payload"][0] / tot
+        a.text(101, k, f"{eff:.0%} useful\n= {eff * rate:.1f} Mb/s", va="center", fontsize=6.5)
+    a.set_yticks(range(3)); a.set_yticklabels([f"{r} Mb/s" for r, _ in rows], fontsize=7)
+    a.set_xlim(0, 125); a.set_xlabel("share of airtime per 1500-byte frame (%)", fontsize=8)
+    a.legend(fontsize=6.5, ncol=2, loc="upper center", bbox_to_anchor=(0.5, 1.55), frameon=False)
+    a.grid(False)
+    fig.tight_layout()
+    save(fig, "ch20_airtime")
+
+
+def _zc(u, N):
+    n = np.arange(N)
+    return np.exp(-1j * np.pi * u * n * (n + 1) / N)
+
+
+def fig_zc():
+    N, u, Ncs = 839, 129, 119
+    x = _zc(u, N)
+    r = rng(6)
+    # two UEs: preamble shifts 2 and 5 with round-trip delays of 23 and 61 samples
+    rx = np.zeros(N, complex)
+    for v, dly, amp in [(2, 23, 1.0), (5, 61, 0.6)]:
+        rx += amp * np.roll(np.roll(x, -v * Ncs), dly)
+    rx += 0.7 * (r.standard_normal(N) + 1j * r.standard_normal(N)) / np.sqrt(2)
+    c = np.abs(np.fft.ifft(np.fft.fft(rx) * np.conj(np.fft.fft(x)))) / N
+    fig, a = plt.subplots(figsize=(W2, 2.1))
+    lag = np.arange(N)
+    a.plot(lag, c, color=NAVY, lw=0.7)
+    for v in range(7):
+        st = (N - v * Ncs) % N
+        a.axvspan(st, st + Ncs, color=CYCLE[v % 6], alpha=0.08)
+        a.text(st + Ncs / 2, 1.08, f"zone of\npreamble {v}", ha="center", va="center", fontsize=5.5,
+               color=GRAY)
+    for v, dly, nm, dx, yy in [(2, 23, "preamble 2,\ndelay 23 samples", -150, 0.75),
+                               (5, 61, "preamble 5,\ndelay 61 samples", 50, 0.55)]:
+        pk = (N - v * Ncs + dly) % N
+        a.annotate(nm, (pk, c[pk]), (pk + dx, yy), fontsize=6.5, color=ACCENT,
+                   arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.7))
+    a.set_xlim(0, N); a.set_xlabel("correlation lag (samples of the 839-long root sequence)")
+    a.set_ylabel("$|$correlation$|$"); a.set_ylim(0, 1.2)
+    a.set_title("one FFT finds every preamble and its round-trip delay ($N_{CS}=119$ lags per preamble)",
+                fontsize=8)
+    fig.tight_layout()
+    save(fig, "ch20_zc")
+
+
+def fig_map_colours():
+    r = rng(14)
+    pts = r.uniform(-4, 4, (48, 2))
+    xs = np.linspace(-3.2, 3.2, 360)
+    X, Y = np.meshgrid(xs, xs)
+    d = (X[..., None] - pts[None, None, :, 0]) ** 2 + (Y[..., None] - pts[None, None, :, 1]) ** 2
+    own = np.argmin(d, axis=-1)
+    # adjacency from the raster
+    adj = {i: set() for i in range(len(pts))}
+    for A_, B_ in [(own[:, 1:], own[:, :-1]), (own[1:, :], own[:-1, :])]:
+        m = A_ != B_
+        for p, q in zip(A_[m], B_[m]):
+            adj[p].add(q); adj[q].add(p)
+    # distance-2 colouring: neighbours and neighbours-of-neighbours differ (like a reuse plan)
+    col = {}
+    order = sorted(adj, key=lambda k: -len(adj[k]))
+    for v in order:
+        near = set(adj[v]) | {w for u in adj[v] for w in adj[u]}
+        used = {col[w] for w in near if w in col}
+        c = 0
+        while c in used:
+            c += 1
+        col[v] = c
+    ncol = max(col.values()) + 1
+    img = np.vectorize(lambda k: col[k])(own)
+    fig, a = plt.subplots(figsize=(3.1, 2.75))
+    pal = PALE + PALE
+    a.imshow(img, extent=[xs[0], xs[-1], xs[0], xs[-1]], origin="lower", cmap=ListedColormap(pal[:ncol]),
+             interpolation="nearest")
+    edge = (np.diff(own, axis=0, prepend=own[:1]) != 0) | (np.diff(own, axis=1, prepend=own[:, :1]) != 0)
+    a.contour(xs, xs, edge.astype(float), levels=[0.5], colors="white", linewidths=0.5)
+    sel = (np.abs(pts[:, 0]) < 3.2) & (np.abs(pts[:, 1]) < 3.2)
+    for (px, py), k in zip(pts[sel], np.flatnonzero(sel)):
+        a.text(px, py, str(col[k] + 1), ha="center", va="center", fontsize=5.5, color="#333333")
+    a.set_xticks([]); a.set_yticks([]); a.grid(False)
+    a.set_title(f"an irregular network needs {ncol} channel sets", fontsize=8)
+    fig.tight_layout()
+    save(fig, "ch20_map_colours")
+    print("  map colours:", ncol)
+
+
+def fig_cell_splitting():
+    fig, a = plt.subplots(figsize=(3.1, 2.75))
+    q, r = cel.hex_axial_grid(2)
+    x, y = cel.axial_to_xy(q, r)
+    for xx, yy in zip(x, y):
+        hexpatch(a, xx, yy, R=1.0, facecolor="#DCE6F2", edgecolor=NAVY, lw=0.9)
+        a.plot(xx, yy, "^", ms=4.5, color=NAVY)
+    # split the centre and one neighbour into R/2 cells
+    q2, r2 = cel.hex_axial_grid(4)
+    x2, y2 = cel.axial_to_xy(q2, r2, R=0.5)
+    for cx, cy in [(0, 0), (x[1], y[1])]:
+        for xx, yy in zip(x2, y2):
+            px, py = cx + xx, cy + yy
+            if np.hypot(xx, yy) < 1.0:
+                hexpatch(a, px, py, R=0.5, facecolor="#F5D9BF", edgecolor=ORANGE, lw=0.6, alpha=0.9)
+                a.plot(px, py, "^", ms=2.5, color=ORANGE)
+    a.set_xlim(-4.2, 4.2); a.set_ylim(-3.8, 3.8); a.set_aspect("equal"); a.axis("off")
+    a.set_title("cell splitting where the traffic is", fontsize=8)
+    fig.tight_layout()
+    save(fig, "ch20_cell_splitting")
+
+
+def fig_sector_pattern():
+    fig = plt.figure(figsize=(3.1, 2.75))
+    a = fig.add_subplot(projection="polar")
+    th = np.linspace(-np.pi, np.pi, 721)
+    for k, c in enumerate([NAVY, ACCENT, GREEN]):
+        az = np.degrees(th) - (90 - 120 * k)
+        g = sector_gain_db(az)
+        a.plot(th, g + 25, color=c, lw=1.2, label=f"sector {k + 1}")
+    a.set_ylim(0, 27); a.set_yticks([5, 15, 25]); a.set_yticklabels(["$-20$", "$-10$", "0 dB"], fontsize=6)
+    a.set_xticks(np.radians([0, 90, 180, 270])); a.set_xticklabels(["", "", "", ""])
+    a.legend(fontsize=6, loc="lower left", bbox_to_anchor=(-0.25, -0.12))
+    a.set_title("three 120° sectors, 65° beams", fontsize=8)
+    fig.tight_layout()
+    save(fig, "ch20_sector_pattern")
+
+
+def fig_capacity_cellsize():
+    fig, a = plt.subplots(figsize=(3.1, 2.35))
+    R = np.logspace(np.log10(0.1), np.log10(3), 100)   # km
+    area = 100.0
+    cells = area / (3 * np.sqrt(3) / 2 * R ** 2)
+    calls = cells * 395 / 7
+    a.loglog(R, calls, color=NAVY)
+    for Rv in [3, 1, 0.5, 0.2, 0.1]:
+        cv = area / (3 * np.sqrt(3) / 2 * Rv ** 2) * 395 / 7
+        a.plot(Rv, cv, "o", ms=3.5, color=ACCENT)
+        a.annotate(f"{cv:,.0f}", (Rv, cv), (4, 2), textcoords="offset points", fontsize=6.3)
+    a.set_xlabel("cell radius $R$ (km)"); a.set_ylabel("simultaneous calls")
+    a.set_title("100 km$^2$ city, 395 channels, $N=7$", fontsize=8)
+    a.invert_xaxis()
+    fig.tight_layout()
+    save(fig, "ch20_capacity_cellsize")
+
+
+def fig_switchboard():
+    r = rng(21)
+    C, A, hold = 10, 7.0, 3.0           # channels, erlangs, minutes
+    lam = A / hold
+    T = 240.0
+    t = 0.0; busy = []; ends = []; ts = []; occ = []; blocked = []
+    while t < T:
+        t += r.exponential(1 / lam)
+        ends = [e for e in ends if e > t]
+        if len(ends) < C:
+            ends.append(t + r.exponential(hold))
+        else:
+            blocked.append(t)
+        ts.append(t); occ.append(len(ends))
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.3), gridspec_kw=dict(width_ratios=[1.7, 1]))
+    a = axs[0]
+    a.step(ts, occ, where="post", color=NAVY, lw=0.8)
+    a.axhline(C, color=ACCENT, ls="--", lw=0.9)
+    a.plot(blocked, [C + 0.4] * len(blocked), "x", color=ACCENT, ms=4)
+    a.text(3, C + 0.9, f"all {C} lines busy: {len(blocked)} callers turned away", fontsize=6.5, color=ACCENT)
+    a.set_xlim(0, T); a.set_ylim(0, C + 1.8)
+    a.set_xlabel("time (minutes)"); a.set_ylabel("lines in use")
+    a.set_title(f"(a) a {C}-line switchboard, {A:g} E offered", fontsize=8.5)
+    a = axs[1]
+    k = np.arange(C + 1)
+    from math import factorial
+    p = np.array([A ** j / factorial(j) for j in k]); p /= p.sum()
+    a.bar(k, p, color=NAVY, alpha=0.75, label="truncated Poisson")
+    a.bar([C], [p[-1]], color=ACCENT, alpha=0.9, label=f"$B(A,C)$ = {p[-1]:.1%}")
+    a.set_xlabel("lines in use"); a.set_ylabel("probability"); a.legend(fontsize=6.3, loc="upper left")
+    a.set_title("(b) Erlang's distribution", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_switchboard")
+    print("  switchboard blocked", len(blocked), "of", len(ts), "B=", p[-1])
+
+
+def fig_trunk_pools():
+    fig, a = plt.subplots(figsize=(3.1, 2.35))
+    small = cel.erlang_b_capacity(10, 0.02)
+    big = cel.erlang_b_capacity(100, 0.02)
+    a.bar([0], [10 * small], color=ORANGE, alpha=0.8, width=0.55)
+    a.bar([1], [big], color=NAVY, alpha=0.8, width=0.55)
+    a.text(0, 10 * small + 2, f"{10 * small:.0f} E\n({small / 10:.0%} busy)", ha="center", fontsize=7)
+    a.text(1, big + 2, f"{big:.0f} E\n({big / 100:.0%} busy)", ha="center", fontsize=7)
+    a.set_xticks([0, 1]); a.set_xticklabels(["ten 10-line\nexchanges", "one 100-line\nexchange"], fontsize=7)
+    a.set_ylabel("traffic carried at 2% blocking (E)"); a.set_ylim(0, 105)
+    a.set_title("same 100 lines, pooled or not", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_trunk_pools")
+
+
+def fig_fpc():
+    fig, a = plt.subplots(figsize=(3.1, 2.35))
+    PL = np.linspace(70, 140, 200)
+    P0 = {1.0: -100, 0.8: -80, 0.6: -60}
+    for al, c in [(1.0, ACCENT), (0.8, NAVY), (0.6, GREEN)]:
+        P = np.minimum(23, P0[al] + 10 * np.log10(10) + al * PL)
+        a.plot(PL, P, color=c, label=f"$\\alpha={al:g}$, $P_0={P0[al]}$ dBm")
+    a.axhline(23, color=GRAY, ls=":", lw=0.8); a.text(72, 24, "$P_{\\max}=23$ dBm", fontsize=6.3, color=GRAY)
+    a.set_xlabel("path loss PL (dB)"); a.set_ylabel("UE transmit power (dBm)")
+    a.legend(fontsize=6, loc="lower right"); a.set_title("fractional power control, 10 RBs", fontsize=8.5)
+    a.set_ylim(-35, 30)
+    fig.tight_layout()
+    save(fig, "ch20_fpc")
+
+
+def fig_range_expansion():
+    fig, a = plt.subplots(figsize=(W2, 2.2))
+    x = np.linspace(20, 980, 500)
+    macro = 46 - (128.1 + 37.6 * np.log10(x / 1e3))
+    pico = 30 - (140.7 + 36.7 * np.log10(np.abs(x - 700) / 1e3 + 0.03))
+    a.plot(x, macro, color=NAVY, label="macro (46 dBm) at 0 m")
+    a.plot(x, pico, color=GREEN, label="small cell (30 dBm) at 700 m")
+    a.plot(x, pico + 9, color=GREEN, ls="--", lw=0.9, label="small cell + 9 dB bias")
+    nat = x[(pico > macro)]
+    cre = x[(pico + 9 > macro)]
+    a.axvspan(nat.min(), nat.max(), color=GREEN, alpha=0.15)
+    a.axvspan(cre.min(), nat.min(), color=ORANGE, alpha=0.18)
+    a.text(cre.min() - 8, -112, "range-expanded\nusers", ha="right", fontsize=6.3, color=ORANGE)
+    a.text(nat.max() + 8, -112, "natural\nsmall-cell area", ha="left", fontsize=6.3, color=GREEN)
+    a.set_xlabel("position (m)"); a.set_ylabel("received power (dBm)")
+    a.set_ylim(-125, -40); a.legend(fontsize=6.3, loc="lower left")
+    fig.tight_layout()
+    save(fig, "ch20_range_expansion")
+    print("  CRE natural", nat.min(), nat.max(), "expanded from", cre.min())
+
+
+def fig_densify_maps():
+    fig, axs = plt.subplots(1, 2, figsize=(W2, 2.65))
+    r = rng(33)
+    for a, lam, ttl in [(axs[0], 1.0, "(a) density $\\lambda$, 8 x 8 km"), (axs[1], 4.0, "(b) density $4\\lambda$, 4 x 4 km")]:
+        side = 8.0 / np.sqrt(lam)
+        bs = cel.ppp_drop(lam, side * 3, r)
+        xs = np.linspace(-side / 2, side / 2, 300)
+        X, Y = np.meshgrid(xs, xs)
+        d = np.abs((X + 1j * Y)[..., None] - bs[None, None, :])
+        p = np.maximum(d, 1e-3) ** -4.0
+        s = p.max(-1)
+        sinr = db(s / (p.sum(-1) - s))
+        im = a.imshow(sinr, extent=[xs[0], xs[-1], xs[0], xs[-1]], origin="lower", cmap="viridis",
+                      vmin=-10, vmax=30)
+        sel = (np.abs(bs.real) < side / 2) & (np.abs(bs.imag) < side / 2)
+        a.plot(bs.real[sel], bs.imag[sel], "^", color="white", mec="black", mew=0.4, ms=3)
+        a.set_xticks([]); a.set_yticks([]); a.grid(False); a.set_title(ttl, fontsize=8.5)
+        print(f"  densify lam={lam}: median SINR {np.median(sinr):.1f} dB")
+    cb = fig.colorbar(im, ax=axs, shrink=0.85, pad=0.02); cb.set_label("SIR (dB)")
+    save(fig, "ch20_densify_maps")
+
+
+def fig_a3():
+    fig, a = plt.subplots(figsize=(W2, 2.2))
+    t = np.linspace(0, 10, 600)
+    r = rng(4)
+    serv = -80 - 3.0 * t + 1.2 * np.sin(2.3 * t)
+    nb = -105 + 2.2 * t + 1.5 * np.sin(1.7 * t + 1)
+    a.plot(t, serv, color=NAVY, label="serving cell")
+    a.plot(t, nb, color=GREEN, label="neighbour")
+    hy = 3.0
+    a.plot(t, serv + hy, color=NAVY, ls=":", lw=0.9, label="serving + hysteresis")
+    k = np.argmax(nb > serv + hy)
+    t0 = t[k]
+    ttt = 1.6
+    a.axvspan(t0, t0 + ttt, color=ORANGE, alpha=0.18)
+    a.text(t0 + ttt / 2, -63, "time-to-\ntrigger", ha="center", fontsize=6.5, color=ORANGE)
+    kc = np.argmax(nb > serv)
+    a.plot(t[kc], serv[kc], "o", ms=4, color=GRAY)
+    a.annotate("curves cross:\na naive rule would\nswitch (and switch back)", (t[kc], serv[kc]), (t[kc] - 3.8, -112),
+               fontsize=6.3, color=GRAY, arrowprops=dict(arrowstyle="->", color=GRAY, lw=0.7))
+    a.annotate("A3 report sent;\nhandover", (t0 + ttt, nb[np.searchsorted(t, t0 + ttt)]), (t0 + ttt + 0.5, -72),
+               fontsize=6.3, color=ACCENT, arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.7))
+    a.set_xlabel("time (s)"); a.set_ylabel("filtered RSRP (dBm)"); a.set_ylim(-118, -60)
+    a.legend(fontsize=6.3, loc="lower left")
+    fig.tight_layout()
+    save(fig, "ch20_a3")
+
+
+def fig_paging():
+    fig, a = plt.subplots(figsize=(3.1, 2.35))
+    K = np.logspace(0, 3, 200)          # cells per tracking area
+    upd = 30 / np.sqrt(K)               # updates/user/hour ~ perimeter crossings
+    pag = 0.5 * K * 0.2                 # pages broadcast per user/hour (0.5 calls/h, cost 0.2 per cell)
+    a.loglog(K, upd, color=NAVY, label="location updates")
+    a.loglog(K, pag, color=GREEN, label="paging")
+    a.loglog(K, upd + pag, color=ACCENT, lw=1.6, label="total")
+    k = np.argmin(upd + pag)
+    a.plot(K[k], (upd + pag)[k], "o", color=ACCENT, ms=4)
+    a.set_xlabel("cells per tracking area"); a.set_ylabel("signalling per user (relative)")
+    a.legend(fontsize=6.3, loc="upper center"); a.set_title("a simple tracking-area trade-off", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_paging")
+
+
+def fig_pf_trace():
+    r = rng(9)
+    S = 60
+    means = np.array([10 ** 1.5, 10 ** 0.8, 10 ** 0.0])
+    # slowly varying Rayleigh: AR(1) on complex gain
+    h = np.zeros((S, 3), complex); h[0] = (r.standard_normal(3) + 1j * r.standard_normal(3)) / np.sqrt(2)
+    for s in range(1, S):
+        h[s] = 0.85 * h[s - 1] + np.sqrt(1 - 0.85 ** 2) * (r.standard_normal(3) + 1j * r.standard_normal(3)) / np.sqrt(2)
+    rate = np.log2(1 + means * np.abs(h) ** 2)
+    Rb = rate.mean(0)
+    fig, axs = plt.subplots(2, 1, figsize=(W2, 2.9), sharex=True)
+    cols = [NAVY, GREEN, ACCENT]
+    names = ["near (15 dB)", "middle (8 dB)", "edge (0 dB)"]
+    for ax, pol in zip(axs, ["Max rate", "Proportional fair"]):
+        Rbar = Rb.copy() * 0 + 1.0
+        served = []
+        for s in range(S):
+            m = rate[s] if pol == "Max rate" else rate[s] / Rbar
+            k = int(np.argmax(m)); served.append(k)
+            Rbar = (1 - 1 / 20) * Rbar + (1 / 20) * rate[s] * (np.arange(3) == k)
+        for u in range(3):
+            ax.plot(range(S), rate[:, u], color=cols[u], lw=0.9, label=names[u])
+        for s, k in enumerate(served):
+            ax.plot(s, rate[s, k], "o", ms=3, color=cols[k])
+        sh = np.bincount(served, minlength=3) / S
+        ax.set_title(f"{pol}: share of slots near/middle/edge = "
+                     f"{sh[0]:.0%} / {sh[1]:.0%} / {sh[2]:.0%}  (dots = user served)", fontsize=8)
+        ax.set_ylabel("rate (b/s/Hz)", fontsize=7.5)
+    axs[0].legend(fontsize=6.3, ncol=3, loc="upper right")
+    axs[1].set_xlabel("slot")
+    fig.tight_layout(h_pad=0.4)
+    save(fig, "ch20_pf_trace")
+
+
+def fig_ran_timescales():
+    fig, a = plt.subplots(figsize=(W2, 2.0))
+    items = [("HARQ, scheduling, link adaptation (DU)", 1e-4, 4e-3, NAVY),
+             ("closed-loop power control", 5e-4, 2e-2, NAVY),
+             ("near-real-time RIC xApps (E2)", 1e-2, 1.0, PURPLE),
+             ("handover decisions (RRC, CU)", 4e-2, 5.0, GREEN),
+             ("non-real-time RIC rApps, policies (A1)", 1.0, 3600 * 24, ORANGE),
+             ("network planning, new sites", 3600 * 24 * 7, 3600 * 24 * 365 * 2, GRAY)]
+    for k, (nm, lo, hi, c) in enumerate(items):
+        y = len(items) - 1 - k
+        a.barh(y, np.log10(hi) - np.log10(lo), left=np.log10(lo), color=c, alpha=0.75, height=0.6)
+        a.text(np.log10(hi) + 0.1, y, nm, va="center", fontsize=6.5)
+    ticks = [1e-4, 1e-3, 1e-2, 1e-1, 1, 60, 3600, 86400, 3.15e7]
+    a.set_xticks(np.log10(ticks)); a.set_xticklabels(["0.1 ms", "1 ms", "10 ms", "100 ms", "1 s", "1 min",
+                                                     "1 h", "1 day", "1 yr"], fontsize=6.5)
+    a.set_yticks([]); a.set_xlim(-4.2, 10.5); a.grid(axis="y", visible=False)
+    a.set_title("where the decisions of this chapter are made, by time scale", fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "ch20_ran_timescales")
+
+
+def fig_dual_slope():
+    """Area spectral efficiency vs density: single-slope (alpha=4) vs dual-slope (2 inside R0=50 m, 4 beyond)."""
+    r = rng(44)
+    lams = np.logspace(0, 4, 13)          # BS per km^2
+    R0 = 0.05                              # km
+    npts, trials = 250, 600
+    res = {"single": [], "dual": []}
+    for lam in lams:
+        rmax = np.sqrt(npts / (np.pi * lam))
+        d = rmax * np.sqrt(r.random((trials, npts)))
+        d = np.sort(d, axis=1)
+        h = r.exponential(size=d.shape)
+        for kind in res:
+            if kind == "single":
+                g = d ** -4.0
+            else:
+                g = np.where(d < R0, d ** -2.0, R0 ** 2 * d ** -4.0)
+            p = h * g
+            sinr = p[:, 0] / p[:, 1:].sum(1)
+            res[kind].append(lam * np.mean(np.log2(1 + sinr)))
+    fig, a = plt.subplots(figsize=(4.2, 2.4))
+    a.loglog(lams, res["single"], "o-", ms=3, color=NAVY, label="single slope, $\\alpha=4$")
+    a.loglog(lams, res["dual"], "s-", ms=3, color=ACCENT, label="dual slope: $\\alpha=2$ within 50 m, 4 beyond")
+    a.axvline(1 / (np.pi * R0 ** 2), color=GRAY, ls=":", lw=0.8)
+    a.text(1 / (np.pi * R0 ** 2) * 1.15, 3, "one BS per\n50 m radius", fontsize=6.3, color=GRAY)
+    a.set_xlabel("base-station density (per km$^2$)"); a.set_ylabel("ASE (b/s/Hz/km$^2$)")
+    a.legend(fontsize=6.3, loc="upper left")
+    fig.tight_layout()
+    save(fig, "ch20_dual_slope")
+    print("  dual slope ASE:", np.round(res["dual"], 1), "single:", np.round(res["single"], 1))
+
+
+def fig_erlang_wait():
+    fig, a = plt.subplots(figsize=(4.2, 2.2))
+    t = np.linspace(0, 60, 300)          # seconds
+    h = 180.0
+    for C, A, c in [(30, 25, NAVY), (28, 25, ACCENT), (33, 25, GREEN)]:
+        pw = cel.erlang_c(A, C)
+        a.plot(t, 100 * pw * np.exp(-(C - A) * t / h), color=c,
+               label=f"{C} agents: {100 * pw:.0f}% wait, mean {pw * h / (C - A):.0f} s")
+    a.set_xlabel("waiting time $t$ (s)"); a.set_ylabel("callers waiting longer than $t$ (%)")
+    a.set_title("call centre, 25 E of 3-minute calls (Erlang C)", fontsize=8.5)
+    a.legend(fontsize=6.3, loc="upper right"); a.set_ylim(0, 55)
+    fig.tight_layout()
+    save(fig, "ch20_erlang_wait")
+    print("  erlang C 30/25:", cel.erlang_c(25, 30))
+
+
+def fig_sensor_op():
+    fig, a = plt.subplots(figsize=(4.2, 2.2))
+    G = np.linspace(0, 4, 400)
+    a.plot(G, G * np.exp(-G), color=NAVY, label="slotted ALOHA")
+    a.plot(G, G * np.exp(-2 * G), color=GRAY, label="pure ALOHA")
+    a.axhline(1 / 3, color=ACCENT, ls="--", lw=0.9)
+    a.text(2.4, 0.345, "500 sensors: $S=0.333$", fontsize=6.5, color=ACCENT)
+    from scipy.optimize import brentq
+    g1 = brentq(lambda g: g * np.exp(-g) - 1 / 3, 0.01, 1)
+    g2 = brentq(lambda g: g * np.exp(-g) - 1 / 3, 1, 4)
+    a.plot(g1, 1 / 3, "o", color=GREEN, ms=5); a.annotate(f"stable: $G={g1:.2f}$", (g1, 1 / 3), (g1 - 0.55, 0.2),
+                                                         fontsize=6.5, color=GREEN, arrowprops=dict(arrowstyle="->", color=GREEN, lw=0.7))
+    a.plot(g2, 1 / 3, "o", color=ACCENT, ms=5, mfc="white")
+    a.annotate(f"congested: $G={g2:.2f}$", (g2, 1 / 3), (g2 + 0.2, 0.2), fontsize=6.5, color=ACCENT,
+               arrowprops=dict(arrowstyle="->", color=ACCENT, lw=0.7))
+    a.set_xlabel("offered load $G$ (attempts per packet time)"); a.set_ylabel("throughput $S$")
+    a.set_ylim(0, 0.42); a.set_xlim(0, 4); a.legend(fontsize=6.3, loc="upper right")
+    fig.tight_layout()
+    save(fig, "ch20_sensor_op")
+
+
+def fig_reservation():
+    """Request-grant frame: contention minislots for requests, then collision-free granted slots."""
+    fig, a = plt.subplots(figsize=(W2, 1.6))
+    r = rng(5)
+    x = 0.0
+    for f in range(2):
+        for m in range(6):
+            k = r.integers(0, 3) if f == 0 else [1, 0, 2, 1, 0, 1][m]
+            c = {0: "#DDDDDD", 1: GREEN, 2: ACCENT}[int(k)]
+            a.add_patch(Rectangle((x, 0), 0.38, 0.6, color=c, alpha=0.85, lw=0.3, ec="white"))
+            x += 0.4
+        for u, w in [(1, 1.6), (2, 1.0), (3, 2.2)]:
+            a.add_patch(Rectangle((x, 0), w - 0.04, 0.6, color=[NAVY, ORANGE, PURPLE][u - 1], alpha=0.8))
+            a.text(x + w / 2, 0.3, f"user {u}", color="white", ha="center", va="center", fontsize=6.5)
+            x += w
+        x += 0.2
+    a.text(1.2, 0.78, "request minislots\n(slotted ALOHA)", ha="center", fontsize=6.5)
+    a.text(4.8, 0.78, "data slots granted by the controller: no collisions", ha="center", fontsize=6.5)
+    for c, l in [("#DDDDDD", "idle"), (GREEN, "request received"), (ACCENT, "requests collided")]:
+        a.add_patch(Rectangle((0, -1), 0.1, 0.1, color=c, label=l))
+    a.legend(fontsize=6, ncol=3, loc="lower center", bbox_to_anchor=(0.5, -0.45), frameon=False)
+    a.set_xlim(0, x); a.set_ylim(0, 1.15); a.axis("off")
+    fig.tight_layout()
+    save(fig, "ch20_reservation")
+
+
+def fig_ofdma_grid():
+    """Frequency-selective channels of three users and the best-user assignment per resource block."""
+    r = rng(23)
+    nsc, nrb = 600, 25
+    cols = [NAVY, ACCENT, GREEN]
+    fig, axs = plt.subplots(2, 1, figsize=(W2, 2.5), sharex=True, gridspec_kw=dict(height_ratios=[3, 0.6]))
+    a = axs[0]
+    gains = []
+    for u in range(3):
+        taps = (r.standard_normal(12) + 1j * r.standard_normal(12)) * np.exp(-np.arange(12) / 4.0)
+        H = np.fft.fft(taps, nsc)
+        g = 20 * np.log10(np.abs(H) / np.sqrt(np.mean(np.abs(H) ** 2)))
+        gains.append(g)
+        a.plot(np.arange(nsc), g, color=cols[u], lw=1.0, label=f"user {u + 1}")
+    gains = np.array(gains)
+    rb = gains.reshape(3, nrb, nsc // nrb).mean(-1)
+    best = rb.argmax(0)
+    for k in range(nrb):
+        axs[1].add_patch(Rectangle((k * 24 + 1, 0), 22, 1, color=cols[best[k]], alpha=0.85, lw=0))
+    a.set_ylabel("channel gain (dB)"); a.set_ylim(-25, 10); a.legend(fontsize=6.3, ncol=3, loc="lower right")
+    a.set_title("each resource block goes to the user whose channel is strongest there", fontsize=8.5)
+    axs[1].set_xlim(0, nsc); axs[1].set_ylim(0, 1); axs[1].set_yticks([]); axs[1].grid(False)
+    axs[1].set_xlabel("subcarrier (25 resource blocks of 24)")
+    axs[1].set_ylabel("RB", fontsize=7)
+    fig.tight_layout(h_pad=0.2)
+    save(fig, "ch20_ofdma_grid")
+    print("  ofdma mean gain of chosen RB (dB):", rb.max(0).mean().round(1), "vs any one user", rb.mean().round(1))
+
+
 if __name__ == "__main__":
     import sys
     todo = sys.argv[1:]

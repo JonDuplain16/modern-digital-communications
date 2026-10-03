@@ -1,37 +1,54 @@
 \chapter{Multiple Access and the Cellular Concept}
 \label{ch:multipleaccess}
+\providecommand{\chTwentyFigH}[3][0.92]{\begin{figure}[H]\centering\includegraphics[width=#1\linewidth]{figs/#2}\caption{#3}\label{fig:#2}\end{figure}}
+\providecommand{\chTwentyPhotoH}[3][0.6]{\begin{figure}[H]\centering\includegraphics[width=#1\linewidth]{figs/photos/#2}\caption{#3\mdccredit{#2}}\label{fig:#2}\end{figure}}
 
 \begin{chapterintro}
-Everything so far has concerned one link: one transmitter, one receiver, one channel. Real
-radio systems are crowded. A city block holds thousands of phones, a stadium tens of
-thousands, and a smart-meter network millions of devices, all wanting the same few tens of
-megahertz of spectrum at once. This chapter is about \emph{sharing}. It begins with the two
-oldest questions, how one terminal can talk and listen at the same time (duplexing) and how
-many terminals can split one channel without interfering (FDMA, TDMA, CDMA, OFDMA, SDMA and
-the non-orthogonal schemes). It then turns to terminals that transmit when they please, which
-is the territory of random access: the ALOHA protocols and their famous $1/e$, carrier sense
-and Ethernet, the hidden-node problem and Wi-Fi's collision avoidance with Bianchi's model,
-and the random-access channels that every phone uses to say ``I am here''. The second half
-covers the idea that made mobile telephony a mass market, the \emph{cellular concept}: hexagonal
-cells, frequency reuse and the co-channel interference it creates, Erlang's traffic theory
-for dimensioning the network, interference management, the stochastic-geometry view of
-network capacity, handover and paging for users who move, and the schedulers that decide,
-every millisecond, which user gets each resource. A short tour of radio-access network
-architecture, from the GSM base-station controller to O-RAN, leads into the next chapter's
-history of the cellular generations.
+Walk out of a sold-out stadium with sixty thousand other people and, within a minute or two,
+tens of thousands of phones wake up and ask the network for attention at once: to post a photo,
+book a ride, call home. Every one of them is shouting into the same few tens of megahertz of
+spectrum. Remarkably, most of them get through. This chapter is about how.
+
+Everything so far has concerned one link: one transmitter, one receiver, one channel. Real radio
+systems are crowded, and the central problem of this chapter is \emph{sharing}. We start with the
+two oldest questions: how one terminal can talk and listen at the same time (duplexing), and how
+many terminals can split one channel without stepping on each other (FDMA, TDMA, CDMA, OFDMA,
+SDMA and the non-orthogonal schemes). Then we let terminals transmit whenever they please, which
+is the territory of random access: ALOHA and its famous $1/e$, carrier sense and Ethernet, the
+hidden-node problem, Wi-Fi's collision avoidance and Bianchi's model, and the random-access channel
+that every phone uses to say ``I am here''.
+
+The second half covers the idea that turned mobile telephony from a luxury for a few hundred
+people per city into a service for billions: the \emph{cellular concept}. Hexagonal cells and
+frequency reuse, the co-channel interference that reuse creates, Erlang's traffic theory for
+deciding how many channels a cell needs, interference management, the stochastic-geometry view of
+network capacity, handover and paging for users who move, and the schedulers that decide, every
+millisecond, who gets each resource. A short tour of radio-access network architecture, from the
+GSM base-station controller to O-RAN, hands over to the next chapter's history of the cellular
+generations.
 \end{chapterintro}
+
+\mdcfig{ch20_timeline}{Seventy years of sharing the air. Each milestone in this chapter added a new
+way to divide a channel among many users: frequency (MTS, AMPS), time (GSM), codes (IS-95), carrier
+sense and collision avoidance (ALOHAnet, Ethernet, 802.11), the time--frequency grid (LTE, NR) and,
+most recently, open software control of the whole radio network (O-RAN).}
 
 %======================================================================
 \section{Sharing a scarce resource}
 \label{sec:ch20:sharing}
 %======================================================================
 
-A radio channel is a public good in the economist's sense. Every transmission in a band
-raises the noise floor for every other receiver within range, and the band cannot be made
-larger: the spectrum below about 6\,GHz that propagates well through walls and foliage is
-finite, licensed at auction for tens of billions of dollars, and shared by everything from
-television to radar. A system designer facing $K$ users and one band has to answer three
-questions.
+Picture a long dinner table with twenty guests and only one rule: nobody may raise their voice.
+If everyone talks at once, nobody hears anything. Yet real dinner parties work. People take turns,
+split into little conversations at different ends of the table, lean towards the person they are
+talking to, or switch to a language the neighbours do not share. Without thinking about it,
+dinner guests reinvent every multiple-access scheme in this chapter.
+
+A radio channel is that dinner table. Every transmission in a band raises the noise floor for
+every other receiver within range, and the band cannot be made larger: the spectrum below about
+6\,GHz that propagates well through walls and foliage is finite, licensed at auction for tens of
+billions of dollars, and shared by everything from television to radar. A system designer facing
+$K$ users and one band has to answer three questions.
 \begin{enumerate}
 \item \textbf{Duplexing.} How does each terminal transmit and receive? A transmitter's own
 signal at its receiver input is typically more than 100\,dB stronger than the signal it is
@@ -45,12 +62,34 @@ signal fades with distance, so a frequency used in one place can be reused far e
 The art of deciding what ``far enough'' means is the cellular concept.
 \end{enumerate}
 
+\mdcfig{ch20_dinner}{Multiple access at the dinner table. Guests can take turns at one table (time
+division), split into separate tables (frequency division), or all talk at once in different
+languages, each listener tuning in to their own (code division). Radio engineers use all three, and
+combinations of them.}
+
+\begin{analogy}[A dinner-table conversation]
+Taking turns is TDMA: one speaker at a time, everybody hears clearly, but each guest waits for
+a slot. Sitting at different tables is FDMA: conversations run in parallel and never mix, but
+each table is small and a guest stuck at a dull table cannot borrow a seat elsewhere. Speaking
+different languages is CDMA: everyone talks at once, and each listener picks out their own language
+from a background babble that grows as more people join. Leaning towards your partner and speaking
+quietly is SDMA, separation in space. The limits of the analogy: radio users cannot see each other,
+so they cannot politely notice who is speaking, and the ``languages'' of CDMA are mathematical codes
+that only work if every voice arrives at nearly the same loudness.
+\end{analogy}
+
+\mdcfig[0.98]{ch20_access_dims}{The time--frequency plane divided four ways among four users.
+FDMA assigns bands, TDMA assigns slots, CDMA lets every user occupy the whole plane with a different
+code (drawn as stacked layers), and OFDMA assigns blocks of the grid that a scheduler can change
+from one slot to the next.}
+
 \subsection{Orthogonality: one idea, many dimensions}
 
-Every classical multiple-access scheme is an application of one idea from
-Chapter~\ref{ch:modulation}: signals that are \emph{orthogonal} do not interfere. Suppose user $k$
-sends $x_k(t)=\sum_m a_{k,m}\,\phi_{k,m}(t)$ using a set of basis waveforms $\phi_{k,m}$. If the
-waveforms of different users are orthogonal,
+Every classical multiple-access scheme rests on one idea from Chapter~\ref{ch:modulation}: signals
+that are \emph{orthogonal} do not interfere. In words: if two users' waveforms have zero overlap
+when you multiply them together and integrate, a receiver tuned to one of them sees nothing of the
+other. Formally, suppose user $k$ sends $x_k(t)=\sum_m a_{k,m}\,\phi_{k,m}(t)$ using a set of basis
+waveforms $\phi_{k,m}$. If the waveforms of different users are orthogonal,
 \begin{equation}
 \int\phi_{k,m}(t)\,\phi^*_{\ell,n}(t)\,dt=0\qquad(k\ne\ell),
 \label{eq:ch20:orth}
@@ -71,19 +110,16 @@ with the subcarriers packed as tightly as orthogonality allows.
 \item \term{Space-division multiple access} (SDMA) separates users by their spatial signatures
 at an antenna array (Chapter~\ref{ch:mimo}).
 \end{itemize}
-The time--bandwidth product of a channel of bandwidth $W$ and duration $T$ is about $2WT$ real
-dimensions (Chapter~\ref{ch:signals}). FDMA, TDMA and orthogonal CDMA are simply three different
-bases for the same signal space, and in an ideal channel they support exactly the same total rate:
-$K$ users sharing $2WT$ dimensions get $2WT/K$ each, however the dimensions are sliced.
-The differences between the schemes lie entirely in how they behave when the ideal assumptions
-fail: when the channel has multipath that smears time, Doppler that smears frequency, or
-users whose signals arrive with very different powers, and when traffic is bursty rather than
-continuous.
 
-\mdcfig[0.98]{ch20_access_dims}{The time--frequency plane divided four ways among four users.
-FDMA assigns bands, TDMA assigns slots, CDMA lets every user occupy the whole plane with a different
-code (drawn as stacked layers), and OFDMA assigns blocks of the grid that a scheduler can change
-from one slot to the next.}
+Here is a fact that surprises many students. The time--bandwidth product of a channel of bandwidth
+$W$ and duration $T$ is about $2WT$ real dimensions (Chapter~\ref{ch:signals}). FDMA, TDMA and
+orthogonal CDMA are simply three different bases for the same signal space, and in an ideal channel
+they support exactly the same total rate: $K$ users sharing $2WT$ dimensions get $2WT/K$ each,
+however the dimensions are sliced. Cutting a cake into horizontal layers or vertical wedges does
+not change how much cake there is. The differences between the schemes lie entirely in how they
+behave when the ideal assumptions fail: when the channel has multipath that smears time, Doppler
+that smears frequency, or users whose signals arrive with very different powers, and when traffic
+is bursty rather than continuous.
 
 \begin{keyidea}[The three ways to lose orthogonality]
 In practice orthogonality is always approximate, and every real system can be understood by
@@ -95,6 +131,22 @@ and late echoes, so it needs a cyclic prefix and tight synchronization. The over
 scheme pays---guard bands, guard times, pilots, prefixes, power-control signalling---is the
 price of approximate orthogonality.
 \end{keyidea}
+
+\mdcfig{ch20_one_tower}{The cellular idea in one picture. (a) Before cells, one powerful transmitter
+covered a city and each channel carried one call for the whole metropolitan area. (b) With small cells
+and a reuse pattern of three channel sets (A, B, C), the same twelve channels serve 76 simultaneous
+calls in 19 cells, and capacity keeps growing as cells shrink.}
+
+\subsection{Before cells: one tower for a whole city}
+
+The first mobile telephones show what happens when you divide a band but never reuse it.
+
+\mdcpairany[htbp]{ch20_car_phone}{A General Electric car radiotelephone control head with a rotary
+dial, from the era of dial-up mobile service, now in a telephone museum. The transceiver itself
+lived in the car's boot; the lamps show when the channel is in use (``busy'') and when the
+radio is transmitting.}{ch20_mta_phone}{A Swedish car telephone for the MTA system of 1956
+(Tekniska museet, Stockholm): racks of valves and relays behind a dial and handset. Every
+early mobile system was FDMA with a handful of channels per city.}
 
 \begin{history}[Mobile telephony before cells]
 The first public mobile telephone service in the United States opened in St.~Louis on 17~June
@@ -113,19 +165,35 @@ not fix the problem, because every channel was used once in the whole city. The 
 cellular concept of Section~\ref{sec:ch20:cellular}, had been described on paper in 1947.
 \end{history}
 
+Figure~\ref{fig:ch20_one_tower} puts the 1976 New York numbers in perspective. Twelve channels on
+one tower carry at most twelve calls, whether the city has a million people or ten million. Cut the
+same city into small cells, give each cell a third of the channels, and every cluster of three cells
+reuses all twelve. Nineteen cells already carry 76 calls; a thousand cells would carry four thousand.
+Nothing about the radio has improved; only the geometry has changed. Hold on to that picture: it is
+the whole of Section~\ref{sec:ch20:cellular} in one drawing.
+
 %======================================================================
 \section{Duplexing: talking and listening}
 \label{sec:ch20:duplex}
 %======================================================================
 
-A handset transmitting at $+23$\,dBm may need to receive a signal at $-100$\,dBm. The 123\,dB
-difference is more than the isolation of any practical antenna arrangement, so a terminal
+Try listening for a whisper from across the room while you are shouting. That is the duplexing
+problem, and the numbers are brutal. A handset transmitting at $+23$\,dBm may need to receive a
+signal at $-100$\,dBm (Figure~\ref{fig:ch20_isolation}a). The 123\,dB difference is a power ratio of
+two million million, more than the isolation of any practical antenna arrangement, so a terminal
 cannot simply transmit and receive on the same frequency at the same time. Two solutions have
 dominated for half a century, and a third is emerging.
 
+\mdcfig{ch20_isolation}{Why duplexing is hard. (a) A handset's own transmitter arrives at its antenna
+port about 123\,dB stronger than the signal it is trying to hear, which sits just above the thermal
+noise. (b) In-band full duplex must close that gap with roughly 110\,dB of self-interference
+suppression, stacked from antenna isolation, an analog canceller and a digital canceller; the split
+shown is one illustrative budget, and real designs divide it differently.}
+
 \subsection{Frequency-division duplexing}
 
-\term{Frequency-division duplexing} (FDD) uses two paired bands, one for the uplink (terminal to
+\term{Frequency-division duplexing} (FDD) is a two-lane road: uplink traffic in one lane, downlink in
+the other, a painted gap between them. It uses two paired bands, one for the uplink (terminal to
 base station) and one for the downlink, separated by a fixed \term{duplex spacing}. A
 \term{duplexer}, a pair of sharp band-pass filters joined at the antenna, steers the transmit
 signal to the antenna and keeps it out of the receiver (Chapter~\ref{ch:sdr}). AMPS used a
@@ -142,37 +210,6 @@ traffic is strongly asymmetric: mobile networks typically carry several times mo
 downlink than the uplink, so a symmetric FDD pair wastes much of its uplink half. And because
 the two directions are on different frequencies, the downlink channel cannot be learned from
 uplink measurements; the terminal must measure and report it.
-
-\subsection{Time-division duplexing}
-
-\term{Time-division duplexing} (TDD) uses one band for both directions, alternating in time.
-The ratio of downlink to uplink time can match the traffic, unpaired spectrum can be used, and
-the radio needs a fast switch instead of a duplexer. Most 5G spectrum above 2.5\,GHz is
-unpaired and operated in TDD, as is Wi-Fi (in effect: a station and its access point take turns),
-DECT, Bluetooth and the Chinese TD-SCDMA and TD-LTE systems.
-
-TDD has two subtleties. The first is the \term{guard period}. A terminal at distance $d$ hears the
-end of a downlink burst $d/c$ late, and its uplink burst must arrive at the base station on time,
-so it must start transmitting $d/c$ early (its \term{timing advance}). Between the end of the
-downlink as seen at the base station and the start of the uplink, the terminal must therefore
-fit a round trip of $2d/c$ plus the time its own radio needs to switch from receive to transmit.
-The guard period sets the largest cell:
-\begin{equation}
-T_{\mathrm{GP}}\;\ge\;\frac{2d_{\max}}{c}+T_{\mathrm{switch}}
-\qquad\Longrightarrow\qquad
-d_{\max}\approx\frac{c\,(T_{\mathrm{GP}}-T_{\mathrm{switch}})}{2}.
-\label{eq:ch20:gp}
-\end{equation}
-Every microsecond of guard is 150\,m of cell radius; a 100\,km rural cell would need a guard
-of more than 0.67\,ms, an expensive overhead in a frame of a few milliseconds. TDD therefore
-favours small cells, and long-range systems prefer FDD.
-
-The second subtlety is that every base station in an area must use the same frame timing and
-the same uplink--downlink split. If one base station transmits while its neighbour is
-receiving, the transmitting base station, high on a mast with line of sight to the other, drowns
-the weak uplink signals at its neighbour. This \term{cross-link interference} is so severe that
-TDD networks are synchronised to GNSS time to within about a microsecond, and operators in
-adjacent TDD blocks are usually required by regulators to adopt compatible frame structures.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[x=1cm,y=1cm,font=\sffamily\scriptsize]
@@ -216,6 +253,42 @@ switching time.}
 \label{fig:ch20_duplex}
 \end{figure}
 
+\subsection{Time-division duplexing}
+
+\term{Time-division duplexing} (TDD) is a single-lane bridge with a traffic light: everyone uses the
+whole width, but in turns. It uses one band for both directions, alternating in time. The ratio of
+downlink to uplink time can match the traffic, unpaired spectrum can be used, and the radio needs a
+fast switch instead of a duplexer. Most 5G spectrum above 2.5\,GHz is unpaired and operated in TDD,
+as is Wi-Fi (in effect: a station and its access point take turns), DECT, Bluetooth and the Chinese
+TD-SCDMA and TD-LTE systems.
+
+TDD has two subtleties. The first is the \term{guard period}, the empty gap that lets the bridge
+clear before traffic flows the other way. A terminal at distance $d$ hears the end of a downlink burst
+$d/c$ late, and its uplink burst must arrive at the base station on time, so it must start
+transmitting $d/c$ early (its \term{timing advance}). Between the end of the downlink as seen at the
+base station and the start of the uplink, the terminal must therefore fit a round trip of $2d/c$ plus
+the time its own radio needs to switch from receive to transmit. The guard period sets the largest cell:
+\begin{equation}
+T_{\mathrm{GP}}\;\ge\;\frac{2d_{\max}}{c}+T_{\mathrm{switch}}
+\qquad\Longrightarrow\qquad
+d_{\max}\approx\frac{c\,(T_{\mathrm{GP}}-T_{\mathrm{switch}})}{2}.
+\label{eq:ch20:gp}
+\end{equation}
+In words: every microsecond of guard buys 150\,m of cell radius. A 100\,km rural cell would need a
+guard of more than 0.67\,ms, an expensive overhead in a frame of a few milliseconds. TDD therefore
+favours small cells, and long-range systems prefer FDD (Figure~\ref{fig:ch20_tdd_range}).
+
+The second subtlety is that every base station in an area must use the same frame timing and
+the same uplink--downlink split. If one base station transmits while its neighbour is
+receiving, the transmitting base station, high on a mast with line of sight to the other, drowns
+the weak uplink signals at its neighbour. This \term{cross-link interference} is so severe that
+TDD networks are synchronised to GNSS time to within about a microsecond, and operators in
+adjacent TDD blocks are usually required by regulators to adopt compatible frame structures.
+
+\mdcfig[0.5]{ch20_tdd_range}{The worked example generalised: maximum cell range against the number
+of guard symbols, with 10\,$\mu$s of switching time, for three NR numerologies. Wider subcarrier
+spacing means shorter symbols, so millimetre-wave numerologies (120\,kHz) suit only small cells.}
+
 \begin{worked}[How large a cell can a 5G TDD guard support?]
 A 5G NR carrier at 3.5\,GHz uses 30\,kHz subcarrier spacing, so a slot of 14 OFDM symbols lasts
 0.5\,ms and each symbol (with its cyclic prefix) about 35.7\,$\mu$s. A widely used configuration
@@ -235,15 +308,32 @@ about 3\% of capacity.
 \subsection{Channel reciprocity}
 
 TDD has one property that FDD lacks and that has become very valuable: \term{channel reciprocity}.
-Electromagnetic propagation is reciprocal, so when uplink and downlink use the same frequency
-within the channel's coherence time (Chapter~\ref{ch:channels}), the propagation channel in one
-direction is the transpose of the channel in the other. A base station can then estimate the
-downlink channel to every antenna of every terminal from uplink pilots (5G NR's sounding
-reference signals) and compute its precoder without any feedback. With 64 or more antennas
-and many users, feedback-based channel acquisition would be prohibitively expensive, which is
-why massive MIMO (Chapter~\ref{ch:mimo}) is predominantly a TDD technology. Reciprocity holds for
-the propagation channel only: the transmit and receive RF chains of each radio differ in gain
-and phase and must be calibrated, usually by having the array's antennas sound one another.
+Electromagnetic propagation is reciprocal---the road from A to B has the same potholes as the road
+from B to A---so when uplink and downlink use the same frequency within the channel's coherence time
+(Chapter~\ref{ch:channels}), the propagation channel in one direction is the transpose of the channel
+in the other. A base station can then estimate the downlink channel to every antenna of every terminal
+from uplink pilots (5G NR's sounding reference signals) and compute its precoder without any feedback.
+With 64 or more antennas and many users, feedback-based channel acquisition would be prohibitively
+expensive, which is why massive MIMO (Chapter~\ref{ch:mimo}) is predominantly a TDD technology.
+Reciprocity holds for the propagation channel only: the transmit and receive RF chains of each radio
+differ in gain and phase and must be calibrated, usually by having the array's antennas sound one another
+(Figure~\ref{fig:ch20_reciprocity}).
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,>={Stealth[length=2mm]},
+  blk/.style={draw=navy,fill=navy!7,thick,rounded corners=1pt,minimum height=0.7cm,align=center}]
+\node[blk] (ue) at (0,0) {terminals\\(1 or 2 antennas each)};
+\node[blk] (est) at (4.6,0) {base station:\\estimate $\mathbf H_{\rm UL}$ from pilots};
+\node[blk] (pre) at (9.2,0) {precoder from\\$\mathbf H_{\rm DL}=\mathbf H_{\rm UL}^{T}$};
+\draw[->,thick,accent] (ue) -- node[above]{uplink pilots (SRS)} (est);
+\draw[->,thick] (est) -- node[above]{reciprocity} node[below,text=gray]{+ RF calibration} (pre);
+\draw[->,thick,navy] (pre.south) -- ++(0,-0.6) -| node[pos=0.25,below]{downlink beams, same band, within the coherence time} (ue.south);
+\end{tikzpicture}
+\caption{Channel reciprocity in TDD. Uplink pilots tell the base station the channel; because uplink and downlink
+share a frequency, the downlink channel is its transpose, and the precoder can be computed with no feedback from the
+terminals---the reason massive MIMO is mostly a TDD technology.}
+\label{fig:ch20_reciprocity}
+\end{figure}
 
 \subsection{Dynamic TDD, half-duplex FDD and full duplex}
 
@@ -264,12 +354,14 @@ potentially doubling spectral efficiency. It requires suppressing the transmitte
 its receiver to near the noise floor: about 110\,dB for a Wi-Fi-class radio, achieved by
 combining antenna isolation, an analog canceller that subtracts a tapped and delayed copy of the
 transmit signal before the low-noise amplifier, and a digital canceller that models the
-remaining linear and nonlinear leakage. Laboratory demonstrations, notably by Bharadia, McMilin
-and Katti at Stanford in 2013, reached about this level. A practical intermediate step is
-\term{subband full duplex} (SBFD), studied by 3GPP for Release~18 and specified from Release~19,
-in which a TDD base station receives uplink in one sub-band of the carrier while transmitting
-downlink in the rest. The base station, with its larger size and budget, carries the burden of
-self-interference cancellation; terminals remain half duplex.
+remaining linear and nonlinear leakage (Figure~\ref{fig:ch20_isolation}b). Laboratory
+demonstrations, notably by Bharadia, McMilin and Katti at Stanford in 2013, reached about this
+level. It is like wearing noise-cancelling headphones that must cancel your own voice so perfectly
+that you can hear a pin drop. A practical intermediate step is \term{subband full duplex} (SBFD),
+studied by 3GPP for Release~18 and specified from Release~19, in which a TDD base station receives
+uplink in one sub-band of the carrier while transmitting downlink in the rest. The base station,
+with its larger size and budget, carries the burden of self-interference cancellation; terminals
+remain half duplex.
 
 \begin{inpractice}[Remote interference and the atmospheric duct]
 TDD networks can be disturbed by base stations hundreds of kilometres away. Under certain
@@ -290,15 +382,24 @@ not always respect.
 %======================================================================
 
 Once the directions are separated, the resources in each direction must be divided among the
-users. This section compares the orthogonal schemes in more engineering detail and then
-introduces deliberately non-orthogonal access.
+users. This section compares the orthogonal schemes in engineering detail, the way the systems
+that used them actually lived and died, and then introduces deliberately non-orthogonal access.
+
+\mdcphoto[0.5]{ch20_intersection}{A traffic light: time-division access to a shared crossing. Each
+direction gets the whole road for a slot, and the amber and all-red intervals are guard times for
+vehicles still in the junction.}
+
+\mdcfig{ch20_gsm_frame}{GSM's TDMA frame. Eight users take turns on one
+200\,kHz carrier; each burst carries two 57-bit data blocks around a 26-bit training sequence that
+the receiver uses to learn and equalize the multipath channel, and ends with a guard of 8.25 bit
+periods.}
 
 \subsection{FDMA}
 
 FDMA is the oldest scheme and the most intuitive: each user gets a narrow channel for the
-duration of a call, exactly as each radio station gets a frequency. First-generation analog
-cellular systems were pure FDMA: AMPS used 30\,kHz FM channels, the European TACS 25\,kHz, the
-Nordic NMT 25 or 12.5\,kHz. FDMA's virtues are that each channel is narrow, so the symbol period
+duration of a call, exactly as each radio station gets a frequency on the dial. First-generation
+analog cellular systems were pure FDMA: AMPS used 30\,kHz FM channels, the European TACS 25\,kHz,
+the Nordic NMT 25 or 12.5\,kHz. FDMA's virtues are that each channel is narrow, so the symbol period
 is long and the channel is flat (no equalizer is needed), and that synchronization between users
 is unnecessary. Its weaknesses are the cost of guard bands (adjacent-channel interference from a
 nearby strong transmitter must be filtered out, which requires either guard bands or sharp, costly
@@ -309,11 +410,19 @@ land-mobile radio.
 
 \subsection{TDMA}
 
-TDMA gives each user a short burst on a shared, wider carrier, repeating in a \term{frame}. GSM
-is the canonical example: 200\,kHz carriers with a gross rate of about 270.8\,kb/s, divided into
-frames of 4.615\,ms with eight timeslots of about 577\,$\mu$s each, so that one carrier serves eight
-full-rate voice users. The North American IS-136 (D-AMPS) put three TDMA users into each old 30\,kHz
-AMPS channel. TDMA has three structural costs.
+A traffic light is the world's most familiar TDMA system (Figure~\ref{fig:ch20_intersection}): the
+crossing is shared by giving each direction the whole road for a slice of time, with an all-red
+``guard'' between slices so that late arrivals clear the junction. TDMA gives each user a short burst
+on a shared, wider carrier, repeating in a \term{frame}. GSM is the canonical example: 200\,kHz carriers
+with a gross rate of about 270.8\,kb/s, divided into frames of 4.615\,ms with eight timeslots of about
+577\,$\mu$s each, so that one carrier serves eight full-rate voice users (Figure~\ref{fig:ch20_gsm_frame}).
+The North American IS-136 (D-AMPS) put three TDMA users into each old 30\,kHz AMPS channel.
+
+\mdcfig[0.5]{ch20_near_far}{The near--far problem. With path-loss exponent 3.5, a user 100\,m from the
+base station arrives 35\,dB stronger than one at 1\,km if both transmit at full power. CDMA uplinks
+therefore equalise received powers to within about a decibel by fast power control.}
+
+TDMA has three structural costs.
 \begin{itemize}
 \item \textbf{Guard time and timing advance.} Bursts from users at different distances must not
 overlap at the base station. GSM's timing advance, measured by the base station and sent to the
@@ -333,27 +442,37 @@ variable rates naturally by assigning more slots.
 \subsection{CDMA}
 
 In CDMA every user transmits across the whole band all the time, distinguished by a spreading
-code. In the downlink of IS-95 and UMTS, orthogonal Walsh or OVSF codes keep the users of one cell
-orthogonal at the transmitter; in the uplink, users arrive asynchronously and through different
-channels, so their codes are only approximately orthogonal and each user's signal acts as noise to
-the others. The capacity of an uplink CDMA cell is therefore set by interference, not by a fixed
-number of channels: it degrades gracefully as users are added, it benefits automatically from
-voice activity and from the gaps between bursts of data, and it allows a frequency reuse factor of
-one. It also requires accurate, fast \term{power control}, because a nearby user received 30\,dB
-stronger than a distant one would drown it, the \term{near--far problem}. Chapter~\ref{ch:spreadspectrum}
-develops CDMA in detail, including the uplink capacity formula, and Chapter~\ref{ch:cellular} tells
-the story of the ``CDMA wars'' of the 1990s.
+code---the cocktail party where everybody speaks a different language. In the downlink of IS-95 and
+UMTS, orthogonal Walsh or OVSF codes keep the users of one cell orthogonal at the transmitter; in the
+uplink, users arrive asynchronously and through different channels, so their codes are only
+approximately orthogonal and each user's signal acts as noise to the others. The capacity of an
+uplink CDMA cell is therefore set by interference, not by a fixed number of channels: it degrades
+gracefully as users are added, it benefits automatically from voice activity and from the gaps between
+bursts of data, and it allows a frequency reuse factor of one.
+
+It also requires accurate, fast \term{power control}, because a nearby user received 30\,dB stronger
+than a distant one would drown it: the \term{near--far problem} (Figure~\ref{fig:ch20_near_far}). At a
+party, the guest shouting next to you in Portuguese makes it impossible to follow a quiet French
+conversation across the room, even though you do not understand a word of Portuguese.
+Chapter~\ref{ch:spreadspectrum} develops CDMA in detail, including the uplink capacity formula, and
+Chapter~\ref{ch:cellular} tells the story of the ``CDMA wars'' of the 1990s.
+
+\chTwentyFigH{ch20_ofdma_grid}{Why OFDMA suits a scheduler. Three users see different frequency-selective
+channels across the same 600 subcarriers; giving each resource block to the user whose channel is
+strongest there raises the average gain of the scheduled blocks by almost 4\,dB in this example,
+compared with handing each user a fixed slice regardless of its channel.}
 
 \subsection{OFDMA and SC-FDMA}
 
 OFDMA, the multiple-access scheme of LTE, 5G NR, WiMAX and Wi-Fi~6 and~7, assigns users
 \emph{resource blocks}, groups of subcarriers for a group of OFDM symbols, and lets a scheduler change
-the assignment every slot (Chapter~\ref{ch:ofdm}). It combines FDMA's flat subchannels, which need
-only one-tap equalization, with TDMA's flexibility. Its decisive advantage is that the scheduler
-can give each user the part of the band where that user's channel is currently strong, exploiting
-\emph{multiuser diversity} (Section~\ref{sec:ch20:scheduling}). On the uplink, LTE uses a DFT-precoded
-variant (SC-FDMA) whose lower peak-to-average power ratio helps handset power amplifiers; 5G NR
-offers both.
+the assignment every slot (Chapter~\ref{ch:ofdm}). Think of it as a restaurant with a maître d' who
+reassigns tables every few minutes according to who is hungry. It combines FDMA's flat subchannels,
+which need only one-tap equalization, with TDMA's flexibility. Its decisive advantage is that the
+scheduler can give each user the part of the band where that user's channel is currently strong,
+exploiting \emph{multiuser diversity} (Section~\ref{sec:ch20:scheduling}). On the uplink, LTE uses a
+DFT-precoded variant (SC-FDMA) whose lower peak-to-average power ratio helps handset power amplifiers;
+5G NR offers both.
 
 \subsection{SDMA and multi-user MIMO}
 
@@ -364,7 +483,22 @@ the ``smart antenna'' base stations of the late 1990s, used a few fixed beams; a
 station with 64 transmit--receive chains forms precoded beams for up to 8 or more simultaneous downlink
 layers, and the theory (Chapter~\ref{ch:mimo}) says the gain grows with the number of antennas. SDMA
 is not an alternative to the other schemes but an extra dimension: users are first separated in time
-and frequency by OFDMA and then, within each resource block, in space.
+and frequency by OFDMA and then, within each resource block, in space (Figure~\ref{fig:ch20_sdma}).
+
+\begin{figure}[H]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize]
+\foreach \i in {0,...,7} {\fill[navy] (0,{-0.7+0.2*\i}) rectangle (0.12,{-0.62+0.2*\i});}
+\node[below,text=navy] at (0.06,-0.8) {array};
+\foreach \ang/\c/\n in {28/accent/1,0/green!50!black/2,-30/orange/3} {
+  \fill[\c,opacity=0.22] (0.15,0) -- ++(\ang-7:4.6) arc[start angle=\ang-7,end angle=\ang+7,radius=4.6] -- cycle;
+  \node[circle,fill=\c,inner sep=2.2pt] at (\ang:4.3) {};
+  \node[right,text=\c] at (\ang:4.55) {user \n};}
+\node[align=left,text=gray,anchor=west] at (5.8,0) {same time, same frequency:\\each user sits in its own beam\\and in the others' nulls};
+\end{tikzpicture}
+\caption{Space-division multiple access: one antenna array serves three users on the same resource block
+by pointing a beam at each, shaped so that each beam's nulls fall on the other users.}
+\label{fig:ch20_sdma}
+\end{figure}
 
 \subsection{Non-orthogonal multiple access}
 
@@ -372,6 +506,36 @@ All the schemes above aim for orthogonality. A different idea is to superimpose 
 and separate them with a smarter receiver. Information theory has long said this is the right thing
 to do: the capacity region of the Gaussian broadcast channel (one transmitter, several receivers)
 is achieved by \term{superposition coding}, not by orthogonal division (Chapter~\ref{ch:infotheory}).
+
+\begin{analogy}[A loud announcement and a quiet aside]
+A teacher addresses the whole room loudly and, under the same breath, adds a quiet aside for the
+pupil in the front row. The pupils at the back hear only the loud message and treat the aside as
+murmur. The front-row pupil hears both: she first takes in the loud message, mentally ``subtracts''
+it, and then catches the aside cleanly. That is power-domain NOMA with successive interference
+cancellation. The analogy breaks where real receivers make mistakes: if the front-row pupil mishears
+the loud message, her subtraction leaves garbage and the aside is lost too.
+\end{analogy}
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,>={Stealth[length=2mm]},
+  blk/.style={draw=navy,fill=navy!7,thick,rounded corners=1pt,minimum height=0.7cm,align=center}]
+\node[blk] (rx) at (0,0) {received\\$y$};
+\node[blk] (d2) at (2.6,0) {decode $s_2$\\(treat $s_1$ as noise)};
+\node[blk] (re) at (5.4,0) {re-encode\\and rebuild $\hat s_2$};
+\node[draw=accent,circle,thick,inner sep=1pt] (sum) at (7.4,0) {$-$};
+\node[blk] (d1) at (9.6,0) {decode $s_1$\\(interference-free)};
+\draw[->,thick] (rx) -- (d2); \draw[->,thick] (d2) -- (re); \draw[->,thick] (re) -- (sum);
+\draw[->,thick] (sum) -- (d1);
+\draw[->,thick,gray] (rx.south) -- ++(0,-0.75) -| (sum.south);
+\node[text=gray] at (3.8,-0.95) {delayed copy of $y$};
+\node[text=accent,anchor=west] at (10.85,0) {$\hat s_1$};
+\node[text=navy] at (2.6,0.75) {far user stops here};
+\end{tikzpicture}
+\caption{Successive interference cancellation at the near user. The strong (far-user) layer is decoded
+first, rebuilt and subtracted; the near user's own layer is then decoded as if alone. The far user runs
+only the first block.}
+\label{fig:ch20_sic}
+\end{figure}
 
 Consider the downlink to two users with channel gains $|h_1|^2>|h_2|^2$, so that user~1 is ``near''
 and user~2 ``far''. Let $\rho_k=P|h_k|^2/N_0$ be each user's SNR if it received the whole power $P$.
@@ -382,12 +546,13 @@ x=\sqrt{aP}\,s_1+\sqrt{(1-a)P}\,s_2,\qquad 0\le a\le 1 .
 \end{equation}
 The far user decodes $s_2$ treating $s_1$ as noise. The near user, whose channel is better, can
 decode $s_2$ too; it does so first, subtracts it (\term{successive interference cancellation},
-SIC), and then decodes $s_1$ with no interference from $s_2$. The achievable rates are
+SIC; Figure~\ref{fig:ch20_sic}), and then decodes $s_1$ with no interference from $s_2$. The achievable rates are
 \begin{equation}
 R_1=\log_2(1+a\rho_1),\qquad
 R_2=\log_2\!\left(1+\frac{(1-a)\rho_2}{a\rho_2+1}\right).
 \label{eq:ch20:noma}
 \end{equation}
+
 Sweeping $a$ from 0 to 1 traces the boundary of the rate region, which is the capacity region of
 the two-user Gaussian broadcast channel. Orthogonal access, giving a fraction $t$ of the time to
 user~1, achieves only the straight line $R_1=t\log_2(1+\rho_1)$, $R_2=(1-t)\log_2(1+\rho_2)$; FDMA with
@@ -413,6 +578,10 @@ on a high-rate fixed one. The uplink analogue is simpler and much older: a base 
 decodes several users' simultaneous signals with SIC is achieving points of the multiple-access
 channel's capacity region, and grant-free uplink schemes for massive IoT build on it.
 
+\subsection{Comparing the schemes}
+
+Table~\ref{tab:ch20:schemes} summarises the comparison. Three lessons stand out.
+
 \begin{table}[htbp]\centering\small
 \caption{Multiple-access schemes compared. ``Reuse'' is the frequency reuse factor typical of cellular
 deployments of each scheme.}
@@ -430,10 +599,6 @@ NOMA & power level + SIC & receiver complexity, error propagation & 1 & LTE MUST
 \bottomrule
 \end{tabularx}
 \end{table}
-
-\subsection{Comparing the schemes}
-
-Table~\ref{tab:ch20:schemes} summarises the comparison. Three lessons stand out.
 
 First, in a single isolated cell with continuous traffic, the orthogonal schemes are equivalent in
 capacity. Their practical differences come from implementation: guard overhead, equalizer
@@ -454,6 +619,14 @@ millisecond, who transmits on which resource''. OFDMA won because it gives a sch
 control over the time--frequency grid; Section~\ref{sec:ch20:scheduling} studies how that control is
 used.
 
+\begin{tryit}[Air interfaces side by side]
+Open Lab 11 (\lab{lab11\_air\_interfaces.py}) and choose \emph{Air interfaces side by side}. Set
+\emph{System} to GSM (2G) and \emph{Compare with} to LTE 20\,MHz (4G), then raise \emph{Active users}
+from 1 to 12 and watch how each system carves its time--frequency plane among them: slots on a narrow
+carrier for GSM, a scheduled grid for LTE. Switch \emph{Bar chart} to \emph{Spectral efficiency} and
+\emph{Symbol duration} to see the trade-offs of Table~\ref{tab:ch20:schemes} as numbers.
+\end{tryit}
+
 %======================================================================
 \section{Random access}
 \label{sec:ch20:random}
@@ -464,7 +637,13 @@ and sensor traffic is neither. A terminal may be silent for minutes and then hav
 to send immediately; reserving a channel for it wastes the channel, and asking a scheduler for
 permission costs a round trip that may be longer than the transmission itself. \term{Random access}
 takes the opposite approach: transmit when you have something to send, and deal with collisions when
-they happen. This section develops the theory, from ALOHA to Wi-Fi.
+they happen. It sounds reckless. It runs Wi-Fi, it got Ethernet started, and every phone on Earth uses
+it to make first contact with its network. This section develops the theory, from ALOHA to Wi-Fi.
+
+\chTwentyPhotoH[0.42]{ch20_alohanet}{The IEEE Milestone plaque at the University of Hawaii at M\=anoa,
+dedicated in June 2021, fifty years after ALOHAnet began carrying traffic between the islands. Its
+text makes the claim of this section in one sentence: channels can be shared on a large scale by
+simple random-access protocols.}
 
 \begin{history}[ALOHAnet and the birth of packet radio]
 In 1968 Norman Abramson, a professor at the University of Hawaii, began building a radio network to
@@ -481,6 +660,20 @@ random-access channels of every cellular system and satellite network, and to th
 protocols of RFID. Few papers have been as directly influential as Abramson's.
 \end{history}
 
+\begin{analogy}[Blurting out in a meeting]
+Imagine a meeting with no chair. Anyone with something to say just says it. Most of the time only one
+person is talking and all is well. Occasionally two people start at once; both notice that nobody
+understood, both stop, and each waits a random moment before trying again. If they waited a fixed
+time they would collide again forever---the randomness is what breaks the tie. That is ALOHA. The
+analogy's limit: people in a meeting can hear each other start talking and politely stop, whereas
+ALOHA terminals are deaf to each other and learn of a collision only from a missing acknowledgement.
+\end{analogy}
+
+\mdcfig{ch20_vulnerable}{The vulnerable period. (a) In pure ALOHA a packet is destroyed by any other
+packet that starts less than one packet time before or after it: a window of $2T$. (b) In slotted ALOHA
+packets start only on slot boundaries, so only a packet in the same slot can collide: the window
+halves, and so does the collision rate at a given load.}
+
 \subsection{Pure ALOHA}
 
 Model the aggregate traffic offered to the channel---new packets and retransmissions together---as a
@@ -488,8 +681,8 @@ Poisson process of rate $G$ packets per packet time $T$. This is an approximatio
 depend on earlier collisions), but it is accurate when there are many users each contributing a small
 share, and it gives the right answers. A packet that starts at time $t$ is received correctly if no
 other packet starts in the interval $(t-T,t+T)$: a packet that started up to $T$ earlier would still
-be on the air, and one starting up to $T$ later would overlap its tail. This \term{vulnerable period}
-is $2T$, and the number of Poisson arrivals in it has mean $2G$, so
+be on the air, and one starting up to $T$ later would overlap its tail (Figure~\ref{fig:ch20_vulnerable}).
+This \term{vulnerable period} is $2T$, and the number of Poisson arrivals in it has mean $2G$, so
 \begin{equation}
 \Pr\{\text{success}\}=e^{-2G},\qquad S=G\,e^{-2G},
 \label{eq:ch20:pure}
@@ -500,6 +693,8 @@ optimum $G=1/2$ and the famous maximum
 \begin{equation}
 S_{\max}=\frac{1}{2e}\approx0.184 .
 \end{equation}
+Read that number slowly: a channel with nobody in charge, at its very best, is useful less than a
+fifth of the time.
 
 \subsection{Slotted ALOHA}
 
@@ -510,21 +705,41 @@ S=G\,e^{-G},\qquad S_{\max}=\frac1e\approx0.368\quad\text{at } G=1.
 \label{eq:ch20:slotted}
 \end{equation}
 At the optimum, a fraction $e^{-1}$ of slots are idle, $e^{-1}$ carry a success, and
-$1-2e^{-1}\approx26\%$ are wasted by collisions. The cost of the doubling is a common clock, which in a
-satellite or cellular system is free: the terminals already listen to a downlink that carries timing.
+$1-2e^{-1}\approx26\%$ are wasted by collisions (Figure~\ref{fig:ch20_slot_fractions}). The cost of the
+doubling is a common clock, which in a satellite or cellular system is free: the terminals already
+listen to a downlink that carries timing. Figure~\ref{fig:ch20_meeting} shows the difference on the
+same random traffic: snapping each packet to the next slot boundary saves several packets that pure
+ALOHA loses to partial overlaps.
 
-Figure~\ref{fig:ch20_aloha}a plots both curves. Each has two regions: at light load, throughput equals
-offered load and almost every packet succeeds; beyond the peak, adding traffic \emph{reduces} the
-throughput, because almost every slot is a collision. That second region is not merely inefficient; it
-is unstable.
+\mdcfig{ch20_meeting}{The same 25 packet attempts, offered at $G=0.5$, under the two ALOHA rules (each
+row is a station; green packets survive, red ones collide). Under pure ALOHA, partial overlaps destroy
+most of the clusters; when every transmission is aligned to a slot, only packets that land in the same
+slot collide. The counts in this short sample are close to the theoretical success probabilities.}
+
+\mdcfig[0.5]{ch20_slot_fractions}{Where the slots go in slotted ALOHA. Below $G=1$ most slots are idle;
+above it most are collisions. At the optimum the split is 37\% idle, 37\% success and 26\% collision.}
+
+Figure~\ref{fig:ch20_aloha}a plots both throughput curves. Each has two regions: at light load,
+throughput equals offered load and almost every packet succeeds; beyond the peak, adding traffic
+\emph{reduces} the throughput, because almost every slot is a collision. That second region is not
+merely inefficient; it is unstable.
+
+\begin{tryit}[Watch packets collide]
+In Lab 26 (\lab{lab26\_cellular\_system.py}) open \emph{ALOHA and CSMA, live}. With \emph{Protocol} set
+to Pure ALOHA, drag \emph{Offered load G} from 0.1 to 0.5 and then to 3: watch the green packets on the
+station timeline turn red and the operating point slide over the top of the throughput curve. Switch to
+Slotted ALOHA at $G=1$ and count roughly how many slots are idle, successful and collided.
+\end{tryit}
 
 \subsection{The instability of ALOHA}
 
-To see why, abandon the Poisson assumption and track the number of \emph{backlogged} users, those
-holding a packet that has collided and awaits retransmission. Following Bertsekas and Gallager, consider
-$m$ users. An unbacklogged user generates a new packet in a slot with probability $q_a$ and sends it
-immediately; a backlogged user retransmits in each slot with probability $q_r$. With $n$ users backlogged,
-the expected number of attempts in a slot is
+Why unstable? Think of a traffic jam on a ring road. Below a critical density, cars flow; above it, every
+slowdown causes more slowdowns, and the jam feeds itself long after the extra cars have gone. To see the
+same thing in ALOHA, abandon the Poisson assumption and track the number of \emph{backlogged} users,
+those holding a packet that has collided and awaits retransmission. Following Bertsekas and Gallager,
+consider $m$ users. An unbacklogged user generates a new packet in a slot with probability $q_a$ and
+sends it immediately; a backlogged user retransmits in each slot with probability $q_r$. With $n$ users
+backlogged, the expected number of attempts in a slot is
 \begin{equation}
 G(n)=(m-n)\,q_a+n\,q_r,
 \end{equation}
@@ -537,30 +752,52 @@ likely still, and the system slides to the right crossing, where nearly everyone
 throughput is close to zero. Because the backlog performs a random walk, it will cross the unstable point
 eventually, however rarely; the network then stays congested for a long time.
 
+\mdcfig{ch20_aloha_stability}{Stability of slotted ALOHA. (a) For $m=100$ users with new-packet
+probability $q_a=0.0035$ and retransmission probability $q_r=0.06$, the arrival and departure curves
+cross three times: a desired stable point, an unstable point and a congested stable point. (b) Simulated
+backlog with Poisson arrivals at $\lambda=0.3$ packets per slot. With a fixed retransmission probability
+the backlog eventually escapes and grows without bound; Rivest's pseudo-Bayesian rule keeps it small.}
+
 With an infinite population of users and Poisson arrivals of rate $\lambda$, matters are worse: for any
 fixed $q_r$, $G(n)=\lambda+nq_r$ grows without bound, successes vanish, and slotted ALOHA is unstable for
 every $\lambda>0$ (Figure~\ref{fig:ch20_aloha_stability}b, red). The cure is to make the retransmission
 probability adapt to the backlog so that $G(n)$ stays near 1. If every user knew $n$, choosing
-$q_r=1/n$ would do it. Users do not know $n$, but they can estimate it from the channel feedback.
-Rivest's \term{pseudo-Bayesian algorithm} (1987) updates an estimate $\hat n$ after each slot:
+$q_r=1/n$ would do it: with $n$ people waiting, each should try with probability $1/n$ so that, on
+average, exactly one speaks. Users do not know $n$, but they can estimate it from what they hear.
+
+\begin{deeper}[Rivest's pseudo-Bayesian algorithm]
+Rivest's \term{pseudo-Bayesian algorithm} (1987) updates an estimate $\hat n$ of the backlog after each
+slot, using only the channel feedback (idle, success or collision) that every user hears:
 \begin{equation}
 \hat n\leftarrow
 \begin{cases}
 \max(\lambda,\ \hat n+\lambda-1) & \text{idle or success},\\
 \hat n+\lambda+(e-2)^{-1} & \text{collision},
 \end{cases}
-\qquad q_r=\min(1,1/\hat n),
+\qquad q_r=\min(1,1/\hat n).
 \end{equation}
-and is stable for all $\lambda<1/e$ (blue curve). Exponential backoff, which every practical system uses,
-is a cruder form of the same idea: each user infers congestion from its own collisions and lengthens its
-backoff. Remarkably, Aldous proved in 1987 that binary exponential backoff is itself unstable in the
-infinite-population model, although with a finite number of users it works well in practice.
+The logic: each slot adds about $\lambda$ new backlogged users; an idle slot or a success suggests the
+estimate was too high (or that one user left), and a collision suggests it was too low by about
+$(e-2)^{-1}\approx1.39$, the expected excess given a collision when $G=1$. The rule is stable for all
+$\lambda<1/e$ (Figure~\ref{fig:ch20_aloha_stability}b, blue).
+\end{deeper}
 
-\mdcfig{ch20_aloha_stability}{Stability of slotted ALOHA. (a) For $m=100$ users with new-packet
-probability $q_a=0.0035$ and retransmission probability $q_r=0.06$, the arrival and departure curves
-cross three times: a desired stable point, an unstable point and a congested stable point. (b) Simulated
-backlog with Poisson arrivals at $\lambda=0.3$ packets per slot. With a fixed retransmission probability
-the backlog eventually escapes and grows without bound; Rivest's pseudo-Bayesian rule keeps it small.}
+Exponential backoff, which every practical system uses, is a cruder form of the same idea: each user
+infers congestion from its own collisions and lengthens its backoff. Remarkably, Aldous proved in 1987
+that binary exponential backoff is itself unstable in the infinite-population model, although with a
+finite number of users it works well in practice.
+
+\begin{tryit}[Make the backlog run away]
+Lab 26's \emph{Slotted ALOHA's instability} experiment runs the model above live. Leave
+\emph{New packets per slot $\lambda$} at 0.30, below $1/e$, and set \emph{Fixed retransmission
+probability} to 0.15. Watch the fixed-$q$ backlog hover for a while and then, suddenly, run away,
+while the pseudo-Bayesian trace stays near zero. Press \emph{Empty the backlogs} and try again with
+$q=0.03$: the escape takes longer, but it still comes.
+\end{tryit}
+
+\chTwentyFigH[0.62]{ch20_sensor_op}{The sensor network of the worked example on the slotted-ALOHA curve.
+The required throughput of 0.333 is met at two offered loads: the stable point $G=0.62$, where each report
+needs about 1.9 attempts, and a congested point $G\approx1.5$ that a burst of collisions can tip the network into.}
 
 \begin{worked}[Slotted ALOHA for a sensor network]
 Five hundred sensors share one radio channel at 10\,kb/s. Each sends a 50-byte report once a minute,
@@ -582,29 +819,38 @@ collision with a weak one) to scale.
 
 \subsection{Carrier sense: listen before talk}
 
-ALOHA terminals are deaf: they transmit without checking whether the channel is busy. If the propagation
-delay $\tau$ between terminals is small compared with the packet time $T_p$, a terminal can
-\emph{listen first} and defer if it hears another transmission. This is \term{carrier-sense multiple
-access} (CSMA). Collisions can now happen only when two terminals start within $\tau$ of each other,
-before either can hear the other. The key parameter is the normalised delay
+ALOHA terminals are deaf: they transmit without checking whether the channel is busy. Polite people
+do better. Before speaking in a meeting, you listen for a pause. If the propagation delay $\tau$
+between terminals is small compared with the packet time $T_p$, a terminal can \emph{listen first} and
+defer if it hears another transmission. This is \term{carrier-sense multiple access} (CSMA). Collisions
+can now happen only when two terminals start within $\tau$ of each other, before either can hear the
+other (Figure~\ref{fig:ch20_csma_window}). The key parameter is the normalised delay
 \begin{equation}
 a=\frac{\tau}{T_p}.
 \end{equation}
+
+\mdcfig{ch20_csma_window}{Why carrier sense cannot prevent every collision. A's signal needs the
+propagation delay $\tau$ to reach B; if B senses the channel during that window, it hears silence and
+transmits too. Any station that senses after $\tau$ hears A and defers. The smaller $\tau$ is compared
+with the packet length, the rarer such collisions become.}
+
 Kleinrock and Tobagi analysed the main variants in 1975.
 \begin{itemize}
 \item \textbf{Nonpersistent CSMA}: if the channel is busy, wait a random time and sense again.
 \item \textbf{1-persistent CSMA}: if busy, keep listening and transmit as soon as the channel goes idle.
 This minimises idle time but guarantees a collision whenever two terminals are waiting for the same
-transmission to end.
+transmission to end---like two people who both pounce the instant a speaker pauses.
 \item \textbf{$p$-persistent CSMA} (slotted): when the channel goes idle, transmit with probability $p$, or
 defer one slot with probability $1-p$, a compromise between the two.
 \end{itemize}
-The throughput of nonpersistent CSMA follows from a renewal argument. The channel alternates between idle
-periods and busy periods. With Poisson attempts at rate $G$ per packet time, an idle period lasts $1/G$
-on average. A busy period starts with a packet; any packet that starts within the next $a$ (before the first
-is heard) collides with it, and the busy period ends $1+a$ after the last such packet starts. The busy
-period is successful with probability $e^{-aG}$ (no other start within $a$) and has mean length
-$1+2a-(1-e^{-aG})/G$. Dividing the mean useful time by the mean cycle length gives
+
+\mdcfig{ch20_aloha}{Random-access throughput. (a) Throughput versus offered load (including
+retransmissions) for pure and slotted ALOHA and three CSMA variants with normalised propagation delay
+$a=0.01$, plus nonpersistent CSMA with $a=0.1$. (b) Maximum throughput as a function of $a$: carrier
+sensing helps only when the propagation delay is a small fraction of the packet time. The CSMA/CD curve
+is the Metcalfe--Boggs efficiency $1/(1+2(e-1)a)$.}
+
+The throughput of nonpersistent CSMA follows from a renewal argument, sketched in the box below:
 \begin{equation}
 S_{\text{np}}=\frac{G\,e^{-aG}}{G(1+2a)+e^{-aG}} .
 \label{eq:ch20:csma}
@@ -614,20 +860,31 @@ collisions vanish. Figure~\ref{fig:ch20_aloha} compares the variants. For $a=0.0
 reaches about 0.82 and its slotted version about 0.86, while 1-persistent CSMA peaks near 0.53 because of
 its built-in collisions. Panel (b) shows the essential fact about carrier sensing: its benefit depends
 entirely on $a$. When the propagation delay approaches the packet time, as on a satellite channel with
-$\tau\approx0.25$\,s, carrier sense is useless and ALOHA is as good as anything.
+$\tau\approx0.25$\,s, carrier sense is useless and ALOHA is as good as anything: by the time you hear
+somebody else, their whole packet is already on its way.
 
-\mdcfig{ch20_aloha}{Random-access throughput. (a) Throughput versus offered load (including
-retransmissions) for pure and slotted ALOHA and three CSMA variants with normalised propagation delay
-$a=0.01$, plus nonpersistent CSMA with $a=0.1$. (b) Maximum throughput as a function of $a$: carrier
-sensing helps only when the propagation delay is a small fraction of the packet time. The CSMA/CD curve
-is the Metcalfe--Boggs efficiency $1/(1+2(e-1)a)$.}
+\begin{deeper}[The renewal argument for nonpersistent CSMA]
+The channel alternates between idle periods and busy periods. With Poisson attempts at rate $G$ per
+packet time, an idle period lasts $1/G$ on average. A busy period starts with a packet; any packet that
+starts within the next $a$ (before the first is heard) collides with it, and the busy period ends $1+a$
+after the last such packet starts. The busy period is successful with probability $e^{-aG}$ (no other
+start within $a$) and has mean length $1+2a-(1-e^{-aG})/G$. Dividing the mean useful time per cycle,
+$e^{-aG}$, by the mean cycle length, $1/G+1+2a-(1-e^{-aG})/G$, gives~\eqref{eq:ch20:csma}.
+\end{deeper}
 
 \subsection{CSMA/CD and Ethernet}
 
-On a cable a station can do more than listen before transmitting: it can listen \emph{while} transmitting,
-detect a collision within one round-trip time, and abort. This is \term{CSMA with collision detection}
-(CSMA/CD), the protocol of the original Ethernet. A collided transmission now wastes only about $2\tau$ instead
-of a whole packet.
+On a cable a station can do more than listen before transmitting: it can listen \emph{while}
+transmitting, detect a collision within one round-trip time, and abort---the polite speaker who stops
+mid-word on hearing someone else start. This is \term{CSMA with collision detection} (CSMA/CD), the
+protocol of the original Ethernet. A collided transmission now wastes only about $2\tau$ instead of a
+whole packet.
+
+\mdcpairany[htbp]{ch20_metcalfe_memo}{The first two pages of Metcalfe's memo of 22~May 1973. He proposes to
+stop calling the project ``the Alto ALOHA network'' and to call it ``the Ether Network'', and sketches
+cable, telephone and radio ``ethers'' joined by boosters.}{ch20_ethernet_tap}{An early 3Com Ethernet unit
+(model 3C100), autographed by Bob Metcalfe, who co-founded 3Com in 1979. The two connectors join it to
+the shared cable on which every station listened, talked and backed off.}
 
 \begin{history}[Ethernet]
 Robert Metcalfe joined Xerox PARC in 1972 after writing a doctoral thesis that drew on the ALOHA system. His
@@ -643,6 +900,9 @@ transmitter in each direction and no collisions at all. The 802.3 standard still
 link faster than 1\,Gb/s implements it.
 \end{history}
 
+\chTwentyFigH[0.5]{ch20_backoff}{Binary exponential backoff. After each collision the window from which the
+random wait is drawn doubles, up to 1024 slots after the tenth; the dots show one random draw per stage.}
+
 Metcalfe and Boggs's analysis is a model of engineering approximation. After each transmission, the
 channel enters a contention interval divided into slots of length $2\tau$, the time needed to detect a
 collision. Suppose $k$ stations are ready and each transmits in a contention slot with probability $1/k$
@@ -657,7 +917,9 @@ fraction of time spent carrying frames is therefore
 \label{eq:ch20:csmacd}
 \end{equation}
 (Other accounting conventions, for example including the jam signal and the propagation of the final
-frame, give slightly different constants such as $1/(1+5a)$; the dependence on $a$ is the point.)
+frame, give slightly different constants such as $1/(1+5a)$; the dependence on $a$ is the point.) In words:
+each frame pays a contention tax of about 3.4 propagation delays; long frames on short cables pay
+almost nothing.
 
 \begin{worked}[Why Ethernet has a minimum frame size]
 Classic 10\,Mb/s Ethernet allowed a network diameter of 2500\,m with up to four repeaters and set the
@@ -676,8 +938,14 @@ collision detection obsolete.
 
 Ethernet's retransmission rule is \term{truncated binary exponential backoff}: after the $i$th collision of a
 frame, a station waits a random number of slot times chosen uniformly from $0$ to $2^{\min(i,10)}-1$, and
-gives up after 16 attempts. Each collision is evidence of congestion, and doubling the window halves the
-attempt rate, an approximation to the $q_r=1/n$ rule that requires no estimate of $n$.
+gives up after 16 attempts (Figure~\ref{fig:ch20_backoff}). Each collision is evidence of congestion, and
+doubling the window halves the attempt rate, an approximation to the $q_r=1/n$ rule that requires no
+estimate of $n$. It is what people do in a crowded doorway: bump once, wait a moment; bump again, wait longer.
+
+\mdcfig{ch20_wall}{Two people on either side of a wall, both talking to the same person in the doorway:
+each thinks the room is quiet, and the listener hears a jumble. That is the hidden terminal (a). The
+exposed terminal (b) is the opposite mistake: C overhears B and politely keeps quiet, although its
+conversation with D could not possibly disturb A.}
 
 \subsection{Wireless: hidden and exposed terminals}
 
@@ -685,7 +953,8 @@ Collision detection does not work on a radio channel. A transmitting radio's own
 stronger than anything it might hear from other stations, so it cannot listen while it talks (the
 full-duplex problem of Section~\ref{sec:ch20:duplex}). Worse, carrier sense on a radio channel answers the
 wrong question. It tells the \emph{transmitter} whether the channel is busy near the transmitter, whereas
-collisions happen at the \emph{receiver}. Two configurations expose the gap (Figure~\ref{fig:ch20_hidden}).
+collisions happen at the \emph{receiver}. Two configurations expose the gap
+(Figures~\ref{fig:ch20_wall} and~\ref{fig:ch20_hidden}).
 \begin{itemize}
 \item The \term{hidden terminal}: A and C both send to B, but cannot hear each other (they are too far
 apart, or a wall stands between them). Each senses an idle channel, both transmit, and their packets
@@ -694,12 +963,15 @@ collide at B. Carrier sense does not help at all; the pair behaves like ALOHA.
 side. C's transmission would not disturb A, which is out of C's range, yet C hears B and defers needlessly,
 wasting a spatial reuse opportunity.
 \end{itemize}
+
 Tobagi and Kleinrock identified the hidden-terminal problem in 1975 and proposed a busy-tone solution in
 which the receiver signals on a separate channel. The modern solution came from amateur packet radio: Phil
 Karn's MACA protocol (1990) had the sender transmit a short \term{request to send} (RTS) and the receiver
 answer with a \term{clear to send} (CTS). Every station that hears either message learns that a transmission
 is coming, and for how long, and keeps quiet. Stations hidden from the sender still hear the receiver's CTS.
-A collision can now only destroy a short RTS, not a long data frame.
+A collision can now only destroy a short RTS, not a long data frame. In the wall picture, the person in the
+doorway calls out ``go ahead, A---everyone else hold on a minute'', and C, who cannot hear A, can certainly
+hear that.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[font=\sffamily\scriptsize,
@@ -753,6 +1025,15 @@ DIFS so that no other station can seize the medium in between.
 \item With no ACK, the sender assumes a collision, doubles $CW$ (up to $CW_{\max}$) and retries; after a
 success, $CW$ returns to $CW_{\min}$.
 \end{enumerate}
+Figure~\ref{fig:ch20_dcf_timeline} plays these rules out for three stations. The frozen counters are the
+clever part: a station that loses one contention keeps its place in the queue, like a deli customer who
+holds on to their ticket number while someone else is served.
+
+\mdcfig{ch20_dcf_timeline}{The 802.11 DCF in action. After the medium has been idle for a DIFS, three
+stations count down random backoff counters (5, 3 and 7). Station 2 reaches zero first and transmits;
+the others freeze their counters, wait for the SIFS, ACK and another DIFS, then resume where they left
+off. Station 1, with the smallest remaining count, wins the next round.}
+
 Carrier sense is both physical (energy and preamble detection) and \emph{virtual}: every frame carries a
 duration field, and stations that hear it set a \term{network allocation vector} (NAV) and defer for that
 long without sensing. For the OFDM physical layers (802.11a/g/n/ac/ax), the slot is 9\,$\mu$s, SIFS
@@ -768,8 +1049,18 @@ an answer so accurate and so simple that it became the basis of nearly all subse
 key assumption is that every transmission attempt, whatever the station's backoff history, collides with the
 same constant probability $p$, independently of everything else. Under this \emph{decoupling} approximation,
 each station's backoff process becomes a Markov chain over its backoff stage $i$ (the number of
-collisions suffered by the current frame) and its counter value. Solving the chain for its stationary
-distribution gives the probability $\tau$ that a station transmits in a randomly chosen slot:
+collisions suffered by the current frame) and its counter value. The intuition is a crowd in which
+each person reacts only to the average noise of the room, not to any particular neighbour: the
+crowd's behaviour then follows from one number, the probability that a given attempt collides.
+
+\mdcpairany[htbp]{ch20_wifi_ap}{An enterprise Wi-Fi access point (Cisco Aironet 1131AG) of the
+802.11a/g generation analysed in Figure~\ref{fig:ch20_bianchi}. Every station associated with it
+contends for the same channel using the DCF.}{ch20_airtime}{Where the airtime goes for one 1500-byte
+frame from a single 802.11a/g station: inter-frame spaces, the mean backoff, the PHY preamble and
+headers and the ACK are fixed in time, so they eat a larger share as the data rate rises.}
+
+Solving the chain for its stationary distribution gives the probability $\tau$ that a station transmits
+in a randomly chosen slot:
 \begin{equation}
 \tau=\frac{2(1-2p)}{(1-2p)(W+1)+pW\left(1-(2p)^m\right)},
 \label{eq:ch20:bianchitau}
@@ -782,15 +1073,8 @@ p=1-(1-\tau)^{n-1}.
 \label{eq:ch20:bianchip}
 \end{equation}
 Equations \eqref{eq:ch20:bianchitau} and \eqref{eq:ch20:bianchip} are two equations in two unknowns, with a
-unique solution that is easy to find numerically. The saturation throughput then follows from counting what
-happens in a generic slot. A slot contains a transmission with probability $P_{\text{tr}}=1-(1-\tau)^n$; given
-a transmission, it is a success with probability $P_s=n\tau(1-\tau)^{n-1}/P_{\text{tr}}$. If $\sigma$ is the
-empty-slot duration, $T_s$ and $T_c$ the durations of a successful and a collided exchange, and $T_{\text{pl}}$
-the airtime of the payload,
-\begin{equation}
-S=\frac{P_s P_{\text{tr}}\,T_{\text{pl}}}{(1-P_{\text{tr}})\,\sigma+P_{\text{tr}}P_s\,T_s+P_{\text{tr}}(1-P_s)\,T_c}.
-\label{eq:ch20:bianchiS}
-\end{equation}
+unique solution that is easy to find numerically: the attempt rate sets the collision probability, and the
+collision probability sets the attempt rate, and only one pair is self-consistent.
 
 \mdcfig{ch20_bianchi}{Bianchi's model of the 802.11 DCF for an 802.11a/g network at 54\,Mb/s with
 1500-byte frames (control frames at 24\,Mb/s). (a) Saturation throughput versus the number of stations:
@@ -798,14 +1082,27 @@ basic access (DATA--ACK) and RTS/CTS, for $CW_{\min}=16$ and 32; circles are a s
 binary exponential backoff. (b) The conditional collision probability $p$ and the per-slot attempt
 probability $\tau$ (scaled by 5) from the fixed point.}
 
+\begin{deeper}[From the fixed point to throughput]
+The saturation throughput follows from counting what happens in a generic slot. A slot contains a
+transmission with probability $P_{\text{tr}}=1-(1-\tau)^n$; given a transmission, it is a success with
+probability $P_s=n\tau(1-\tau)^{n-1}/P_{\text{tr}}$. If $\sigma$ is the empty-slot duration, $T_s$ and $T_c$
+the durations of a successful and a collided exchange, and $T_{\text{pl}}$ the airtime of the payload,
+\begin{equation}
+S=\frac{P_s P_{\text{tr}}\,T_{\text{pl}}}{(1-P_{\text{tr}})\,\sigma+P_{\text{tr}}P_s\,T_s+P_{\text{tr}}(1-P_s)\,T_c}.
+\label{eq:ch20:bianchiS}
+\end{equation}
+The numerator is the expected useful airtime per slot; the denominator is the expected length of a slot,
+which is $\sigma$ when nobody transmits and stretches to a whole exchange when somebody does.
+\end{deeper}
+
 Figure~\ref{fig:ch20_bianchi} evaluates the model for an 802.11a/g network at 54\,Mb/s and compares it with a
 slot-level simulation of the actual backoff rules; the agreement is within a few percent. Several practical
 lessons emerge.
 \begin{itemize}
 \item Even a single station gets only about 30\,Mb/s of a 54\,Mb/s link: preambles, inter-frame spaces,
-ACKs and the mean backoff consume the rest. This overhead is fixed in time, so it hurts more as the PHY rate
-rises, and it is the main reason 802.11n and later standards aggregate many frames into one transmission
-(A-MPDU) and acknowledge them with one block ACK.
+ACKs and the mean backoff consume the rest (Figure~\ref{fig:ch20_airtime}). This overhead is fixed in time,
+so it hurts more as the PHY rate rises, and it is the main reason 802.11n and later standards aggregate many
+frames into one transmission (A-MPDU) and acknowledge them with one block ACK.
 \item With basic access, throughput falls steadily with $n$, by nearly 30\% from 2 to 50 stations, as the
 collision probability climbs above 50\%. With RTS/CTS, collisions cost only an RTS, so throughput is almost
 independent of $n$, but every success pays for the extra handshake; the curves cross near 20 stations for
@@ -817,10 +1114,24 @@ and~7 sidestep the problem in dense networks by letting the access point schedul
 with trigger frames, turning contention into reservation.
 \end{itemize}
 
+\begin{tryit}[Crowd a Wi-Fi channel]
+In Lab 26's \emph{Wi-Fi's DCF: Bianchi's model}, drag \emph{Saturated stations} from 1 to 60 with
+\emph{Access} set to Basic, then switch to RTS/CTS and find the crossover. Change \emph{Minimum contention
+window} from 16 to 64 and watch the curve tilt: worse with few stations, better with many. For a live
+version, open Lab 11's \emph{Wi-Fi contention, live}, raise \emph{Saturated stations} and toggle
+\emph{RTS/CTS handshake} to see collisions shrink from data-sized to RTS-sized.
+\end{tryit}
+
 \subsection{Reservation, polling and hybrids}
 
 Between fixed assignment and pure contention lies a family of hybrid protocols that use a little contention
-to make reservations and then transmit without collisions.
+to make reservations and then transmit without collisions---the restaurant where you queue once for a table
+and then eat in peace.
+
+\chTwentyFigH{ch20_reservation}{Request--grant access, the pattern of DOCSIS upstreams, satellite return links
+and, in spirit, LTE and NR scheduling requests. Short request minislots are contended ALOHA-style and
+occasionally collide; the long data slots that follow are granted by the controller and never do.}
+
 \begin{itemize}
 \item \textbf{Polling.} A central station invites each terminal in turn. Bluetooth's central device polls
 its peripherals; 802.11's point coordination function (PCF) and the 802.11e HCCA did the same, though they were
@@ -844,11 +1155,18 @@ scheduled, which is the subject of the next section and of Section~\ref{sec:ch20
 \label{sec:ch20:rach}
 %======================================================================
 
-A phone that has just been switched on, or that has been idle and now has data, or that has lost uplink
-synchronisation, has no scheduled resources. It must announce itself on the \term{random-access channel}
-(RACH). The cellular RACH is a slotted ALOHA protocol with three refinements: transmissions are designed to
-be detectable even when they collide, the base station uses the first message to measure the terminal's
-timing, and contention is resolved explicitly a few messages later.
+Switch on a phone, or let it sit idle in your pocket for a few seconds, and it has no resources at all.
+Before it can send a single byte it must knock on the door. A phone that has just been switched on, or that
+has been idle and now has data, or that has lost uplink synchronisation, must announce itself on the
+\term{random-access channel} (RACH). The cellular RACH is a slotted ALOHA protocol with three refinements:
+transmissions are designed to be detectable even when they collide, the base station uses the first message
+to measure the terminal's timing, and contention is resolved explicitly a few messages later.
+
+\mdcfig{ch20_zc}{Detecting preambles. Two terminals send different cyclic shifts of the same 839-long
+Zadoff--Chu root with different round-trip delays, buried in noise. One circular correlation (an FFT,
+a multiplication and an inverse FFT) produces a peak in each preamble's zone of $N_{CS}$ lags: the zone
+identifies the preamble, and the offset within the zone measures the delay. The weaker terminal is
+detected as easily as the stronger.}
 
 \subsection{Preambles}
 
@@ -859,9 +1177,10 @@ length 839 (for the long formats, at 1.25 or 5\,kHz subcarrier spacing) or 139 (
 Zadoff--Chu sequences have ideal periodic autocorrelation: every cyclic shift of a root sequence is orthogonal
 to every other. The base station correlates the received signal against each root sequence with one FFT, and
 the position of a correlation peak tells it both \emph{which} preamble was sent and \emph{when} it arrived,
-giving the round-trip delay from which it computes the terminal's timing advance. The cyclic-shift spacing must
-exceed the largest round-trip delay plus the delay spread, otherwise a late-arriving preamble looks like a
-different one; large cells therefore get fewer shifts per root and use more roots.
+giving the round-trip delay from which it computes the terminal's timing advance
+(Figure~\ref{fig:ch20_zc}). The cyclic-shift spacing must exceed the largest round-trip delay plus the delay
+spread, otherwise a late-arriving preamble looks like a different one; large cells therefore get fewer shifts
+per root and use more roots.
 
 Several terminals that choose \emph{different} preambles in the same occasion do not collide at all: the base
 station detects them all, as in CDMA. Only terminals that choose the \emph{same} preamble collide, and the
@@ -875,29 +1194,8 @@ number that pick a preamble nobody else picked is
 \label{eq:ch20:rach}
 \end{equation}
 the slotted-ALOHA law again, with load $G=k/M$. It peaks at $k=M$ with about $M/e$ successes per occasion
-(Figure~\ref{fig:ch20_rach}a).
-
-\subsection{The four-step procedure}
-
-Contention-based random access in LTE and NR proceeds in four messages (Figure~\ref{fig:ch20_rachsteps}).
-\begin{enumerate}
-\item \textbf{Msg1, preamble.} The terminal picks a preamble at random and transmits it in the next RACH
-occasion, at a power computed from its downlink path-loss estimate.
-\item \textbf{Msg2, random-access response} (RAR). The base station answers, on the downlink shared channel,
-for each detected preamble: a timing-advance command, an uplink grant for the next message, and a temporary
-identifier. A terminal that receives no response within its window retransmits the preamble with a power
-increased by a configured \emph{ramping step}, after a random backoff that the base station can lengthen
-through a backoff indicator when the channel is overloaded.
-\item \textbf{Msg3, scheduled transmission.} The terminal, now time-aligned, sends its identity and the reason
-for access (for example an RRC connection or resume request) on the granted resource. If two terminals chose
-the same preamble, both received the same RAR and both transmit Msg3 on the same resource. This is where the
-collision actually happens.
-\item \textbf{Msg4, contention resolution.} The base station echoes the identity it decoded from Msg3. The
-terminal whose identity matches has won; the others restart.
-\end{enumerate}
-\term{Contention-free random access} skips the lottery: for handover, beam-failure recovery or when the network
-wants a terminal to synchronise, the base station assigns it a dedicated preamble in advance, and steps 3 and 4
-are unnecessary.
+(Figure~\ref{fig:ch20_rach}a). It is the birthday problem in disguise: with 54 ``birthdays'' to choose from,
+a room of only nine people already has better-than-even odds that two of them share one.
 
 \begin{figure}[htbp]\centering
 \begin{tikzpicture}[x=1.15cm,font=\sffamily\scriptsize,>={Stealth[length=2mm]}]
@@ -929,12 +1227,41 @@ saves a round trip at the cost of reserving uplink resources for payloads that m
 \label{fig:ch20_rachsteps}
 \end{figure}
 
+\subsection{The four-step procedure}
+
+Contention-based random access in LTE and NR proceeds in four messages (Figure~\ref{fig:ch20_rachsteps}).
+\begin{enumerate}
+\item \textbf{Msg1, preamble.} The terminal picks a preamble at random and transmits it in the next RACH
+occasion, at a power computed from its downlink path-loss estimate.
+\item \textbf{Msg2, random-access response} (RAR). The base station answers, on the downlink shared channel,
+for each detected preamble: a timing-advance command, an uplink grant for the next message, and a temporary
+identifier. A terminal that receives no response within its window retransmits the preamble with a power
+increased by a configured \emph{ramping step}, after a random backoff that the base station can lengthen
+through a backoff indicator when the channel is overloaded.
+\item \textbf{Msg3, scheduled transmission.} The terminal, now time-aligned, sends its identity and the reason
+for access (for example an RRC connection or resume request) on the granted resource. If two terminals chose
+the same preamble, both received the same RAR and both transmit Msg3 on the same resource. This is where the
+collision actually happens.
+\item \textbf{Msg4, contention resolution.} The base station echoes the identity it decoded from Msg3. The
+terminal whose identity matches has won; the others restart.
+\end{enumerate}
+\term{Contention-free random access} skips the lottery: for handover, beam-failure recovery or when the network
+wants a terminal to synchronise, the base station assigns it a dedicated preamble in advance, and steps 3 and 4
+are unnecessary.
+
 The two-step procedure, added in NR Release~16, merges Msg1 with Msg3 (``MsgA'': a preamble followed by a
 payload on a pre-configured uplink resource) and Msg2 with Msg4 (``MsgB''). It halves the access latency,
 which matters for small cells, for unlicensed spectrum (where each message must win a listen-before-talk
 contention) and for low-latency services. Its cost is that payload resources are reserved in advance and wasted
 when unused or collided. If the base station detects the preamble but cannot decode the payload, it can fall
 back to the four-step procedure by answering with an ordinary RAR.
+
+\mdcfig{ch20_rach}{RACH contention. (a) Expected successful and collided devices in one RACH occasion versus
+the number of contenders, for 54 and 64 preambles; successes peak at about $M/e$ when $k\approx M$.
+(b) Simulated access success probability (at most 10 preamble attempts, uniform backoff up to 20\,ms) with
+54 preambles and an occasion every 5\,ms, for devices activating uniformly over 60\,s or in a Beta(3,4) burst
+over 10\,s. Our simplified simulation ignores limits on Msg2 and Msg3 resources, which in a real network cause
+overload even earlier.}
 
 \subsection{Massive access}
 
@@ -943,13 +1270,6 @@ trackers, each sending tiny amounts of data, and their activity is sometimes cor
 restoration, or an alarm, can make thousands of devices attempt access within seconds. 3GPP's study of this
 scenario (TR~37.868) defined a ``bursty'' traffic model in which up to 30\,000 devices in a cell activate over
 10\,s with a Beta(3,4) distribution in time, as opposed to a uniform spread over 60\,s.
-
-\mdcfig{ch20_rach}{RACH contention. (a) Expected successful and collided devices in one RACH occasion versus
-the number of contenders, for 54 and 64 preambles; successes peak at about $M/e$ when $k\approx M$.
-(b) Simulated access success probability (at most 10 preamble attempts, uniform backoff up to 20\,ms) with
-54 preambles and an occasion every 5\,ms, for devices activating uniformly over 60\,s or in a Beta(3,4) burst
-over 10\,s. Our simplified simulation ignores limits on Msg2 and Msg3 resources, which in a real network cause
-overload even earlier.}
 
 Figure~\ref{fig:ch20_rach}b shows what happens. With 54 preambles and a RACH occasion every 5\,ms, the cell
 can admit at most about $20$ devices per occasion, or roughly 4000 per second. A uniform 60-second spread of
@@ -970,6 +1290,18 @@ and configured-grant or grant-free uplink, which avoid random access altogether 
 NB-IoT adds a twist: its single-tone, frequency-hopping NPRACH and its \emph{coverage-enhancement levels} let a
 device in a basement repeat its preamble many times, so devices with poor coverage occupy the channel for longer.
 
+\chTwentyPhotoH[0.5]{ch20_crowd}{Wembley Stadium, London, as a crowd of tens of thousands streams along the
+approach. When such a crowd arrives or leaves, the phones in it wake up together, and the random-access
+channel, not the data capacity, is often the first thing to saturate.}
+
+\begin{tryit}[Flood the RACH, then bar it]
+Open Lab 26's \emph{RACH collisions and barring}. First drag \emph{Devices contending} past
+\emph{Preambles} and watch successes peak near $M/e$. Then set \emph{Devices} to 30\,000 with
+\emph{Activation} at 10\,s burst: most devices fail. Now lower \emph{Access-class barring: pass probability}
+step by step and find the value that lets the most devices through---slowing everyone down gets more of
+them in.
+\end{tryit}
+
 \begin{pitfall}[Random access is where networks fail first]
 Engineers dimension networks for traffic, but outages often begin with signalling. When a large venue empties,
 when a network recovers after a fault, or when a firmware update makes a whole fleet of devices reconnect at the
@@ -984,6 +1316,16 @@ A fleet of devices that all report ``at midnight'' is a self-inflicted denial-of
 \section{The cellular concept}
 \label{sec:ch20:cellular}
 %======================================================================
+
+In 1976 New York had twelve mobile channels and a waiting list of thousands. Today a single city block
+may host more simultaneous mobile connections than the whole of North America had subscribers then.
+The spectrum grew, and the radios got better, but neither explains most of the difference. The idea
+that does was written down in a Bell Labs memo three years after the first mobile call.
+
+\chTwentyFigH[0.45]{ch20_capacity_cellsize}{Equation~\eqref{eq:ch20:capacity} for a 100\,km$^2$ city with the
+395 AMPS voice channels of one operator and $N=7$: every halving of the cell radius quadruples the number
+of simultaneous calls, from about two thousand with 1\,km cells to more than two hundred thousand
+with 100\,m cells.}
 
 \begin{history}[From a 1947 memo to a 1983 launch]
 On 11~December 1947 Douglas H.~Ring of Bell Laboratories wrote a technical memorandum, ``Mobile
@@ -1017,18 +1359,37 @@ by $M$ clusters, the system carries
 C=M\cdot N\cdot\frac SN=M\,S
 \label{eq:ch20:capacity}
 \end{equation}
-simultaneous calls. Capacity is proportional to the number of clusters, so halving the cell radius
-quadruples it. This is the whole idea: \emph{capacity is created by reuse, and reuse is limited by
-interference}. The two design questions are how small $N$ can be made, which is a question of
-co-channel interference, and how small the cells can be made, which is a question of cost.
+\chTwentyFigH[0.36]{ch20_map_colours}{Frequency planning is map colouring. Here an irregular network of cells
+is coloured so that no cell shares a channel set with a neighbour or a neighbour's neighbour; real cell
+layouts, unlike hexagons, need extra sets and careful hand-tuning.}
+\noindent simultaneous calls. Capacity is proportional to the number of clusters, so halving the cell radius
+quadruples it (Figure~\ref{fig:ch20_capacity_cellsize}). This is the whole idea: \emph{capacity is created
+by reuse, and reuse is limited by interference}. The two design questions are how small $N$ can be made,
+which is a question of co-channel interference, and how small the cells can be made, which is a question
+of cost.
+
+\begin{analogy}[Paint colours on a map]
+Frequency reuse is like colouring a map so that no two neighbouring countries share a colour. You do not
+need a different colour for every country---a handful suffices, reused across the map. Channel sets are
+the colours, and the radio rule is stricter than the cartographer's: two cells with the same set must be
+separated by several others, not just by a border, because radio does not stop at boundaries. Fewer
+colours (a smaller cluster) mean more channels per cell but nearer same-coloured neighbours, which is
+exactly the trade-off the rest of this section quantifies (Figure~\ref{fig:ch20_map_colours}).
+\end{analogy}
+
+\chTwentyFigH[0.98]{ch20_hex_clusters}{Hexagonal reuse patterns for cluster sizes 3, 4 and 7. Cells with the
+same number use the same channel set; the dark cells are the co-channel cells of channel set 1. The arrows
+show the shift rule: move $i$ cells in one direction, turn $60^\circ$ and move $j$ cells to reach the
+nearest co-channel cell.}
 
 \subsection{Hexagonal geometry and the cluster size}
 
 Real cells are irregular regions shaped by terrain and buildings, but planning starts from an idealised
 layout of equal cells. Of the three regular polygons that tile the plane---triangles, squares and
 hexagons---the hexagon is closest to the circle a base station would cover in flat terrain, so it
-covers a given area with the fewest cells. A hexagonal cell of circumradius $R$ (centre to vertex) has
-area $\frac{3\sqrt3}{2}R^2$, and the centres of adjacent cells are $\sqrt3R$ apart.
+covers a given area with the fewest cells (bees discovered the same thing for honeycomb). A hexagonal
+cell of circumradius $R$ (centre to vertex) has area $\frac{3\sqrt3}{2}R^2$, and the centres of adjacent
+cells are $\sqrt3R$ apart.
 
 Which cluster sizes tile the plane so that every cell has its co-channel cells arranged symmetrically
 around it? Locate the nearest co-channel cell by walking from the centre of a cell across $i$ cells
@@ -1048,12 +1409,7 @@ Q\equiv\frac DR=\sqrt{3N}.
 \end{equation}
 The allowed cluster sizes are therefore $N=1,3,4,7,9,12,13,16,19,21,\dots$; no layout gives a symmetric
 reuse pattern with $N=5$ or $N=6$. The \term{co-channel reuse ratio} $Q=D/R$ is the single number that
-controls interference.
-
-\mdcfig[0.98]{ch20_hex_clusters}{Hexagonal reuse patterns for cluster sizes 3, 4 and 7. Cells with the
-same number use the same channel set; the dark cells are the co-channel cells of channel set 1. The arrows
-show the shift rule: move $i$ cells in one direction, turn $60^\circ$ and move $j$ cells to reach the
-nearest co-channel cell.}
+controls interference: it says how many cell radii separate you from the nearest stranger on your channel.
 
 \subsection{Co-channel interference}
 
@@ -1073,8 +1429,9 @@ to the interference for $n=4$),
 \frac SI\approx\frac{(D/R)^n}{6}=\frac{\left(\sqrt{3N}\right)^{n}}{6}.
 \label{eq:ch20:sir}
 \end{equation}
-For $n=4$, $S/I\approx\frac32N^2$: doubling the cluster size gains 6\,dB of SIR and halves the channels per
-cell. A more cautious estimate places the terminal at the worst corner of its cell, where two interferers are
+In words: SIR grows as the reuse ratio to the power of the path-loss exponent. For $n=4$,
+$S/I\approx\frac32N^2$: doubling the cluster size gains 6\,dB of SIR and halves the channels per cell.
+A more cautious estimate places the terminal at the worst corner of its cell, where two interferers are
 at about $D-R$, two at $D$ and two at $D+R$:
 \begin{equation}
 \left.\frac SI\right|_{\text{worst}}\approx\frac{1}{2(Q-1)^{-n}+2Q^{-n}+2(Q+1)^{-n}} .
@@ -1089,6 +1446,11 @@ formula~\eqref{eq:ch20:sirworst}; dots mark the valid cluster sizes. (b) Simulat
 SIR over locations in a cell, with two tiers of interferers, $n=4$ and independent 8\,dB log-normal shadowing
 on every link, for omnidirectional cells and for three 120$^\circ$ sectors with a 65$^\circ$ beamwidth
 antenna.}
+
+\mdcfig{ch20_sir_map}{Downlink SIR across a hexagonal network with path-loss exponent 3.5, no shadowing,
+each location served by the nearest base station (white dots). (a) Reuse 1: every cell border is a valley of
+SIR near 0\,dB. (b) Reuse 3 (channel sets A, B, C): the valleys fill in, at the cost of using one third of the
+spectrum in each cell.}
 
 \begin{worked}[Choosing the cluster size for AMPS]
 AMPS used analog FM with 30\,kHz channels. Subjective tests at Bell Labs found that FM voice was judged
@@ -1124,20 +1486,35 @@ must use the right-hand pattern. A modern OFDMA system with powerful codes and l
 left-hand pattern and accepts low rates at the cell edges, because using all the spectrum everywhere more than
 compensates. Section~\ref{sec:ch20:interference} shows how the cell edges are then rescued.
 
-\mdcfig{ch20_sir_map}{Downlink SIR across a hexagonal network with path-loss exponent 3.5, no shadowing,
-each location served by the nearest base station (white dots). (a) Reuse 1: every cell border is a valley of
-SIR near 0\,dB. (b) Reuse 3 (channel sets A, B, C): the valleys fill in, at the cost of using one third of the
-spectrum in each cell.}
+\mdcpairany[htbp]{ch20_cell_site}{A lattice cell tower on a university campus. The groups of rectangular
+panels at the top are sector antennas pointing in different directions, each one a separate ``cell'' covering
+a slice of the compass.}{ch20_sector_pattern}{Three sector antennas with the 3GPP-style pattern used in this
+chapter's simulations: a 65$^\circ$ half-power beamwidth and a 20\,dB floor. Each sector is deaf, to
+within the floor, to interferers behind it.}
+
+\begin{tryit}[Choose a cluster size]
+In Lab 26's \emph{Clusters, reuse and SIR}, start at \emph{Cluster size} $N=7$ with \emph{Antennas} set to
+Omni and \emph{Shadowing $\sigma$} at 8\,dB, and read off the fraction of locations below the 18\,dB
+\emph{SIR target}. Switch \emph{Antennas} to 3 sectors and watch the CDF jump right; then try $N=4$ and
+$N=3$ with sectors. Set $\sigma$ to 0 to see the geometry alone. Lab 11's \emph{Frequency reuse and SIR}
+adds the other half of the trade-off: drag \emph{Channels in the system} and watch the channels per cell
+fall as $N$ grows.
+\end{tryit}
 
 \subsection{Sectorization}
 
 Replacing a base station's omnidirectional antenna by three antennas, each covering a $120^\circ$ sector, or six
 covering $60^\circ$, reduces the number of first-tier interferers seen by each sector from six to about two
 ($120^\circ$) or one ($60^\circ$). It is the cheapest SIR improvement available, about 4.8\,dB for three sectors in
-the simple model, and almost every macro cell site in the world today is three-sectored. The SIR gain can be
-spent in two ways: to improve quality at a fixed cluster size, as in the AMPS example, or to reduce the cluster
-size and so increase the number of channels per cell. With three sectors, $N=4$ gives $(\sqrt{12})^4/2=72$, or
-18.6\,dB, in the simple model, which meets the AMPS target with 75\% more channels per cell than $N=7$.
+the simple model, and almost every macro cell site in the world today is three-sectored
+(Figure~\ref{fig:ch20_cell_site}). The SIR gain can be spent in two ways: to improve quality at a fixed cluster
+size, as in the AMPS example, or to reduce the cluster size and so increase the number of channels per cell. With
+three sectors, $N=4$ gives $(\sqrt{12})^4/2=72$, or 18.6\,dB, in the simple model, which meets the AMPS target
+with 75\% more channels per cell than $N=7$.
+
+\chTwentyFigH[0.38]{ch20_cell_splitting}{Cell splitting where the traffic is: the busiest macro cells (blue) are
+subdivided into cells of half the radius (orange), each with its own lower-power base station. Each split
+cell reuses the full set of channels in a quarter of the area.}
 
 Sectorization has costs. Each sector is a separate trunk with a third of the channels, which reduces trunking
 efficiency (Section~\ref{sec:ch20:traffic}); a terminal moving around the site must hand over between sectors;
@@ -1148,11 +1525,11 @@ in LTE and NR, every sector is a separate cell with its own identity.
 \subsection{Cell splitting, small cells and heterogeneous networks}
 
 The second lever is the cell size. \term{Cell splitting} subdivides a congested cell into smaller cells, each with
-its own base station at reduced height and power. If the radius is halved, the number of cells in an area
-quadruples, and so does the capacity by~\eqref{eq:ch20:capacity}; to keep the same received power at the new,
-closer cell edge, the transmit power can drop by $10n\log_{10}2$\,dB, 12\,dB for $n=4$. Splitting is done where
-the traffic is, so real networks have cells of very different sizes: rural macro cells tens of kilometres
-across, urban macro cells of a few hundred metres, and small cells within them.
+its own base station at reduced height and power (Figure~\ref{fig:ch20_cell_splitting}). If the radius is halved,
+the number of cells in an area quadruples, and so does the capacity by~\eqref{eq:ch20:capacity}; to keep the same
+received power at the new, closer cell edge, the transmit power can drop by $10n\log_{10}2$\,dB, 12\,dB for $n=4$.
+Splitting is done where the traffic is, so real networks have cells of very different sizes: rural macro cells
+tens of kilometres across, urban macro cells of a few hundred metres, and small cells within them.
 
 The modern network is a \term{heterogeneous network} (HetNet): a layer of macro cells for coverage and mobility,
 overlaid with \term{small cells}---microcells on lamp posts and building walls, picocells indoors, femtocells in
@@ -1163,6 +1540,10 @@ the network biases association towards them (Section~\ref{sec:ch20:interference}
 them; and a femtocell with closed access becomes a strong interferer for a passing macro user who is not allowed
 to connect to it. Fast-moving users are better kept on the macro layer, an ``umbrella'' over the small cells, to
 avoid a storm of handovers.
+
+\mdcphoto[0.62]{ch20_small_cell}{A small cell on a lamp post in Minneapolis, photographed during the week of
+Super Bowl LII, when the city's crowds peaked: four compact panel antennas with their radios, mounted a few
+metres above the street. Each one adds a full cell's capacity to a few city blocks.}
 
 \begin{keyidea}[Spatial reuse is the dominant source of capacity growth]
 Over the history of mobile radio, the capacity per unit area has grown by a factor of perhaps a million. Estimates
@@ -1183,6 +1564,12 @@ attempt finds them all busy only rarely? The theory that answers it was created 
 Danish mathematician more than a century ago, and it is still used to dimension voice networks, call centres and
 signalling resources.
 
+\mdcpairany[htbp]{ch20_ktas}{The Central \O{}bro exchange building of KTAS, the Copenhagen Telephone Company
+that employed Erlang, in Copenhagen. Questions about how much switching equipment buildings like this
+needed gave birth to teletraffic theory.}{ch20_exchange_1921}{Operators at the Garfield exchange in Seattle,
+about 1921. Each position served a group of lines; how many positions and trunks an exchange needed for a
+given grade of service was exactly the question Erlang answered.}
+
 \begin{history}[Agner Krarup Erlang]
 A.~K.~Erlang (1878--1929) joined the Copenhagen Telephone Company in 1908 as its first scientific collaborator, at
 the invitation of its chief engineer, who wanted to know how many lines and switches the growing exchanges needed.
@@ -1192,6 +1579,19 @@ He worked alone and published mostly in Danish, but his results spread through t
 System and became the foundation of queueing theory and teletraffic engineering. The international unit of
 traffic intensity was named the \emph{erlang} in his honour in 1946.
 \end{history}
+
+\begin{analogy}[How many checkout lanes?]
+A supermarket manager must decide how many checkout lanes to open. Too few, and at the busy hour shoppers find
+every lane jammed and walk out; too many, and cashiers sit idle. Customers arrive at random, and each takes a
+random time to serve. Erlang B answers the version in which a customer who finds every lane busy simply leaves
+(a blocked call is lost); Erlang C answers the version in which they queue. The analogy's limit: shoppers can
+see the queues and pick the shortest, and some come back later, whereas Erlang's callers are assumed to
+arrive independently of how busy the system is.
+\end{analogy}
+
+\mdcphoto[0.55]{ch20_checkout}{Checkout lanes in a supermarket. How many to staff at the busy hour, so that
+few customers find every lane occupied, is the same mathematical question as how many radio channels a cell
+needs.}
 
 \subsection{Offered traffic and the erlang}
 
@@ -1210,8 +1610,33 @@ voice.
 
 If blocked calls simply disappear (the caller gives up, or tries again much later), a cell with $C$ channels is the
 queue M/M/$C$/$C$: Poisson arrivals, exponential holding times (for now), $C$ servers, no waiting room. Its state is
-the number $k$ of calls in progress, a birth--death process with birth rate $\lambda$ in every state $k<C$ and death
-rate $k/h$ in state $k$. In equilibrium the probability flow across each cut balances,
+the number $k$ of calls in progress, a birth--death process (Figure~\ref{fig:ch20_birthdeath}) with birth rate
+$\lambda$ in every state $k<C$ and death rate $k/h$ in state $k$.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,>={Stealth[length=2mm]},
+  st/.style={circle,draw=navy,fill=navy!8,thick,minimum size=0.75cm,inner sep=0pt}]
+\foreach \k/\x in {0/0,1/1.9,2/3.8} {\node[st] (s\k) at (\x,0) {\k};}
+\node (dots) at (5.5,0) {$\cdots$};
+\node[st] (sc1) at (7.2,0) {$C\!-\!1$};
+\node[st,draw=accent,fill=accent!10] (sc) at (9.1,0) {$C$};
+\foreach \a/\b/\m in {s0/s1/1,s1/s2/2,sc1/sc/C} {
+  \draw[->,thick,navy] (\a) to[bend left=35] node[above]{$\lambda$} (\b);
+  \draw[->,thick,green!50!black] (\b) to[bend left=35] node[below]{$\m/h$} (\a);}
+\draw[->,thick,navy] (s2) to[bend left=35] node[above]{$\lambda$} (dots);
+\draw[->,thick,green!50!black] (dots) to[bend left=35] node[below]{$3/h$} (s2);
+\draw[->,thick,navy] (dots) to[bend left=35] node[above]{$\lambda$} (sc1);
+\draw[->,thick,green!50!black] (sc1) to[bend left=35] node[below]{$(C\!-\!1)/h$} (dots);
+\draw[->,thick,accent] (sc.east) -- ++(1.0,0) node[right,align=left]{arrivals\\blocked};
+\node[text=gray] at (4.55,-1.25) {state $k$ = calls in progress; each call ends at rate $1/h$, so $k$ calls end at rate $k/h$};
+\end{tikzpicture}
+\caption{The Erlang loss system as a birth--death chain. Calls arrive at rate $\lambda$ whenever a channel is
+free; with $k$ calls in progress, one of them ends at rate $k/h$. In state $C$ every channel is busy and new
+calls are lost.}
+\label{fig:ch20_birthdeath}
+\end{figure}
+
+In equilibrium the probability flow across each cut balances,
 $\lambda\,P_{k-1}=(k/h)\,P_k$, so $P_k=P_{k-1}A/k$ and
 \begin{equation}
 P_k=\frac{A^k/k!}{\sum_{j=0}^{C}A^j/j!},\qquad k=0,1,\dots,C,
@@ -1222,7 +1647,8 @@ call is blocked is the probability that all channels are busy:
 B(A,C)=\frac{A^C/C!}{\sum_{k=0}^{C}A^k/k!}.
 \label{eq:ch20:erlangb}
 \end{equation}
-This is the \term{Erlang B formula}. A remarkable property makes it robust: it is \emph{insensitive} to the
+This is the \term{Erlang B formula}. Figure~\ref{fig:ch20_switchboard} watches it at work on a simulated
+switchboard. A remarkable property makes it robust: it is \emph{insensitive} to the
 distribution of the holding times, depending only on their mean, so it holds for real call durations, which are far
 from exponential. For computation, factorials overflow quickly; the recursion
 \begin{equation}
@@ -1232,10 +1658,55 @@ B(A,0)=1,\qquad B(A,c)=\frac{A\,B(A,c-1)}{c+A\,B(A,c-1)}
 is numerically stable and is how every Erlang calculator works. The \term{carried traffic} is $A(1-B)$, and the
 channel utilisation is $A(1-B)/C$.
 
+\mdcfig{ch20_switchboard}{A live switchboard. (a) Four simulated hours of a 10-line trunk offered 7\,E of
+three-minute calls: the number of lines in use wanders, and each time it touches the ceiling, arriving callers
+(crosses) are turned away. (b) The long-run distribution of lines in use is Erlang's truncated Poisson law; the
+red bar, the probability that all lines are busy, is the blocking probability $B(7,10)\approx7.9\%$. The short
+simulation turned away about 10\% of its callers, within the run-to-run scatter of a four-hour sample.}
+
 \mdcfig{ch20_erlang}{Traffic theory. (a) Erlang B blocking probability versus offered traffic for $C=1$ to 100
 channels. (b) Trunking efficiency: the carried traffic per channel at a fixed grade of service rises steeply with the
 number of channels; large trunks are efficient. (c) Erlang C probability that a call must wait, versus utilisation
 $A/C$: with many servers, waiting stays rare until the utilisation is high.}
+
+\subsection{Trunking efficiency}
+
+Table~\ref{tab:ch20:erlangb} and Figure~\ref{fig:ch20_erlang}b show the most important property of the
+formula: \term{trunking efficiency}, the economies of scale of shared resources. At 2\% blocking, 10 channels carry
+5.1\,E, a utilisation of about 50\%, while 100 channels carry 88\,E, about 86\% (Figure~\ref{fig:ch20_trunk_pools}).
+Ten separate 10-channel cells carry 51\,E between them; one 100-channel cell carries 88\,E. Random fluctuations of the
+number of active calls grow only as the square root of the mean, so a large group needs proportionally less headroom.
+Every technique that splits a pool of channels into smaller pools---sectorization, separate carriers for separate
+services, dedicated channels for particular users---pays a trunking penalty, and every technique that pools resources
+across cells, carriers or technologies gains. A single snake queue feeding ten checkouts beats ten separate queues for
+the same reason.
+
+\mdcfig[0.5]{ch20_trunk_pools}{Trunking efficiency in one picture: the same 100 lines carry 51\,E at 2\%
+blocking when split into ten exchanges, but 88\,E when pooled.}
+
+\begin{worked}[Dimensioning an AMPS cell, and the price of sectors]
+An AMPS cell with $N=7$ has 57 voice channels. Each subscriber generates 0.033\,E in the busy hour (one two-minute
+call). How many subscribers can the cell serve at 2\% blocking (a) as one omnidirectional cell, (b) as three
+sectors of 19 channels each, and (c) with three sectors and $N=4$?
+
+(a) Solving $B(A,57)=0.02$ gives $A=46.8$\,E, so the cell serves $46.8/0.033\approx1400$ subscribers.
+
+(b) Each sector is now a separate trunk of 19 channels, carrying 12.3\,E at 2\%: $3\times12.3=37.0$\,E in all,
+about 1110 subscribers. Sectoring for interference costs 21\% of the cell's capacity in trunking efficiency.
+
+(c) The sectors' interference advantage allows $N=4$ instead of 7 (Section~\ref{sec:ch20:cellular}), so each cell
+gets about $395/4\approx99$ voice channels, 33 per sector. Each sector carries 24.6\,E, the cell 73.9\,E, about 2200
+subscribers, 58\% more than the omnidirectional $N=7$ cell. The lesson is typical of cellular engineering:
+sectorization pays for itself only when its SIR gain is spent on tighter reuse.
+\end{worked}
+
+\begin{tryit}[Run a switchboard]
+Lab 26's \emph{Erlang: a live switchboard} animates calls arriving and leaving. Start at 57 \emph{Channels} and
+40\,E of \emph{Offered traffic}, then push the traffic up until the blocking counter reaches the 2\%
+\emph{Grade of service}. Now set \emph{Split the channels into sectors} to 3 and watch the blocking jump at the
+same total load: that is case (b) of the worked example. In Lab 11's \emph{Trunking: a live switchboard},
+\emph{Split into separate groups} does the same for a smaller trunk.
+\end{tryit}
 
 \begin{table}[htbp]\centering\small
 \caption{Erlang B: offered traffic (erlangs) that $C$ channels carry at a given blocking probability.}
@@ -1258,33 +1729,6 @@ $C$ & 0.5\% & 1\% & 2\% & 5\% & $C$ & 0.5\% & 1\% & 2\% & 5\%\\
 \end{tabular}
 \end{table}
 
-\subsection{Trunking efficiency}
-
-Table~\ref{tab:ch20:erlangb} and Figure~\ref{fig:ch20_erlang}b show the most important property of the
-formula: \term{trunking efficiency}, the economies of scale of shared resources. At 2\% blocking, 10 channels carry
-5.1\,E, a utilisation of about 50\%, while 100 channels carry 88\,E, about 86\%. Ten separate 10-channel cells
-carry 51\,E between them; one 100-channel cell carries 88\,E. Random fluctuations of the number of active calls
-grow only as the square root of the mean, so a large group needs proportionally less headroom. Every technique that
-splits a pool of channels into smaller pools---sectorization, separate carriers for separate services, dedicated
-channels for particular users---pays a trunking penalty, and every technique that pools resources across cells,
-carriers or technologies gains.
-
-\begin{worked}[Dimensioning an AMPS cell, and the price of sectors]
-An AMPS cell with $N=7$ has 57 voice channels. Each subscriber generates 0.033\,E in the busy hour (one two-minute
-call). How many subscribers can the cell serve at 2\% blocking (a) as one omnidirectional cell, (b) as three
-sectors of 19 channels each, and (c) with three sectors and $N=4$?
-
-(a) Solving $B(A,57)=0.02$ gives $A=46.8$\,E, so the cell serves $46.8/0.033\approx1400$ subscribers.
-
-(b) Each sector is now a separate trunk of 19 channels, carrying 12.3\,E at 2\%: $3\times12.3=37.0$\,E in all,
-about 1110 subscribers. Sectoring for interference costs 21\% of the cell's capacity in trunking efficiency.
-
-(c) The sectors' interference advantage allows $N=4$ instead of 7 (Section~\ref{sec:ch20:cellular}), so each cell
-gets about $395/4\approx99$ voice channels, 33 per sector. Each sector carries 24.6\,E, the cell 73.9\,E, about 2200
-subscribers, 58\% more than the omnidirectional $N=7$ cell. The lesson is typical of cellular engineering:
-sectorization pays for itself only when its SIR gain is spent on tighter reuse.
-\end{worked}
-
 \subsection{Erlang C: blocked calls delayed}
 
 If a call that finds all channels busy waits in a queue instead (as in a call centre, or for a packet waiting for
@@ -1304,7 +1748,12 @@ Unlike Erlang B, Erlang C does depend on the holding-time distribution, so it is
 Figure~\ref{fig:ch20_erlang}c shows the trunking effect again: a single server at 80\% utilisation makes 80\% of
 callers wait, whereas 50 servers at 80\% utilisation make only a few percent wait. With 30 agents and 25\,E of
 offered traffic (83\% utilisation) and three-minute calls, 25\% of callers wait and the mean wait over all callers
-is about 9\,s.
+is about 9\,s (Figure~\ref{fig:ch20_erlang_wait}). Two agents fewer and the wait more than doubles; three more
+and it nearly vanishes---the steepness that makes call-centre staffing, and scheduler dimensioning, so sensitive.
+
+\chTwentyFigH[0.6]{ch20_erlang_wait}{Erlang C for the call-centre example: the fraction of callers who wait
+longer than $t$, with 25\,E of offered traffic and three-minute calls, for three staffing levels. Near full
+utilisation, every agent matters.}
 
 \begin{inpractice}[Erlang in the packet era]
 Voice over LTE and 5G no longer uses dedicated circuits, so is Erlang obsolete? Not quite. Operators still
@@ -1323,9 +1772,14 @@ about $c/n$, and the number of active users follows the same Poisson-type statis
 \label{sec:ch20:interference}
 %======================================================================
 
-Fixed reuse patterns trade spectrum for interference once and for all. Modern systems run at reuse 1 and manage
-interference dynamically, with power control, coordination between neighbouring cells, and, in the limit, joint
-transmission from several sites.
+Fixed reuse patterns trade spectrum for interference once and for all, like neighbours who agree never to mow
+their lawns on the same day of the week. Modern systems run at reuse 1---everyone mows whenever they like---and
+manage interference dynamically, with power control, coordination between neighbouring cells, and, in the limit,
+joint transmission from several sites.
+
+\mdcfig[0.5]{ch20_fpc}{Fractional power control: transmit power versus path loss for three values of $\alpha$
+(with $P_0$ chosen so the curves meet at 100\,dB). Full compensation ($\alpha=1$) makes far users shout
+loudest; $\alpha<1$ lets them accept a lower received level and spares the neighbouring cells.}
 
 \subsection{Power control}
 
@@ -1343,15 +1797,24 @@ P=\min\Big\{P_{\max},\;P_0+10\log_{10}M+\alpha\cdot\mathrm{PL}+\Delta_{\mathrm{T
 \end{equation}
 where $M$ is the number of allocated resource blocks, PL the terminal's estimate of its downlink path loss,
 $\Delta_{\mathrm{TF}}$ an adjustment for the modulation and coding scheme, and $f$ an accumulated closed-loop
-correction driven by transmit-power-control commands. The \emph{open-loop} part, $P_0+\alpha\,\mathrm{PL}$, is the
-interesting one. With $\alpha=1$ (full compensation) every user arrives with the same power spectral density $P_0$,
-as in CDMA, so the cell-edge users, who have the highest path loss, transmit the most power and create the most
-interference in neighbouring cells. With $\alpha<1$ (typical values 0.7--0.8), received power at the serving cell
-grows with proximity, so near users get higher SINR and rates, edge users accept lower SINR, and the
-interference generated in neighbouring cells drops. Fractional control trades a little cell-edge throughput for a
-larger gain in average throughput, and it is one of the simplest and most effective tools for reuse-1 uplinks.
-Downlink power control is less important in OFDMA: the base station's power is shared among resource blocks, and
-link adaptation, not power, matches each user's rate to its channel.
+correction driven by transmit-power-control commands.
+
+The \emph{open-loop} part, $P_0+\alpha\,\mathrm{PL}$, is the interesting one (Figure~\ref{fig:ch20_fpc}). With
+$\alpha=1$ (full compensation) every user arrives with the same power spectral density $P_0$, as in CDMA, so the
+cell-edge users, who have the highest path loss, transmit the most power and create the most interference in
+neighbouring cells. With $\alpha<1$ (typical values 0.7--0.8), received power at the serving cell grows with
+proximity, so near users get higher SINR and rates, edge users accept lower SINR, and the interference generated in
+neighbouring cells drops. Fractional control trades a little cell-edge throughput for a larger gain in average
+throughput, and it is one of the simplest and most effective tools for reuse-1 uplinks. Downlink power control is less
+important in OFDMA: the base station's power is shared among resource blocks, and link adaptation, not power,
+matches each user's rate to its channel.
+
+\mdcfig{ch20_ffr}{Fractional frequency reuse. (a) Strict FFR: a common band at reuse 1 for centre users plus three
+edge sub-bands at reuse 3. (b) Soft frequency reuse: every cell uses all sub-bands, with full power on its own edge
+sub-band. (c)~SINR and (d) per-user rate distributions in a hexagonal network ($n=3.5$, 6\,dB shadowing, 20\,dB
+cell-edge SNR). The 30\% of users with the worst reuse-1 SINR are classed as edge users; in (d) each class shares its
+part of the band equally. FFR raises the fifth-percentile rate about fourfold relative to reuse 1 at a cost of about
+13\% in mean rate; reuse 3 everywhere helps the edge less and costs a third of the mean.}
 
 \subsection{Inter-cell interference coordination}
 
@@ -1367,18 +1830,16 @@ downlink, a cell announces on which resource blocks it intends to transmit at hi
 transmit power, RNTP); for the uplink, it warns its neighbours which resource blocks its edge users will occupy
 (high interference indicator) and complains about those on which it suffers (overload indicator).
 
-\mdcfig{ch20_ffr}{Fractional frequency reuse. (a) Strict FFR: a common band at reuse 1 for centre users plus three
-edge sub-bands at reuse 3. (b) Soft frequency reuse: every cell uses all sub-bands, with full power on its own edge
-sub-band. (c)~SINR and (d) per-user rate distributions in a hexagonal network ($n=3.5$, 6\,dB shadowing, 20\,dB
-cell-edge SNR). The 30\% of users with the worst reuse-1 SINR are classed as edge users; in (d) each class shares its
-part of the band equally. FFR raises the fifth-percentile rate about fourfold relative to reuse 1 at a cost of about
-13\% in mean rate; reuse 3 everywhere helps the edge less and costs a third of the mean.}
-
 Figure~\ref{fig:ch20_ffr} quantifies the trade-off in a simple model. Pure reuse 1 gives the best mean rate but leaves
 the worst 5\% of users with a rate below 0.1\,b/s/Hz. Reuse 3 everywhere lifts the edge but wastes two-thirds of the
 band at the centre. FFR does both: the edge users' SINR moves from the reuse-1 curve to the reuse-3 curve, and the
 centre users keep the full-band efficiency. The best split between the common and edge bands depends on the user
 distribution and the traffic, which is why later systems moved from static plans to coordinated scheduling.
+
+\mdcfig{ch20_range_expansion}{Cell range expansion along a line through a macro site (46\,dBm) and a small cell
+(30\,dBm) 700\,m away, using 3GPP-style macro and pico path-loss laws. Users served by the strongest
+downlink join the small cell only inside its natural area (green); a 9\,dB association bias extends it
+(orange), offloading users who then rely on almost blank subframes to escape the stronger macro signal.}
 
 \subsection{Heterogeneous networks: range expansion and almost-blank subframes}
 
@@ -1387,12 +1848,13 @@ macro cell, transmitting perhaps 16\,dB more power, wins over most of the small 
 uplink path loss, which is what matters for the terminal's battery and for interference, is lowest to the
 \emph{nearest} cell, often the small one. LTE Release~10 introduced \term{enhanced ICIC} (eICIC) for this case.
 \term{Cell range expansion} adds a bias, typically a few decibels and up to about 9\,dB, to the small cell's
-measured power when choosing the serving cell, so more users offload onto it. The users in the expanded region
-then receive the macro cell's signal more strongly than their own, so the macro cell transmits \term{almost blank
-subframes} (ABS), subframes in which it sends only essential reference signals and no data, and the small cell
-schedules its range-expanded users in those subframes. Further enhancements (FeICIC, Release~11) added receiver
-cancellation of the residual macro reference signals. NR, with its leaner always-on signals, has much less
-residual interference to cancel, and relies on scheduling and beamforming.
+measured power when choosing the serving cell, so more users offload onto it (Figure~\ref{fig:ch20_range_expansion}).
+The users in the expanded region then receive the macro cell's signal more strongly than their own, so the macro
+cell transmits \term{almost blank subframes} (ABS), subframes in which it sends only essential reference signals
+and no data, and the small cell schedules its range-expanded users in those subframes---the loud neighbour agrees
+to keep quiet for a few minutes every hour so that the quiet one can be heard. Further enhancements (FeICIC,
+Release~11) added receiver cancellation of the residual macro reference signals. NR, with its leaner always-on
+signals, has much less residual interference to cancel, and relies on scheduling and beamforming.
 
 \subsection{Coordinated multipoint}
 
@@ -1400,12 +1862,42 @@ The most ambitious form of interference management treats neighbouring sites as 
 In \term{coordinated multipoint} (CoMP, LTE Release~11; multi-TRP transmission in NR), several transmission
 points may \emph{jointly transmit} the same data to a cell-edge user (joint transmission, turning interference into
 signal); \emph{dynamically select} which point serves the user from one slot to the next; or
-\emph{coordinate their scheduling and beamforming} so that each one's beams avoid the others' users. The gains of
-joint transmission can be large in theory, since it removes inter-cell interference altogether, but they depend
-on accurate channel knowledge from several sites and on fast, high-capacity backhaul between them; field gains have
-been modest except where the points share a baseband unit. Its logical conclusion, \emph{cell-free massive MIMO}, in
-which many distributed antennas jointly serve all users with no cells at all, is discussed in
-Chapter~\ref{ch:mimo}.
+\emph{coordinate their scheduling and beamforming} so that each one's beams avoid the others' users
+(Figure~\ref{fig:ch20_comp}). The gains of joint transmission can be large in theory, since it removes inter-cell
+interference altogether, but they depend on accurate channel knowledge from several sites and on fast,
+high-capacity backhaul between them; field gains have been modest except where the points share a baseband unit.
+Its logical conclusion, \emph{cell-free massive MIMO}, in which many distributed antennas jointly serve all users
+with no cells at all, is discussed in Chapter~\ref{ch:mimo}.
+
+\begin{figure}[htbp]\centering
+\begin{tikzpicture}[font=\sffamily\scriptsize,>={Stealth[length=2mm]},
+  bs/.style={regular polygon,regular polygon sides=3,draw=navy,fill=navy!60,minimum size=0.45cm,inner sep=0pt},
+  ue/.style={circle,draw=accent,fill=accent!60,minimum size=0.25cm,inner sep=0pt}]
+\begin{scope}
+\node[font=\sffamily\small\bfseries,text=navy] at (1.5,1.55) {joint transmission};
+\node[bs] (a) at (0,0) {}; \node[bs] (b) at (3,0) {}; \node[ue] (u) at (1.5,-0.9) {};
+\draw[->,thick,green!50!black] (a) -- (u); \draw[->,thick,green!50!black] (b) -- (u);
+\node[align=center,text=gray] at (1.5,-1.65) {both sites send the same data:\\interference becomes signal};
+\end{scope}
+\begin{scope}[xshift=4.6cm]
+\node[font=\sffamily\small\bfseries,text=navy] at (1.5,1.55) {dynamic point selection};
+\node[bs] (a) at (0,0) {}; \node[bs] (b) at (3,0) {}; \node[ue] (u) at (1.5,-0.9) {};
+\draw[->,thick,green!50!black] (b) -- (u); \draw[->,thick,gray,dashed] (a) -- (u);
+\node[align=center,text=gray] at (1.5,-1.65) {the better site serves this slot;\\the other stays silent on it};
+\end{scope}
+\begin{scope}[xshift=9.2cm]
+\node[font=\sffamily\small\bfseries,text=navy] at (1.5,1.55) {coordinated beamforming};
+\node[bs] (a) at (0,0) {}; \node[bs] (b) at (3,0) {}; \node[ue] (u) at (0.5,-1.0) {}; \node[ue] (v) at (2.5,-1.0) {};
+\fill[green!50!black,opacity=0.25] (a.south) -- (0.15,-1.35) -- (0.85,-1.35) -- cycle;
+\fill[green!50!black,opacity=0.25] (b.south) -- (2.15,-1.35) -- (2.85,-1.35) -- cycle;
+\node[align=center,text=gray] at (1.5,-1.75) {each site steers its beam\\away from the other's user};
+\end{scope}
+\end{tikzpicture}
+\caption{Three flavours of coordinated multipoint for a user at the boundary between two sites. They differ in
+how much the sites must share: user data and channel knowledge (joint transmission), fast scheduling decisions
+(dynamic point selection), or only channel knowledge and beam choices (coordinated beamforming).}
+\label{fig:ch20_comp}
+\end{figure}
 
 %======================================================================
 \section{The capacity of cellular networks}
@@ -1414,15 +1906,17 @@ Chapter~\ref{ch:mimo}.
 
 How much data can a cellular network carry per square kilometre, and how does that change as base stations are
 added? Hexagonal models answer such questions by simulation, one geometry at a time. A different approach, which
-has reshaped network theory since about 2010, models the base-station locations as random.
+has reshaped network theory since about 2010, models the base-station locations as random---and, surprisingly,
+the randomness is what makes the problem solvable with pencil and paper.
 
 \subsection{Base stations as a Poisson point process}
 
 Real base stations are not on a lattice. They sit where an operator could obtain a site, and their density follows
 the population. Andrews, Baccelli and Ganti proposed in 2011 to model them as a homogeneous \term{Poisson point
 process} (PPP) $\Phi$ of density $\lambda$ base stations per unit area: the number in any region of area $A$ is Poisson
-with mean $\lambda A$, independently for disjoint regions (Figure~\ref{fig:ch20_ppp}a). The model sounds crude, but it
-captures the irregularity of real networks and, crucially, it makes the interference tractable.
+with mean $\lambda A$, independently for disjoint regions (Figure~\ref{fig:ch20_ppp}a). Picture throwing a handful of
+rice onto a map: each grain is a base station, and each point of the map is served by the nearest grain. The model
+sounds crude, but it captures the irregularity of real networks and, crucially, it makes the interference tractable.
 
 Place a typical user at the origin, served by its nearest base station at distance $r$. With Rayleigh fading
 ($h\sim$ exponential with unit mean on every link), path loss $d^{-\alpha}$, equal transmit power $P$ and noise power
@@ -1431,8 +1925,30 @@ $\sigma^2$, the downlink SINR is
 \mathrm{SINR}=\frac{h\,r^{-\alpha}}{I+\sigma^2/P},\qquad
 I=\sum_{x\in\Phi\setminus\{b_0\}}g_x\,\|x\|^{-\alpha}.
 \end{equation}
-The \term{coverage probability} $P_c(T)=\Pr\{\mathrm{SINR}>T\}$ is the complementary CDF of SINR. Three facts make it
-computable.
+\mdcfig{ch20_ppp}{Stochastic geometry of a cellular network. (a) Base stations drawn from a Poisson point process,
+with the Voronoi cells of nearest-station association. (b) Coverage probability with Rayleigh fading and no noise:
+the closed-form PPP result~\eqref{eq:ch20:pppnoisefree} for three path-loss exponents, a Monte Carlo check for
+$\alpha=4$, and a hexagonal grid of the same density, which is about 4\,dB more optimistic at the median. (c) Coverage
+versus density when noise matters ($\alpha=4$, 10\,dB SNR at 300\,m): densification moves the network from noise-limited
+to interference-limited operation, after which coverage no longer depends on density (dotted lines).}
+
+The \term{coverage probability} $P_c(T)=\Pr\{\mathrm{SINR}>T\}$ is the complementary CDF of SINR. Averaging over
+the distance to the serving station and over the random interferers (box below) gives the general result
+\begin{equation}
+P_c(T)=\pi\lambda\int_0^\infty e^{-\pi\lambda v\,(1+\rho(T,\alpha))-T\sigma^2v^{\alpha/2}/P}\,dv,
+\label{eq:ch20:ppp}
+\end{equation}
+and, when interference dominates noise,
+\begin{equation}
+P_c(T)=\frac{1}{1+\rho(T,\alpha)},\qquad
+\rho(T,4)=\sqrt T\left(\frac\pi2-\arctan\frac{1}{\sqrt T}\right).
+\label{eq:ch20:pppnoisefree}
+\end{equation}
+For $\alpha=4$ and $T=1$ (0\,dB), $P_c=1/(1+\pi/4)\approx0.56$: in a reuse-1 network, about 44\% of locations have an
+SINR below 0\,dB. Integrating the coverage curve gives the mean spectral efficiency, $\E[\ln(1+\mathrm{SINR})]\approx1.49$
+nats/s/Hz, or about 2.15\,b/s/Hz, for $\alpha=4$.
+
+\begin{deeper}[Three facts that make the PPP computable]
 \begin{enumerate}
 \item The distance to the nearest point of a PPP has density $f(r)=2\pi\lambda r\,e^{-\pi\lambda r^2}$, since the
 probability of no point within $r$ is $e^{-\lambda\pi r^2}$.
@@ -1448,32 +1964,20 @@ interferers, which lie outside the disk of radius $r$,
 with $\rho(T,\alpha)=T^{2/\alpha}\int_{T^{-2/\alpha}}^{\infty}\frac{du}{1+u^{\alpha/2}}$ after the substitution
 $u=(v/r)^2T^{-2/\alpha}$.
 \end{enumerate}
-Averaging over $r$ gives the general result
-\begin{equation}
-P_c(T)=\pi\lambda\int_0^\infty e^{-\pi\lambda v\,(1+\rho(T,\alpha))-T\sigma^2v^{\alpha/2}/P}\,dv,
-\label{eq:ch20:ppp}
-\end{equation}
-and, when interference dominates noise,
-\begin{equation}
-P_c(T)=\frac{1}{1+\rho(T,\alpha)},\qquad
-\rho(T,4)=\sqrt T\left(\frac\pi2-\arctan\frac{1}{\sqrt T}\right).
-\label{eq:ch20:pppnoisefree}
-\end{equation}
-For $\alpha=4$ and $T=1$ (0\,dB), $P_c=1/(1+\pi/4)\approx0.56$: in a reuse-1 network, about 44\% of locations have an
-SINR below 0\,dB. Integrating the coverage curve gives the mean spectral efficiency, $\E[\ln(1+\mathrm{SINR})]\approx1.49$
-nats/s/Hz, or about 2.15\,b/s/Hz, for $\alpha=4$.
+Multiplying the three pieces and integrating over $r$ (with $v=r^2$) gives~\eqref{eq:ch20:ppp}; setting $\sigma^2=0$
+makes the integral elementary and gives~\eqref{eq:ch20:pppnoisefree}.
+\end{deeper}
 
-\mdcfig{ch20_ppp}{Stochastic geometry of a cellular network. (a) Base stations drawn from a Poisson point process,
-with the Voronoi cells of nearest-station association. (b) Coverage probability with Rayleigh fading and no noise:
-the closed-form PPP result~\eqref{eq:ch20:pppnoisefree} for three path-loss exponents, a Monte Carlo check for
-$\alpha=4$, and a hexagonal grid of the same density, which is about 4\,dB more optimistic at the median. (c) Coverage
-versus density when noise matters ($\alpha=4$, 10\,dB SNR at 300\,m): densification moves the network from noise-limited
-to interference-limited operation, after which coverage no longer depends on density (dotted lines).}
+\chTwentyFigH{ch20_densify_maps}{Scale invariance, seen. (a) Downlink SIR over an $8\times8$\,km patch of a PPP network
+($\alpha=4$, no fading). (b) A network four times denser, shown over a $4\times4$\,km patch: shrink the map by two and
+it is statistically the same picture. The median SIR is about 2.5\,dB in both, yet (b) serves four times as many
+cells' worth of traffic per square kilometre.}
 
 \begin{keyidea}[In an interference-limited network, density does not change the SINR]
 Equation~\eqref{eq:ch20:pppnoisefree} does not contain $\lambda$. Adding base stations brings the serving station
-closer, but it brings the interferers closer by exactly the same factor, and the SINR distribution is unchanged.
-Each new base station therefore adds a full cell's worth of capacity: the \term{area spectral efficiency},
+closer, but it brings the interferers closer by exactly the same factor, and the SINR distribution is unchanged
+(Figure~\ref{fig:ch20_densify_maps}). Each new base station therefore adds a full cell's worth of capacity: the
+\term{area spectral efficiency},
 \begin{equation}
 \mathrm{ASE}=\lambda\cdot\E[\log_2(1+\mathrm{SINR})]\quad\text{b/s/Hz/km}^2,
 \end{equation}
@@ -1481,6 +1985,20 @@ grows linearly with density. With 10 base stations per square kilometre and $\al
 $10\times2.15=21.5$\,b/s/Hz/km$^2$, or 2.15\,Gb/s/km$^2$ with 100\,MHz of spectrum; ten times the density gives ten
 times the capacity. This scale invariance is the formal statement of the cellular concept's promise.
 \end{keyidea}
+
+\begin{tryit}[Densify a random network]
+Lab 26's \emph{Stochastic geometry: PPP coverage} draws a random deployment and its SINR map. With \emph{SNR at 300\,m}
+set high (30\,dB or more), drag \emph{Base-station density} across two decades: the map shrinks but the coverage curve
+does not move, and the challenge value $1/(1+\pi/4)$ appears at $T=0$\,dB. Now lower the SNR to 0\,dB and repeat:
+at low density, adding base stations helps, until the curve meets the interference-limited bound. Press
+\emph{New deployment} to see how much one random draw varies.
+\end{tryit}
+
+\chTwentyFigH[0.62]{ch20_dual_slope}{Densification with one and with two path-loss slopes (Monte Carlo, PPP
+base stations, Rayleigh fading, no noise). With a single exponent the area spectral efficiency grows in
+proportion to density, as the key idea promised. When links shorter than 50\,m follow the gentler free-space
+law, interferers start to arrive line of sight once cells shrink below that size, and the growth slows: at
+10\,000 sites per km$^2$ the dual-slope network carries about a quarter of the single-slope figure.}
 
 \subsection{Where densification stops paying}
 
@@ -1518,8 +2036,14 @@ other.
 \label{sec:ch20:mobility}
 %======================================================================
 
-A cellular network must keep track of terminals that move, both while they are in a call (handover) and while they
-are idle (location management and paging).
+Drive across a city while on a video call and your phone may change cells dozens of times without a glitch you
+can notice. Behind that seamlessness sits a careful compromise between switching too eagerly and switching too
+late. A cellular network must keep track of terminals that move, both while they are in a call (handover) and
+while they are idle (location management and paging).
+
+\mdcfig{ch20_a3}{Event A3 in slow motion. The neighbour's filtered RSRP crosses the serving cell's long before
+the handover: first it must exceed the serving level plus the hysteresis, and then stay there for the
+time-to-trigger (shaded). Only then is the measurement report sent and the handover prepared.}
 
 \subsection{Handover}
 
@@ -1544,9 +2068,25 @@ better than the serving cell by an offset. Stripped of its cell-specific offsets
 M_{\text{neighbour}}>M_{\text{serving}}+\mathrm{Hys}\quad\text{continuously for a time-to-trigger } T_{\text{TTT}}.
 \end{equation}
 The terminal then reports, the serving cell prepares the target cell over the inter-base-station interface, and
-commands the handover, after which the terminal performs contention-free random access in the target cell.
+commands the handover, after which the terminal performs contention-free random access in the target cell
+(Figure~\ref{fig:ch20_a3}).
 
 \subsection{Hysteresis, time-to-trigger and the ping-pong problem}
+
+\mdcfig{ch20_handover}{Handover between two sites 2\,km apart (path-loss exponent 3.5, 8\,dB shadowing with 50\,m
+decorrelation distance and inter-site correlation 0.5, L3 filter with $a=0.5$, user speed 15\,m/s). (a) Filtered
+received power from the two cells along one drive, with the handovers triggered by a zero-hysteresis rule (red ticks)
+and by 3\,dB hysteresis with a 1.28\,s time-to-trigger (orange triangles). (b) Mean number of handovers per drive versus
+hysteresis for three time-to-trigger values. (c) Fraction of the route on which the serving cell is more than 3\,dB
+weaker than the best cell: the price of suppressing ping-pong.}
+
+\begin{analogy}[Not switching queues every time the other one looks shorter]
+At the supermarket the next queue always seems to move faster. Shoppers who hop to it every time it looks
+shorter spend their afternoon hopping, and often end up behind where they started. Sensible shoppers switch only
+when the other queue is clearly shorter (a hysteresis margin) and stays that way for a while (a time-to-trigger).
+The cost of their caution is occasionally staying a little too long in a slow queue. A phone near a cell boundary
+faces exactly this choice, many times a minute.
+\end{analogy}
 
 Shadowing makes the measured powers of two cells cross many times near the boundary
 (Figure~\ref{fig:ch20_handover}a). A rule that always picks the strongest cell would hand over back and forth at every
@@ -1560,12 +2100,13 @@ milliseconds of time-to-trigger brings this to one or two, at the price of a few
 more than 3\,dB weaker than the best. Typical network settings are of this order, with the standard allowing hysteresis
 up to 15\,dB and time-to-trigger values from 0 to 5.12\,s.
 
-\mdcfig{ch20_handover}{Handover between two sites 2\,km apart (path-loss exponent 3.5, 8\,dB shadowing with 50\,m
-decorrelation distance and inter-site correlation 0.5, L3 filter with $a=0.5$, user speed 15\,m/s). (a) Filtered
-received power from the two cells along one drive, with the handovers triggered by a zero-hysteresis rule (red ticks)
-and by 3\,dB hysteresis with a 1.28\,s time-to-trigger (orange triangles). (b) Mean number of handovers per drive versus
-hysteresis for three time-to-trigger values. (c) Fraction of the route on which the serving cell is more than 3\,dB
-weaker than the best cell: the price of suppressing ping-pong.}
+\begin{tryit}[Tune a handover]
+Open Lab 26's \emph{Handover: hysteresis and TTT}. With \emph{Hysteresis} and \emph{Time-to-trigger} at zero, press
+\emph{Another drive} a few times and count the ping-pongs. Raise \emph{Hysteresis} to 3\,dB, then add 320\,ms of
+\emph{Time-to-trigger}; the handovers collapse to one or two. Now raise \emph{Speed} to 40\,m/s: the same
+time-to-trigger now covers three times the distance, and the late-handover penalty grows. Networks tune these
+settings per speed class for exactly this reason.
+\end{tryit}
 
 Because the right settings depend on speed and environment, networks tune them automatically. \emph{Mobility robustness
 optimisation}, one of the self-organising-network functions standardised by 3GPP, counts handovers that were too late
@@ -1579,13 +2120,18 @@ met, removing the risk that the command arrives too late over a failing link.
 An idle terminal does not report every cell change; that would waste its battery and the network's signalling. Instead,
 cells are grouped into \term{location areas} (GSM; routing areas for packet service) or \term{tracking areas} (LTE, NR).
 An idle terminal reports its location only when it enters an area not in its registered list, and periodically. When a
-call or data arrives, the network \term{pages} the terminal in every cell of its registered area. Larger areas mean
+call or data arrives, the network \term{pages} the terminal in every cell of its registered area---like calling a
+friend's name across every room of a house because you only know which house they are in. Larger areas mean
 fewer location updates but more paging, since each page is broadcast in more cells; smaller areas mean the reverse. The
-optimum balances the two signalling loads given the users' mobility and the incoming call rate, and LTE's \emph{tracking
-area lists}, which let each terminal be registered in several areas centred on its last position, avoid the storms of
-updates that fixed boundaries produce when a train full of passengers crosses them. NR added a third state,
-RRC\_INACTIVE, in which the terminal keeps its context in the radio network and moves within a \emph{RAN notification
-area} without signalling, so that it can resume data transfer quickly.
+optimum balances the two signalling loads given the users' mobility and the incoming call rate
+(Figure~\ref{fig:ch20_paging}), and LTE's \emph{tracking area lists}, which let each terminal be registered in several
+areas centred on its last position, avoid the storms of updates that fixed boundaries produce when a train full of
+passengers crosses them. NR added a third state, RRC\_INACTIVE, in which the terminal keeps its context in the radio
+network and moves within a \emph{RAN notification area} without signalling, so that it can resume data transfer quickly.
+
+\mdcfig[0.5]{ch20_paging}{The tracking-area trade-off in a simple fluid model: location updates fall as the
+square root of the area (users cross its border less often), while paging grows in proportion to it. The
+total has a broad minimum; the numbers are illustrative.}
 
 A paged terminal must be listening. To save energy, idle terminals sleep and wake only at their \emph{paging occasions},
 set by a discontinuous-reception (DRX) cycle, typically from 0.32 to 2.56\,s for phones. IoT devices stretch this much
@@ -1599,8 +2145,9 @@ battery life measured in years.
 
 In an OFDMA system, a \term{scheduler} at the base station decides, for every slot and every resource block, which user
 transmits, and with what modulation, coding and power. In LTE the decision is made every millisecond; in NR, every slot
-of 1\,ms down to 0.125\,ms or less. The scheduler is not standardised: 3GPP specifies the signalling, and vendors compete
-on the algorithm. It is where the theory of this chapter becomes money.
+of 1\,ms down to 0.125\,ms or less. That is a thousand or more decisions a second, for every cell, for hundreds of users.
+The scheduler is not standardised: 3GPP specifies the signalling, and vendors compete on the algorithm. It is where the
+theory of this chapter becomes money.
 
 \subsection{Three basic policies}
 
@@ -1621,7 +2168,21 @@ where $t_c$ is the averaging window in slots. A user is scheduled when its chann
 average}.
 \end{itemize}
 
-\subsection{Why proportional fair: a derivation}
+\begin{analogy}[Serving each customer at their best]
+A tailor has three clients: a sprinter, a jogger and a walker. ``Max rate'' measures only the sprinter, because she
+gets through fittings fastest. ``Round robin'' takes them in strict rotation, even when one has just arrived out of
+breath. Proportional fair calls whichever client is \emph{relatively} sharpest today compared with their own usual
+form: the walker on her best day beats the sprinter on an average one. Everyone gets fitted, and everyone is fitted
+at their best. The analogy's limit: radio ``good days'' last milliseconds, so the tailor must decide a thousand
+times a second.
+\end{analogy}
+
+\mdcfig{ch20_pf_trace}{The schedulers at work on three users with mean SNRs of 15, 8 and 0\,dB in slowly fading
+Rayleigh channels (lines: rate each user could get; dots: who was served). Max rate serves the near user almost
+every slot and never the edge user. Proportional fair spreads the slots and catches each user near its own
+peaks, so even the edge user is served when its channel is unusually good.}
+
+\subsection{Why proportional fair}
 
 Proportional fairness comes from economics. Kelly (1998) defined an allocation of throughputs $\bar R_k$ as
 proportionally fair if it maximises the sum of logarithms,
@@ -1632,6 +2193,7 @@ The logarithm has diminishing returns: doubling any user's throughput adds the s
 10\,kb/s or 10\,Mb/s. An equivalent characterisation is that, at the optimum, any feasible change makes the sum of the
 \emph{relative} changes non-positive: $\sum_k\Delta\bar R_k/\bar R_k\le0$.
 
+\begin{deeper}[PF as a gradient step]
 A scheduler cannot optimise long-term averages directly; it makes one decision per slot. Take a gradient step. Serving
 user $k$ in slot $t$ increases $\bar R_k$ by approximately $r_k(t)/t_c$, which increases $U$ by
 \begin{equation}
@@ -1639,22 +2201,26 @@ user $k$ in slot $t$ increases $\bar R_k$ by approximately $r_k(t)/t_c$, which i
 \end{equation}
 The greedy choice that increases the utility most is therefore~\eqref{eq:ch20:pf}. Stochastic-approximation arguments
 (Kushner and Whiting, 2004) show that for large $t_c$ this greedy rule converges to the allocation that maximises
-$\sum\log\bar R_k$ over the region of achievable average throughputs. Two consequences are worth remembering. When all
-users' channels are statistically identical apart from their means, PF gives each user an equal share of the slots,
-but serves each one near its own peaks. And the same derivation with the utility
+$\sum\log\bar R_k$ over the region of achievable average throughputs. The same derivation with the utility
 \begin{equation}
 U_\alpha=\sum_k\frac{\bar R_k^{\,1-\alpha}}{1-\alpha}
 \end{equation}
 gives the \term{alpha-fair} metric $r_k/\bar R_k^{\,\alpha}$: $\alpha=0$ is max rate, $\alpha=1$ is PF (the limit of
 $U_\alpha$ is the logarithm), and $\alpha\to\infty$ approaches max--min fairness, which equalises throughputs.
+\end{deeper}
+
+Two consequences are worth remembering. When all users' channels are statistically identical apart from their means,
+PF gives each user an equal share of the slots, but serves each one near its own peaks. And a single knob, the
+fairness exponent $\alpha$, slides the scheduler continuously from greed ($\alpha=0$) through proportional fairness
+($\alpha=1$) to strict equality ($\alpha\to\infty$).
 
 \subsection{Multiuser diversity}
 
 The gain of channel-aware scheduling has a name: \term{multiuser diversity}. Knopp and Humblet observed in 1995 that
 on a fading uplink, the sum capacity is maximised by letting only the user with the best channel transmit in each
-instant. With $K$ users whose channels fade independently, the best of them is very likely to be near a peak. For
-Rayleigh fading with equal mean SNR $\bar\gamma$, the strongest of $K$ channel gains $|h_k|^2$ (independent unit
-exponentials) has mean
+instant. With $K$ users whose channels fade independently, the best of them is very likely to be near a peak---like
+a fishing fleet that always sends out whichever boat happens to be over the shoal. For Rayleigh fading with equal mean
+SNR $\bar\gamma$, the strongest of $K$ channel gains $|h_k|^2$ (independent unit exponentials) has mean
 \begin{equation}
 \E\Big[\max_k|h_k|^2\Big]=\sum_{k=1}^{K}\frac1k\approx\ln K+0.577,
 \end{equation}
@@ -1689,6 +2255,15 @@ served. Over time, PF gives B the slots in which B's channel is relatively best,
 round robin, where B would be served in its fades as well as its peaks, while A loses little.
 \end{worked}
 
+\begin{tryit}[Slide from greed to fairness]
+In Lab 26's \emph{Proportional fair scheduling}, set \emph{Scheduler} to Max rate and watch the edge user starve; then
+choose $\alpha$-fair and drag \emph{Fairness exponent $\alpha$} from 0 to 5, tracing the curve of
+Figure~\ref{fig:ch20_scheduling}b. Lower \emph{Edge user's mean SNR} to $-10$\,dB to see how much fairness costs.
+Lab 11's \emph{OFDMA scheduling, live} does the same across a whole resource grid: switch \emph{Policy} between Round
+robin, Max C/I and Proportional fair with \emph{Users walk around} enabled, and its companion \emph{Link adaptation and
+HARQ} shows how each scheduled rate is chosen and protected.
+\end{tryit}
+
 \subsection{Quality of service}
 
 Real traffic is not an infinite backlog. Voice packets arrive every 20\,ms and are useless if late; video needs a steady
@@ -1697,7 +2272,8 @@ standardised class that tells the scheduler its priority, its packet delay budge
 and whether it has a guaranteed bit rate (GBR). Table~\ref{tab:ch20:5qi} lists a few of NR's standardised 5G QoS
 identifiers (5QI). Schedulers combine channel awareness with these requirements, for example with the
 \emph{modified largest weighted delay first} rule, which multiplies the PF metric by the head-of-line delay of the
-user's queue weighted by its urgency, so that a packet approaching its deadline gains priority.
+user's queue weighted by its urgency, so that a packet approaching its deadline gains priority---the hospital triage
+nurse who sees the patient whose condition is worsening before the one who arrived first.
 
 \begin{table}[htbp]\centering\small
 \caption{A selection of standardised 5QI values (from 3GPP TS~23.501, Table 5.7.4-1; consult the current release for the
@@ -1778,7 +2354,8 @@ switched circuits. UMTS kept the hierarchy: the NodeB did the physical layer and
 to be central. As data rates rose and schedulers needed millisecond reaction times, the controller became a bottleneck.
 HSPA moved scheduling and retransmission into the NodeB, and LTE took the final step: the \emph{eNodeB} contains the whole
 radio protocol stack, neighbouring eNodeBs coordinate handover and interference directly over the X2 interface, and the
-core network (the evolved packet core) handles only mobility anchoring, sessions and user-plane routing.
+core network (the evolved packet core) handles only mobility anchoring, sessions and user-plane routing. It is the shift
+from a company where every decision goes to head office to one where branch managers decide on the spot.
 
 \subsection{Splitting the gNodeB}
 
@@ -1801,6 +2378,14 @@ or \emph{cloud} RAN), this turns many of the algorithms of this chapter---power 
 offsets, scheduler weights---into software that an operator can change, and into a natural home for the machine-learning
 methods discussed in Chapter~\ref{ch:sixg}.
 
+\mdcfig{ch20_ran_timescales}{The decisions of this chapter sorted by how fast they must be made. Anything inside a
+HARQ round trip lives in the DU next to the radios; handover and RRC decisions tolerate the CU's distance; the
+near-real-time RIC tunes on 10\,ms to 1\,s; policies and planning run on hours to years.}
+
+\chTwentyPhotoH[0.3]{ch20_tower_climb}{A guyed mast near Rochester, New York, with a ring of cellular panel antennas
+part-way up and an equipment shelter at its foot. In a modern site the radio units sit beside the panels and the
+baseband may be in the shelter or many kilometres away in a pooled data centre.}
+
 \begin{inpractice}[Where the milliseconds go]
 The functional split is constrained by latency. HARQ in LTE requires the acknowledgement of a transport block 4\,ms after
 it is sent, so the MAC scheduler and the physical layer must be within about a millisecond of round-trip transport of each
@@ -1808,7 +2393,7 @@ other; this is why the MAC sits in the DU near the radios rather than in a dista
 signalling and packet ordering with tolerances of tens of milliseconds, can be pooled in a regional data centre that serves
 hundreds of cell sites, which is where the economies of scale come from. The near-real-time RIC's 10\,ms lower bound is not
 arbitrary either: it is roughly the fastest loop that can be closed through a standard interface to a separate platform
-without interfering with the slot-by-slot decisions that remain inside the DU.
+without interfering with the slot-by-slot decisions that remain inside the DU (Figure~\ref{fig:ch20_ran_timescales}).
 \end{inpractice}
 
 %======================================================================
@@ -1845,22 +2430,23 @@ and open architectures.
 \end{itemize}
 
 \begin{labbox}[Multiple access and cellular systems]
-Two notebooks accompany this chapter:
+Two interactive labs accompany this chapter:
 \begin{itemize}
-\item \lab{moderncomms-labs/labs/lab11\_air\_interfaces.py}
-\item \lab{moderncomms-labs/labs/lab26\_cellular\_system.py}
+\item \lab{moderncomms-labs/labs/lab26\_cellular\_system.py} --- \emph{Clusters, reuse and SIR} (SIR maps and CDFs for
+any cluster size, with sectors and shadowing); \emph{Erlang: a live switchboard} (animated call arrivals, blocking and
+the trunking penalty of sectors); \emph{ALOHA and CSMA, live} (packet timelines and throughput curves);
+\emph{Slotted ALOHA's instability} (fixed versus pseudo-Bayesian retransmission); \emph{Wi-Fi's DCF: Bianchi's model}
+(fixed point versus simulation, basic and RTS/CTS); \emph{RACH collisions and barring} (one occasion, massive bursts and
+access-class barring); \emph{Stochastic geometry: PPP coverage} (random deployments against the closed form);
+\emph{Proportional fair scheduling} (round robin, max rate and $\alpha$-fair, with Jain's index); and \emph{Handover:
+hysteresis and TTT} (ping-pong against late handover).
+\item \lab{moderncomms-labs/labs/lab11\_air\_interfaces.py} --- \emph{Frequency reuse and SIR} (reuse plans and the
+channels each costs); \emph{Trunking: a live switchboard}; \emph{OFDMA scheduling, live} (walking users and a scheduled
+resource grid); \emph{Link adaptation and HARQ}; \emph{Wi-Fi contention, live}; \emph{4096-QAM: the EVM budget}; and
+\emph{Air interfaces side by side} (GSM to NR compared). The last three also serve Chapters~\ref{ch:ofdm},
+\ref{ch:cellular} and~\ref{ch:wifi}.
 \end{itemize}
-In the first, Section~1 drops users in a hexagonal network and plots the CDF of co-channel SIR for cluster sizes 1, 3, 4 and 7
-against the $(3N)^{n/2}/6$ formula, with a picture of the $N=7$ pattern; Section~2 plots Erlang B and asks you to find the
-capacity of 22 channels at 2\% blocking; Section~4 compares round-robin, max-rate and proportional-fair OFDMA scheduling of
-users with frequency-selective channels, reporting throughput and Jain's index, with sliders for the number of users, the
-edge SNR and the fairness exponent; and Section~7 simulates the 802.11 DCF with binary exponential backoff, with an exercise
-to implement Bianchi's model. (Its other sections, on the NR resource grid, DFT-s-OFDM, link adaptation and 4096-QAM, belong to
-Chapters~\ref{ch:ofdm}, \ref{ch:cellular} and~\ref{ch:wifi}.) The second notebook extends this chapter's figures into a
-small cellular-system simulator: SIR maps of hexagonal layouts with reuse, sectors and shadowing; Erlang B and C dimensioning
-with a trunking-efficiency explorer; event-driven simulations of ALOHA, CSMA and RACH contention, including instability; PPP
-coverage compared with the closed form; and a PF scheduler that measures multiuser-diversity gain. The functions it uses
-(Erlang formulas, hexagonal geometry, Bianchi's fixed point, PPP coverage, schedulers) are in
+The functions the labs use (Erlang formulas, hexagonal geometry, Bianchi's fixed point, PPP coverage, schedulers) are in
 \lab{moderncomms-labs/commlib/cellular.py}, and \lab{book/figscripts/ch20\_figs.py} generates every data figure in this
 chapter.
 \end{labbox}
@@ -1941,3 +2527,4 @@ $\alpha$-fairness.
 \item L.~Kleinrock, \emph{Queueing Systems, Volume 1: Theory}, Wiley, 1975. Birth--death processes, Erlang's formulas and the
 M/M/$C$ queue, from first principles.
 \end{itemize}
+
