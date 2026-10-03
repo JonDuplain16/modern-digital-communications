@@ -15,3 +15,4 @@
 - ch22: OBSS-PD 21 dBm reference power (802.11ax); Jelling photo is a replica
 - ch21: Holkeri first GSM call; Papworth first SMS; IMT-2000 five interface names; 3GPP freeze years; LAB REQUEST: add DFT-s-OFDM vs OFDMA PAPR CCDF experiment (lab11 or lab27); ch21 lab screenshots copied from tests/screens -> re-copy if labs change
 - ch25: WRC-19 23.8 GHz dispute; Arecibo 2020; maglev 431 km/h; Helios 29.5 km 2001/2003; Loon closed Jan 2021; BB84 first demo ~30 cm; Signal 2023/iMessage 2024/Chrome PQ; FIPS 203-205 sizes
+- references.tex: App B further-reading now PySide6/pyqtgraph docs (not jupytext) -> regenerate bibliography (book/tools/bib) for all rewritten chapters
