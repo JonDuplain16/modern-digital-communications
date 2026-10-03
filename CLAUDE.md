@@ -224,3 +224,8 @@ labkit, plotting, iq. `python book/tools/check_labs.py` verifies every lab named
   (catalog one-liners, Text control, cmap list bug, on_click, Canvas, label elision...), book labbox/tryit
   reconciliation with final lab experiment names, fact-check list of new claims, delete lab00 notebook +
   build_notebooks, full build + check_visuals + push.
+- 2026-10-03: chapters rewritten 1-18, 20, 23, 24; all 36 labs are studio apps; studio 1.1 cleanup done (36/36 selftest
+  light+dark). In flight at limit: Ch 19, 21, 22, 25, App A/B rewrites. Remaining: labbox/tryit reconciliation pass,
+  fact-check (book/FACTCHECK_TODO.md), lab28 radar legend, re-capture lab screenshots in chapters, full build +
+  check_visuals + push. Owner must delete (permission-blocked): labs/lab00_index.py/.ipynb, tests/build_notebooks.py,
+  tests/build_all.sh, tests/dump_figs.py; CLAUDE.md lab instructions still mention build_notebooks/dump_figs.
