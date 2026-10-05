@@ -278,7 +278,7 @@ also needs the signal's \emph{average} to stay put, which has no dancing equival
 \mdcfig[0.9]{ch08_linecodes}{The classic line codes applied to the same 16-bit sequence
 (dotted lines mark bit periods). NRZ codes change level at most once per bit;
 Manchester codes guarantee a transition in every bit at the cost of twice the bandwidth; AMI
-and MLT-3 use three levels to remove DC and, in MLT-3's case, to slow the signal down; 2B1Q
+uses three levels to remove DC, and MLT-3 uses them to slow the signal down (it is not DC-free); 2B1Q
 packs two bits into each four-level symbol so that the symbol rate is half the bit rate.}
 
 A good line code for a practical link should provide most of the following.
@@ -543,8 +543,9 @@ PAM-4 & 4 & $R_b/2$ & -- & -- & 50--800G Ethernet, PCIe 6.0, GDDR6X\\
 \begin{tryit}[Line codes and their spectra]
 Open Lab 13 (\lab{lab13\_line\_codes\_eyes.py}) and run the \emph{Line codes \& spectra}
 experiment. Type a bit pattern with a long run of zeros and compare NRZ, Manchester, AMI and
-MLT-3 side by side; then switch to the spectrum view and find the DC null of AMI and the
-clock line of unipolar RZ.
+MLT-3 side by side; then step the \emph{Line code (for the spectrum)} menu through the codes. Find
+the DC null of AMI, the clock line of unipolar RZ, and notice that MLT-3 squeezes its spectrum
+towards low frequencies without emptying DC.
 \end{tryit}
 
 \subsection{Block codes: 4B5B, 8b/10b, 64b/66b and 128b/130b}
@@ -800,9 +801,10 @@ sequence as a periodic sequence can be. Right: its runs of identical bits follow
 law, half as many runs of each successive length.}
 
 \begin{tryit}[Break a scrambler]
-In Lab 13's \emph{Scramblers} experiment, flip a single line bit and count the errors after
-the descrambler---you should find three. Then open the \emph{8b/10b} experiment and watch the
-running disparity stay pinned near zero while you feed it an all-zeros idle pattern.
+In Lab 13's \emph{Scramblers} experiment, choose the \emph{Self-synchronous 64b/66b} scrambler,
+switch on \emph{Flip one bit on the line} and count the errors after the descrambler---you should
+find three (an additive scrambler gives just one). Then open \emph{8b/10b running disparity} and
+watch the running disparity stay pinned near zero while you feed it the all-zeros idle pattern.
 \end{tryit}
 
 %======================================================================
@@ -901,8 +903,9 @@ tuned circuit or narrowband PLL can extract directly.
 \mdcfig{ch08_linecode_psd}{Power spectral densities of common line codes (unit amplitude,
 equiprobable bits; lines are theory from~\eqref{eq:ch08:psd}--\eqref{eq:ch08:psdlines} and
 dots are Welch estimates from $2\times10^5$ simulated bits). Left: polar codes. Manchester
-moves the energy up and away from DC; AMI and MLT-3 use symbol correlation to create a null at
-DC, with MLT-3's energy concentrated below about $0.3R_b$. Right: unipolar codes waste power
+moves the energy up and away from DC; AMI uses symbol correlation to create a null at DC, while
+MLT-3's correlation instead concentrates its energy at low frequencies, below about $0.3R_b$---its
+spectrum is reduced but not zero at DC. Right: unipolar codes waste power
 in spectral lines (arrows); the RZ line at the bit rate is a free clock tone.}
 
 \begin{keyidea}[Spectral lines come from the mean; spectral nulls come from correlation]
@@ -952,7 +955,9 @@ Writing the level as $\cos(\pi\theta_k/2)$ with the state $\theta_k$ uniform on 
 and averaging over the random walk gives
 $R_a[m]=\tfrac12\,\re\!\big[\big(\tfrac{1+j}{2}\big)^{|m|}\big]$: a damped cosine at a quarter
 of the bit rate. The resulting spectrum (Figure~\ref{fig:ch08_linecode_psd}) peaks at about
-$0.11R_b$ and is small above $0.3R_b$. For 100BASE-TX at 125\,MBd that means a peak near
+$0.11R_b$ and is small above $0.3R_b$. At $f=0$, however, the sum of $R_a[m]$ is $\tfrac12$, not
+zero: unlike AMI, MLT-3 has no spectral null at DC, only a modest dip a few decibels below the
+peak. It narrows the spectrum; it does not remove DC. For 100BASE-TX at 125\,MBd that means a peak near
 14\,MHz and little energy above about 40\,MHz, which is why Category-5 cable rated to
 100\,MHz was enough.
 
@@ -1042,6 +1047,12 @@ Sampling in time replicates the spectrum in frequency (Chapter~\ref{ch:pcm}), so
 $x(kT)$ have the discrete-time Fourier transform $\frac1T\sum_k X(f-k/T)$. The condition
 $x(kT)=\delta[k]$ says this transform is the constant 1. Therefore:
 
+\mdcfig{ch08_nyquist_fold}{The Nyquist criterion as a tiling problem. Copies of the pulse
+spectrum $X(f)$, shifted by multiples of $1/T$ (thin coloured lines), must sum to a constant
+(black). Left: a spectrum narrower than $1/2T$ leaves gaps, so no pulse of that bandwidth can
+be free of ISI. Centre: the brick wall of width exactly $1/2T$ just tiles. Right: a raised
+cosine overlaps its neighbours, but the overlaps are odd-symmetric and sum to a flat line.}
+
 \begin{keyidea}[The Nyquist criterion for zero ISI]
 A pulse $x(t)$ with $x(0)=1$ has zero crossings at every non-zero multiple of $T$ if and only if
 its spectrum satisfies
@@ -1058,12 +1069,6 @@ spectrum side by side, one every $1/T$\,Hz. If they leave gaps, the floor is une
 unavoidable. If each copy exactly fills its slot, as a brick-wall spectrum does, the floor is
 flat. And if neighbouring copies overlap, the floor can still be flat---provided what one
 copy loses on its way down, the next one gains on its way up.
-
-\mdcfig{ch08_nyquist_fold}{The Nyquist criterion as a tiling problem. Copies of the pulse
-spectrum $X(f)$, shifted by multiples of $1/T$ (thin coloured lines), must sum to a constant
-(black). Left: a spectrum narrower than $1/2T$ leaves gaps, so no pulse of that bandwidth can
-be free of ISI. Centre: the brick wall of width exactly $1/2T$ just tiles. Right: a raised
-cosine overlaps its neighbours, but the overlaps are odd-symmetric and sum to a flat line.}
 
 Two consequences are immediate.
 \begin{enumerate}
@@ -1114,9 +1119,9 @@ engineer who has ever specified a symbol rate as ``bandwidth divided by $(1+\bet
 it, whether they know his name or not.
 
 \begin{tryit}[See the zero crossings]
-In Lab 3 (\lab{lab03\_pulse\_shaping.py}), open the \emph{Nyquist zero-ISI} experiment. With the
-timing offset at zero, every overlapping pulse passes through zero at the other sampling
-instants. Now drag the timing offset slider a little and watch the ISI appear; repeat with the
+In Lab 3 (\lab{lab03\_pulse\_shaping.py}), open the \emph{Nyquist: zero ISI} experiment. With the
+\emph{Sampling offset} at zero, every overlapping pulse passes through zero at the other sampling
+instants. Now drag the offset slider a little and watch the ISI appear; repeat with the
 roll-off at 0.1 and at 1.0 and compare how fast it grows.
 \end{tryit}
 
@@ -1307,7 +1312,7 @@ specifications therefore define the spectrum mask and the EVM, not the filter, a
 implementer free to choose how to meet them.
 
 \begin{tryit}[Pulses and spectra]
-In Lab 3, the \emph{Pulses \& spectra} experiment draws a raised-cosine pulse and its spectrum
+In Lab 3, the \emph{Pulses and their spectra} experiment draws a raised-cosine pulse and its spectrum
 side by side. Drag the roll-off slider from 1 down to 0 and watch the spectrum narrow while
 the tails in time grow longer and slower to die away---the two halves of the same trade-off.
 \end{tryit}
@@ -1477,9 +1482,11 @@ where every decibel is fought for---a satellite downlink, a deep-space probe---t
 exactly the margin the matched filter is there to save.
 
 \begin{tryit}[Beat the matched filter (you can't)]
-Lab 3's \emph{Matched filter} experiment compares the output SNR of the matched filter with
-that of other receive filters. Try to beat it by tuning a mismatched filter. You will get
-close, but never past the $2E_p/N_0$ ceiling of~\eqref{eq:ch08:mfsnr}.
+Lab 3's \emph{The matched filter} experiment compares the output SNR of the matched filter with
+that of other receive filters---moving average, brick-wall and Gaussian low-pass, an RRC of the
+wrong roll-off. Try to beat it by tuning the mismatched filter's slider. You will get close, but the
+\emph{SNR loss vs matched} readout never climbs above zero: the $2E_p/N_0$ ceiling
+of~\eqref{eq:ch08:mfsnr}.
 \end{tryit}
 
 \mdcfig[0.5]{ch08_mf_snr}{Output SNR of a simple RC low-pass receive filter for rectangular
@@ -1648,10 +1655,12 @@ coding gains---can be understood as a way of placing points so that their minimu
 as large as possible for a given average energy.
 
 \begin{tryit}[Monte Carlo against theory]
-Run Lab 3's \emph{BER vs Eb/N0} experiment. It simulates polar NRZ through a matched filter
-and plots the measured error rate on top of $\Q(\sqrt{2E_b/N_0})$. Increase the number of bits
-and watch the simulated points settle onto the curve; note how many bits you need before the
-point at $10^{-6}$ stops jumping around (a useful rule: about 100 errors per point).
+Run Lab 3's \emph{BER: simulation meets theory} experiment with \emph{2-PAM (BPSK)} and the
+\emph{Matched RRC} receiver. It simulates polar signalling through a matched filter and plots the
+measured error rate on top of $\Q(\sqrt{2E_b/N_0})$. Switch \emph{Effort} from \emph{Quick} to
+\emph{Thorough}, press \emph{Run again}, and watch the simulated points settle onto the curve; the
+\emph{Bits simulated} readout shows how many bits it takes before the lowest points stop jumping
+around (a useful rule: about 100 errors per point).
 \end{tryit}
 
 \begin{worked}[How much signal does a 10\,Gb/s receiver need?]
@@ -1776,10 +1785,11 @@ noisier traces. A transmitter whose mask can grow a long way before the first hi
 to spare for the channel, connectors and receiver.}
 
 \begin{tryit}[Close the eye, then open it]
-Lab 3's \emph{Live eye diagram} experiment draws the eye as you drag four sliders: noise,
-roll-off, jitter and channel loss. Close the eye with each one in turn and learn its
-signature: noise thickens the rails, jitter blurs the crossings sideways, small roll-off
-narrows the opening, and channel loss collapses the whole eye towards the middle.
+Lab 3's \emph{Live eye diagram} experiment draws the eye as you drag four sliders: $E_s/N_0$,
+roll-off, timing jitter and (with \emph{Band-limited channel} on) channel bandwidth. Close the eye
+with each one in turn and learn its signature: noise thickens the rails, jitter blurs the crossings
+sideways, small roll-off narrows the opening, and a narrow channel collapses the whole eye towards
+the middle.
 \end{tryit}
 
 \subsection{Jitter and its decomposition}
@@ -2235,10 +2245,12 @@ circuit board plugs into the switch, and the optical engine launches the lanes i
 fibres. Modules in this family carry 400G and 800G Ethernet as lanes of PAM-4.}
 
 \begin{tryit}[NRZ against PAM-4]
-In Lab 3's \emph{PAM-4 vs NRZ} experiment, set both to the same bit rate and peak swing and add
-noise until the PAM-4 eyes close; note how much earlier they go than the NRZ eye. Then, in
-Lab 13's \emph{PAM-4 over a lossy channel} experiment, raise the channel loss: past a certain
-loss the NRZ eye cannot be rescued by the FFE while the PAM-4 eye still can.
+Lab 3's \emph{NRZ versus PAM-4} experiment sends the same bit rate with the same peak swing both
+ways. Set the \emph{Channel loss at Rb/2} to zero and lower \emph{Peak signal / rms noise} until the
+PAM-4 eyes close; note how much earlier they go than the NRZ eye. Then raise the loss with the
+equaliser on and watch PAM-4 overtake NRZ. In Lab 13's \emph{PAM-4 over a lossy channel}, go further:
+at 35\,dB of loss, find CTLE, FFE and DFE settings that open the PAM-4 eye while the NRZ eye stays
+shut.
 \end{tryit}
 
 \begin{inpractice}[PAM-4 in fibre]
@@ -2420,8 +2432,9 @@ is Lender's precoder generalised to four levels.
 \end{inpractice}
 
 \begin{tryit}[Duobinary in action]
-Lab 13's \emph{Duobinary} experiment encodes a bit stream with and without precoding, passes it
-through the $1+D$ channel with noise, and counts errors. Inject a single error and watch it
+Lab 13's \emph{Duobinary \& precoding} experiment encodes a bit stream with and without precoding,
+passes it through the $1+D$ channel with noise, and counts errors. Switch on \emph{Force one channel
+error} and watch it
 propagate through the unprecoded decoder but stay put in the precoded one.
 \end{tryit}
 
@@ -2532,22 +2545,24 @@ decision. The red labels point to the sections that cover each block.}
 Two interactive labs accompany this chapter. Run each with \texttt{python} from the
 \texttt{moderncomms-labs/labs} folder; sliders on the left, live plots on the right.
 \begin{itemize}
-\item \lab{moderncomms-labs/labs/lab03\_pulse\_shaping.py}. Experiments: \emph{Pulses \&
-spectra} (rectangular, sinc and raised-cosine pulses in time and frequency, with a roll-off
-slider; Figure~\ref{fig:ch08_raised_cosine}); \emph{Nyquist zero-ISI} (overlapping pulses and
-their zero crossings, with a timing-offset slider; Figures~\ref{fig:ch08_isi}
-and~\ref{fig:ch08_timing_sensitivity}); \emph{Live eye diagram} (noise, roll-off, jitter and
-channel-loss sliders; Figures~\ref{fig:ch08_eyes} and~\ref{fig:ch08_eye_anatomy});
-\emph{Matched filter} (why the matched filter maximises SNR, and why the RRC is split between
-transmitter and receiver); \emph{BER vs Eb/N0} (Monte Carlo against
-theory; Figure~\ref{fig:ch08_ber_binary}); and \emph{PAM-4 vs NRZ}
-(Figure~\ref{fig:ch08_pam4}).
+\item \lab{moderncomms-labs/labs/lab03\_pulse\_shaping.py}. Experiments: \emph{Pulses and their
+spectra} (rectangular, sinc, raised-cosine and RRC pulses in time and frequency, with a roll-off
+slider; Figure~\ref{fig:ch08_raised_cosine}); \emph{Nyquist: zero ISI} (overlapping pulses and
+their zero crossings, with a sampling-offset slider; Figures~\ref{fig:ch08_isi}
+and~\ref{fig:ch08_timing_sensitivity}); \emph{Live eye diagram} ($E_s/N_0$, roll-off, jitter and
+channel-bandwidth sliders; Figures~\ref{fig:ch08_eyes} and~\ref{fig:ch08_eye_anatomy});
+\emph{The matched filter} (why the matched filter maximises SNR); \emph{Matched and mismatched
+chains} (why the RRC is split between transmitter and receiver); \emph{BER: simulation meets
+theory} (Monte Carlo against theory; Figure~\ref{fig:ch08_ber_binary}); \emph{NRZ versus PAM-4}
+over a lossy backplane (Figure~\ref{fig:ch08_pam4}); and \emph{Faster than Nyquist}.
 \item \lab{moderncomms-labs/labs/lab13\_line\_codes\_eyes.py}. Experiments: \emph{Line codes \&
 spectra} (the codes of Section~\ref{sec:ch08:linecodes} and their measured spectra against the
-formulas of Section~\ref{sec:ch08:psd}); \emph{Scramblers} (LFSR scramblers and error
-multiplication); \emph{8b/10b} (an encoder and its running disparity); \emph{Eyes \& bathtub}
-(adjustable random and deterministic jitter); \emph{PAM-4 over a lossy channel} (NRZ against
-PAM-4 with a simple FFE); and \emph{Duobinary} (precoded encoding and decoding).
+formulas of Section~\ref{sec:ch08:psd}); \emph{Spectral lines \& DC wander} (AC coupling and
+unbalanced data); \emph{Scramblers} (LFSR scramblers and error multiplication); \emph{8b/10b
+running disparity} (an encoder, its running disparity and 64b/66b for comparison); \emph{Eyes \&
+bathtub} (adjustable random and deterministic jitter); \emph{PAM-4 over a lossy channel} (NRZ
+against PAM-4 with CTLE, FFE and DFE); and \emph{Duobinary \& precoding} (precoded encoding and
+decoding).
 \end{itemize}
 The figure script \lab{book/figscripts/ch08\_figs.py} generates every data figure in this
 chapter and is a useful starting point for your own experiments.
