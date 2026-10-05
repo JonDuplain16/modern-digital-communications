@@ -1087,10 +1087,10 @@ class OFDMRadar(Experiment):
     ]
     plots = [
         ImagePlot("map", "Range–Doppler map", x="velocity (m/s)", y="range (m)"),
-        Plot("rcut", "Range profile through the strongest target", x="range (m)", y="power (dB)",
-             xlim=(0, 200), ylim=(-60, 3), legend="tr"),
-        Plot("vcut", "Doppler profile through the strongest target", x="velocity (m/s)",
-             y="power (dB)", ylim=(-60, 3), legend="tr"),
+        Plot("rcut", "Range cut", x="range (m)", y="power (dB)",
+             xlim=(0, 200), ylim=(-60, 8), legend=None),
+        Plot("vcut", "Doppler cut", x="velocity (m/s)",
+             y="power (dB)", ylim=(-60, 8), legend=None),
     ]
     layout = [["map", "rcut"], ["map", "vcut"]]
     col_stretch = [3, 2]
@@ -1157,18 +1157,22 @@ class OFDMRadar(Experiment):
         found2 = near(p.r2, p.v2)
         aliased = abs(p.v2) > vmax
         self.n_found = int(self.found1) + int(found2 and not aliased)
-        # cuts through the strongest cell
+        # cuts through the strongest cell (titles name the cell; dotted lines mark the targets)
         i, j = np.unravel_index(np.argmax(P), P.shape)
         pr = self.plot("rcut")
-        pr.line("r", rr[sel], db(P[sel, j]), color=NAVY, width=1.6, name=f"at {vv[j]:+.0f} m/s")
+        pr.set_title(f"Range cut at v = {vv[j]:+.1f} m/s")
+        pr.line("r", rr[sel], db(P[sel, j]), color=NAVY, width=1.6)
         for k, (r_, c_) in enumerate(((p.r1, GREEN), (p.r2, ORANGE))):
-            pr.vline(f"t{k}", r_, color=c_, style=":", width=1.0)
+            pr.vline(f"t{k}", r_, color=c_, style=":", width=1.2, label=f"T{k + 1}",
+                     label_pos=0.96 - 0.1 * k)
         pv = self.plot("vcut")
-        pv.line("v", vv, db(P[i]), color=NAVY, width=1.6, name=f"at {rr[i]:.1f} m")
-        pv.set_xlim(-vmax, vmax)
+        pv.set_title(f"Doppler cut at R = {rr[i]:.1f} m")
+        pv.line("v", vv, db(P[i]), color=NAVY, width=1.6)
+        pv.set_xlim(max(-vmax, -160), min(vmax, 160))
         for k, (v_, c_) in enumerate(((p.v1, GREEN), (p.v2, ORANGE))):
             if abs(v_) <= vmax:
-                pv.vline(f"t{k}", v_, color=c_, style=":", width=1.0)
+                pv.vline(f"t{k}", v_, color=c_, style=":", width=1.2, label=f"T{k + 1}",
+                         label_pos=0.96 - 0.1 * k)
         n_det = len(det)
         self.readout(dr=dR, dv=dv, vmax=vmax,
                      found=f"{self.n_found} of 2" + (" (+ alias)" if aliased and found2 is False
@@ -1187,6 +1191,10 @@ class OFDMRadar(Experiment):
               f"{v(r.get('dv', 0), '.2f', 'm/s')}, up to ±{v(r.get('vmax', 0), '.0f', 'm/s')} before "
               f"the Doppler wraps around. Bandwidth buys range resolution; dwell time buys velocity "
               f"resolution: the same trade-off as the numerology.</p>")
+        s += ("<p>The two cuts pass through the strongest cell of the map; their titles give that "
+              "cell's velocity and range, which sit on the grid, so they differ from the slider "
+              "values by up to half a cell. The dotted lines mark the true targets: "
+              "<b>T1</b> green, <b>T2</b> orange.</p>")
         if p.snr < -15:
             s += (f"<p>At {v(p.snr, '.0f', 'dB')} per element the echo is invisible in any single "
                   f"subcarrier, yet the map integrates 65 536 of them: about 48 dB of processing "

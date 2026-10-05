@@ -260,6 +260,26 @@ def test_cpm():
     assert np.mean(rx.detect(xm, len(c))[:-3] != c[:-3]) == 0
     assert np.mean((cpm.differential_detect(xm, 8) > 0) != cpm.msk_precode(c)) == 0
     assert abs(cpm.evm_budget_db(-41.2, -45, -38, -40) - (-34.4)) < 0.1  # 1024-QAM budget example
+    rots = []                                                            # Laurent reference phase:
+    for c0 in (0, 1):                                                    # independent of the first bit
+        cc = RNG.integers(0, 2, 600); cc[0] = c0
+        xg, _ = cpm.gmsk_baseband(cpm.msk_precode(cc), 8, 0.3, laurent_ref=True)
+        rg = cpm.LaurentReceiver(8, 0.3); rg.calibrate(xg, cc); rots.append(rg.rot)
+    assert abs(rots[0] - rots[1]) < 0.01
+
+
+def test_dft_s_ofdm_contiguous():
+    from commlib import ofdm as co
+    s = (RNG.choice([-1, 1], 300 * 400) + 1j * RNG.choice([-1, 1], 300 * 400)) / np.sqrt(2)
+    cfg = co.OFDMConfig(4 * 512, 300, 0)
+    for c in (False, True):
+        x = co.dft_s_ofdm_modulate(s, cfg, contiguous=c)
+        assert np.allclose(co.dft_s_ofdm_demodulate(x, cfg, contiguous=c).ravel(), s)
+    x1 = co.dft_s_ofdm_modulate(s[:3600], co.OFDMConfig(300, 300, 0), contiguous=True)
+    assert np.allclose(np.abs(x1), 1)                  # critically sampled: just the QPSK symbols
+    pc = np.quantile(co.papr_db(co.dft_s_ofdm_modulate(s, cfg, contiguous=True), 2048), 0.99)
+    pl = np.quantile(co.papr_db(co.dft_s_ofdm_modulate(s, cfg), 2048), 0.99)
+    assert pc < pl and pc < 7.5                        # the DC hole of the legacy mapping costs PAPR
 
 
 def test_propagation():

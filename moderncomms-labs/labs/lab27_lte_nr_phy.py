@@ -6,10 +6,11 @@ Self-test:   python labs/lab27_lte_nr_phy.py --selftest
 When a phone is switched on it knows nothing: not the timing, not its own crystal's error, not
 which of 504 cells it hears. Within a few hundred milliseconds it has found a cell, read its
 identity and is decoding data protected by CRCs, an LDPC code, rate matching, QAM and OFDM,
-with hybrid ARQ quietly combining retransmissions underneath. Seven experiments build that
+with hybrid ARQ quietly combining retransmissions underneath. Eight experiments build that
 physical layer from commlib.ltephy: the resource grid of LTE and NR, the synchronisation
 sequences, a two-cell search, the PDSCH chain step by step, HARQ with chase combining and
-incremental redundancy, CQI-driven throughput, and the TS 38.306 peak-rate formula.
+incremental redundancy, CQI-driven throughput, the TS 38.306 peak-rate formula, and why the
+uplink is DFT-spread: the PAPR of OFDMA against DFT-s-OFDM.
 """
 import _path  # noqa: F401  (makes commlib and studio importable)
 
@@ -21,6 +22,7 @@ import numpy as np
 import commlib as cl
 from commlib import airif as ai
 from commlib import ltephy as lp
+from commlib import ofdm as co
 import studio as st
 from studio import (Experiment, Slider, LogSlider, IntSlider, Choice, Toggle, Button, Heading,
                     Plot, ConstellationPlot, BERPlot, ImagePlot, BarPlot, Readout, Challenge,
@@ -1329,11 +1331,255 @@ class PeakRate(Experiment):
             "summed over carriers (TS 38.306).")
 
 
+# =============================================================================== 8. PAPR
+PAPR_MODS = ["QPSK", "16QAM", "64QAM", "π/2-BPSK"]
+
+
+def papr_symbols(mod, n, rng):
+    """n unit-power data symbols; π/2-BPSK rotates every other symbol by 90° (TS 38.211 5.1.1)."""
+    if mod == "π/2-BPSK":
+        b = 1 - 2 * rng.integers(0, 2, n)
+        return b * np.exp(1j * np.pi / 2 * (np.arange(n) % 2)) * np.exp(1j * np.pi / 4)
+    con = cl.get_constellation({"QPSK": "qpsk", "16QAM": "16qam", "64QAM": "64qam"}[mod])
+    return con.modulate(cl.random_bits(con.k * n, rng))
+
+
+def ofdma_wave(sym, M, nfft):
+    """OFDMA: the data symbols go straight onto M adjacent subcarriers centred on DC."""
+    s = sym.reshape(-1, M)
+    X = np.zeros((len(s), nfft), complex)
+    X[:, (np.arange(M) - M // 2) % nfft] = s
+    return np.fft.ifft(X, axis=1) * np.sqrt(nfft)
+
+
+def dfts_wave(sym, M, nfft, fdss=False):
+    """DFT-s-OFDM (SC-FDMA) with the contiguous (localized) mapping of LTE/NR: an M-point DFT,
+    optional spectral shaping, then the same M adjacent subcarriers as OFDMA."""
+    if not fdss:
+        cfg = co.OFDMConfig(nfft, M, 0)
+        return co.dft_s_ofdm_modulate(sym, cfg, contiguous=True).reshape(-1, nfft)
+    s = sym.reshape(-1, M)
+    S = np.fft.fft(s, axis=1) / np.sqrt(M)
+    W = 1 + np.exp(-2j * np.pi * np.arange(M) / M)             # the [1, 1] filter of FDSS
+    S = np.fft.fftshift(S * W / np.sqrt(np.mean(np.abs(W) ** 2)), axes=1)
+    X = np.zeros((len(s), nfft), complex)
+    X[:, (np.arange(M) - M // 2) % nfft] = S
+    return np.fft.ifft(X, axis=1) * np.sqrt(nfft)
+
+
+def papr_rows(x):
+    pw = np.abs(x) ** 2
+    return db(pw.max(axis=1) / pw.mean(axis=1))
+
+
+def ccdf_fast(vals, grid):
+    s = np.sort(np.asarray(vals))
+    return 1.0 - np.searchsorted(s, grid, side="right") / max(len(s), 1)
+
+
+def papr_at(grid, cc, p=1e-3):
+    """PAPR₀ where the CCDF crosses p (interpolated on a log scale)."""
+    if cc[0] < p:
+        return float(grid[0])
+    i = int(np.argmax(cc < p))
+    if i == 0:
+        return float(grid[-1])
+    lc = np.log10(np.maximum(cc, 1e-9))
+    return float(np.interp(np.log10(p), [lc[i], lc[i - 1]], [grid[i], grid[i - 1]]))
+
+
+class UplinkPAPR(Experiment):
+    title = "PAPR: OFDMA vs DFT-s-OFDM"
+    blurb = "Why the phone transmits single-carrier: peaks, back-off and battery."
+    book = "sec:ch17:dfts"
+    controls = [
+        Heading("Data"),
+        Choice("mod", "Modulation", PAPR_MODS, "16QAM",
+               help="π/2-BPSK is NR's uplink option for coverage-limited phones (DFT-s-OFDM only)"),
+        IntSlider("nprb", "Allocation", 1, 50, 25, unit="PRB",
+                  help="Resource blocks of 12 subcarriers given to this transmission "
+                       "(25 PRB = 300 subcarriers = 4.5 MHz at 15 kHz)"),
+        Toggle("fdss", "Spectral shaping on DFT-s-OFDM (FDSS)", False,
+               help="Frequency-domain spectral shaping: weight the DFT outputs by "
+                    "|1 + e^(−j2πk/M)|, i.e. filter the symbols with [1, 1]. NR allows it with "
+                    "π/2-BPSK"),
+        Heading("Measurement"),
+        Choice("L", "Oversampling", [1, 2, 4, 8], 4, labels=["1×", "2×", "4×", "8×"],
+               help="IFFT size = oversampling × allocated subcarriers. At 1× you only see the "
+                    "samples, not the analog peaks between them"),
+        Button("again", "New data"),
+    ]
+    plots = [
+        Plot("ccdf", "How often the peaks exceed a level (CCDF of PAPR)", x="PAPR₀ (dB)",
+             y="P(PAPR > PAPR₀)", xlim=(0, 13), ylim=(1e-3, 1), logy=True, legend="bl"),
+        Plot("pa", "What the back-off costs a class-B amplifier", x="back-off from saturation (dB)",
+             y="efficiency (%)", xlim=(0, 13), ylim=(0, 85), legend="tr"),
+        Plot("env", "Instantaneous power: a close-up of 24 data-symbol periods",
+             x="time (data-symbol periods, T_sym / M)", y="|x|² / mean (dB)", xlim=(0, 24),
+             ylim=(-25, 22), legend="tl", legend_cols=3),
+    ]
+    layout = [["ccdf", "pa"], ["env", "env"]]
+    row_stretch = [3, 2]
+    col_stretch = [3, 2]
+    readouts = [
+        Readout("ofdma", "OFDMA PAPR at 10⁻³", "dB", ".1f"),
+        Readout("dfts", "DFT-s-OFDM PAPR at 10⁻³", "dB", ".1f"),
+        Readout("adv", "DFT-s advantage", "dB", ".1f"),
+        Readout("gain", "PA efficiency gain", "×", ".2f"),
+    ]
+    challenges = [
+        Challenge("Fall into the sampling trap: make DFT-s-OFDM's measured PAPR read below 1 dB.",
+                  lambda s: s.r.dfts < 1,
+                  hint="Measure at the symbol rate with a constant-envelope constellation: the "
+                       "samples are then the symbols themselves, and the peaks hide between them."),
+        Challenge("With at least 4× oversampling and no spectral shaping, win 4.5 dB or more "
+                  "over OFDMA.",
+                  lambda s: s.p.L >= 4 and not s.p.fdss and s.r.adv >= 4.5,
+                  hint="Pick a constellation whose consecutive symbols never pass through the "
+                       "origin."),
+        Challenge("Get DFT-s-OFDM's PAPR at 10⁻³ under 3 dB, measured at 4× or more.",
+                  lambda s: s.p.L >= 4 and s.r.dfts < 3,
+                  hint="NR's coverage recipe: two tricks together."),
+    ]
+    grid = np.linspace(0, 13, 261)
+
+    def setup(self):
+        self.cache = {}
+        self.cur = None
+        self.seed = 1
+
+    def on_again(self, p):
+        self.seed += 1
+
+    @staticmethod
+    def cache_key(p):
+        return (p.mod, int(p.nprb), int(p.L), bool(p.fdss))
+
+    @staticmethod
+    def waves(p, nsym, rng):
+        M = 12 * int(p.nprb)
+        nfft = int(p.L) * M
+        xo = ofdma_wave(papr_symbols(p.mod, M * nsym, rng), M, nfft)
+        xd = dfts_wave(papr_symbols(p.mod, M * nsym, rng), M, nfft, p.fdss)
+        return xo, xd
+
+    def update(self, p):
+        M, L = 12 * int(p.nprb), int(p.L)
+        nsym = int(np.ceil(24 / M)) + 1
+        xo, xd = self.waves(p, nsym, np.random.default_rng(self.seed))
+        pe = self.plot("env")
+        n = 24 * L + 1
+        t = np.arange(n) / L
+        for k, (x, col, nm) in enumerate(((xo, NAVY, "OFDMA (downlink)"),
+                                          (xd, RED, "DFT-s-OFDM (uplink)"))):
+            xr = x.ravel()
+            pw = db(np.abs(xr[:n]) ** 2 / np.mean(np.abs(xr) ** 2))
+            pe.line(f"p{k}", t, pw, color=col, width=2.0 if k else 1.4, name=nm)
+            if k == 1 and L > 1:
+                pe.scatter("s1", t[::L], pw[::L], color=RED, size=6,
+                           name="DFT-s samples at 1× (the data symbols)")
+        pe.hline("m", 0, color=GRAY, style="--", label="mean", label_pos=0.02)
+        self.cur = self.cache.get(self.cache_key(p))
+        self.draw_ccdf(p)
+
+    def draw_ccdf(self, p):
+        pc = self.plot("ccdf")
+        pc.hline("e3", 1e-3 * 1.02, color=GRAY, style=":", width=0.8)
+        vals = {}
+        if self.cur is not None:
+            for k, col, nm in (("o", NAVY, "OFDMA (downlink)"), ("d", RED, "DFT-s-OFDM (uplink)")):
+                cc = ccdf_fast(self.cur[k], self.grid)
+                pc.line(k, self.grid, np.where(cc > 0, cc, np.nan), color=col, width=2.0, name=nm)
+                vals[k] = papr_at(self.grid, cc)
+        pa = self.plot("pa")
+        bo = np.linspace(0, 13, 200)
+        pa.line("eta", bo, 78.5 * 10 ** (-bo / 20), color=GREEN, width=2.0,
+                name="class B: 78.5 % × 10^(−BO/20)")
+        for k, col in (("o", NAVY), ("d", RED)):
+            if k in vals:
+                e = 78.5 * 10 ** (-vals[k] / 20)
+                pa.scatter("m" + k, [vals[k]], [e], color=col, size=12, symbol="d")
+                pa.text("t" + k, vals[k] + 0.25, e + 2.5, f"{e:.0f} %", color=col, size=9)
+        if vals:
+            self.readout(ofdma=vals["o"], dfts=vals["d"], adv=vals["o"] - vals["d"],
+                         gain=10 ** ((vals["o"] - vals["d"]) / 20))
+        else:
+            nan = float("nan")
+            self.readout(ofdma=nan, dfts=nan, adv=nan, gain=nan)
+
+    def background(self, p):
+        ck = self.cache_key(p)
+        if ck in self.cache:
+            return
+        rng = np.random.default_rng(77)
+        target = 300 if self.quick else 3000
+        M = 12 * int(p.nprb)
+        chunk = max(50, min(1000, 120000 // (M * int(p.L))))
+        acc = {"o": [], "d": []}
+        done = 0
+        while done < target:
+            xo, xd = self.waves(p, chunk, rng)
+            acc["o"].append(papr_rows(xo))
+            acc["d"].append(papr_rows(xd))
+            done += chunk
+            yield ck, {k: np.concatenate(v_) for k, v_ in acc.items()}, done >= target
+
+    def progress(self, p, item):
+        ck, vals, final = item
+        if final:
+            self.cache[ck] = vals
+        if ck == self.cache_key(p):
+            self.cur = vals
+            self.draw_ccdf(p)
+
+    def story(self, p):
+        r = self.r
+        o, d = r.get("ofdma", float("nan")), r.get("dfts", float("nan"))
+        M = 12 * int(p.nprb)
+        s = (f"<p>Your {v(int(p.nprb), 'd')} resource blocks are {v(M, 'd')} subcarriers. In "
+             "OFDMA (the downlink) each carries its own symbol, so a sample is the sum of "
+             f"{M} independent phasors: nearly Gaussian, mostly modest, occasionally huge. "
+             f"DFT-s-OFDM (SC-FDMA, the LTE uplink) first spreads the symbols with a {M}-point "
+             "DFT; after the IFFT the signal is the symbol stream again, a single carrier that "
+             "only rings between symbols (the close-up below: red dots are the data symbols, "
+             "the red line what the amplifier really sees).</p>")
+        if np.isfinite(o) and np.isfinite(d):
+            s += (f"<p>Once in a thousand symbols OFDMA peaks {v(o, '.1f', 'dB')} above its mean, "
+                  f"DFT-s-OFDM {v(d, '.1f', 'dB')}. The amplifier must be backed off by that "
+                  f"much to pass the peaks cleanly, and an ideal class-B stage's efficiency falls "
+                  f"as 10^(−BO/20): {v(o - d, '.1f', 'dB')} less back-off is "
+                  f"{v(10 ** ((o - d) / 20), '.2f', '×')} the efficiency (right): battery life, "
+                  "or a few dB more power at the cell edge.</p>")
+        else:
+            s += "<p>The CCDF curves are being measured in the background…</p>"
+        if int(p.L) == 1:
+            s += ("<p>" + bad("Careful: 1× sampling.") + " With the IFFT no larger than the "
+                  "allocation you see only the sample instants; the analog waveform peaks between "
+                  "them. For DFT-s-OFDM with QPSK the samples are the symbols themselves, so the "
+                  "PAPR reads 0 dB. Measure at 4× or more.</p>")
+        elif p.mod == "π/2-BPSK":
+            s += ("<p>π/2-BPSK rotates every other symbol by 90°, so consecutive symbols never "
+                  "jump through the origin. "
+                  + ("With spectral shaping, which smooths the transitions, the envelope is nearly "
+                     "constant: NR's recipe for phones at the cell edge. " if p.fdss else
+                     "Turn on spectral shaping (FDSS) to smooth the transitions as well. ")
+                  + "In OFDMA the same trick is useless: the subcarriers do not know about it.</p>")
+        else:
+            s += ("<p>Notice how little OFDMA cares about the constellation or the allocation: "
+                  "beyond a few PRBs the central limit theorem sets its peaks. DFT-s-OFDM "
+                  "inherits the constellation's own peaks, so it gains most with QPSK and least "
+                  "with 64QAM.</p>")
+        return "<h3>Peaks cost battery</h3>" + s + keybox(
+            "OFDMA needs about 10–11 dB of back-off whatever the data; DFT-spreading gives the "
+            "phone back 2–3 dB (more with π/2-BPSK), which is why LTE's uplink is SC-FDMA and NR "
+            "keeps DFT-s-OFDM for coverage.")
+
+
 # =============================================================================== the lab
 LAB = st.Lab(27, "Inside an LTE/NR Downlink", chapter=21,
              chapter_title="Cellular Generations: AMPS to 5G",
              experiments=[ResourceGrid, SyncSequences, CellSearch, PDSCHChain, HARQCombining,
-                          CQIThroughput, PeakRate])
+                          CQIThroughput, PeakRate, UplinkPAPR])
 
 if __name__ == "__main__":
     st.run(LAB)

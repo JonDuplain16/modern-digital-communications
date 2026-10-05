@@ -41,20 +41,22 @@ comms-textbook/
     figscripts/figstyle.py  <- shared matplotlib style (Palatino-like serif, palette, W1/W2 widths, save())
     figs/                   <- generated figures (chNN_name.pdf)
     build.sh                <- `./build.sh` = 3x pdflatex + makeindex; `./build.sh figs` regenerates all figures first
-    main.pdf                <- last successful build (106 pages at handoff)
+    main.pdf                <- last build (2nd edition: 2,079 pp, compressed to ~67 MB by tools/compress_pdf.py)
+    tools/                  <- fetch_image, gen_credits, check_visuals, check_labs, find_overfull, compress_pdf, bib/
   moderncomms-labs/
-    commlib/                <- shared DSP/comms library used by BOTH the labs and the book figures
-    labs/labNN_*.py         <- lab sources (jupytext "percent" format) -> labNN_*.ipynb
+    commlib/                <- shared DSP/comms library used by BOTH the labs and the book figures (~47 modules)
+    studio/                 <- PySide6+pyqtgraph lab framework (v1.1), catalog, launcher
+    labs/labNN_*.py         <- 36 interactive desktop labs; labs/launcher.py = gallery
     gnuradio/               <- 5 GNU Radio 3.10 flowgraphs (all have --sim); secondary priority
-    tests/test_commlib.py   <- 12 library self-tests (all pass)
-    tests/build_notebooks.py <- converts + executes labs in-process, embeds figures
-    tests/dump_figs.py      <- stitches a notebook's figures into one PNG for visual review
+    tests/test_commlib.py   <- library self-tests (all pass)
+    tests/selftest_labs.py  <- runs every lab headless (--dark too), saves screenshots
+    (lab00_index.*, tests/build_notebooks.py, build_all.sh, dump_figs.py = obsolete notebook leftovers; owner chose to keep)
 ```
 
 `book/figscripts/figstyle.py` imports `commlib` via a relative path
 (`../../moderncomms-labs`), so keep the two folders side by side.
 
-## 2b. SECOND EDITION (in progress from 1 Oct 2026) — read this first
+## 2b. SECOND EDITION (complete, 5 Oct 2026) — read this first
 Jon's feedback on the first edition: "a little too academic and hard to read. I want this to be an
 easy and interesting read. Keep all the same content, but rewrite it to be an easier read and more
 interesting than just formulas... more real world examples, stories, analogies, real images and
@@ -155,10 +157,12 @@ labkit, plotting, iq. `python book/tools/check_labs.py` verifies every lab named
 5. Update the Status table above.
 
 ### Labs
-- Edit `labs/labNN_*.py` (jupytext percent format), then
-  `python tests/build_notebooks.py labNN` to regenerate the executed notebook;
-  `python tests/dump_figs.py labNN_name /tmp/x.png` to eyeball figures.
+- Labs are `studio` apps; follow `moderncomms-labs/LAB_STYLE_GUIDE.md`. Check a lab with
+  `python labs/labNN_name.py --selftest` (screenshots in tests/screens/) and `--smoke 3`;
+  all labs: `python tests/selftest_labs.py` (and `--dark`). Screenshot for the book:
+  `python labs/labNN_name.py --exp N --shot file.png` (QT_QPA_PLATFORM=offscreen works).
 - Run `python tests/test_commlib.py` after any change to `commlib`.
+- After editing chapters: `python book/tools/check_labs.py` (every lab named in the book exists).
 
 ## 4b. Windows workstation notes (Jon's PC, from 2026-09-30)
 - LaTeX = MiKTeX 25.12, user install at `%LOCALAPPDATA%\Programs\MiKTeX` (auto-install of missing
@@ -229,3 +233,8 @@ labkit, plotting, iq. `python book/tools/check_labs.py` verifies every lab named
   fact-check (book/FACTCHECK_TODO.md), lab28 radar legend, re-capture lab screenshots in chapters, full build +
   check_visuals + push. Owner must delete (permission-blocked): labs/lab00_index.py/.ipynb, tests/build_notebooks.py,
   tests/build_all.sh, tests/dump_figs.py; CLAUDE.md lab instructions still mention build_notebooks/dump_figs.
+- 2026-10-05: SECOND EDITION COMPLETE. All 25 chapters + App A/B rewritten (stories, analogies, ~400 free-licensed
+  photos with credits, ~1 visual/page: 76 text-only of ~2030 content pages); final review passes (fact-check +
+  lab-reference alignment) over all chapters; bibliography 388 entries; 36 studio labs pass selftest light+dark;
+  Lab 27 gained "PAPR: OFDMA vs DFT-s-OFDM"; all book lab screenshots re-captured. Full build 2,079 pp, 0 errors,
+  0 undefined refs, 0 overfull >10pt; build.sh compresses main.pdf (200 -> 67 MB) for GitHub.

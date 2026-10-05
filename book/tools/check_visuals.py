@@ -47,6 +47,8 @@ def main():
         p = d[i]
         text = p.get_text()
         lines = [l.strip() for l in text.splitlines()]
+        if "References" in lines[:4] and i > 50:
+            break                      # bibliography, image credits and index: exempt to the end
         if "CHAPTER" in lines[:6] or "APPENDIX" in lines[:6]:
             in_backmatter = False
         if "Problems" in lines:

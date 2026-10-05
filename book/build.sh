@@ -16,3 +16,6 @@ $LATEX main.tex >> build.log 2>&1
 grep -E "^!" build.log | sort | uniq -c | head -20
 echo "pages: $($PY -c "import pymupdf;print(pymupdf.open('main.pdf').page_count)" 2>/dev/null)"
 grep -c "undefined" main.log | xargs echo "undefined-ref warnings:"
+$PY tools/find_overfull.py
+# shrink embedded photos/screenshots to 150 dpi so the PDF stays well under GitHub's 100 MB limit
+[ "$2" != "nocompress" ] && $PY tools/compress_pdf.py main.pdf main.pdf 150 75

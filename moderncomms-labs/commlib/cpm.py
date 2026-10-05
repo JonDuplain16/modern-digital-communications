@@ -32,22 +32,34 @@ def _q(x):
 
 
 # ============================================================================ generation
-def gmsk_baseband(bits, sps, BT, h=0.5):
+def gmsk_baseband(bits, sps, BT, h=0.5, laurent_ref=False):
     """GMSK / MSK / GFSK complex envelope (unit amplitude) and its phase.
 
     bits: 0/1 array (mapped to a = 2b - 1); sps: samples per bit; BT: Gaussian filter
     bandwidth-time product (None gives plain CPFSK, i.e. MSK when h = 0.5); h: modulation index.
-    The Gaussian filter spans +-2 bits and is centred on each bit (as in the book's figures)."""
+    The Gaussian filter spans +-2 bits and is centred on each bit (as in the book's figures).
+
+    By default the phase is 0 at the first sample (as in the book's figures), which drops the
+    part of bit 0's Gaussian pulse that falls before t = 0: the absolute phase of the whole
+    waveform then depends on the first bit (by about +-9.5 degrees for BT = 0.3).
+    ``laurent_ref=True`` keeps that precursor, i.e. the phase is 0 before any pulse starts,
+    the reference of Laurent's decomposition: a ``LaurentReceiver`` calibrated on one
+    waveform then fits every other waveform, whatever its first bit. (No effect for MSK.)"""
     a = 2.0 * np.asarray(bits) - 1
     nrz = np.repeat(a, sps)
     if BT is None:
         freq = nrz
+        phase = np.pi * h * np.cumsum(freq) / sps
     else:
         t = np.arange(-2 * sps, 2 * sps + 1) / sps
         hg = np.exp(-2 * np.pi ** 2 * BT ** 2 * t ** 2 / np.log(2))
         hg /= hg.sum()
         freq = np.convolve(nrz, hg, mode="same")
-    phase = np.pi * h * np.cumsum(freq) / sps
+        phase = np.pi * h * np.cumsum(freq) / sps
+        if laurent_ref:
+            full = np.convolve(nrz, hg)                      # starts 2 bits before t = 0
+            pre = (len(hg) - 1) // 2
+            phase = phase + np.pi * h * np.sum(full[:pre]) / sps
     return np.exp(1j * phase), phase
 
 
@@ -97,7 +109,10 @@ class LaurentReceiver:
     precoded by ``msk_precode`` the sign of the output is the data bit (0 -> +1).
 
     The sampling offset and the constant phase are found once from a noiseless training
-    waveform with ``calibrate`` (data-aided synchronisation, Chapter 10's job)."""
+    waveform with ``calibrate`` (data-aided synchronisation, Chapter 10's job). For GMSK,
+    generate both the training and the data waveforms with ``gmsk_baseband(...,
+    laurent_ref=True)``; with the default reference the waveform's absolute phase depends on
+    its first bit, so a calibration only fits data that start with the same bit."""
 
     def __init__(self, sps, BT=None, L=None):
         self.sps, self.BT = sps, BT

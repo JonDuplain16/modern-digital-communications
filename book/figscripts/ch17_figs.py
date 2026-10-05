@@ -537,7 +537,7 @@ def papr():
     cfg = co.OFDMConfig(4 * 512, 300, 0)
     for const, lbl, c in [(QPSK, "DFT-s-OFDM, QPSK", ACCENT), (Q16, "DFT-s-OFDM, 16-QAM", ORANGE)]:
         s_ = _qam(300 * 1500, const, r)
-        x = co.dft_s_ofdm_modulate(s_, cfg)
+        x = co.dft_s_ofdm_modulate(s_, cfg, contiguous=True)
         gg, cc = co.ccdf(co.papr_db(x, 4 * 512), grid)
         ax[1].semilogy(gg, np.where(cc > 0, cc, np.nan), color=c, lw=1.3, label=lbl)
     s_ = _qam(300 * 800, QPSK, r)

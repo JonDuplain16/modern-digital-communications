@@ -90,15 +90,43 @@ def ccdf(values, grid=None):
     return grid, np.array([(values > g).mean() for g in grid])
 
 
-def dft_s_ofdm_modulate(sym, cfg: OFDMConfig):
-    """DFT-spread OFDM (SC-FDMA): M-point DFT precoding onto n_used localized carriers."""
+def _dfts_bins(cfg: OFDMConfig):
+    """Contiguous (localized) bins for an n_used-point DFT-spread block, centred on DC."""
+    M = cfg.n_used
+    return (np.arange(M) - M // 2) % cfg.nfft
+
+
+def dft_s_ofdm_modulate(sym, cfg: OFDMConfig, contiguous=False):
+    """DFT-spread OFDM (SC-FDMA): an n_used-point DFT precoding onto n_used subcarriers.
+
+    contiguous=False (legacy default, used by the book's Chapter 17 PAPR figure) maps the DFT
+    outputs onto ``cfg.active``, i.e. around DC with the DC bin skipped: the hole in the middle
+    breaks the single-carrier structure and raises the PAPR at 10^-3 by about 0.3 dB.
+    contiguous=True is the true localized mapping of LTE/NR (TS 36.211 / 38.211): the
+    fftshift-ed DFT outputs occupy n_used adjacent bins, DC included, so the time signal is the
+    symbol stream itself, periodically sinc-interpolated (nfft / n_used samples per symbol)."""
     sym = np.asarray(sym).reshape(-1, cfg.n_used)
     S = np.fft.fft(sym, axis=1) / np.sqrt(cfg.n_used)
-    return ofdm_modulate(S, cfg)
+    if not contiguous:
+        return ofdm_modulate(S, cfg)
+    X = np.zeros((len(sym), cfg.nfft), dtype=complex)
+    X[:, _dfts_bins(cfg)] = np.fft.fftshift(S, axes=1)
+    x = np.fft.ifft(X, axis=1) * np.sqrt(cfg.nfft)
+    x = np.concatenate([x[:, -cfg.ncp:], x], axis=1) if cfg.ncp else x
+    return x.reshape(-1)
 
 
-def dft_s_ofdm_demodulate(y, cfg: OFDMConfig, H=None, n0=0.0):
-    Y = ofdm_demodulate(y, cfg)
+def dft_s_ofdm_demodulate(y, cfg: OFDMConfig, H=None, n0=0.0, contiguous=False):
+    """Inverse of ``dft_s_ofdm_modulate`` (same ``contiguous`` flag); optional per-subcarrier
+    MMSE equalisation with H given on the occupied subcarriers in the transmit order."""
+    if contiguous:
+        L = cfg.sym_len
+        n_sym = len(y) // L
+        yy = np.asarray(y)[:n_sym * L].reshape(n_sym, L)
+        Yf = np.fft.fft(yy[:, cfg.ncp:cfg.ncp + cfg.nfft], axis=1) / np.sqrt(cfg.nfft)
+        Y = np.fft.ifftshift(Yf[:, _dfts_bins(cfg)], axes=1)
+    else:
+        Y = ofdm_demodulate(y, cfg)
     if H is not None:  # per-subcarrier MMSE equalization before de-spreading
         Y = Y * np.conj(H) / (np.abs(H) ** 2 + n0)
     return np.fft.ifft(Y, axis=1) * np.sqrt(cfg.n_used)

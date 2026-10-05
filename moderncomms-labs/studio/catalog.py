@@ -76,7 +76,7 @@ LABS = [
     (11, "lab11_air_interfaces", (20, 21, 22), "Air Interfaces: Cells, Trunks, Schedulers",
      "Reuse and SIR, a live switchboard, OFDMA scheduling, link adaptation and HARQ, Wi-Fi contention, the 4096-QAM EVM budget, air interfaces side by side"),
     (27, "lab27_lte_nr_phy", (21,), "Inside an LTE/NR Downlink",
-     "Resource grid builder, PSS/SSS and two-cell search, the PDSCH chain step by step, chase vs IR HARQ, CQI/MCS throughput, TS 38.306 peak rate"),
+     "Resource grid builder, PSS/SSS and two-cell search, the PDSCH chain step by step, chase vs IR HARQ, CQI/MCS throughput, TS 38.306 peak rate, uplink PAPR: OFDMA vs DFT-s-OFDM"),
     (31, "lab31_wifi_ble_lora", (22,), "Wi-Fi, Bluetooth LE, 802.15.4, LoRa and RFID",
      "802.11 preamble, A-MPDU efficiency, rate anomaly, live Minstrel, BLE GFSK, coin-cell life, 802.15.4 O-QPSK, LoRa chirps, air time and range, RFID"),
     (18, "lab18_satellite_link", (23,), "Satellite Links",
