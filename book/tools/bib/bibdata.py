@@ -383,13 +383,14 @@ S|us 47 cfr 97|B|US Code of Federal Regulations, 47 CFR Part~97 (amateur radio s
 O|analog devices ug-570|6 7|Analog Devices, \emph{AD9361/AD9364 Reference Manual} (UG-570), and the AD9364 data sheet
 O|ettus uhd|7 B|Ettus Research, \emph{USRP Hardware Driver and USRP Manual}, \url{https://files.ettus.com/manual/}, and the USRP B200/B210 documentation and product data sheet
 O|gnu radio wiki|B|The GNU Radio project, \emph{GNU Radio Wiki and Tutorials}, \url{https://wiki.gnuradio.org}
-O|jupytext|B|The jupytext documentation, \url{https://jupytext.readthedocs.io}
 O|keysight 150|2|Keysight Technologies, \emph{Spectrum Analysis Basics}, Application Note~150 (regularly updated)
 O|keysight 57-1|3|Keysight Technologies (formerly Agilent), \emph{Fundamentals of RF and Microwave Noise Figure Measurements}, Application Note~57-1
 O|keysight 57-2|3|Keysight Technologies (formerly Agilent), \emph{Noise Figure Measurement Accuracy: The Y-Factor Method}, Application Note~57-2
 O|lichtman pysdr|B|M.~Lichtman, \emph{PySDR: A Guide to SDR and DSP using Python}, \url{https://pysdr.org}
 O|murmann adc|5 25|B.~Murmann, ``ADC performance survey,'' online, continuously updated
 O|petersen cookbook|A|K.~B.~Petersen and M.~S.~Pedersen, \emph{The Matrix Cookbook}, freely available online
+O|pyqtgraph|B|The pyqtgraph documentation, \url{https://pyqtgraph.readthedocs.io}
+O|pyside6|B|The Qt Company, \emph{Qt for Python (PySide6) Documentation}, online at \url{https://doc.qt.io/qtforpython-6/}
 O|sigmf|B|\emph{SigMF: the Signal Metadata Format}, \url{https://github.com/sigmf/SigMF}
 O|volz radioconda|B|R.~Volz, \emph{radioconda}, \url{https://github.com/ryanvolz/radioconda}
 O|williams 1993|14|R.~N.~Williams, ``A painless guide to CRC error detection algorithms,'' 1993

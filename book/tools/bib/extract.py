@@ -27,7 +27,8 @@ def extract(name):
     sec = "\n".join(re.sub(r"(?<!\\)%.*", "", l) for l in sec.splitlines())
     items = re.split(r"\\item\b", sec)
     out = []
-    pre = items[0].strip()
+    # \markboth/\markright before the list only set running heads; not references
+    pre = re.sub(r"\\mark(both\{[^}]*\}|right)\{[^}]*\}", "", items[0]).strip()
     if pre and not re.fullmatch(r"(\\begin\{\w+\}(\[[^\]]*\])?\s*)+", pre):
         out.append("[PREAMBLE] " + " ".join(pre.split()))
     for it in items[1:]:
