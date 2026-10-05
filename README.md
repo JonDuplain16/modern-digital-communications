@@ -1,10 +1,13 @@
-# Modern Digital Communications — From the Telegraph to 6G
+# Modern Digital Communications — From the Telegraph to 6G (Second Edition)
 
-A college-textbook-length book on communication engineering (≈1,300 pages, 25 chapters + 2 appendices)
-with a companion library and 36 Python simulation labs.
+A college-textbook-length book on communication engineering, written to be an enjoyable read:
+25 chapters and 2 appendices told through stories, analogies, real photographs and a figure on
+almost every page — with all the mathematics still there for those who want it — plus 36
+interactive simulation labs.
 
 **Read the book:** [`book/main.pdf`](book/main.pdf) — fully hyperlinked: clickable table of contents,
-PDF bookmarks, cross-references, index, and a "Contents" link in every page footer.
+PDF bookmarks, cross-references, index, references and image credits, and a "Contents" link in
+every page footer.
 
 | Part | Chapters |
 |------|----------|
@@ -15,21 +18,27 @@ PDF bookmarks, cross-references, index, and a "Contents" link in every page foot
 | V. Systems | 17 OFDM · 18 Spread Spectrum, CDMA and GNSS · 19 MIMO and Antenna Arrays · 20 Multiple Access and the Cellular Concept · 21 Cellular Generations: AMPS to 5G · 22 Wi-Fi, Bluetooth and IoT · 23 Satellite Communications · 24 Wireline and Optical · 25 The Road to 6G |
 | Appendices | A Mathematical Reference · B Using the Companion Labs |
 
-## Labs
-`moderncomms-labs/` — start with [`labs/lab00_index.ipynb`](moderncomms-labs/labs/lab00_index.ipynb)
-and the [labs README](moderncomms-labs/README.md). Every lab is a pre-executed Jupyter notebook
-(viewable directly on GitHub) generated from a `.py` source; `commlib/` is the shared DSP/comms
-library used by both the labs and the book's figures. Appendix B of the book is the full guide.
+## Interactive labs
+`moderncomms-labs/` holds 36 live desktop labs (PySide6 + pyqtgraph), all with the same look:
+choose an experiment, drag sliders, and plots, readouts and a plain-language "What's going on"
+panel update instantly; "Try this" challenges tick themselves off as you reach them.
 
 ```bash
 pip install -r moderncomms-labs/requirements.txt
-jupyter lab moderncomms-labs/labs
+python moderncomms-labs/labs/launcher.py                 # gallery of all labs
+python moderncomms-labs/labs/lab03_pulse_shaping.py      # or run one lab directly (--exp N, --dark)
 ```
 
-## Building
-- Book: `cd book && ./build.sh` (`./build.sh figs` regenerates every figure first). Needs a LaTeX
-  distribution (TeX Live or MiKTeX) and Python with numpy/scipy/matplotlib.
-- One chapter in isolation: `bash book/build_chapter.sh ch08`.
-- Labs: `python moderncomms-labs/tests/build_notebooks.py`; tests: `python moderncomms-labs/tests/test_commlib.py`.
+See the [labs README](moderncomms-labs/README.md) and Appendix B of the book. `commlib/` is the
+shared DSP/comms library used by both the labs and the book's figures.
 
+## Building
+- Book: `cd book && ./build.sh` (`./build.sh figs` regenerates every figure first). Needs TeX Live
+  or MiKTeX and Python with numpy/scipy/matplotlib.
+- One chapter in isolation: `bash book/build_chapter.sh ch08`; visual coverage:
+  `python book/tools/check_visuals.py book/_chapbuild/ch08_only.pdf`.
+- Labs: `python moderncomms-labs/tests/selftest_labs.py` (add `--dark`); library tests:
+  `python moderncomms-labs/tests/test_commlib.py`.
+
+Photographs are from Wikimedia Commons under free licenses (see the book's Image Credits).
 See [`CLAUDE.md`](CLAUDE.md) for project history, conventions and status.
